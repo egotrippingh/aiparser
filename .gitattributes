@@ -1,3 +1,2 @@
-# Скрипты для Linux-контейнера — всегда с LF, иначе sh падает на CRLF.
-*.sh text eol=lf
-Dockerfile text eol=lf
+# start.bat должен остаться с CRLF: cmd на LF-переводах строк путает метки goto.
+*.bat text eol=crlf
