@@ -1,0 +1,29 @@
+# --- ядро приложения ---
+fastapi==0.115.6
+python-multipart==0.0.20
+uvicorn[standard]==0.34.0
+pywebview==5.3.2
+pydantic==2.10.4
+
+# --- браузерная автоматизация ---
+# 0.4.11 не фиксировал верхнюю границу playwright — pip ставил 1.62, а это
+# ломает протокол Juggler у патченного Firefox (setDefaultViewport падает на
+# незнакомом поле isMobile). 0.5.5 сам требует playwright<1.61 — держим это
+# ограничение и явно, чтобы будущий апгрейд playwright не повторил баг.
+camoufox[geoip]==0.5.5
+playwright<1.61
+
+# --- детекция бренда ---
+rapidfuzz==3.11.0
+pymorphy3==2.0.2
+pymorphy3-dicts-ru==2.4.417150.4580142
+
+# --- LLM через OpenRouter ---
+httpx==0.28.1
+
+# --- скриншоты и выгрузки ---
+pillow==11.1.0
+openpyxl==3.1.5
+
+# --- шифрование ключа API через Windows DPAPI ---
+pywin32==308
