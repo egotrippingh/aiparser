@@ -67,11 +67,21 @@ def create_app() -> FastAPI:
     # не подставить, а гонять их через base64 в JSON — лишний расход памяти.
     app.mount("/shots", StaticFiles(directory=config.SCREENSHOTS_DIR), name="shots")
 
-    if config.WEB_DIR.exists():
-        app.mount("/static", StaticFiles(directory=config.WEB_DIR), name="static")
+    # Интерфейс — собранный React (исходники в frontend/, `npm run build`
+    # кладёт результат в web/). Vite ссылается на ресурсы как /assets/...
+    if (config.WEB_DIR / "index.html").exists():
+        assets = config.WEB_DIR / "assets"
+        if assets.exists():
+            app.mount("/assets", StaticFiles(directory=assets), name="assets")
 
-        @app.get("/")
+        @app.get("/favicon.svg", include_in_schema=False)
+        def favicon() -> FileResponse:
+            return FileResponse(config.WEB_DIR / "favicon.svg")
+
+        @app.get("/", include_in_schema=False)
         def index() -> FileResponse:
-            return FileResponse(config.WEB_DIR / "index.html")
+            # no-cache: после пересборки окно не должно показывать старый
+            # index.html со ссылками на уже удалённые файлы.
+            return FileResponse(config.WEB_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
     return app

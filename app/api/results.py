@@ -149,10 +149,118 @@ def dashboard(project_id: int, days: int = 30, scan_id: int | None = None) -> di
     }
 
 
+def _cell_stats(found: int, checked: int) -> dict:
+    return {"found": found, "checked": checked, "pct": _pct(found, checked)}
+
+
+def _delta(now: float | None, before: float | None) -> float | None:
+    return round(now - before, 1) if now is not None and before is not None else None
+
+
+@router.get("/projects/{project_id}/overview")
+def overview(project_id: int, days: int = 30) -> dict:
+    """Всё для дашборда в виде Топвизора: даты в столбцах, запросы в строках.
+
+    Одна дата — один срез: если за день было несколько сканов, на каждую пару
+    «запрос × сервис» берётся один результат (repo.pick_result). Сводка сверху
+    считается по тем же ячейкам, что и таблица, — цифры не расходятся.
+    """
+    project = repo.get_project(project_id)
+    if not project:
+        raise HTTPException(404, "Проект не найден")
+
+    dates = repo.project_dates(project_id, max(1, min(days, 365)))
+    results = repo.results_by_date(project_id, dates)
+
+    cells: dict[int, dict[str, dict[str, dict]]] = defaultdict(lambda: defaultdict(dict))
+    counts: dict[str, dict[str, list[int]]] = {d: defaultdict(lambda: [0, 0]) for d in dates}
+    issues = {d: {"needs_review": 0, "errors": 0, "not_checked": 0} for d in dates}
+    with_data: set[str] = set()
+
+    for r in results:
+        d, svc, status = r["scan_date"], r["service"], r["status"]
+        cells[r["query_id"]][d][svc] = {
+            "status": status,
+            "needs_review": bool(r["needs_review"]),
+            "result_id": r["id"],
+        }
+        with_data.add(svc)
+        if status in COUNTED:
+            for key in (svc, "_all"):
+                counts[d][key][1] += 1
+                if status == "found":
+                    counts[d][key][0] += 1
+        if r["needs_review"]:
+            issues[d]["needs_review"] += 1
+        if status in ("error", "captcha", "auth_required"):
+            issues[d]["errors"] += 1
+        if status == "limit_reached":
+            issues[d]["not_checked"] += 1
+
+    stats = {d: {k: _cell_stats(*v) for k, v in counts[d].items()} for d in dates}
+
+    rows = []
+    for q in repo.list_queries(project_id):
+        qc = cells.get(q["id"])
+        if not q["is_active"] and not qc:
+            continue
+        rows.append({
+            "query_id": q["id"],
+            "text": q["text"],
+            "group_tag": q["group_tag"],
+            "is_active": bool(q["is_active"]),
+            "cells": {d: dict(v) for d, v in (qc or {}).items()},
+        })
+
+    summary = None
+    if dates:
+        last = dates[-1]
+        prev = dates[-2] if len(dates) > 1 else None
+
+        def pct_of(d: str | None, key: str) -> float | None:
+            return stats[d].get(key, {}).get("pct") if d else None
+
+        total = stats[last].get("_all", _cell_stats(0, 0))
+        summary = {
+            "date": last,
+            "prev_date": prev,
+            "total": {**total, "delta": _delta(total["pct"], pct_of(prev, "_all"))},
+            "by_service": [
+                {
+                    "id": s.id,
+                    "name": s.name,
+                    **stats[last][s.id],
+                    "delta": _delta(stats[last][s.id]["pct"], pct_of(prev, s.id)),
+                }
+                for s in services.SERVICES
+                if s.id in stats[last]
+            ],
+            "queries": sum(1 for r in rows if last in r["cells"]),
+            **issues[last],
+        }
+
+    return {
+        "project": project,
+        "dates": dates,
+        "services": [s.id for s in services.SERVICES if s.id in with_data],
+        "rows": rows,
+        "stats": stats,
+        "summary": summary,
+    }
+
+
 @router.get("/queries/{query_id}/detail")
-def query_detail(query_id: int, scan_id: int) -> dict:
-    """Карточка запроса: результат по каждому сервису плюс история по дням."""
-    rows = [r for r in repo.results_for_scan(scan_id) if r["query_id"] == query_id]
+def query_detail(query_id: int, scan_id: int | None = None, date: str | None = None) -> dict:
+    """Карточка запроса: результат по каждому сервису плюс история по дням.
+
+    `date` — срез дня (как в таблице overview), `scan_id` — один конкретный скан.
+    """
+    if date:
+        rows = repo.query_results_on_date(query_id, date)
+    elif scan_id is not None:
+        rows = [r for r in repo.results_for_scan(scan_id) if r["query_id"] == query_id]
+    else:
+        raise HTTPException(400, "Нужен date или scan_id")
     if not rows:
         raise HTTPException(404, "Результатов по этому запросу в срезе нет")
 
