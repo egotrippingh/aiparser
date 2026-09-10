@@ -159,8 +159,27 @@ function ProjectForm({
     parallel: Boolean(project.parallel_scan),
   })
   const [busy, setBusy] = useState(false)
+  const [savingParallel, setSavingParallel] = useState(false)
 
   const invalid = !form.name.trim() || !form.brand_name.trim()
+
+  // Переключатель сохраняется сразу, как «Активен» у запросов. 10.09.2026 он
+  // ждал общей кнопки «Сохранить»: пользователь включил, ушёл со страницы —
+  // и флаг пропал. Переключатель читается как мгновенное действие.
+  async function toggleParallel(on: boolean) {
+    setForm((f) => ({ ...f, parallel: on }))
+    setSavingParallel(true)
+    try {
+      const updated = await api.patch<Project>(`/api/projects/${project.id}`, { parallel_scan: on })
+      onSaved(updated)
+      toast.success(on ? "Параллельный скан включён" : "Параллельный скан выключен")
+    } catch (e) {
+      setForm((f) => ({ ...f, parallel: !on }))
+      toast.error(errText(e))
+    } finally {
+      setSavingParallel(false)
+    }
+  }
 
   async function save() {
     if (invalid) return
@@ -271,8 +290,12 @@ function ProjectForm({
         <div className="flex items-start gap-3 sm:col-span-2">
           <Switch
             id="f_parallel"
+            // id у Base UI достаётся скрытому input, а видимый переключатель
+            // без своей подписи оставался бы безымянным для скринридера.
+            aria-label="Проверять ИИ-системы параллельно"
             checked={form.parallel}
-            onCheckedChange={(v) => setForm((f) => ({ ...f, parallel: Boolean(v) }))}
+            disabled={savingParallel}
+            onCheckedChange={(v) => void toggleParallel(Boolean(v))}
             className="mt-0.5"
           />
           <div className="space-y-0.5">
