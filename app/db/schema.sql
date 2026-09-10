@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS projects (
     brand_domains_json  TEXT    NOT NULL DEFAULT '[]',
     region_code         TEXT,                       -- lr= для Яндекса, напр. '213' — Москва
     deep_check_depth    INTEGER NOT NULL DEFAULT 0, -- 0 = глубокая проверка источников выключена
+    parallel_scan       INTEGER NOT NULL DEFAULT 0, -- 1 = ИИ-системы сканируются одновременно
     notes               TEXT,
     created_at          TEXT    NOT NULL DEFAULT (datetime('now'))
 );

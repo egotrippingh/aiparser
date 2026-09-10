@@ -25,8 +25,17 @@ import { useApp } from "@/store/app-store"
 import type { View } from "@/hooks/use-hash-route"
 
 export function ScanScreen({ onView }: { onView: (v: View) => void }) {
-  const { projectId, services, scan, scanLog, clearScanLog, watchScan, refreshScan, dataVersion } =
-    useApp()
+  const {
+    project,
+    projectId,
+    services,
+    scan,
+    scanLog,
+    clearScanLog,
+    watchScan,
+    refreshScan,
+    dataVersion,
+  } = useApp()
   const reduce = useReducedMotion()
   const logRef = useRef<HTMLDivElement>(null)
   const [chosen, setChosen] = useState<Set<string>>(new Set())
@@ -167,6 +176,11 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
             × {chosen.size} {plural(chosen.size, "сервис", "сервиса", "сервисов")} ={" "}
             <b className="tnum text-foreground">{activeCount * chosen.size}</b>{" "}
             {plural(activeCount * chosen.size, "проверка", "проверки", "проверок")}
+            {chosen.size > 1
+              ? project?.parallel_scan
+                ? " · системы идут одновременно"
+                : " · системы идут по очереди (параллельно — в настройках проекта)"
+              : ""}
           </span>
           {!activeCount ? (
             <Button size="xs" variant="ghost" onClick={() => onView("queries")}>

@@ -16,6 +16,7 @@ class ProjectIn(BaseModel):
     region_code: str | None = None
     deep_check_depth: int = 0
     notes: str | None = None
+    parallel_scan: bool = False
 
 
 class ProjectPatch(BaseModel):
@@ -26,6 +27,8 @@ class ProjectPatch(BaseModel):
     region_code: str | None = None
     deep_check_depth: int | None = None
     notes: str | None = None
+    # Сканировать выбранные ИИ-системы одновременно, каждую в своём браузере.
+    parallel_scan: bool | None = None
 
 
 @router.get("")

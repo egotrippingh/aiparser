@@ -63,6 +63,7 @@ describe("totalChanges", () => {
       region_code: null,
       deep_check_depth: 0,
       notes: null,
+      parallel_scan: false,
     },
     selection: {
       mode: "period",

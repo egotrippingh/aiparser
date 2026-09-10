@@ -36,6 +36,8 @@ export interface Project {
   region_code: string | null
   deep_check_depth: number
   notes: string | null
+  /** Сканировать выбранные ИИ-системы одновременно. */
+  parallel_scan: boolean
 }
 
 export interface Query {
@@ -158,6 +160,8 @@ export interface ScanSnapshot {
   percent: number
   eta_sec: number | null
   current_service: string | null
+  /** Все системы, которые идут прямо сейчас (при параллельном скане — несколько). */
+  running_services?: string[]
 }
 
 export interface Resumable {
