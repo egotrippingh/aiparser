@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { MotionConfig } from "motion/react"
 import { ThemeProvider } from "next-themes"
 import { FolderPlus, Play } from "lucide-react"
 
@@ -93,10 +94,14 @@ function Workspace() {
 export default function App() {
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-      <AppProvider>
-        <Workspace />
-        <Toaster position="bottom-right" richColors closeButton />
-      </AppProvider>
+      {/* reducedMotion="user": при включённом в системе «уменьшении движения»
+          Motion сам выключает сдвиги и layout-анимации, оставляя прозрачность. */}
+      <MotionConfig reducedMotion="user">
+        <AppProvider>
+          <Workspace />
+          <Toaster position="bottom-right" richColors closeButton />
+        </AppProvider>
+      </MotionConfig>
     </ThemeProvider>
   )
 }

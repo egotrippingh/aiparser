@@ -171,13 +171,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
         toast.success(e.status === "done" ? "Скан завершён" : "Скан остановлен")
       })
 
-      // Поток закрывает сервер по scan_finished. Обрыв сети фатальным не
-      // считаем: актуальное состояние всё равно перечитывается через
-      // /api/scans/active при следующем открытии вкладки.
-      es.onerror = () => {}
+      // Кратковременный обрыв EventSource переживает сам — переподключается.
+      // Но если сервер перезапустили посреди скана, поток отвечает 404 и
+      // закрывается навсегда. Держать такую подписку нельзя: watchScan видит
+      // «подписка уже есть» и молча игнорирует следующий скан, а полоса
+      // прогресса застывает. Сбрасываем и перечитываем, что идёт на самом
+      // деле, — переподпишет эффект ниже.
+      es.onerror = () => {
+        if (es.readyState !== EventSource.CLOSED) return
+        if (esRef.current === es) esRef.current = null
+        void refreshScan()
+      }
     },
-    [pushLog],
+    [pushLog, refreshScan],
   )
+
+  // Пока скан идёт, подписка на его события должна быть. Сюда сходятся все
+  // пути: старт программы посреди скана, запуск с вкладки «Скан», обрыв
+  // потока. watchScan сам не создаёт вторую подписку, если первая жива.
+  useEffect(() => {
+    if (scan && scan.state !== "finished") watchScan(scan.scan_id)
+  }, [scan, watchScan])
 
   const reloadProjects = useCallback(async () => {
     const list = await api.get<Project[]>("/api/projects")

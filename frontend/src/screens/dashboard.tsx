@@ -1,19 +1,21 @@
 /** Дашборд: сводка за свежий срез, динамика по дням и таблица «как в Топвизоре». */
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { motion, useReducedMotion } from "motion/react"
 import { AlertTriangle, LineChart, Radar } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Delta, EmptyState, Panel, PanelHead, ServiceDot } from "@/components/bits"
+import { Delta, EmptyState, Panel, PanelHead } from "@/components/bits"
 import { OverviewTable } from "@/components/overview-table"
 import { QuerySheet, type QueryTarget } from "@/components/query-sheet"
+import { ServiceCards } from "@/components/service-cards"
 import { VisibilityChart } from "@/components/visibility-chart"
 import { useResource } from "@/hooks/use-resource"
 import { api } from "@/lib/api"
+import { totalChanges } from "@/lib/changes"
 import { longDate, pct, plural } from "@/lib/format"
-import type { Overview, ServiceSummary } from "@/lib/types"
+import type { Overview } from "@/lib/types"
 import { useApp } from "@/store/app-store"
 import type { View } from "@/hooks/use-hash-route"
 
@@ -25,7 +27,7 @@ const PERIODS = [
 ]
 
 export function DashboardScreen({ onView }: { onView: (v: View) => void }) {
-  const { projectId, dataVersion, serviceById } = useApp()
+  const { projectId, dataVersion } = useApp()
   const [days, setDays] = useState(30)
   const [target, setTarget] = useState<QueryTarget | null>(null)
   const reduce = useReducedMotion()
@@ -37,12 +39,7 @@ export function DashboardScreen({ onView }: { onView: (v: View) => void }) {
     [projectId, days, dataVersion],
   )
 
-  const ranked = useMemo(() => {
-    const list = (data?.summary?.by_service ?? []).filter(
-      (s): s is ServiceSummary & { pct: number } => s.pct !== null,
-    )
-    return [...list].sort((a, b) => a.pct - b.pct)
-  }, [data])
+  const changes = useMemo(() => (data ? totalChanges(data) : null), [data])
 
   if (error) {
     return (
@@ -59,8 +56,8 @@ export function DashboardScreen({ onView }: { onView: (v: View) => void }) {
   if (loading && !data) {
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-          {Array.from({ length: 5 }, (_, i) => (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {Array.from({ length: 4 }, (_, i) => (
             <Skeleton key={i} className="h-24 rounded-xl" />
           ))}
         </div>
@@ -90,11 +87,9 @@ export function DashboardScreen({ onView }: { onView: (v: View) => void }) {
   }
 
   const s = data.summary
-  const best = ranked.at(-1)
-  const worst = ranked[0]
   const problems = s.errors + s.not_checked
 
-  const cards = [
+  const cards: { key: string; label: string; value: ReactNode; unit: string; foot: ReactNode }[] = [
     {
       key: "vis",
       label: "Видимость бренда",
@@ -121,20 +116,30 @@ export function DashboardScreen({ onView }: { onView: (v: View) => void }) {
       ),
     },
     {
-      key: "best",
-      label: "Лучший сервис",
-      dot: best?.id,
-      value: best ? pct(best.pct) : "—",
-      unit: "%",
-      foot: <span className="text-muted-foreground">{best?.name ?? "нет данных"}</span>,
-    },
-    {
-      key: "worst",
-      label: "Слабый сервис",
-      dot: worst?.id,
-      value: worst ? pct(worst.pct) : "—",
-      unit: "%",
-      foot: <span className="text-muted-foreground">{worst?.name ?? "нет данных"}</span>,
+      // Как дельты в Топвизоре: сколько упоминаний появилось и сколько
+      // пропало к прошлому срезу, по всем сервисам сразу.
+      key: "changes",
+      label: "Изменения к прошлому срезу",
+      value: changes?.comparable ? (
+        <span className="flex items-baseline gap-3">
+          <span style={{ color: "var(--ok)" }} title="упоминание появилось">
+            ▲{changes.gained}
+          </span>
+          <span style={{ color: "var(--bad)" }} title="упоминание пропало">
+            ▼{changes.lost}
+          </span>
+        </span>
+      ) : (
+        "—"
+      ),
+      unit: "",
+      foot: (
+        <span className="text-muted-foreground">
+          {changes?.comparable && s.prev_date
+            ? `появилось / пропало к ${longDate(s.prev_date)}`
+            : "первый срез — сравнивать не с чем"}
+        </span>
+      ),
     },
     {
       key: "review",
@@ -153,7 +158,7 @@ export function DashboardScreen({ onView }: { onView: (v: View) => void }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {cards.map((c, i) => (
           <motion.div
             key={c.key}
@@ -163,7 +168,6 @@ export function DashboardScreen({ onView }: { onView: (v: View) => void }) {
             className="bg-card rounded-xl border p-3.5 shadow-[0_1px_2px_rgb(15_23_42/0.04)]"
           >
             <div className="text-muted-foreground flex items-center gap-1.5 text-[11px] font-medium">
-              {c.dot ? <ServiceDot service={serviceById(c.dot)} /> : null}
               {c.label}
             </div>
             <div className="tnum mt-1.5 text-2xl leading-none font-semibold tracking-tight">
@@ -174,6 +178,8 @@ export function DashboardScreen({ onView }: { onView: (v: View) => void }) {
           </motion.div>
         ))}
       </div>
+
+      <ServiceCards overview={data} />
 
       <Panel>
         <PanelHead

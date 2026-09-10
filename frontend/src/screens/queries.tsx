@@ -38,7 +38,7 @@ export function QueriesScreen() {
     [projectId],
   )
 
-  const queries = data ?? []
+  const queries = useMemo(() => data ?? [], [data])
   const lines = useMemo(() => splitLines(bulk), [bulk])
 
   const filtered = useMemo(() => {
