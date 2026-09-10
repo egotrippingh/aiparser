@@ -1,68 +1,57 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* Шрифты приезжают пакетами @fontsource — интернета при запуске программы
-   может не быть, а Google Fonts по CDN тогда просто не загрузятся. */
-@import "@fontsource/fira-sans/300.css";
-@import "@fontsource/fira-sans/400.css";
-@import "@fontsource/fira-sans/500.css";
-@import "@fontsource/fira-sans/600.css";
-@import "@fontsource/fira-sans/700.css";
-@import "@fontsource/fira-code/400.css";
-@import "@fontsource/fira-code/500.css";
-@import "@fontsource/fira-code/600.css";
-
 /* Тему переключает next-themes через класс на <html>, поэтому вариант dark
    привязан к классу, а не к prefers-color-scheme. */
 @custom-variant dark (&:is(.dark *));
 
 /* ---------------------------------------------------------------------
- * Светлая тема. Палитра «Blue data + amber highlights»: синий несёт данные,
- * янтарный — единственный акцент, поэтому он не расходуется на украшения.
+ * Светлая тема в духе рабочих SEO-инструментов вроде Топвизора: текст
+ * нейтральный, почти чёрный; цвет только у данных (статусы, дельты, линии
+ * графика) и у одного акцента для ссылок и главной кнопки. Секции
+ * разделяются тонкими линиями, без теней и крупных скруглений.
  * ------------------------------------------------------------------- */
 :root {
-  --radius: 0.625rem;
+  --radius: 0.25rem;
 
-  --background: #f8fafc;
-  --foreground: #1e3a8a;
+  --background: #f3f4f6;
+  --foreground: #1f2328;
   --card: #ffffff;
-  --card-foreground: #1e3a8a;
+  --card-foreground: #1f2328;
   --popover: #ffffff;
-  --popover-foreground: #1e3a8a;
+  --popover-foreground: #1f2328;
 
-  --primary: #1e40af;
+  --primary: #2462c5;
   --primary-foreground: #ffffff;
-  /* secondary/accent у shadcn — это поверхности кнопок и ховера, а не
-     брендовые цвета. Брендовый синий и янтарь живут в --brand и --cta. */
-  --secondary: #e9eef6;
-  --secondary-foreground: #1e3a8a;
-  --muted: #eef2f8;
-  --muted-foreground: #475569;
-  --accent: #e3ebf7;
-  --accent-foreground: #1e3a8a;
+  --secondary: #eef0f3;
+  --secondary-foreground: #1f2328;
+  --muted: #f4f5f7;
+  --muted-foreground: #646b75;
+  --accent: #eaf1fc;
+  --accent-foreground: #1f2328;
 
-  --destructive: #dc2626;
+  --destructive: #c62222;
   --destructive-foreground: #ffffff;
 
-  --border: #d3e0f5;
-  --input: #c3d4ee;
-  --ring: #1e40af;
+  --border: #e1e4e8;
+  --input: #cfd4da;
+  --ring: #2462c5;
 
-  --brand: #3b82f6;
-  --cta: #d97706;
-  --cta-foreground: #1c1206;
+  --brand: #2462c5;
+  --cta: #2462c5;
+  --cta-foreground: #ffffff;
 
   /* Статусы результата. Мягкий тон — заливка ячейки, основной — знак и текст.
      «Не найдено» намеренно нейтрально-серое: отсутствие бренда это факт,
      а не авария, красным здесь помечаются только сбои проверки. */
-  --ok: #0f7a47;
-  --ok-soft: #d7f2e4;
-  --no: #64748b;
-  --no-soft: #e7ecf3;
-  --warn: #a55a05;
-  --warn-soft: #fbeacf;
+  --ok: #17803d;
+  --ok-soft: #dcf2e2;
+  --no: #6b7280;
+  --no-soft: #eef0f2;
+  --warn: #a15c07;
+  --warn-soft: #fbecd2;
   --bad: #c62222;
-  --bad-soft: #fadfdf;
+  --bad-soft: #fbe3e3;
 
   /* Цвета сервисов: бэкенд отдаёт имя переменной («--c1»), поэтому имена
      менять нельзя — они часть контракта с app/services.py. */
@@ -75,37 +64,37 @@
 }
 
 .dark {
-  --background: #0a1120;
-  --foreground: #e6edf7;
-  --card: #101a2c;
-  --card-foreground: #e6edf7;
-  --popover: #14203a;
-  --popover-foreground: #e6edf7;
+  --background: #111317;
+  --foreground: #e6e8eb;
+  --card: #181b20;
+  --card-foreground: #e6e8eb;
+  --popover: #1d2127;
+  --popover-foreground: #e6e8eb;
 
-  --primary: #4b8bf8;
-  --primary-foreground: #06101f;
-  --secondary: #1b2842;
-  --secondary-foreground: #e6edf7;
-  --muted: #16223a;
-  --muted-foreground: #a3b5d0;
-  --accent: #1e2c48;
-  --accent-foreground: #e6edf7;
+  --primary: #5b95f0;
+  --primary-foreground: #0b1220;
+  --secondary: #23272e;
+  --secondary-foreground: #e6e8eb;
+  --muted: #1f2329;
+  --muted-foreground: #9aa2ad;
+  --accent: #1d2a3d;
+  --accent-foreground: #e6e8eb;
 
   --destructive: #f87171;
   --destructive-foreground: #1a0808;
 
-  --border: #273854;
-  --input: #33476a;
-  --ring: #4b8bf8;
+  --border: #2c3139;
+  --input: #3a4049;
+  --ring: #5b95f0;
 
-  --brand: #5b95ff;
-  --cta: #f0a83c;
-  --cta-foreground: #1c1206;
+  --brand: #5b95f0;
+  --cta: #5b95f0;
+  --cta-foreground: #0b1220;
 
   --ok: #4ec27a;
-  --ok-soft: #12321f;
-  --no: #93a7c4;
-  --no-soft: #1c2942;
+  --ok-soft: #15301f;
+  --no: #9aa2ad;
+  --no-soft: #23272e;
   --warn: #f0a83c;
   --warn-soft: #382913;
   --bad: #f87171;
@@ -120,8 +109,10 @@
 }
 
 @theme inline {
-  --font-sans: "Fira Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Fira Code", ui-monospace, SFMono-Regular, monospace;
+  /* Системный шрифт: программа живёт на Windows рядом с Excel и браузером,
+     и родной Segoe UI выглядит как инструмент, а не как лендинг. */
+  --font-sans: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException
@@ -157,19 +158,108 @@ def _delta(now: float | None, before: float | None) -> float | None:
     return round(now - before, 1) if now is not None and before is not None else None
 
 
+# Режимы календаря — как в Топвизоре:
+#   period  — все проверки за диапазон;
+#   two     — первая и последняя проверка диапазона (сравнение двух дат);
+#   monthly — последняя проверка каждого месяца (динамика от месяца к месяцу);
+#   custom  — вручную выбранные даты.
+MODES = ("period", "two", "monthly", "custom")
+MAX_DATES = 30          # больше столбцов таблица не показывает, как и Топвизор
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _check_date(value: str | None, name: str) -> str | None:
+    if value and not _DATE_RE.match(value):
+        raise HTTPException(400, f"{name}: ожидается дата вида ГГГГ-ММ-ДД")
+    return value or None
+
+
+def select_dates(
+    all_dates: list[str],
+    *,
+    mode: str = "period",
+    date_from: str | None = None,
+    date_to: str | None = None,
+    picked: list[str] | None = None,
+    days: int = 30,
+    max_dates: int = MAX_DATES,
+) -> tuple[list[str], int]:
+    """Какие срезы показать. Возвращает (даты по возрастанию, сколько подходило до обрезки)."""
+    if mode == "custom":
+        wanted = set(picked or [])
+        chosen = [d for d in all_dates if d in wanted]
+    else:
+        if date_from or date_to:
+            chosen = [
+                d for d in all_dates
+                if (not date_from or d >= date_from) and (not date_to or d <= date_to)
+            ]
+        elif mode in ("two", "monthly"):
+            # Сравнение и помесячная динамика без диапазона — за всё время:
+            # первая проверка против последней, по одной проверке на месяц.
+            chosen = list(all_dates)
+        else:
+            # Период без диапазона — последние `days` срезов, как было до календаря.
+            chosen = all_dates[-max(1, days):]
+        if mode == "two" and len(chosen) > 2:
+            chosen = [chosen[0], chosen[-1]]
+        elif mode == "monthly":
+            last_in_month: dict[str, str] = {}
+            for d in chosen:
+                last_in_month[d[:7]] = d
+            chosen = sorted(last_in_month.values())
+    available = len(chosen)
+    return chosen[-max(1, max_dates):], available
+
+
+@router.get("/projects/{project_id}/scan-dates")
+def scan_dates(project_id: int) -> dict:
+    """Даты с проверками — календарь подсвечивает их и не даёт выбрать пустые дни."""
+    if not repo.get_project(project_id):
+        raise HTTPException(404, "Проект не найден")
+    return {"dates": repo.scan_dates(project_id)}
+
+
 @router.get("/projects/{project_id}/overview")
-def overview(project_id: int, days: int = 30) -> dict:
+def overview(
+    project_id: int,
+    days: int = 30,
+    mode: str = "period",
+    date_from: str | None = None,
+    date_to: str | None = None,
+    dates: str | None = None,
+    max_dates: int = MAX_DATES,
+) -> dict:
     """Всё для дашборда в виде Топвизора: даты в столбцах, запросы в строках.
 
     Одна дата — один срез: если за день было несколько сканов, на каждую пару
     «запрос × сервис» берётся один результат (repo.pick_result). Сводка сверху
     считается по тем же ячейкам, что и таблица, — цифры не расходятся.
+    Сводка сравнивает последний выбранный срез с предпоследним: в режиме
+    «Две даты» это и есть сравнение первой и последней даты периода.
     """
     project = repo.get_project(project_id)
     if not project:
         raise HTTPException(404, "Проект не найден")
+    if mode not in MODES:
+        raise HTTPException(400, f"mode: одно из {', '.join(MODES)}")
+    date_from = _check_date(date_from, "date_from")
+    date_to = _check_date(date_to, "date_to")
+    picked = [d.strip() for d in (dates or "").split(",") if d.strip()]
+    for d in picked:
+        _check_date(d, "dates")
 
-    dates = repo.project_dates(project_id, max(1, min(days, 365)))
+    all_dates = [r["date"] for r in repo.scan_dates(project_id)]
+    selected, available = select_dates(
+        all_dates,
+        mode=mode,
+        date_from=date_from,
+        date_to=date_to,
+        picked=picked,
+        days=min(days, 365),
+        max_dates=min(max(1, max_dates), MAX_DATES),
+    )
+    dates = selected
     results = repo.results_by_date(project_id, dates)
 
     cells: dict[int, dict[str, dict[str, dict]]] = defaultdict(lambda: defaultdict(dict))
@@ -241,6 +331,15 @@ def overview(project_id: int, days: int = 30) -> dict:
 
     return {
         "project": project,
+        "selection": {
+            "mode": mode,
+            "date_from": date_from,
+            "date_to": date_to,
+            "available": available,
+            "truncated": available > len(dates),
+            "first_scan": all_dates[0] if all_dates else None,
+            "last_scan": all_dates[-1] if all_dates else None,
+        },
         "dates": dates,
         "services": [s.id for s in services.SERVICES if s.id in with_data],
         "rows": rows,

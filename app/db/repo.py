@@ -346,6 +346,23 @@ def project_dates(project_id: int, days: int) -> list[str]:
     return sorted(r["scan_date"] for r in rows)
 
 
+def scan_dates(project_id: int) -> list[dict]:
+    """Все даты со сканами — для календаря: сколько проверок и какими сервисами."""
+    rows = _rows(
+        """SELECT s.scan_date AS date,
+                  COUNT(r.id) AS checks,
+                  GROUP_CONCAT(DISTINCT r.service) AS services
+             FROM scans s LEFT JOIN results r ON r.scan_id = s.id
+            WHERE s.project_id = ?
+            GROUP BY s.scan_date
+            ORDER BY s.scan_date""",
+        (project_id,),
+    )
+    for r in rows:
+        r["services"] = sorted(r["services"].split(",")) if r["services"] else []
+    return rows
+
+
 def results_by_date(project_id: int, dates: list[str]) -> list[dict]:
     """Результаты проекта за даты — ровно один на (запрос, сервис, дата).
 
