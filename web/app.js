@@ -940,9 +940,15 @@ async function renderSettings(p) {
   svcList.querySelectorAll(".loginBtn").forEach(btn => {
     btn.onclick = async () => {
       const svc = btn.dataset.svc;
+      // Вкладку открываем сразу по клику: после await браузер счёл бы её
+      // всплывающим окном и заблокировал.
+      const viewer = browserStatus.viewer_url;
+      if (viewer) window.open(viewer, "aiparser-browser");
       try {
         await api.post(`/api/browser/services/${svc}/login`, {});
-        toast("Открываю окно входа — залогиньтесь и просто закройте его");
+        toast(viewer
+          ? "Окно входа открыто во вкладке noVNC — залогиньтесь там и закройте окно крестиком"
+          : "Открываю окно входа — залогиньтесь и просто закройте его");
         watchLogin(svc, p);
       } catch (e) { fail(e); }
     };

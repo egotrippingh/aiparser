@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import base64
+import os
 
 try:
     import win32crypt  # type: ignore
@@ -22,6 +23,18 @@ except ImportError:  # pragma: no cover — только не-Windows окруж
     _HAS_DPAPI = False
 
 _ENTROPY = b"AIParser.OpenRouterKey.v1"
+
+ENV_KEY = "OPENROUTER_API_KEY"
+
+
+def key_from_env() -> str:
+    """Ключ из переменной окружения — для Docker.
+
+    В контейнере нет DPAPI: ключ, сохранённый под Windows, не расшифруется, а
+    введённый заново ляжет в базу почти открытым текстом. Переменная из .env
+    избавляет от обоих вариантов. Ключ из базы, если он есть, главнее.
+    """
+    return os.environ.get(ENV_KEY, "").strip()
 
 
 def is_encrypted() -> bool:

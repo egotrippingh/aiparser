@@ -2,7 +2,8 @@
 fastapi==0.115.6
 python-multipart==0.0.20
 uvicorn[standard]==0.34.0
-pywebview==5.3.2
+# окно приложения — только Windows; в Docker интерфейс открывается в браузере
+pywebview==5.3.2; sys_platform == "win32"
 pydantic==2.10.4
 
 # --- браузерная автоматизация ---
@@ -26,4 +27,4 @@ pillow==11.1.0
 openpyxl==3.1.5
 
 # --- шифрование ключа API через Windows DPAPI ---
-pywin32==308
+pywin32==308; sys_platform == "win32"

@@ -1,0 +1,41 @@
+# Запуск: docker compose up -d --build
+# Интерфейс:       http://localhost:8756
+# Окна браузера:   http://localhost:6080/vnc.html?autoconnect=1&resize=scale
+#
+# Настройки берутся из файла .env рядом (образец — .env.example).
+services:
+  aiparser:
+    build:
+      context: .
+      args:
+        # Прокси только на время сборки — если без него не качаются пакеты.
+        HTTP_PROXY: ${BUILD_PROXY:-}
+        HTTPS_PROXY: ${BUILD_PROXY:-}
+    image: aiparser:latest
+    container_name: aiparser
+    # Постоянное имя хоста: Firefox записывает его в метку занятости профиля.
+    hostname: aiparser
+    ports:
+      # Только на localhost хоста: noVNC открыт без пароля, а за ним живые
+      # сессии аккаунтов.
+      - "127.0.0.1:8756:8756"
+      - "127.0.0.1:6080:6080"
+    volumes:
+      # Та же папка data, что и у обычного запуска под Windows: база,
+      # профили, скриншоты. Не запускайте оба варианта одновременно.
+      - ./data:/app/data
+    # Firefox держит вкладки в разделяемой памяти; 64 МБ по умолчанию мало.
+    shm_size: "2gb"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      TZ: Europe/Moscow
+      # VPN-прокси на хосте. Нужен и браузеру (ChatGPT, Perplexity), и
+      # запросам к OpenRouter. Пустое значение — ходить напрямую.
+      AIPARSER_BROWSER_PROXY: ${VPN_PROXY-http://host.docker.internal:10809}
+      HTTP_PROXY: ${VPN_PROXY-http://host.docker.internal:10809}
+      HTTPS_PROXY: ${VPN_PROXY-http://host.docker.internal:10809}
+      NO_PROXY: localhost,127.0.0.1
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      AIPARSER_BROWSER_VIEWER: http://localhost:6080/vnc.html?autoconnect=1&resize=scale
+    restart: unless-stopped

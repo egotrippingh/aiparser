@@ -36,7 +36,7 @@ class SettingsIn(BaseModel):
 def get_settings() -> dict:
     stored = repo.all_settings()
     out = {**DEFAULTS, **stored}
-    key = secrets_store.unprotect(repo.get_setting(KEY_OPENROUTER))
+    key = secrets_store.unprotect(repo.get_setting(KEY_OPENROUTER)) or secrets_store.key_from_env()
     out["openrouter_api_key_masked"] = secrets_store.mask(key)
     out["openrouter_api_key_set"] = bool(key)
     out["secrets_encrypted"] = secrets_store.is_encrypted()

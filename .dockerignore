@@ -1,0 +1,14 @@
+.git
+.venv
+data
+runtime
+mockups
+tests
+scripts
+.env
+.idea
+.vscode
+.playwright-mcp
+**/__pycache__
+*.pyc
+*.log

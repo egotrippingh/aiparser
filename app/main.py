@@ -1,5 +1,8 @@
 """Точка входа: поднимает FastAPI в фоновом потоке и открывает окно WebView поверх него.
 
+В Docker (AIPARSER_NO_WINDOW=1) или без установленного pywebview окна нет:
+сервер работает на переднем плане, интерфейс открывают в обычном браузере.
+
 Один процесс, один пользователь, локальный сервер только на 127.0.0.1 —
 разделение на «сервер» и «клиент» здесь чисто внутреннее, наружу видно окно
 десктопного приложения.
@@ -12,7 +15,11 @@ import threading
 import time
 
 import uvicorn
-import webview
+
+try:
+    import webview
+except ImportError:  # Linux-контейнер: pywebview ставится только под Windows
+    webview = None
 
 from app import config
 
@@ -42,6 +49,13 @@ def _wait_for_server(url: str, timeout: float = 15.0) -> bool:
 
 def main() -> None:
     log.info("Каталог данных: %s (portable=%s)", config.DATA_DIR, config.PORTABLE)
+
+    if config.NO_WINDOW or webview is None:
+        log.info("Режим без окна. Интерфейс: http://localhost:%s/", config.PORT)
+        if config.BROWSER_VIEWER_URL:
+            log.info("Окна браузера (вход, капча): %s", config.BROWSER_VIEWER_URL)
+        _run_server()
+        return
 
     server_thread = threading.Thread(target=_run_server, daemon=True)
     server_thread.start()

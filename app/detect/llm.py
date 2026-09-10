@@ -138,6 +138,6 @@ async def evaluate(
 
 def load_credentials() -> tuple[str, str]:
     """Ключ (расшифрованный) и модель из настроек — то, что вводится в UI в две строки."""
-    key = secrets_store.unprotect(repo.get_setting("openrouter_api_key"))
+    key = secrets_store.unprotect(repo.get_setting("openrouter_api_key")) or secrets_store.key_from_env()
     model = repo.get_setting("openrouter_model", "anthropic/claude-sonnet-5") or "anthropic/claude-sonnet-5"
     return key, model
