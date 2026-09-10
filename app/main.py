@@ -1,25 +1,23 @@
-"""Точка входа: поднимает FastAPI в фоновом потоке и открывает окно WebView поверх него.
-
-В Docker (AIPARSER_NO_WINDOW=1) или без установленного pywebview окна нет:
-сервер работает на переднем плане, интерфейс открывают в обычном браузере.
+"""Точка входа: поднимает FastAPI в фоновом потоке и показывает интерфейс.
 
 Один процесс, один пользователь, локальный сервер только на 127.0.0.1 —
-разделение на «сервер» и «клиент» здесь чисто внутреннее, наружу видно окно
-десктопного приложения.
+разделение на «сервер» и «клиент» здесь чисто внутреннее. Интерфейс
+показывается одним из двух способов:
+
+* по умолчанию — окном десктопного приложения (pywebview + WebView2);
+* с ключом ``--browser`` — вкладкой в обычном браузере. Так запускает
+  start.bat. Программа живёт, пока открыто окно консоли.
 """
 
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
+import webbrowser
 
 import uvicorn
-
-try:
-    import webview
-except ImportError:  # Linux-контейнер: pywebview ставится только под Windows
-    webview = None
 
 from app import config
 
@@ -50,13 +48,6 @@ def _wait_for_server(url: str, timeout: float = 15.0) -> bool:
 def main() -> None:
     log.info("Каталог данных: %s (portable=%s)", config.DATA_DIR, config.PORTABLE)
 
-    if config.NO_WINDOW or webview is None:
-        log.info("Режим без окна. Интерфейс: http://localhost:%s/", config.PORT)
-        if config.BROWSER_VIEWER_URL:
-            log.info("Окна браузера (вход, капча): %s", config.BROWSER_VIEWER_URL)
-        _run_server()
-        return
-
     server_thread = threading.Thread(target=_run_server, daemon=True)
     server_thread.start()
 
@@ -64,6 +55,18 @@ def main() -> None:
     if not _wait_for_server(url):
         log.error("Сервер не поднялся за отведённое время")
         return
+
+    if "--browser" in sys.argv[1:]:
+        log.info("Интерфейс: %s", url)
+        webbrowser.open(url)
+        try:
+            while server_thread.is_alive():
+                server_thread.join(1)
+        except KeyboardInterrupt:
+            pass
+        return
+
+    import webview
 
     webview.create_window(
         "AI Mentions Tracker",

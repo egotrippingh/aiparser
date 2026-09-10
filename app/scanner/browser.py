@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
@@ -99,10 +98,6 @@ async def service_context(service_id: str, *, window: tuple[int, int] = (1360, 9
     global _geoip_works
 
     launch = dict(persistent_context=True, user_data_dir=str(profile), window=window, **_DEFAULT_LAUNCH)
-    if config.BROWSER_PROXY:
-        # geoip при этом определяет IP через тот же прокси — часовой пояс и
-        # локация совпадут с тем, что видят сайты.
-        launch["proxy"] = {"server": config.BROWSER_PROXY}
     if _geoip_works is False:
         # Уже знаем, что geoip в этой сессии не работает — не тратим на него
         # ещё один запуск браузера.
@@ -174,18 +169,6 @@ async def _kill_processes_for_profile(profile: Path) -> None:
     по имени процесса. Требует PowerShell 5.1+ с Get-CimInstance, что на
     целевой Windows 10/11 есть из коробки.
     """
-    if sys.platform != "win32":
-        # Контейнер Docker: тот же фильтр по пути профиля в командной строке.
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "pkill", "-9", "-f", "--", str(profile),
-                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-            )
-            await asyncio.wait_for(proc.wait(), timeout=10)
-        except Exception:
-            log.warning("Не удалось принудительно завершить процессы Camoufox для %s", profile, exc_info=True)
-        return
-
     needle = str(profile).replace("'", "''")
     script = (
         "Get-CimInstance Win32_Process | "
