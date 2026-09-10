@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
@@ -155,6 +156,7 @@ function ProjectForm({
     domains: (project.brand_domains || []).join("\n"),
     region_code: project.region_code ?? "",
     deep_check_depth: String(project.deep_check_depth ?? 0),
+    parallel: Boolean(project.parallel_scan),
   })
   const [busy, setBusy] = useState(false)
 
@@ -171,6 +173,7 @@ function ProjectForm({
         brand_domains: splitLines(form.domains),
         region_code: form.region_code.trim() || null,
         deep_check_depth: Number(form.deep_check_depth) || 0,
+        parallel_scan: form.parallel,
       })
       onSaved(updated)
       toast.success("Проект сохранён")
@@ -264,6 +267,24 @@ function ProjectForm({
             onChange={(e) => setForm((f) => ({ ...f, deep_check_depth: e.target.value }))}
           />
         </Field>
+
+        <div className="flex items-start gap-3 sm:col-span-2">
+          <Switch
+            id="f_parallel"
+            checked={form.parallel}
+            onCheckedChange={(v) => setForm((f) => ({ ...f, parallel: Boolean(v) }))}
+            className="mt-0.5"
+          />
+          <div className="space-y-0.5">
+            <Label htmlFor="f_parallel">Проверять ИИ-системы параллельно</Label>
+            <p className="text-muted-foreground text-xs">
+              Выбранные системы сканируются одновременно, каждая в своём окне браузера со своим
+              аккаунтом, — скан идёт во столько раз быстрее, сколько систем выбрано. Внутри одной
+              системы запросы по-прежнему идут по одному. Нужно больше памяти: примерно 0,5–1 ГБ на
+              каждое окно.
+            </p>
+          </div>
+        </div>
       </div>
 
       <PanelFoot className="justify-end">

@@ -33,7 +33,21 @@ def conn() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    conn().executescript(_SCHEMA.read_text(encoding="utf-8"))
+    c = conn()
+    c.executescript(_SCHEMA.read_text(encoding="utf-8"))
+    _migrate(c)
+
+
+def _migrate(c: sqlite3.Connection) -> None:
+    """Колонки, появившиеся после первых версий.
+
+    CREATE TABLE IF NOT EXISTS уже существующую таблицу не трогает, а база
+    переезжает между компьютерами вместе с проектом — без этой доводки старая
+    база упала бы на первом же обращении к новой колонке.
+    """
+    cols = {r[1] for r in c.execute("PRAGMA table_info(projects)")}
+    if "parallel_scan" not in cols:
+        c.execute("ALTER TABLE projects ADD COLUMN parallel_scan INTEGER NOT NULL DEFAULT 0")
 
 
 def _rows(sql: str, args: Iterable = ()) -> list[dict]:
@@ -56,6 +70,7 @@ def _exec(sql: str, args: Iterable = ()) -> sqlite3.Cursor:
 def _decode_project(p: dict) -> dict:
     p["brand_aliases"] = json.loads(p.pop("brand_aliases_json"))
     p["brand_domains"] = json.loads(p.pop("brand_domains_json"))
+    p["parallel_scan"] = bool(p.get("parallel_scan"))
     return p
 
 
@@ -76,12 +91,13 @@ def create_project(
     region_code: str | None = None,
     deep_check_depth: int = 0,
     notes: str | None = None,
+    parallel_scan: bool = False,
 ) -> int:
     cur = _exec(
         """INSERT INTO projects
              (name, brand_name, brand_aliases_json, brand_domains_json,
-              region_code, deep_check_depth, notes)
-           VALUES (?,?,?,?,?,?,?)""",
+              region_code, deep_check_depth, notes, parallel_scan)
+           VALUES (?,?,?,?,?,?,?,?)""",
         (
             name,
             brand_name,
@@ -90,6 +106,7 @@ def create_project(
             region_code,
             deep_check_depth,
             notes,
+            1 if parallel_scan else 0,
         ),
     )
     return int(cur.lastrowid)
@@ -100,9 +117,11 @@ def update_project(project_id: int, **fields: Any) -> None:
         fields["brand_aliases_json"] = json.dumps(fields.pop("brand_aliases"), ensure_ascii=False)
     if "brand_domains" in fields:
         fields["brand_domains_json"] = json.dumps(fields.pop("brand_domains"), ensure_ascii=False)
+    if "parallel_scan" in fields:
+        fields["parallel_scan"] = 1 if fields["parallel_scan"] else 0
     allowed = {
         "name", "brand_name", "brand_aliases_json", "brand_domains_json",
-        "region_code", "deep_check_depth", "notes",
+        "region_code", "deep_check_depth", "notes", "parallel_scan",
     }
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:

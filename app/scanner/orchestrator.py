@@ -1,7 +1,10 @@
 """Очередь «запрос × сервис»: сердце скана.
 
-Один сервис за другим, внутри сервиса — один запрос за другим, строго
-последовательно, с человекоподобными паузами.
+По умолчанию — один сервис за другим. Если в проекте включён параллельный
+скан, выбранные сервисы идут одновременно: у каждого свой браузер со своим
+профилем и своя очередь. Внутри сервиса запросы всегда строго по одному, с
+человекоподобными паузами: сайт видит одного неторопливого пользователя,
+а не пачку запросов.
 
 Три вещи, которые здесь стоит понимать сразу:
 
@@ -76,6 +79,9 @@ class ScanController:
         self.total = total
         self.done = 0
         self.current_service: str | None = None
+        # Все сервисы, которые идут прямо сейчас: при параллельном скане их
+        # несколько, current_service остаётся для совместимости.
+        self.running: list[str] = []
         self.state = "running"          # running | paused | stopping | finished
         self.started_at = time.time()
 
@@ -148,6 +154,7 @@ class ScanController:
             "percent": round(self.done * 100 / self.total, 1) if self.total else 0.0,
             "state": self.state,
             "current_service": self.current_service,
+            "running_services": list(self.running),
             "elapsed_sec": int(elapsed),
             "eta_sec": eta,
         }
@@ -268,31 +275,46 @@ async def _run_scan(
     llm_mode = settings["llm_mode"] if api_key else "never"
     speed = settings["typing_speed"]
 
-    ctl.emit("scan_started", **ctl.snapshot())
+    parallel = bool(project.get("parallel_scan"))
+    ctl.emit("scan_started", parallel=parallel, **ctl.snapshot())
+
+    async def run_service(service_id: str) -> None:
+        pending = [q for q in queries if (q["id"], service_id) not in done_pairs]
+        if not pending or ctl.stop_requested:
+            return
+
+        ctl.running.append(service_id)
+        ctl.current_service = service_id
+        ctl.emit("service_started", service=service_id,
+                 name=services.get(service_id).name, pending=len(pending))
+        try:
+            await _run_service(
+                project, service_id, pending, settings, speed,
+                api_key, llm_model, llm_mode, ctl,
+            )
+        except Exception as exc:
+            # Падение одного сервиса не должно ронять остальные — ни в
+            # очереди, ни тем более идущие рядом параллельно.
+            log.exception("Сервис %s упал целиком", service_id)
+            ctl.emit("service_error", service=service_id, error=str(exc))
+        finally:
+            if service_id in ctl.running:
+                ctl.running.remove(service_id)
+            ctl.current_service = ctl.running[-1] if ctl.running else None
+        ctl.emit("service_finished", service=service_id)
 
     try:
-        for service_id in service_ids:
-            if ctl.stop_requested:
-                break
-
-            pending = [q for q in queries if (q["id"], service_id) not in done_pairs]
-            if not pending:
-                continue
-
-            ctl.current_service = service_id
-            ctl.emit("service_started", service=service_id,
-                     name=services.get(service_id).name, pending=len(pending))
-
-            try:
-                await _run_service(
-                    project, service_id, pending, settings, speed,
-                    api_key, llm_model, llm_mode, ctl,
-                )
-            except Exception as exc:
-                log.exception("Сервис %s упал целиком", service_id)
-                ctl.emit("service_error", service=service_id, error=str(exc))
-
-            ctl.emit("service_finished", service=service_id)
+        if parallel:
+            # У каждого сервиса свой persistent-профиль, а значит свой
+            # процесс браузера: друг другу они не мешают, и ограничивать их
+            # незачем. Стена лимита, пауза и стоп работают для каждого сам по
+            # себе — всё это проверяется внутри _run_service.
+            await asyncio.gather(*(run_service(s) for s in service_ids))
+        else:
+            for service_id in service_ids:
+                if ctl.stop_requested:
+                    break
+                await run_service(service_id)
 
         status = "stopped" if ctl.stop_requested else "done"
         ctl.state = "finished"
@@ -333,7 +355,7 @@ async def _run_service(
 
         strikes = 0
 
-        for q in pending:
+        for i, q in enumerate(pending):
             if ctl.stop_requested:
                 break
             await ctl.paused.wait()
@@ -362,9 +384,12 @@ async def _run_service(
             else:
                 strikes = 0
 
-            if ctl.done < ctl.total:
+            # Паузы и длинные перерывы — по счётчику ЭТОГО сервиса: при
+            # параллельном скане общий счётчик растёт в несколько раз быстрее,
+            # и сервисы отдыхали бы не в свой ритм.
+            if i < len(pending) - 1:
                 await humanize.between_queries(
-                    ctl.done,
+                    i + 1,
                     lo=settings["delay_min_sec"],
                     hi=settings["delay_max_sec"],
                     break_every=settings["break_every_n"],

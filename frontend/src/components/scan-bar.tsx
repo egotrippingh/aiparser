@@ -21,6 +21,8 @@ export function ScanBar() {
 
   const paused = scan?.state === "paused"
   const svc = serviceById(scan?.current_service)
+  // При параллельном скане идут сразу несколько систем — показываем все.
+  const running = (scan?.running_services ?? []).map((id) => serviceById(id)).filter(Boolean)
 
   async function send(action: "pause" | "resume" | "stop") {
     if (!scan) return
@@ -44,9 +46,23 @@ export function ScanBar() {
           style={{ background: paused ? "var(--warn-soft)" : "var(--card)" }}
         >
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 md:px-6">
-            <span className="flex items-center gap-2 text-[13px] font-medium">
-              <ServiceDot service={svc} />
-              {svc ? svc.name : "Скан"}
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-medium">
+              {running.length > 1 ? (
+                <>
+                  <span className="text-muted-foreground font-normal">параллельно:</span>
+                  {running.map((s) => (
+                    <span key={s!.id} className="flex items-center gap-1.5">
+                      <ServiceDot service={s} />
+                      {s!.name}
+                    </span>
+                  ))}
+                </>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <ServiceDot service={svc} />
+                  {svc ? svc.name : "Скан"}
+                </span>
+              )}
               {paused ? <span className="text-muted-foreground">· на паузе</span> : null}
             </span>
 
