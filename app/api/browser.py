@@ -13,7 +13,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from app import services
+from app import config, services
 from app.db import repo
 from app.scanner.browser import camoufox_installed, open_login_window
 from app.scanner.profiles import cookie_auth_state
@@ -60,6 +60,9 @@ def status() -> dict:
         "installing": _install_state["running"],
         "install_error": _install_state["error"],
         "logins_in_progress": sorted(_login_running),
+        # В Docker окна браузера не на рабочем столе, а в noVNC — интерфейс
+        # открывает эту страницу при нажатии «Войти».
+        "viewer_url": config.BROWSER_VIEWER_URL,
         "services": {s.id: _service_auth(s.id) for s in services.SERVICES},
     }
 

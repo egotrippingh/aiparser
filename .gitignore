@@ -29,3 +29,6 @@ runtime/
 *.log
 .idea/
 .vscode/
+
+# Локальные настройки Docker (ключ API, прокси)
+.env
