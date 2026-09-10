@@ -85,8 +85,31 @@ export interface OverviewSummary {
   not_checked: number
 }
 
+/* --- календарь -------------------------------------------------------- */
+
+/** Режимы календаря, как в Топвизоре. */
+export type CalendarMode = "period" | "two" | "monthly" | "custom"
+
+export interface ScanDate {
+  date: string
+  checks: number
+  services: string[]
+}
+
+export interface Selection {
+  mode: CalendarMode
+  date_from: string | null
+  date_to: string | null
+  /** Сколько срезов подходило под выбор до обрезки до 30. */
+  available: number
+  truncated: boolean
+  first_scan: string | null
+  last_scan: string | null
+}
+
 export interface Overview {
   project: Project
+  selection: Selection
   dates: string[]
   services: string[]
   rows: OverviewRow[]

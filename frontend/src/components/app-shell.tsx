@@ -1,6 +1,5 @@
 /** Оболочка окна: список проектов, вкладки, шапка и прогресс скана. */
 
-import { motion, useReducedMotion } from "motion/react"
 import {
   LayoutGrid,
   ListOrdered,
@@ -70,21 +69,13 @@ export function AppShell({
   children: ReactNode
 }) {
   const { meta, projects, projectId, selectProject, scan } = useApp()
-  const reduce = useReducedMotion()
 
   return (
     <div className="flex h-full min-h-0">
       <aside className="bg-card hidden w-56 shrink-0 flex-col border-r md:flex">
-        <div className="flex items-center gap-2.5 px-4 py-4">
-          <div
-            className="text-primary-foreground grid size-7 place-items-center rounded-lg text-[11px] font-bold"
-            style={{ background: "linear-gradient(135deg, var(--c1), var(--c4))" }}
-            aria-hidden="true"
-          >
-            AI
-          </div>
+        <div className="flex items-center gap-2.5 border-b px-4 py-3">
           <div className="min-w-0 leading-tight">
-            <div className="truncate text-[13px] font-semibold">AI Mentions</div>
+            <div className="truncate text-[14px] font-bold">AI Mentions</div>
             <div className="text-muted-foreground truncate text-[11px]">
               {meta ? `${meta.portable ? "portable" : "установлено"} · v${meta.version}` : "…"}
             </div>
@@ -106,7 +97,7 @@ export function AppShell({
                 onClick={() => selectProject(p.id)}
                 aria-current={p.id === projectId ? "true" : undefined}
                 className={cn(
-                  "flex h-8 w-full cursor-pointer items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors",
+                  "flex h-8 w-full cursor-pointer items-center gap-2 rounded-sm px-2 text-left text-[13px] transition-colors",
                   p.id === projectId
                     ? "bg-accent text-accent-foreground font-medium"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -144,19 +135,12 @@ export function AppShell({
                 onClick={() => onView(id)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex h-9 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition-colors",
+                  "relative flex h-9 cursor-pointer items-center gap-2.5 rounded-sm px-2.5 text-[13px] transition-colors",
                   active
-                    ? "text-foreground font-medium"
+                    ? "bg-muted text-foreground before:bg-primary font-semibold before:absolute before:inset-y-2 before:left-0 before:w-0.5"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
-                {active ? (
-                  <motion.span
-                    layoutId="nav-active"
-                    className="bg-accent absolute inset-0 -z-10 rounded-lg"
-                    transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 34 }}
-                  />
-                ) : null}
                 <Icon className="size-4 shrink-0" aria-hidden="true" />
                 {label}
                 {id === "scan" && scan && scan.state !== "finished" ? (
@@ -171,7 +155,7 @@ export function AppShell({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="bg-card/80 flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-3 backdrop-blur md:px-6">
+        <header className="bg-card flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5 md:px-6">
           <div className="min-w-0">
             <h1 className="truncate text-[15px] leading-tight font-semibold tracking-tight">
               {title}

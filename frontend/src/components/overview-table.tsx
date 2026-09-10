@@ -162,7 +162,7 @@ export function OverviewTable({
         hint={`${overview.dates.length} ${plural(overview.dates.length, "срез", "среза", "срезов")} · клик по ячейке открывает ответ`}
       >
         {available.length > 1 ? (
-          <div role="tablist" aria-label="ИИ-система" className="bg-muted flex flex-wrap rounded-lg p-0.5">
+          <div role="tablist" aria-label="ИИ-система" className="-my-2.5 flex flex-wrap">
             {tabs.map((t) => {
               const on = current === t.id
               return (
@@ -176,16 +176,18 @@ export function OverviewTable({
                     setLimit(PAGE)
                   }}
                   className={cn(
-                    "relative flex h-7 cursor-pointer items-center rounded-md px-2.5 text-xs font-medium transition-colors",
-                    "focus-visible:ring-ring focus-visible:ring-3 focus-visible:outline-none",
-                    on ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                    "relative flex h-10 cursor-pointer items-center px-3 text-xs transition-colors",
+                    "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset",
+                    on ? "text-foreground font-semibold" : "text-muted-foreground hover:text-foreground",
                   )}
                 >
+                  {/* Подчёркивание переезжает под выбранную вкладку — единственная
+                      анимация здесь, и она показывает, куда переключились. */}
                   {on ? (
                     <motion.span
                       layoutId="overview-service-tab"
-                      className="bg-card absolute inset-0 rounded-md shadow-sm"
-                      transition={{ duration: 0.2, ease: "easeOut" }}
+                      className="bg-primary absolute inset-x-2 bottom-0 h-0.5"
+                      transition={{ duration: 0.18, ease: "easeOut" }}
                     />
                   ) : null}
                   <span className="relative flex items-center gap-1.5">
