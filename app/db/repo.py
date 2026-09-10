@@ -305,7 +305,23 @@ def results_for_scan(scan_id: int) -> list[dict]:
     )
 
 
+def pick_result(current: dict | None, candidate: dict) -> dict:
+    """Какой из двух результатов одной пары «запрос × сервис × дата» показывать.
+
+    За день бывает несколько сканов: дозапуск после лимита тарифа,
+    перепроверка. Берём последний конклюзивный (found / not_found / skipped):
+    свежая ошибка не должна затирать уже полученный ответ. Если конклюзивных
+    нет — последний вообще. Кандидаты подаются по возрастанию времени.
+    """
+    if current is None:
+        return candidate
+    if candidate["status"] in CONCLUSIVE_STATUSES or current["status"] not in CONCLUSIVE_STATUSES:
+        return candidate
+    return current
+
+
 def query_history(query_id: int, service: str | None = None, limit: int = 30) -> list[dict]:
+    """По одному результату на дату (и сервис) — см. pick_result."""
     sql = """SELECT s.scan_date, r.service, r.status, r.confidence
                FROM results r JOIN scans s ON s.id = r.scan_id
               WHERE r.query_id = ?"""
@@ -313,9 +329,62 @@ def query_history(query_id: int, service: str | None = None, limit: int = 30) ->
     if service:
         sql += " AND r.service = ?"
         args.append(service)
-    sql += " ORDER BY s.scan_date DESC LIMIT ?"
-    args.append(limit)
-    return list(reversed(_rows(sql, args)))
+    sql += " ORDER BY s.scan_date, r.created_at, r.id"
+    picked: dict[tuple[str, str], dict] = {}
+    for r in _rows(sql, args):
+        key = (r["scan_date"], r["service"])
+        picked[key] = pick_result(picked.get(key), r)
+    return sorted(picked.values(), key=lambda r: (r["scan_date"], r["service"]))[-limit:]
+
+
+def project_dates(project_id: int, days: int) -> list[str]:
+    """Последние `days` дат, в которые по проекту были сканы, по возрастанию."""
+    rows = _rows(
+        "SELECT DISTINCT scan_date FROM scans WHERE project_id = ? ORDER BY scan_date DESC LIMIT ?",
+        (project_id, days),
+    )
+    return sorted(r["scan_date"] for r in rows)
+
+
+def results_by_date(project_id: int, dates: list[str]) -> list[dict]:
+    """Результаты проекта за даты — ровно один на (запрос, сервис, дата).
+
+    Раньше видимость за день считалась по всем сканам этого дня сразу, и
+    повторная проверка того же запроса удваивала и числитель, и знаменатель.
+    """
+    if not dates:
+        return []
+    marks = ",".join("?" * len(dates))
+    rows = _rows(
+        f"""SELECT r.id, r.query_id, r.service, r.status, r.needs_review,
+                   s.scan_date, s.id AS scan_id
+              FROM results r JOIN scans s ON s.id = r.scan_id
+             WHERE s.project_id = ? AND s.scan_date IN ({marks})
+             ORDER BY r.created_at, r.id""",
+        (project_id, *dates),
+    )
+    picked: dict[tuple[int, str, str], dict] = {}
+    for r in rows:
+        key = (r["query_id"], r["service"], r["scan_date"])
+        picked[key] = pick_result(picked.get(key), r)
+    return list(picked.values())
+
+
+def query_results_on_date(query_id: int, scan_date: str) -> list[dict]:
+    """Полные результаты запроса за дату — по одному на сервис, см. pick_result."""
+    rows = _rows(
+        """SELECT r.*, q.text AS query_text, s.scan_date
+             FROM results r
+             JOIN scans s ON s.id = r.scan_id
+             JOIN queries q ON q.id = r.query_id
+            WHERE r.query_id = ? AND s.scan_date = ?
+            ORDER BY r.created_at, r.id""",
+        (query_id, scan_date),
+    )
+    picked: dict[str, dict] = {}
+    for r in rows:
+        picked[r["service"]] = pick_result(picked.get(r["service"]), r)
+    return list(picked.values())
 
 
 def visibility_by_day(project_id: int, days: int = 30) -> list[dict]:
