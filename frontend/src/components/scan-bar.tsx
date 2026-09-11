@@ -50,12 +50,20 @@ export function ScanBar() {
               {running.length > 1 ? (
                 <>
                   <span className="text-muted-foreground font-normal">параллельно:</span>
-                  {running.map((s) => (
-                    <span key={s!.id} className="flex items-center gap-1.5">
-                      <ServiceDot service={s} />
-                      {s!.name}
-                    </span>
-                  ))}
+                  {running.map((s) => {
+                    const p = scan.services?.[s!.id]
+                    return (
+                      <span key={s!.id} className="flex items-center gap-1.5">
+                        <ServiceDot service={s} />
+                        {s!.name}
+                        {p ? (
+                          <span className="tnum text-muted-foreground text-xs font-normal">
+                            {p.done}/{p.total}
+                          </span>
+                        ) : null}
+                      </span>
+                    )
+                  })}
                 </>
               ) : (
                 <span className="flex items-center gap-2">

@@ -168,6 +168,45 @@ def test_parallel_is_faster():
     assert par < seq * 0.8, f"параллельно {par:.2f} с, по очереди {seq:.2f} с"
 
 
+def _ctl_with(parallel: bool, now: float) -> "orchestrator.ScanController":
+    # Google: 10 из 20 за 100 с (10 с на запрос), Perplexity: 2 из 20 за 100 с (50 с).
+    ctl = orchestrator.ScanController(0, 0, total=40, scan_date="2026-09-11")
+    ctl.started_at = now - 100
+    ctl.parallel = parallel
+    ctl.per_service = {
+        "google_aio": {"done": 10, "total": 20, "started": now - 100},
+        "perplexity": {"done": 2, "total": 20, "started": now - 100},
+    }
+    ctl.done = 12
+    return ctl
+
+
+def test_eta_counts_each_service_separately():
+    now = time.time()
+    # Параллельно ждём самого медленного: Perplexity, 18 × 50 с. Общая средняя
+    # (12 за 100 с × 28 оставшихся ≈ 233 с) занижала прогноз вчетверо.
+    assert _ctl_with(True, now)._eta(now) == 900
+    # По очереди — сумма: 10 × 10 с + 18 × 50 с.
+    assert _ctl_with(False, now)._eta(now) == 1000
+
+
+def test_eta_for_service_without_results_uses_overall_speed():
+    now = time.time()
+    ctl = _ctl_with(False, now)
+    ctl.per_service["alice"] = {"done": 0, "total": 6, "started": None}
+    ctl.total = 46
+    # Алиса ещё не начиналась: 6 × (100 с / 12) = 50 с сверх прежних 1000.
+    assert ctl._eta(now) == 1050
+
+
+def test_snapshot_has_per_service_progress():
+    ctl = _ctl_with(True, time.time())
+    ctl.advance("perplexity")
+    snap = ctl.snapshot()
+    assert snap["services"] == {"google_aio": {"done": 10, "total": 20}, "perplexity": {"done": 3, "total": 20}}
+    assert snap["done"] == 13
+
+
 def test_project_flag_roundtrip_and_migration():
     pid = repo.create_project("Флаг", "Бренд")
     assert repo.get_project(pid)["parallel_scan"] is False

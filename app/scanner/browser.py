@@ -47,6 +47,19 @@ _DEFAULT_LAUNCH = dict(
     # безусловно — она не зависит от того, удался ли geoip.
     locale="ru-RU",
 )
+
+# Окна Camoufox открыты на рабочем столе пользователя, и он закрывает их
+# своими окнами. Firefox считает полностью перекрытое окно скрытым (window
+# occlusion tracking) и душит в нём таймеры и отрисовку — ответ нейросети в
+# таком окне не дорисовывается. Живой скан 11.09.2026 стоял по 4–6 минут и
+# пошёл дальше через 15 секунд после того, как перекрывавшее окно свернули.
+# Свёрнутое окно Firefox всё равно притормаживает — поэтому только перекрытие.
+_FIREFOX_PREFS = {
+    "widget.windows.window_occlusion_tracking.enabled": False,
+    "dom.min_background_timeout_value": 4,
+    "dom.min_background_timeout_value_without_budget_throttling": 4,
+    "dom.timeout.enable_budget_timer_throttling": False,
+}
 # issue #537 (github.com/daijro/camoufox/issues/537) описывает битые символы в
 # persistent-контексте и советует extra_http_headers={"accept-encoding": "identity"}.
 # Намеренно НЕ включаем это по умолчанию: настоящий Firefox всегда шлёт
@@ -97,7 +110,9 @@ async def service_context(service_id: str, *, window: tuple[int, int] = (1360, 9
 
     global _geoip_works
 
-    launch = dict(persistent_context=True, user_data_dir=str(profile), window=window, **_DEFAULT_LAUNCH)
+    # Копия настроек на каждый запуск: Camoufox дописывает в этот словарь свои ключи.
+    launch = dict(persistent_context=True, user_data_dir=str(profile), window=window,
+                  firefox_user_prefs=dict(_FIREFOX_PREFS), **_DEFAULT_LAUNCH)
     if _geoip_works is False:
         # Уже знаем, что geoip в этой сессии не работает — не тратим на него
         # ещё один запуск браузера.
