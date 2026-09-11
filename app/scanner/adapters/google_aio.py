@@ -166,6 +166,10 @@ class GoogleAIOAdapter:
     async def _screenshot(self, page, box) -> bytes:
         """Скриншот самого блока — раскрытого, целиком; при сбое — видимой части страницы."""
         try:
+            # Мышь над ссылкой-источником раскрывает всплывающую карточку, и
+            # она попадала в кадр поверх ответа (скан 24, 11.09.2026).
+            await page.mouse.move(5, 5)
+            await asyncio.sleep(0.4)
             return await box.screenshot(type="jpeg", quality=80, timeout=8000)
         except Exception as exc:
             log.info("Скриншот блока AI Overview не снялся (%s) — снимаю страницу", exc)
