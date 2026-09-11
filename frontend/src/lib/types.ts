@@ -174,6 +174,8 @@ export interface ScanSnapshot {
   current_service: string | null
   /** Все системы, которые идут прямо сейчас (при параллельном скане — несколько). */
   running_services?: string[]
+  /** Прогресс этого прогона по каждой системе. */
+  services?: Record<string, { done: number; total: number }>
 }
 
 export interface Resumable {

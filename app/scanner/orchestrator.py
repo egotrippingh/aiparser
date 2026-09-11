@@ -84,6 +84,12 @@ class ScanController:
         self.running: list[str] = []
         self.state = "running"          # running | paused | stopping | finished
         self.started_at = time.time()
+        # Прогресс по каждому сервису. При параллельном скане общая средняя
+        # скорость врёт: Google проходит запрос за 20–40 с, Perplexity — за
+        # минуты, и когда Google закончит, общий прогноз окажется заниженным.
+        # {service: {"done", "total", "started"}} — заполняет _run_scan.
+        self.per_service: dict[str, dict] = {}
+        self.parallel = False
 
         # Своя очередь у каждого подписчика. Раньше очередь была одна на скан,
         # и два подключения делили события между собой — каждое доставалось
@@ -133,7 +139,35 @@ class ScanController:
 
     def advance(self, service_id: str) -> None:
         self.done += 1
+        if service_id in self.per_service:
+            self.per_service[service_id]["done"] += 1
         self.emit("progress", service=service_id, **self.snapshot())
+
+    def _eta(self, now: float) -> int | None:
+        """Сколько ещё идти: по скорости каждого сервиса отдельно.
+
+        Параллельно — сколько осталось самому медленному; по очереди — сумма.
+        Сервис, по которому ещё нет ни одного результата, оцениваем по общей
+        средней скорости прогона.
+        """
+        overall = (now - self.started_at) / self.done if self.done else None
+        if not self.per_service:
+            return int(overall * (self.total - self.done)) if overall and self.total > self.done else None
+        etas = []
+        for st in self.per_service.values():
+            left = st["total"] - st["done"]
+            if left <= 0:
+                continue
+            if st["done"] and st["started"]:
+                per_check = (now - st["started"]) / st["done"]
+            elif overall:
+                per_check = overall
+            else:
+                return None
+            etas.append(per_check * left)
+        if not etas:
+            return None
+        return round(max(etas) if self.parallel else sum(etas))
 
     def snapshot(self) -> dict:
         """Текущий прогресс + оценка остатка.
@@ -142,10 +176,9 @@ class ScanController:
         по нормативу: реальное время на запрос зависит от того, насколько
         долго думает конкретная нейросеть, и предсказать его заранее нельзя.
         """
-        elapsed = time.time() - self.started_at
-        eta = None
-        if self.done and self.total > self.done:
-            eta = int((elapsed / self.done) * (self.total - self.done))
+        now = time.time()
+        elapsed = now - self.started_at
+        eta = self._eta(now)
         return {
             "scan_id": self.scan_id,
             "project_id": self.project_id,
@@ -157,6 +190,7 @@ class ScanController:
             "running_services": list(self.running),
             "elapsed_sec": int(elapsed),
             "eta_sec": eta,
+            "services": {s: {"done": st["done"], "total": st["total"]} for s, st in self.per_service.items()},
         }
 
 
@@ -225,7 +259,7 @@ async def start_scan(project_id: int, service_ids: list[str], *, resume: bool = 
     if not queries:
         raise ValueError("В проекте нет активных запросов")
 
-    plan = _plan(project_id, known, queries, resume)
+    plan = _plan(project_id, known, resume)
     done_pairs = plan["done_pairs"]
     work = [(svc, q) for svc in known for q in queries if (q["id"], svc) not in done_pairs]
     if not work:
@@ -246,7 +280,7 @@ async def start_scan(project_id: int, service_ids: list[str], *, resume: bool = 
     return scan_id
 
 
-def _plan(project_id: int, service_ids: list[str], queries: list[dict], resume: bool) -> dict:
+def _plan(project_id: int, service_ids: list[str], resume: bool) -> dict:
     """За какую дату сканируем и какие пары «запрос × сервис» уже готовы.
 
     resume=True — досканировать: пропускаем всё, по чему за дату уже есть
@@ -281,7 +315,7 @@ def plan_scan(project_id: int, service_ids: list[str], *, resume: bool = True) -
     """
     known = [s for s in service_ids if s in ADAPTERS]
     queries = repo.list_queries(project_id, only_active=True)
-    plan = _plan(project_id, known, queries, resume)
+    plan = _plan(project_id, known, resume)
     done_pairs = plan.pop("done_pairs")
     ids = {q["id"] for q in queries}
     by_service = {
@@ -310,6 +344,11 @@ async def _run_scan(
     speed = settings["typing_speed"]
 
     parallel = bool(project.get("parallel_scan"))
+    ctl.parallel = parallel
+    for s in service_ids:
+        n = sum(1 for q in queries if (q["id"], s) not in done_pairs)
+        if n:
+            ctl.per_service[s] = {"done": 0, "total": n, "started": None}
     ctl.emit("scan_started", parallel=parallel, **ctl.snapshot())
 
     async def run_service(service_id: str) -> None:
@@ -319,6 +358,8 @@ async def _run_scan(
 
         ctl.running.append(service_id)
         ctl.current_service = service_id
+        if service_id in ctl.per_service:
+            ctl.per_service[service_id]["started"] = time.time()
         ctl.emit("service_started", service=service_id,
                  name=services.get(service_id).name, pending=len(pending))
         try:
