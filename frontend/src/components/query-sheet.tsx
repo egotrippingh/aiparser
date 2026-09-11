@@ -63,7 +63,10 @@ export function QuerySheet({
 
   return (
     <Sheet open={target !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="right" className="w-full gap-0 p-0 sm:max-w-[42rem]">
+      {/* Ширину задаём тем же вариантом, что и в базовом Sheet
+          (data-[side=right]:sm:max-w-sm): простой sm:max-w-* его не
+          перебивает, и карточка сжималась до 384 px. */}
+      <SheetContent side="right" className="w-full gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-[44rem]">
         <SheetHeader className="border-b">
           <SheetTitle className="pr-8 text-[15px] leading-snug">
             {detail?.text ?? "Загрузка…"}

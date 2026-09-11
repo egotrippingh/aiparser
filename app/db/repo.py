@@ -203,14 +203,14 @@ def get_scan(scan_id: int) -> dict | None:
 
 def list_scans(project_id: int, limit: int = 60) -> list[dict]:
     return _rows(
-        "SELECT * FROM scans WHERE project_id = ? ORDER BY started_at DESC LIMIT ?",
+        "SELECT * FROM scans WHERE project_id = ? ORDER BY started_at DESC, id DESC LIMIT ?",
         (project_id, limit),
     )
 
 
 def latest_scan(project_id: int) -> dict | None:
     return _row(
-        "SELECT * FROM scans WHERE project_id = ? ORDER BY started_at DESC LIMIT 1",
+        "SELECT * FROM scans WHERE project_id = ? ORDER BY started_at DESC, id DESC LIMIT 1",
         (project_id,),
     )
 
@@ -275,6 +275,24 @@ def conclusive_pairs(scan_id: int) -> set[tuple[int, str]]:
     return {(r["query_id"], r["service"]) for r in rows}
 
 
+def conclusive_pairs_on_date(project_id: int, scan_date: str) -> set[tuple[int, str]]:
+    """Пары с годным результатом за дату — по ВСЕМ сканам этого дня.
+
+    Дашборд собирает срез за день из всех сканов даты (см. pick_result),
+    поэтому и «что осталось досканировать» считается так же: если утренний
+    скан прервался, а днём отдельно прогнали одну Алису, досканировать
+    нужно только то, чего нет ни в одном из них.
+    """
+    placeholders = ",".join("?" * len(CONCLUSIVE_STATUSES))
+    rows = _rows(
+        f"""SELECT DISTINCT r.query_id, r.service
+              FROM results r JOIN scans s ON s.id = r.scan_id
+             WHERE s.project_id = ? AND s.scan_date = ? AND r.status IN ({placeholders})""",
+        (project_id, scan_date, *CONCLUSIVE_STATUSES),
+    )
+    return {(r["query_id"], r["service"]) for r in rows}
+
+
 def find_resumable_scan(project_id: int, scannable: set[str] | None = None) -> dict | None:
     """Последний скан проекта, в котором остались непройденные пары «запрос × сервис».
 
@@ -290,7 +308,7 @@ def find_resumable_scan(project_id: int, scannable: set[str] | None = None) -> d
     фактическим.
     """
     scan = _row(
-        "SELECT * FROM scans WHERE project_id = ? ORDER BY started_at DESC LIMIT 1",
+        "SELECT * FROM scans WHERE project_id = ? ORDER BY started_at DESC, id DESC LIMIT 1",
         (project_id,),
     )
     if not scan:
@@ -300,9 +318,15 @@ def find_resumable_scan(project_id: int, scannable: set[str] | None = None) -> d
     if scannable is not None:
         services_in_scan = [s for s in services_in_scan if s in scannable]
 
-    active_queries = len(list_queries(project_id, only_active=True))
-    expected = active_queries * len(services_in_scan)
-    done = len(conclusive_pairs(scan["id"]))
+    # Готовое считаем по всем сканам той же даты и только по активным
+    # запросам: дозапуск «оставшегося» пишет в новый скан, и сам по себе он
+    # всегда выглядел бы незаконченным.
+    active_ids = {q["id"] for q in list_queries(project_id, only_active=True)}
+    expected = len(active_ids) * len(services_in_scan)
+    done = sum(
+        1 for q, s in conclusive_pairs_on_date(project_id, scan["scan_date"])
+        if q in active_ids and s in services_in_scan
+    )
 
     if expected == 0 or done >= expected:
         return None

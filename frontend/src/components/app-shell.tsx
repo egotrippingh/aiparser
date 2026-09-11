@@ -85,6 +85,38 @@ export function AppShell({
           </div>
         </div>
 
+        {/* Разделы — сверху, а не прижаты к низу: низ окна у пользователя
+            перекрывался (панель задач, панель загрузок браузера), и
+            «Скан» с «Настройками» уходили за край. Длинный список проектов
+            прокручивается ниже и разделы не выталкивает. */}
+        <nav className="flex shrink-0 flex-col gap-0.5 border-b p-2" aria-label="Разделы">
+          {NAV.map(({ id, label, icon: Icon }) => {
+            const active = id === view
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => onView(id)}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "relative flex h-9 cursor-pointer items-center gap-2.5 rounded-sm px-2.5 text-[13px] transition-colors",
+                  active
+                    ? "bg-muted text-foreground before:bg-primary font-semibold before:absolute before:inset-y-2 before:left-0 before:w-0.5"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+              >
+                <Icon className="size-4 shrink-0" aria-hidden="true" />
+                {label}
+                {id === "scan" && scan && scan.state !== "finished" ? (
+                  <Badge variant="secondary" className="tnum ml-auto">
+                    {scan.percent}%
+                  </Badge>
+                ) : null}
+              </button>
+            )
+          })}
+        </nav>
+
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
           <div className="text-muted-foreground px-2 py-1.5 text-[10px] font-semibold tracking-[0.08em] uppercase">
             Проекты
@@ -124,34 +156,6 @@ export function AppShell({
             </Button>
           </div>
         </div>
-
-        <nav className="flex flex-col gap-0.5 border-t p-2" aria-label="Разделы">
-          {NAV.map(({ id, label, icon: Icon }) => {
-            const active = id === view
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => onView(id)}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "relative flex h-9 cursor-pointer items-center gap-2.5 rounded-sm px-2.5 text-[13px] transition-colors",
-                  active
-                    ? "bg-muted text-foreground before:bg-primary font-semibold before:absolute before:inset-y-2 before:left-0 before:w-0.5"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-              >
-                <Icon className="size-4 shrink-0" aria-hidden="true" />
-                {label}
-                {id === "scan" && scan && scan.state !== "finished" ? (
-                  <Badge variant="secondary" className="tnum ml-auto">
-                    {scan.percent}%
-                  </Badge>
-                ) : null}
-              </button>
-            )
-          })}
-        </nav>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">

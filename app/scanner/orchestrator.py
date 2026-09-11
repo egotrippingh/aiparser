@@ -37,7 +37,7 @@ import asyncio
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import date, datetime
 
 from app import config, imaging, services
 from app.db import repo
@@ -225,42 +225,76 @@ async def start_scan(project_id: int, service_ids: list[str], *, resume: bool = 
     if not queries:
         raise ValueError("В проекте нет активных запросов")
 
-    snapshot = _settings_snapshot()
-    scan_id, done_pairs = _open_scan(project_id, known, resume, snapshot)
-
+    plan = _plan(project_id, known, queries, resume)
+    done_pairs = plan["done_pairs"]
     work = [(svc, q) for svc in known for q in queries if (q["id"], svc) not in done_pairs]
     if not work:
-        # _open_scan уже перевёл найденный скан в "running" — возвращаем его в
-        # завершённое состояние, иначе он навсегда остался бы «идущим».
-        repo.finish_scan(scan_id, status="done")
-        raise ValueError("Всё уже проверено — нечего досканировать")
+        raise ValueError(f"За {plan['date']} по выбранным сервисам всё уже проверено — нечего досканировать")
 
-    scan_row = repo.get_scan(scan_id)
-    assert scan_row is not None  # только что создан или найден выше
-    controller = ScanController(scan_id, project_id, total=len(work), scan_date=scan_row["scan_date"])
+    snapshot = _settings_snapshot()
+    if plan["continue_scan_id"]:
+        scan_id = plan["continue_scan_id"]
+        repo.set_scan_status(scan_id, "running")
+        log.info("Продолжаю скан %s: осталось %s проверок", scan_id, len(work))
+    else:
+        scan_id = repo.create_scan(project_id, known, snapshot)
+
+    controller = ScanController(scan_id, project_id, total=len(work), scan_date=plan["date"])
     _active[scan_id] = controller
 
     asyncio.create_task(_run_scan(project, known, queries, done_pairs, snapshot, controller))
     return scan_id
 
 
-def _open_scan(project_id: int, services_used: list[str], resume: bool, snapshot: dict) -> tuple[int, set]:
-    """Продолжает незаконченный скан или заводит новый.
+def _plan(project_id: int, service_ids: list[str], queries: list[dict], resume: bool) -> dict:
+    """За какую дату сканируем и какие пары «запрос × сервис» уже готовы.
 
-    Продолжаем только если набор сервисов совпадает: скан с другим составом
-    сервисов — это другой замер, дописывать в него чужие данные нельзя.
+    resume=True — досканировать: пропускаем всё, по чему за дату уже есть
+    годный результат в ЛЮБОМ скане этого дня (дашборд так же собирает срез).
+    Дата — сегодняшняя, кроме одного случая: последний скан проекта не
+    закончен, а выбранные сервисы входят в его состав — тогда дописываем в
+    него и в его дату (база в сотню запросов на бесплатных тарифах не
+    проходит за день). Сервис, которого в том скане не было, в чужой замер
+    не дописываем — для него это новый скан за сегодня.
+
+    resume=False — начать заново: проверяем всё, новые результаты за
+    сегодня перекроют прежние.
     """
+    today = date.today().isoformat()
+    continue_scan_id = None
+    scan_date = today
+    done_pairs: set[tuple[int, str]] = set()
     if resume:
         prev = repo.find_resumable_scan(project_id, scannable=set(ADAPTERS))
-        # Достаточно, чтобы выбранные сервисы входили в состав того скана:
-        # сканировать подмножество — это дозапуск, а вот сервис, которого там
-        # не было, дописывать в чужой замер нельзя.
-        if prev and set(services_used) <= set(json.loads(prev["services_json"])):
-            repo.set_scan_status(prev["id"], "running")
-            log.info("Продолжаю скан %s: осталось %s проверок", prev["id"], prev["remaining"])
-            return prev["id"], repo.conclusive_pairs(prev["id"])
+        if prev and set(service_ids) <= set(json.loads(prev["services_json"])):
+            continue_scan_id, scan_date = prev["id"], prev["scan_date"]
+        done_pairs = repo.conclusive_pairs_on_date(project_id, scan_date)
+    return {"date": scan_date, "continue_scan_id": continue_scan_id, "done_pairs": done_pairs}
 
-    return repo.create_scan(project_id, services_used, snapshot), set()
+
+def plan_scan(project_id: int, service_ids: list[str], *, resume: bool = True) -> dict:
+    """Что сделает запуск скана с этими сервисами — для экрана «Скан».
+
+    by_service — по каждому сервису с адаптером (не только выбранным), чтобы
+    было видно, где остались хвосты, ещё до того, как расставлены галочки;
+    remaining и total — только по выбранным.
+    """
+    known = [s for s in service_ids if s in ADAPTERS]
+    queries = repo.list_queries(project_id, only_active=True)
+    plan = _plan(project_id, known, queries, resume)
+    done_pairs = plan.pop("done_pairs")
+    ids = {q["id"] for q in queries}
+    by_service = {
+        s: {"done": sum(1 for q, svc in done_pairs if svc == s and q in ids), "total": len(ids)}
+        for s in ADAPTERS
+    }
+    total = len(ids) * len(known)
+    return {
+        **plan,
+        "by_service": by_service,
+        "total": total,
+        "remaining": total - sum(by_service[s]["done"] for s in known),
+    }
 
 
 async def _run_scan(
