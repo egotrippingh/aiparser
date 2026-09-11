@@ -184,6 +184,18 @@ export interface Resumable {
   remaining: number
 }
 
+/** Что сделает запуск скана: готовое за дату считается по всем сканам дня. */
+export interface ScanPlan {
+  date: string
+  /** Незаконченный скан, в который допишем; null — будет новый скан за сегодня. */
+  continue_scan_id: number | null
+  /** По каждому сервису с адаптером, не только выбранному. */
+  by_service: Record<string, { done: number; total: number }>
+  /** Только по выбранным сервисам. */
+  total: number
+  remaining: number
+}
+
 /* --- настройки и браузер ---------------------------------------------- */
 
 export interface SpeedProfile {

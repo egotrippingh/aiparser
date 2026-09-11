@@ -1,8 +1,9 @@
-/** Скан: выбор сервисов, запуск/дозапуск и живой лог.
+/** Скан: выбор сервисов, запуск/досканирование и живой лог.
  *
  * Прогресс здесь намеренно не дублируется — он в шапке и виден со всех
- * вкладок. На этом экране остаётся то, чего в шапке нет: чем именно сейчас
- * занят прогон и почему пропущены запросы.
+ * вкладок. На этом экране остаётся то, чего в шапке нет: сколько за день уже
+ * проверено по каждой ИИ-системе, чем сейчас занят прогон и почему пропущены
+ * запросы.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -19,10 +20,13 @@ import { ConfirmButton } from "@/components/confirm-button"
 import { EmptyState, Panel, PanelFoot, PanelHead, ServiceDot } from "@/components/bits"
 import { useResource } from "@/hooks/use-resource"
 import { api, errText } from "@/lib/api"
+import { dmy } from "@/lib/dates"
 import { plural } from "@/lib/format"
-import type { Query, Resumable } from "@/lib/types"
+import type { Query, Resumable, ScanPlan } from "@/lib/types"
 import { useApp } from "@/store/app-store"
 import type { View } from "@/hooks/use-hash-route"
+
+const checks = (n: number) => plural(n, "проверка", "проверки", "проверок")
 
 export function ScanScreen({ onView }: { onView: (v: View) => void }) {
   const {
@@ -60,9 +64,25 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
     projectId ? () => api.get<Resumable | null>(`/api/projects/${projectId}/resumable`) : null,
     [projectId, dataVersion],
   )
+  // План зависит от выбора: дописать в незаконченный скан можно, только если
+  // выбранные системы входили в его состав, — от этого зависит и дата.
+  const chosenKey = [...chosen].sort().join(",")
+  const { data: plan, reload: reloadPlan } = useResource<ScanPlan>(
+    projectId && chosenKey
+      ? () => api.get<ScanPlan>(`/api/projects/${projectId}/scan-plan?services=${chosenKey}`)
+      : null,
+    [projectId, chosenKey, dataVersion],
+  )
 
   const activeCount = active?.length ?? 0
   const running = scan !== null && scan.state !== "finished"
+  const done = (id: string) => plan?.by_service[id]?.done ?? 0
+  // За дату уже что-то собрано хоть по одной системе — показываем прогресс
+  // по каждой и предлагаем досканировать хвосты.
+  const anyDone = ready.some((s) => done(s.id) > 0)
+  const unfinished = ready.filter((s) => done(s.id) < (plan?.by_service[s.id]?.total ?? 0))
+  const partial = plan ? plan.remaining < plan.total : false
+  const allDone = plan ? plan.total > 0 && plan.remaining === 0 : false
 
   useEffect(() => {
     const el = logRef.current
@@ -89,6 +109,7 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
       watchScan(res.scan_id)
       await refreshScan()
       reloadResumable()
+      reloadPlan()
     } catch (e) {
       toast.error(errText(e))
     } finally {
@@ -101,23 +122,34 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
       {resumable ? (
         <Alert>
           <History />
-          <AlertTitle>Незаконченный скан от {resumable.scan_date}</AlertTitle>
+          <AlertTitle>Незаконченный скан от {dmy(resumable.scan_date)}</AlertTitle>
           <AlertDescription>
             <p>
               Проверено {resumable.conclusive} из {resumable.expected}, осталось{" "}
-              {resumable.remaining}. Бесплатные тарифы упираются в лимит примерно на сороковом
-              запросе, поэтому большую базу приходится добирать за несколько заходов. Дозапуск
-              продолжит с места остановки и допишет результаты в тот же срез.
+              {resumable.remaining}. «Досканировать» проверит только оставшееся и допишет результаты
+              в тот же срез — можно выбрать и отдельные ИИ-системы.
             </p>
           </AlertDescription>
         </Alert>
       ) : null}
 
       <Panel>
-        <PanelHead title="Сервисы" hint="выберите, какие проверять" />
+        <PanelHead title="Сервисы" hint="выберите, какие проверять">
+          {anyDone && unfinished.length && unfinished.length < ready.length ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              disabled={running}
+              onClick={() => setChosen(new Set(unfinished.map((s) => s.id)))}
+            >
+              Выбрать недоделанные
+            </Button>
+          ) : null}
+        </PanelHead>
         <div className="grid gap-1.5 p-4 sm:grid-cols-2 lg:grid-cols-3">
           {ready.map((s) => {
             const on = chosen.has(s.id)
+            const b = plan?.by_service[s.id]
             return (
               <Label
                 key={s.id}
@@ -146,6 +178,16 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
                   <span className="text-muted-foreground mt-0.5 block text-xs font-normal">
                     {s.note}
                   </span>
+                  {plan && b && anyDone ? (
+                    <span
+                      className="tnum mt-1 block text-xs font-medium"
+                      style={{ color: b.done >= b.total ? "var(--ok)" : "var(--warn, var(--foreground))" }}
+                    >
+                      {b.done >= b.total
+                        ? `За ${dmy(plan.date)} всё проверено`
+                        : `За ${dmy(plan.date)}: ${b.done} из ${b.total}, осталось ${b.total - b.done}`}
+                    </span>
+                  ) : null}
                 </span>
               </Label>
             )
@@ -172,10 +214,20 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
 
         <PanelFoot>
           <span>
-            {activeCount} {plural(activeCount, "активный запрос", "активных запроса", "активных запросов")}{" "}
-            × {chosen.size} {plural(chosen.size, "сервис", "сервиса", "сервисов")} ={" "}
-            <b className="tnum text-foreground">{activeCount * chosen.size}</b>{" "}
-            {plural(activeCount * chosen.size, "проверка", "проверки", "проверок")}
+            {plan && partial ? (
+              <>
+                Осталось <b className="tnum text-foreground">{plan.remaining}</b> из{" "}
+                {plan.total} {checks(plan.total)} за {dmy(plan.date)}
+              </>
+            ) : (
+              <>
+                {activeCount}{" "}
+                {plural(activeCount, "активный запрос", "активных запроса", "активных запросов")} ×{" "}
+                {chosen.size} {plural(chosen.size, "сервис", "сервиса", "сервисов")} ={" "}
+                <b className="tnum text-foreground">{activeCount * chosen.size}</b>{" "}
+                {checks(activeCount * chosen.size)}
+              </>
+            )}
             {chosen.size > 1
               ? project?.parallel_scan
                 ? " · системы идут одновременно"
@@ -188,27 +240,29 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
             </Button>
           ) : null}
           <div className="ml-auto flex items-center gap-2">
-            {resumable ? (
+            {partial ? (
               <ConfirmButton
                 size="sm"
                 variant="outline"
                 disabled={running || busy}
-                title="Начать скан заново?"
-                confirmLabel="Начать заново"
-                description="Незаконченный скан останется в истории, но продолжить его будет уже нельзя — оставшиеся запросы придётся проверять с нуля."
+                title="Проверить всё заново?"
+                confirmLabel="Проверить заново"
+                description="Выбранные ИИ-системы пройдут все запросы с нуля. Уже собранные ответы останутся в истории, но в срезе за сегодня их заменят новые."
                 onConfirm={() => launch(false)}
               >
                 <RotateCcw />
-                Начать заново
+                Заново всё
               </ConfirmButton>
             ) : null}
-            <Button size="sm" disabled={running || busy} onClick={() => launch(true)}>
+            <Button size="sm" disabled={running || busy || allDone} onClick={() => launch(true)}>
               <Play />
               {running
                 ? "Скан уже идёт"
-                : resumable
-                  ? "Продолжить скан"
-                  : "Запустить скан"}
+                : allDone && plan
+                  ? `Всё проверено за ${dmy(plan.date)}`
+                  : partial && plan
+                    ? `Досканировать ${plan.remaining} ${checks(plan.remaining)}`
+                    : "Запустить скан"}
             </Button>
           </div>
         </PanelFoot>

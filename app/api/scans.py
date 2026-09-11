@@ -65,6 +65,18 @@ def resumable(project_id: int) -> dict | None:
     return repo.find_resumable_scan(project_id, scannable=set(ADAPTERS))
 
 
+@router.get("/projects/{project_id}/scan-plan")
+def scan_plan(project_id: int, services: str = "", resume: bool = True) -> dict:
+    """Сколько проверок сделает запуск: что за дату уже готово, что осталось.
+
+    services — через запятую; пусто — все сервисы с адаптером.
+    """
+    if not repo.get_project(project_id):
+        raise HTTPException(404, "Проект не найден")
+    ids = [s for s in services.split(",") if s] or list(ADAPTERS)
+    return orchestrator.plan_scan(project_id, ids, resume=resume)
+
+
 @router.get("/scans/{scan_id}")
 def get_scan(scan_id: int) -> dict:
     s = repo.get_scan(scan_id)
