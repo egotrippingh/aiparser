@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ServiceDot } from "@/components/bits"
 import { api, errText } from "@/lib/api"
 import { longDate, shortDate } from "@/lib/format"
+import { mentionHint, mentionLabel } from "@/lib/mentions"
 import { statusMeta } from "@/lib/status"
 import type { QueryDetail } from "@/lib/types"
 import { useApp } from "@/store/app-store"
@@ -149,8 +150,8 @@ export function QuerySheet({
                       {info.mention_types?.length ? (
                         <div className="mt-2.5 flex flex-wrap gap-1.5">
                           {info.mention_types.map((t) => (
-                            <Badge key={t} variant="outline">
-                              {t}
+                            <Badge key={t} variant="outline" title={mentionHint(t)}>
+                              {mentionLabel(t)}
                             </Badge>
                           ))}
                         </div>

@@ -8,6 +8,7 @@
 import type { ReactNode } from "react"
 
 import { Delta, ServiceDot } from "@/components/bits"
+import { ExternalSourcesButton } from "@/components/external-sources-button"
 import { dmy } from "@/lib/dates"
 import { pct, plural, shortDate } from "@/lib/format"
 import type { Overview } from "@/lib/types"
@@ -46,6 +47,9 @@ export function SummaryPanel({
             )}
           </span>
         )}
+        <div className="ml-auto">
+          <ExternalSourcesButton date={s.date} />
+        </div>
       </div>
 
       <div className="grid grid-cols-2 divide-x divide-y md:grid-cols-4 md:divide-y-0">

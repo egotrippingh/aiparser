@@ -120,6 +120,18 @@ export interface Overview {
   summary: OverviewSummary | null
 }
 
+/* --- внешние источники ------------------------------------------------- */
+
+export interface ExternalCheck {
+  date: string
+  urls_total: number
+  checked_now: number
+  failed: number
+  found_sites: number
+  updated_results: number
+  sites: { url: string; quote: string }[]
+}
+
 /* --- карточка запроса -------------------------------------------------- */
 
 export interface HistoryPoint {

@@ -113,6 +113,20 @@ def test_evaluate_not_found():
     assert not v.found
 
 
+def test_cards_are_matched_strictly():
+    # Сниппеты чужих сайтов в карточках: только целое слово, без нечёткого
+    # сравнения — как в живой проверке 11.09.2026 на небрендовом запросе.
+    cards = ("VC.ru\nЛучшие премиальные студии дизайна интерьера Москвы ...\n"
+             "G-ART STUDIO\nG-ART STUDIO: Разработка премиум дизайн-проектов")
+    v = evaluate("Ответ без бренда", [], "Neighbors", [], [], card_text=cards)
+    assert not v.found, v
+    v = evaluate("Ответ без бренда", [], "Neighbors", [], [],
+                 card_text="Яндекс\nОтзывы о «Neighbors - Мебель на заказ")
+    assert v.found and v.mention_types == ["card"]
+    v = evaluate("Ответ без бренда", [], "Neighbors", [], [], card_text="Neighborbrite Landscape Design")
+    assert not v.found
+
+
 if __name__ == "__main__":
     import traceback
 

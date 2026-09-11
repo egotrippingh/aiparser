@@ -423,6 +423,60 @@ def query_results_on_date(query_id: int, scan_date: str) -> list[dict]:
     return list(picked.values())
 
 
+def results_with_sources_on_date(project_id: int, scan_date: str) -> list[dict]:
+    """Результаты проекта за дату со ссылками — по одному на (запрос, сервис)."""
+    rows = _rows(
+        """SELECT r.id, r.query_id, r.service, r.status, r.mention_types_json, r.sources_json,
+                  r.evidence_quote, r.detected_by, r.confidence, q.text AS query_text
+             FROM results r
+             JOIN scans s ON s.id = r.scan_id
+             JOIN queries q ON q.id = r.query_id
+            WHERE s.project_id = ? AND s.scan_date = ?
+            ORDER BY r.created_at, r.id""",
+        (project_id, scan_date),
+    )
+    picked: dict[tuple[int, str], dict] = {}
+    for r in rows:
+        key = (r["query_id"], r["service"])
+        picked[key] = pick_result(picked.get(key), r)
+    return list(picked.values())
+
+
+def source_pages_get(project_id: int, brand_sig: str) -> dict[str, dict]:
+    """Уже проверенные страницы-источники проекта для текущих форм бренда."""
+    rows = _rows(
+        "SELECT url, found, quote, error, checked_at FROM source_pages WHERE project_id = ? AND brand_sig = ?",
+        (project_id, brand_sig),
+    )
+    return {r["url"]: r for r in rows}
+
+
+def source_pages_save(project_id: int, brand_sig: str, checks: Iterable) -> None:
+    for c in checks:
+        _exec(
+            """INSERT OR REPLACE INTO source_pages (project_id, url, brand_sig, found, quote, error, checked_at)
+               VALUES (?,?,?,?,?,?, datetime('now'))""",
+            (project_id, c.url, brand_sig, 1 if c.found else 0, c.quote, c.error),
+        )
+
+
+def update_result_mention(
+    result_id: int,
+    *,
+    status: str,
+    mention_types: list[str],
+    evidence_quote: str | None,
+    detected_by: str | None,
+    confidence: float | None,
+) -> None:
+    _exec(
+        """UPDATE results SET status = ?, mention_types_json = ?, evidence_quote = ?,
+                              detected_by = ?, confidence = ?
+            WHERE id = ?""",
+        (status, json.dumps(mention_types, ensure_ascii=False), evidence_quote, detected_by, confidence, result_id),
+    )
+
+
 def visibility_by_day(project_id: int, days: int = 30) -> list[dict]:
     """Доля запросов с упоминанием по дням и сервисам — данные для графика.
 

@@ -58,6 +58,48 @@ _APPEAR_MS = 8000
 _QUIET_SEC = 1.5
 _SETTLE_TIMEOUT = 20.0
 
+CARDS_MARK = "— Карточки источников —"
+
+# Текст ответа и колонка карточек источников справа (разметка 11.09.2026):
+# контейнер data-xid="aim-aside-…"; страховка на случай смены атрибута —
+# правило по месту: блок правее середины с несколькими внешними ссылками.
+#
+# Ссылки ВНУТРИ абзацев карточками не считаем. Живые проверки 11.09.2026:
+# обёртка data-icl-uuid — это сами фразы ИИ со ссылкой (в «карточки» уехали
+# абзацы ответа), а ссылка с подписью «Предварительный просмотр ссылки» —
+# слова ИИ, оформленные ссылкой («…на официальном сайте Neighbors»). Лучше
+# засчитать редкую подпись предпросмотра как текст, чем выбросить из текста
+# слова ИИ. Кусок, не найденный в тексте дословно, не трогаем.
+_SPLIT_JS = r"""(box) => {
+  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 };
+  const ext = e => [...e.querySelectorAll('a[href^="http"]')].filter(a => !/(^|\.)google\./.test(a.hostname));
+  const b = box.getBoundingClientRect();
+  const right = [...box.querySelectorAll('div, ul, section')].filter(vis).filter(e => {
+    const r = e.getBoundingClientRect();
+    return r.left > b.left + b.width * 0.45 && ext(e).length >= 2;
+  });
+  const marked = [...box.querySelectorAll('[data-xid^="aim-aside"]')].filter(vis);
+  const all = [...marked, ...right];
+  const outer = all.filter((e, i) => all.indexOf(e) === i && !all.some(o => o !== e && o.contains(e)));
+  const full = box.innerText || '';
+  let main = full;
+  const cards = [];
+  for (const e of outer) {
+    const t = (e.innerText || '').trim();
+    if (!t) continue;
+    const i = main.indexOf(t);
+    if (i < 0) continue;          // не нашли кусок дословно — не трогаем, пусть будет текстом
+    cards.push(t);
+    main = main.slice(0, i) + main.slice(i + t.length);
+  }
+  return { full, main, cards: cards.join('\n\n') };
+}"""
+
+
+def _strip_heading(text: str) -> str:
+    heading = _S.get("aio_heading_text") or ""
+    return text[len(heading):].lstrip() if heading and text.startswith(heading) else text
+
 
 class GoogleAIOAdapter:
     service_id = "google_aio"
@@ -143,25 +185,30 @@ class GoogleAIOAdapter:
             return Capture(screenshot_bytes=screenshot, answer_text="", sources=[], shown=False)
 
         try:
-            answer_text = (await box.first.inner_text(timeout=5000)).strip()
+            parts = await box.first.evaluate(_SPLIT_JS)
         except Exception as exc:
             await dump_debug_html(page, "google_aio_read_failed")
             raise AdapterError(f"Блок AI Overview есть, но не читается: {exc}") from exc
 
-        heading = _S.get("aio_heading_text") or ""
-        if heading and answer_text.startswith(heading):
-            answer_text = answer_text[len(heading):].lstrip()
+        main = _strip_heading(parts["main"].strip())
+        cards = parts["cards"].strip()
 
-        if len(answer_text) < _MIN_CHARS:
+        if len(main) < _MIN_CHARS:
             # Блок показался, а ответ так и не сгенерировался. Это не «Google
             # не показал AI Overview» (skipped — валидный результат), а
             # недополученные данные: ошибка, которую дозапуск возьмёт заново.
             await dump_debug_html(page, "google_aio_empty")
-            raise AdapterError(f"AI Overview показался, но ответ не сгенерировался ({len(answer_text)} символов)")
+            raise AdapterError(f"AI Overview показался, но ответ не сгенерировался ({len(main)} символов)")
 
+        # В базу — всё, что видел пользователь, но карточки отделены пометкой:
+        # в карточке запроса видно, где слова ИИ, а где чужие заголовки.
+        answer_text = f"{main}\n\n{CARDS_MARK}\n{cards}" if cards else main
         sources = await self._extract_sources(page)
         screenshot = await self._screenshot(page, box.first)
-        return Capture(screenshot_bytes=screenshot, answer_text=answer_text, sources=sources)
+        return Capture(
+            screenshot_bytes=screenshot, answer_text=answer_text, sources=sources,
+            extra={"main_text": main, "cards_text": cards},
+        )
 
     async def _screenshot(self, page, box) -> bytes:
         """Скриншот самого блока — раскрытого, целиком; при сбое — видимой части страницы."""

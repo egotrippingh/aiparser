@@ -20,6 +20,7 @@ Camoufox — надёжнее по части JS-рендера. Но на ба�
 from __future__ import annotations
 
 import asyncio
+import html as _html
 import logging
 import re
 from dataclasses import dataclass, field
@@ -38,6 +39,7 @@ log = logging.getLogger("aiparser.deep")
 MAX_BYTES = 2_000_000
 
 _TAG_RE = re.compile(r"<[^>]+>")
+_HEAD_RE = re.compile(r"<head\b.*?</head>", re.S | re.I)
 _DROP_RE = re.compile(r"<(script|style|noscript|svg)[^>]*>.*?</\1>", re.S | re.I)
 _WS_RE = re.compile(r"\s+")
 
@@ -57,9 +59,18 @@ def html_to_text(html: str) -> str:
     лишь встречается ли в нём имя бренда. Скрипты и стили выкидываем отдельно —
     иначе в «текст» попадут строковые литералы из JS и дадут ложные совпадения.
     """
+    # <head> целиком — title и meta: цитата «Приложение «…» — App Store Поиск
+    # Сегодня Игры» из заголовка и меню ничего не говорит о самом упоминании.
+    html = _HEAD_RE.sub(" ", html)
     html = _DROP_RE.sub(" ", html)
     text = _TAG_RE.sub(" ", html)
-    return _WS_RE.sub(" ", text).strip()
+    # &quot; и прочие сущности — иначе в Excel уезжало «Магазин &quot;Neighbors&quot;».
+    return _WS_RE.sub(" ", _html.unescape(text)).strip()
+
+
+def check_page_text(text: str, brand_name: str, aliases: list[str]):
+    """Бренд на чужой странице: только целым словом и без нечёткого сравнения."""
+    return rules.check_text(text, brand_name, aliases, fuzzy=False, whole_word=True)
 
 
 def pick_sources(sources: list[str], brand_domains: list[str], depth: int) -> list[str]:
@@ -92,17 +103,70 @@ def pick_sources(sources: list[str], brand_domains: list[str], depth: int) -> li
     return out
 
 
-async def _fetch(client: httpx.AsyncClient, url: str) -> str:
+async def _fetch_page(client: httpx.AsyncClient, url: str) -> tuple[str, str | None]:
+    """Текст страницы и причина неудачи (None — открылась)."""
     try:
         resp = await client.get(url)
         resp.raise_for_status()
         ctype = resp.headers.get("content-type", "")
         if "html" not in ctype and "text" not in ctype:
-            return ""            # pdf/картинка/архив — читать нечего
-        return html_to_text(resp.text[:MAX_BYTES])
+            return "", f"не страница ({ctype.split(';')[0] or 'без типа'})"
+        return html_to_text(resp.text[:MAX_BYTES]), None
+    except httpx.HTTPStatusError as exc:
+        return "", f"HTTP {exc.response.status_code}"
     except Exception as exc:
-        log.info("Глубокая проверка: %s не открылась (%s)", url[:80], type(exc).__name__)
-        return ""
+        return "", type(exc).__name__
+
+
+async def _fetch(client: httpx.AsyncClient, url: str) -> str:
+    text, err = await _fetch_page(client, url)
+    if err:
+        log.info("Глубокая проверка: %s не открылась (%s)", url[:80], err)
+    return text
+
+
+@dataclass
+class PageCheck:
+    url: str
+    found: bool
+    quote: str | None = None
+    error: str | None = None
+
+
+# Ошибки сети, после которых стоит попробовать ещё раз через VPN: часть
+# зарубежных сайтов из России напрямую не открывается.
+_NET_ERRORS = ("ConnectError", "ConnectTimeout", "ReadTimeout", "RemoteProtocolError", "ProxyError")
+
+
+async def check_pages(
+    urls: list[str],
+    brand_name: str,
+    aliases: list[str],
+    *,
+    concurrency: int = 8,
+    timeout: float = 10.0,
+) -> list[PageCheck]:
+    """Проверяет пачку страниц: есть ли на каждой бренд и в каком контексте.
+
+    Для выгрузки «внешних источников» нужны ВСЕ процитированные сайты, а не
+    первая находка, как в check_sources. Сначала напрямую (российские сайты
+    VPN только замедляет), при сетевой ошибке — ещё раз через прокси.
+    """
+    sem = asyncio.Semaphore(concurrency)
+    async with net.direct_client(timeout=timeout) as direct, net.proxied_client(timeout=timeout) as proxied:
+        async def one(url: str) -> PageCheck:
+            async with sem:
+                text, err = await _fetch_page(direct, url)
+                if err in _NET_ERRORS:
+                    text, err = await _fetch_page(proxied, url)
+            if err:
+                return PageCheck(url, False, error=err)
+            if not text:
+                return PageCheck(url, False, error="пустая страница")
+            v = check_page_text(text, brand_name, aliases)
+            return PageCheck(url, v.found, quote=v.evidence_quote if v.found else None)
+
+        return list(await asyncio.gather(*(one(u) for u in urls)))
 
 
 async def check_sources(
@@ -137,7 +201,7 @@ async def check_sources(
     for url, text in zip(urls, texts):
         if not text:
             continue
-        verdict = rules.check_text(text, brand_name, aliases)
+        verdict = check_page_text(text, brand_name, aliases)
         if verdict.found:
             log.info("Глубокая проверка: бренд найден на %s", url[:80])
             return DeepHit(
