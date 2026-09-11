@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
@@ -29,8 +30,9 @@ class RuleVerdict:
     matched_forms: list[str] = field(default_factory=list)
 
 
-def _find_quote(original_text: str, normalized_text: str, form: str, radius: int = 60) -> str:
-    idx = normalized_text.find(form)
+def _find_quote(original_text: str, normalized_text: str, form: str, radius: int = 60, idx: int | None = None) -> str:
+    if idx is None:
+        idx = normalized_text.find(form)
     if idx < 0:
         return ""
     # normalize() не меняет длину построчно 1:1 из-за схлопывания пробелов,
@@ -43,7 +45,23 @@ def _find_quote(original_text: str, normalized_text: str, form: str, radius: int
     return ("…" if start > 0 else "") + quote + ("…" if end < len(original_text) else "")
 
 
-def check_text(text: str, brand_name: str, aliases: list[str], *, fuzzy_threshold: int = 90) -> RuleVerdict:
+def check_text(
+    text: str,
+    brand_name: str,
+    aliases: list[str],
+    *,
+    fuzzy_threshold: int = 90,
+    fuzzy: bool = True,
+    whole_word: bool = False,
+) -> RuleVerdict:
+    """Ищет форму бренда в тексте.
+
+    Для ответа ИИ — как раньше: вхождение подстроки плюс нечёткий проход
+    (ловит опечатки и склейки). Для чужих веб-страниц — whole_word=True,
+    fuzzy=False: живой прогон 11.09.2026 на бренде «Neighbors» нашёл его на
+    страницах про «nearest neighbors» и приложение «Neighborbrite» — на целой
+    странице нечёткое сравнение и подстрока цепляют похожие слова.
+    """
     if not text:
         return RuleVerdict(found=False)
 
@@ -51,13 +69,21 @@ def check_text(text: str, brand_name: str, aliases: list[str], *, fuzzy_threshol
     norm_text = normalize(text)
 
     for form in sorted(forms, key=len, reverse=True):
-        if form in norm_text:
+        if whole_word:
+            m = re.search(rf"(?<!\w){re.escape(form)}(?!\w)", norm_text)
+            idx = m.start() if m else -1
+        else:
+            idx = norm_text.find(form)
+        if idx >= 0:
             return RuleVerdict(
                 found=True,
                 mention_types=["text"],
-                evidence_quote=_find_quote(text, norm_text, form),
+                evidence_quote=_find_quote(text, norm_text, form, idx=idx),
                 matched_forms=[form],
             )
+
+    if not fuzzy:
+        return RuleVerdict(found=False)
 
     # Нечёткий проход — только по достаточно длинным формам, иначе рапидфаз
     # находит совпадения там, где их нет (короткие строки почти всегда похожи
@@ -116,18 +142,46 @@ def check_marketplace_mention(sources: list[str], brand_name: str, aliases: list
     return RuleVerdict(found=False)
 
 
+def check_cards(card_text: str, brand_name: str, aliases: list[str]) -> RuleVerdict:
+    """Бренд в нетекстовых блоках ответа: карточки источников, товаров, организаций.
+
+    Это тоже упоминание — ИИ показал бренд пользователю, — но не в словах
+    ответа, поэтому тип свой: «card». Иначе бренд, который есть только в
+    заголовке процитированной страницы, выглядел бы в статистике так же,
+    как прямая рекомендация.
+    """
+    # Строго, как на чужих страницах: целым словом, без нечёткого сравнения.
+    # Карточки — это сниппеты чужих сайтов; живая проверка 11.09.2026 дала
+    # ложное «в карточке» на небрендовом запросе (цитата «VC.ru Лучшие
+    # премиальные студии…», бренда там нет) — нечёткий проход зацепил
+    # похожее слово.
+    v = check_text(card_text, brand_name, aliases, fuzzy=False, whole_word=True)
+    if not v.found:
+        return v
+    return RuleVerdict(found=True, mention_types=["card"], evidence_quote=v.evidence_quote,
+                       matched_forms=v.matched_forms)
+
+
 def evaluate(
     answer_text: str,
     sources: list[str],
     brand_name: str,
     aliases: list[str],
     brand_domains: list[str],
+    *,
+    card_text: str = "",
 ) -> RuleVerdict:
-    """Сводит три признака: любой найденный — результат found, типы объединяются."""
+    """Сводит признаки: любой найденный — результат found, типы объединяются.
+
+    `answer_text` — сам текст ответа, `card_text` — текст нетекстовых блоков
+    (карточки), если адаптер умеет их отделять. Цитатой становится первое
+    найденное по порядку: текст, ссылка, маркетплейс, карточка.
+    """
     results = [
         check_text(answer_text, brand_name, aliases),
         check_links(sources, brand_domains),
         check_marketplace_mention(sources, brand_name, aliases),
+        check_cards(card_text, brand_name, aliases),
     ]
     hits = [r for r in results if r.found]
     if not hits:

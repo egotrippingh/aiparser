@@ -452,9 +452,14 @@ async def _run_one(
         (shot_dir / shot_name).write_bytes(webp_bytes)
         rel_path = f"{project['id']}/{scan_date}/{shot_name}"
 
+        # Адаптер, умеющий отделять карточки (источники, товары, организации),
+        # отдаёт текст ответа и текст карточек порознь: бренд только в
+        # карточке — упоминание своего типа «card», а не «text».
+        extra = cap.extra or {}
         rule_verdict = rules.evaluate(
-            cap.answer_text, cap.sources, project["brand_name"],
+            extra.get("main_text", cap.answer_text), cap.sources, project["brand_name"],
             project["brand_aliases"], project["brand_domains"],
+            card_text=extra.get("cards_text", ""),
         )
 
         llm_verdict = None

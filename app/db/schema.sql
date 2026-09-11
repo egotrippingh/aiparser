@@ -62,6 +62,20 @@ CREATE TABLE IF NOT EXISTS results (
     UNIQUE (scan_id, query_id, service)
 );
 
+-- Страницы-источники, которые ИИ цитировал в ответах, и нашёлся ли на них
+-- бренд. Ключ — проект: у проектов разные бренды. brand_sig — формы бренда
+-- на момент проверки: поменяли алиасы — страницу надо проверить заново.
+CREATE TABLE IF NOT EXISTS source_pages (
+    project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    url         TEXT    NOT NULL,
+    brand_sig   TEXT    NOT NULL,
+    found       INTEGER NOT NULL DEFAULT 0,
+    quote       TEXT,
+    error       TEXT,
+    checked_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (project_id, url)
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key        TEXT PRIMARY KEY,
     value      TEXT,

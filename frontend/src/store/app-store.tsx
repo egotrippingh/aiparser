@@ -48,6 +48,8 @@ interface AppValue {
   refreshScan: () => Promise<ScanSnapshot | null>
   /** Растёт после каждого завершённого скана — экраны перечитывают данные. */
   dataVersion: number
+  /** Данные в базе поменялись не сканом (например, засчитаны сайты-источники). */
+  refreshData: () => void
 }
 
 const AppContext = createContext<AppValue | null>(null)
@@ -84,6 +86,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const clearScanLog = useCallback(() => setScanLog([]), [])
+  const refreshData = useCallback(() => setDataVersion((v) => v + 1), [])
 
   const refreshScan = useCallback(async () => {
     try {
@@ -270,6 +273,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     watchScan,
     refreshScan,
     dataVersion,
+    refreshData,
   }
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

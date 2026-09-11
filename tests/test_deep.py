@@ -85,7 +85,7 @@ def test_with_deep_upgrades_to_found():
     before = MergedVerdict(status="not_found", detected_by="none")
     after = with_deep(before, "https://shop.ru/postavshiki", "…поставщик Оптторг24…")
     assert after.status == "found"
-    assert "indirect" in after.mention_types
+    assert "source" in after.mention_types      # находка на сайте-источнике — свой тип
     assert after.detected_by == "deep"
     # Адрес страницы обязан быть в цитате: иначе «найдено» непроверяемо.
     assert "shop.ru/postavshiki" in (after.evidence_quote or "")
@@ -94,7 +94,7 @@ def test_with_deep_upgrades_to_found():
 def test_with_deep_keeps_existing_mention_types():
     before = MergedVerdict(status="not_found", mention_types=["link"], detected_by="rules")
     after = with_deep(before, "https://shop.ru/a", None)
-    assert set(after.mention_types) == {"link", "indirect"}
+    assert set(after.mention_types) == {"link", "source"}
 
 
 def test_with_deep_confidence_below_direct_match():

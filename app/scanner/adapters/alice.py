@@ -92,6 +92,34 @@ _SCROLL_JS = """(el, a) => {
 
 _MAX_SLICES = 15
 
+CARDS_MARK = "— Карточки в ответе —"
+
+# Текст ответа и нетекстовые блоки. Разметка 11.09.2026: слова Алисы — блоки
+# FuturisMarkdown; внутри них чипы источников FuturisFootnote («hh.ru +2»);
+# рядом — карточки организаций FuturisOrgCard, кнопки и прочие виджеты
+# (товары и т.п.). Текстом считаем только markdown без чипов, всё остальное —
+# карточками: чип «neighbors-expert.ru» — ссылка на источник, а не слова ИИ.
+# Нет ни одного markdown-блока (вёрстка сменилась) — всё текст, как раньше.
+_SPLIT_JS = r"""(el) => {
+  const full = el.innerText || '';
+  const md = [...el.querySelectorAll('.FuturisMarkdown')].filter(e => !e.parentElement.closest('.FuturisMarkdown'));
+  if (!md.length) return { main: full, cards: '' };
+  const foot = [...el.querySelectorAll('.FuturisFootnote, .FuturisFootnoteGroup')]
+    .filter(e => !e.parentElement.closest('.FuturisFootnote, .FuturisFootnoteGroup'))
+    .map(e => (e.innerText || '').trim()).filter(Boolean);
+  let rest = full;
+  const texts = [];
+  for (const e of md) {
+    let t = (e.innerText || '').trim();
+    const i = rest.indexOf(t);
+    if (i >= 0) rest = rest.slice(0, i) + '\n' + rest.slice(i + t.length);
+    for (const f of foot) t = t.split(f).join(' ');
+    texts.push(t.replace(/[ \t]+/g, ' ').trim());
+  }
+  const cards = [rest.replace(/\n{2,}/g, '\n').trim(), ...foot].filter(Boolean).join('\n');
+  return { main: texts.join('\n\n'), cards };
+}"""
+
 
 def _is_chrome_link(url: str) -> bool:
     return any(h in url for h in _CHROME_HOSTS) or any(m in url for m in _CHROME_PATH_MARKERS)
@@ -210,10 +238,22 @@ class AliceAdapter:
         # Скриншот — до панели источников: она открывается сбоку и сужает
         # колонку ответа. Снимаем сам ответ целиком, а не видимую часть окна:
         # после прокрутки в окне оставался только хвост ответа (11.09.2026).
+        try:
+            parts = await answer.evaluate(_SPLIT_JS)
+            main, cards = parts["main"].strip(), parts["cards"].strip()
+        except Exception as exc:
+            log.info("Не удалось отделить карточки в ответе Алисы (%s) — считаю всё текстом", exc)
+            main, cards = answer_text, ""
+
         screenshot = await self._screenshot(page, answer)
         sources = await self._extract_sources(page)
 
-        return Capture(screenshot_bytes=screenshot, answer_text=answer_text, sources=sources)
+        # В базу — всё, что видел пользователь; карточки отделены пометкой.
+        stored = f"{main}\n\n{CARDS_MARK}\n{cards}" if cards else main
+        return Capture(
+            screenshot_bytes=screenshot, answer_text=stored, sources=sources,
+            extra={"main_text": main, "cards_text": cards},
+        )
 
     async def _screenshot(self, page, answer) -> bytes:
         """Скриншот ответа целиком.

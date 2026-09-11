@@ -80,8 +80,10 @@ def with_deep(result: MergedVerdict, url: str, quote: str | None) -> MergedVerdi
     Это ровно тот случай, ради которого глубокая проверка и делалась: бренда
     нет в тексте ответа, но он есть на странице, которую этот ответ цитирует
     (клиент-оптовик, упомянутый как поставщик на сайте магазина-перекупщика).
-    Тип упоминания — `indirect`, и в цитату кладём адрес страницы: без него
-    пользователь не смог бы проверить, откуда взялось «найдено».
+    Тип упоминания — `source` («на сайте-источнике»; до 11.09.2026 был общий
+    `indirect`, которым LLM помечает косвенные описания — это разные вещи), и
+    в цитату кладём адрес страницы: без него пользователь не смог бы
+    проверить, откуда взялось «найдено».
 
     Уверенность 0.9, а не 1.0: совпадение детерминированное, но связь
     «источник процитирован ⇒ бренд виден в выдаче» всё же слабее прямого
@@ -89,9 +91,9 @@ def with_deep(result: MergedVerdict, url: str, quote: str | None) -> MergedVerdi
     """
     return MergedVerdict(
         status="found",
-        mention_types=sorted(set(result.mention_types) | {"indirect"}),
+        mention_types=sorted(set(result.mention_types) | {"source"}),
         confidence=0.9,
-        evidence_quote=f"На странице-источнике {url}: {quote or ''}".strip(),
+        evidence_quote=f"На сайте-источнике {url}: {quote or ''}".strip(),
         detected_by="deep",
         needs_review=result.needs_review,
         llm_model=result.llm_model,
