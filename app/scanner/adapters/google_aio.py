@@ -184,6 +184,12 @@ class GoogleAIOAdapter:
             screenshot = await page.screenshot(type="jpeg", quality=80, full_page=False)
             return Capture(screenshot_bytes=screenshot, answer_text="", sources=[], shown=False)
 
+        # Курсор после клика «Развернуть» стоит над ответом, и Google
+        # показывает всплывающее превью ссылки «сайт / заголовок» — оно
+        # попадало в текст ответа (живая проверка 11.09.2026: «Отзывы о
+        # «Neighbors…» в хвосте текста дала бы text вместо card).
+        await page.mouse.move(5, 5)
+        await asyncio.sleep(0.5)
         try:
             parts = await box.first.evaluate(_SPLIT_JS)
         except Exception as exc:
