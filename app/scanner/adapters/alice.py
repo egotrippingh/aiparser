@@ -18,7 +18,9 @@ Perplexity.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 
 from app.scanner import humanize
 from app.scanner.adapters.base import (
@@ -43,7 +45,18 @@ _S = load_selectors()["alice"]
 # живой прогон 28.08.2026 показал настоящие источники на yandex.ru/maps/org/…
 # — режем только заведомо служебные пути (/legal/…), не весь домен.
 _CHROME_HOSTS = ("alice.yandex.ru",)
-_CHROME_PATH_MARKERS = ("/legal/",)
+# 11.09.2026: первым «источником» в каждом ответе оказывался рекламный баннер
+# самой Алисы (360.yandex.ru/business/alice-business/?utm_source=alisa_ai…).
+# Промо-ссылки Яндекса помечены utm_source=alisa_ai — по нему и режем.
+_CHROME_PATH_MARKERS = ("/legal/", "utm_source=alisa_ai", "/business/alice-business")
+
+# Короче — это не ответ, а статус вроде «Ищу в интернете…» или обрыв.
+_MIN_ANSWER_CHARS = 60
+# Ответ готов, если текст не меняется столько секунд (или раньше — если уже
+# появилась строка действий с кнопкой «Источники» и текст стоит хотя бы 1 с).
+_QUIET_SEC = 3.0
+_DONE_QUIET_SEC = 1.0
+_ANSWER_TIMEOUT = 120.0
 
 
 def _is_chrome_link(url: str) -> bool:
@@ -99,25 +112,74 @@ class AliceAdapter:
         # «Оптторг24 отзывы»). Поэтому сперва ждём появления самого
         # контейнера ответа, и только потом следим за стабилизацией именно
         # его текста, а не всего чата целиком.
-        try:
-            await page.locator(_S["answer_container"]).wait_for(state="attached", timeout=90000)
-        except Exception:
-            pass  # capture() сам обработает отсутствие контейнера как ошибку
-
-        await humanize.wait_until_settled(page, _S["answer_container"], quiet_for=3.0, timeout=60.0)
+        await self._wait_answer(page)
         await humanize.scroll_through(page, speed=speed)
 
-    async def capture(self, page) -> Capture:
+    async def _wait_answer(self, page) -> None:
+        """Ждёт, пока ответ Алисы допишется.
+
+        Следим за ПЕРВЫМ контейнером ответа, а не за последним, как общий
+        humanize.wait_until_settled. Замер 11.09.2026: по ходу ответа Алиса
+        добавляет второй message-bubble-container — рекламный блок «Промо»,
+        поначалу пустой. Ожидание смотрело на него: пустой контейнер не
+        «затихал» никогда, и запрос стоял до таймаута (155–160 с вместо
+        30), а если реклама успевала отрисоваться — «затихал» через
+        несколько секунд, пока сам ответ ещё дописывался. После «Новый чат»
+        ответ на странице один, и он всегда первый.
+
+        Готовность — текст не меняется _QUIET_SEC секунд. Если под ответом
+        уже появилась кнопка «Источники» (строка действий рисуется только
+        по окончании), хватает секунды тишины.
+        """
+        answer = page.locator(_S["answer_container"]).first
         try:
-            answer_text = await page.inner_text(_S["answer_container"], timeout=5000)
+            await answer.wait_for(state="attached", timeout=90000)
+        except Exception:
+            return  # capture() сам обработает отсутствие ответа как ошибку
+
+        done = page.locator(_S["sources_button"])
+        deadline = time.monotonic() + _ANSWER_TIMEOUT
+        last, since = -1, time.monotonic()
+        while time.monotonic() < deadline:
+            try:
+                n = len(await answer.inner_text(timeout=3000))
+            except Exception:
+                n = 0
+            if n != last:
+                last, since = n, time.monotonic()
+            elif n >= _MIN_ANSWER_CHARS:
+                quiet = time.monotonic() - since
+                if quiet >= _QUIET_SEC or (quiet >= _DONE_QUIET_SEC and await done.count()):
+                    return
+            await asyncio.sleep(0.5)
+        log.warning("Ответ Алисы не затих за %.0f с — читаю как есть (%s символов)", _ANSWER_TIMEOUT, last)
+
+    async def capture(self, page) -> Capture:
+        answer = page.locator(_S["answer_container"]).first
+        try:
+            answer_text = (await answer.inner_text(timeout=5000)).strip()
         except Exception as exc:
             await dump_debug_html(page, "alice_no_answer")
             raise AdapterError(f"Не найден контейнер ответа Алисы: {exc}") from exc
 
-        sources = await self._extract_sources(page)
-        screenshot = await page.screenshot(type="jpeg", quality=80, full_page=False)
+        if len(answer_text) < _MIN_ANSWER_CHARS:
+            await dump_debug_html(page, "alice_short_answer")
+            raise AdapterError(f"Ответ Алисы подозрительно короткий ({len(answer_text)} символов): {answer_text!r}")
 
-        return Capture(screenshot_bytes=screenshot, answer_text=answer_text.strip(), sources=sources)
+        # Скриншот — до панели источников: она открывается сбоку и сужает
+        # колонку ответа. Снимаем сам ответ целиком, а не видимую часть окна:
+        # после прокрутки в окне оставался только хвост ответа (11.09.2026).
+        screenshot = await self._screenshot(page, answer)
+        sources = await self._extract_sources(page)
+
+        return Capture(screenshot_bytes=screenshot, answer_text=answer_text, sources=sources)
+
+    async def _screenshot(self, page, answer) -> bytes:
+        try:
+            return await answer.screenshot(type="jpeg", quality=80, timeout=8000)
+        except Exception as exc:
+            log.info("Скриншот ответа Алисы не снялся (%s) — снимаю окно", exc)
+            return await page.screenshot(type="jpeg", quality=80, full_page=False)
 
     async def _extract_sources(self, page) -> list[str]:
         try:
