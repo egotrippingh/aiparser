@@ -100,6 +100,36 @@ def with_deep(result: MergedVerdict, url: str, quote: str | None) -> MergedVerdi
     )
 
 
+def with_arbiter(result: MergedVerdict, verdict: LLMVerdict) -> MergedVerdict:
+    """Окончательное решение арбитра по спорной строке — пометка снимается.
+
+    Спорная строка это «правила молчат, а первая модель нашла»: до 14.09.2026
+    такие строки уходили на ручную проверку и лежали в базе непроверенными.
+    Теперь их решает вторая, более сильная модель, и её ответ окончателен:
+    либо «найдено» с её же доказательством, либо «не найдено» без цитаты —
+    оставленная цитата от первой модели только путала бы.
+    """
+    if verdict.found:
+        return MergedVerdict(
+            status="found",
+            mention_types=verdict.mention_types or ["indirect"],
+            confidence=verdict.confidence or 0.8,
+            evidence_quote=verdict.quote or result.evidence_quote,
+            detected_by="arbiter",
+            needs_review=False,
+            llm_model=verdict.model,
+        )
+    return MergedVerdict(
+        status="not_found",
+        mention_types=[],
+        confidence=verdict.confidence or None,
+        evidence_quote=None,
+        detected_by="arbiter",
+        needs_review=False,
+        llm_model=verdict.model,
+    )
+
+
 def should_call_llm(rule: RuleVerdict, llm_mode: str) -> bool:
     if llm_mode == "never":
         return False

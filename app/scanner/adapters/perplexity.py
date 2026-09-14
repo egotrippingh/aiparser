@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 
 from app.scanner import humanize
+from app.scanner.adapters import shot
 from app.scanner.adapters.base import (
     AdapterError,
     AuthRequiredError,
@@ -174,10 +175,29 @@ class PerplexityAdapter:
         if answer_text.strip() == _S["signin_inline_placeholder"]:
             raise AuthRequiredError("Perplexity показал плейсхолдер входа вместо ответа")
 
+        # Порядок важен. До 14.09.2026 снимок делался ПОСЛЕ _extract_sources,
+        # то есть уже на вкладке «Ссылки» и только в пределах окна: в кадр
+        # попадал кусок списка источников вместо ответа. Теперь сначала ответ
+        # целиком (с прокруткой и склейкой), потом вкладка источников, и обе
+        # части склеиваются в один снимок — видно и ответ, и источники.
+        answer_shot = await shot.full_shot(page, page.locator(_S["answer_container"]).first,
+                                           bottom_selector=_S["input"])
         sources = await self._extract_sources(page)
-        screenshot = await page.screenshot(type="jpeg", quality=80, full_page=False)
+        sources_shot = await self._sources_shot(page)
+        screenshot = shot.glue([answer_shot, sources_shot]) if sources_shot else answer_shot
 
         return Capture(screenshot_bytes=screenshot, answer_text=answer_text.strip(), sources=sources)
+
+    async def _sources_shot(self, page) -> bytes | None:
+        """Снимок вкладки «Ссылки» — её открыл _extract_sources."""
+        try:
+            main = page.locator("main").first
+            if not await visible(main, 2000):
+                return None
+            return await shot.full_shot(page, main, bottom_selector=_S["input"])
+        except Exception as exc:
+            log.info("Не удалось снять вкладку источников Perplexity: %s", exc)
+            return None
 
     async def _extract_sources(self, page) -> list[str]:
         """Кликает вкладку «Ссылки» и берёт все внешние ссылки со страницы.

@@ -210,6 +210,9 @@ export interface SpeedProfile {
 
 export interface Settings {
   openrouter_model: string
+  /** Модель, которая решает спорные строки вместо ручной проверки. */
+  openrouter_arbiter_model: string
+  llm_arbiter: "on" | "off"
   llm_mode: "smart" | "always" | "never"
   llm_confidence_threshold: string
   screenshot_retention_days: string
@@ -218,6 +221,24 @@ export interface Settings {
   openrouter_api_key_set: boolean
   secrets_encrypted: boolean
   speed_profiles: Record<string, SpeedProfile>
+}
+
+/** Спорные строки: сколько ждёт решения арбитра и чем он решает. */
+export interface ReviewInfo {
+  pending: number
+  model: string
+  enabled: boolean
+}
+
+/** Итог перерешения спорных строк арбитром. */
+export interface ReviewResolved {
+  total: number
+  resolved: number
+  found: number
+  not_found: number
+  changed: number
+  failed: number
+  model: string
 }
 
 export interface ServiceAuth {

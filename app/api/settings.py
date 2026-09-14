@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app import secrets_store
 from app.db import repo
+from app.detect import llm
 from app.scanner import humanize
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -15,6 +16,11 @@ DEFAULTS = {
     "openrouter_model": "anthropic/claude-sonnet-5",
     "llm_mode": "smart",            # always | smart | never
     "llm_confidence_threshold": "0.6",
+    # Спорные строки (правила молчат, а модель нашла) решает вторая, более
+    # сильная модель — вместо ручной проверки человеком. Таких строк мало:
+    # 94 из 2185 на 14.09.2026, поэтому дорогая модель здесь не разорительна.
+    "llm_arbiter": llm.ARBITER_DEFAULT,                    # on | off
+    "openrouter_arbiter_model": llm.ARBITER_MODEL_DEFAULT,
     "screenshot_retention_days": "90",
     # Скорость задаётся одним профилем, а не тремя отдельными полями пауз:
     # два источника правды неминуемо разъезжаются. Конкретные значения
@@ -26,6 +32,8 @@ DEFAULTS = {
 class SettingsIn(BaseModel):
     openrouter_api_key: str | None = None    # пустая строка — стереть ключ
     openrouter_model: str | None = None
+    llm_arbiter: str | None = None
+    openrouter_arbiter_model: str | None = None
     llm_mode: str | None = None
     llm_confidence_threshold: str | None = None
     screenshot_retention_days: str | None = None

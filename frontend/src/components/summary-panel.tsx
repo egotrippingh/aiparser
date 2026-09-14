@@ -9,6 +9,7 @@ import type { ReactNode } from "react"
 
 import { Delta, ServiceDot } from "@/components/bits"
 import { ExternalSourcesButton } from "@/components/external-sources-button"
+import { ReviewResolveButton } from "@/components/review-resolve-button"
 import { dmy } from "@/lib/dates"
 import { pct, plural, shortDate } from "@/lib/format"
 import type { Overview } from "@/lib/types"
@@ -47,7 +48,8 @@ export function SummaryPanel({
             )}
           </span>
         )}
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <ReviewResolveButton />
           <ExternalSourcesButton date={s.date} />
         </div>
       </div>

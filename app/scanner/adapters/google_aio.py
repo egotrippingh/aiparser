@@ -33,6 +33,7 @@ import logging
 import time
 
 from app.scanner import humanize
+from app.scanner.adapters import shot
 from app.scanner.adapters.base import (
     AdapterError,
     Capture,
@@ -223,7 +224,9 @@ class GoogleAIOAdapter:
             # она попадала в кадр поверх ответа (скан 24, 11.09.2026).
             await page.mouse.move(5, 5)
             await asyncio.sleep(0.4)
-            return await box.screenshot(type="jpeg", quality=80, timeout=8000)
+            # Раскрытый блок выше окна — снимаем кусками с прокруткой и
+            # склеиваем, иначе в кадр попадает только его верх.
+            return await shot.full_shot(page, box)
         except Exception as exc:
             log.info("Скриншот блока AI Overview не снялся (%s) — снимаю страницу", exc)
             return await page.screenshot(type="jpeg", quality=80, full_page=False)

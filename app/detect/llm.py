@@ -21,6 +21,12 @@ log = logging.getLogger("aiparser.llm")
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
+# Значения по умолчанию для арбитра держим здесь, а не в app/api/settings.py:
+# их читают и сканер, и перерешение сохранённых строк, а импорт слоя API из
+# слоя детекции замкнул бы кольцо (API → сканер → детекция → API).
+ARBITER_MODEL_DEFAULT = "anthropic/claude-opus-5"
+ARBITER_DEFAULT = "on"          # on | off
+
 _SYSTEM = """Ты проверяешь, упоминается ли конкретный бренд в ответе ИИ-поисковика.
 Упоминание засчитывается, даже если бренд не назван прямо: например, "обратитесь к
 официальному дистрибьютору X" или узнаваемое косвенное описание компании.
@@ -33,6 +39,25 @@ _SYSTEM = """Ты проверяешь, упоминается ли конкре
 {"found": bool, "mention_types": ["text"|"link"|"marketplace"|"card"|"indirect"],
  "confidence": 0.0-1.0, "quote": "короткая цитата-доказательство или пусто",
  "reasoning": "одно предложение на русском"}"""
+
+
+# Второй заход по спорным строкам. Отдельный промпт, а не тот же самый:
+# первый вызов ищет упоминание, а этот — выносит окончательное решение вместо
+# человека, поэтому требует прямого ответа и запрещает «возможно».
+_ARBITER_SYSTEM = """Ты выносишь ОКОНЧАТЕЛЬНОЕ решение: упоминается ли бренд в ответе ИИ-поисковика.
+Первая модель уже сказала «найдено», но правила дословного поиска бренд не нашли — то есть
+прямого совпадения по названию или домену в тексте нет. Твоя задача — проверить это и решить
+за человека: перепроверять твой ответ никто не будет.
+Считается упоминанием: название бренда или его форма в тексте ответа; ссылка на домен бренда;
+товар или карточка бренда (организация, товар, источник); бренд, видимый только на скриншоте;
+однозначное косвенное указание именно на эту компанию («официальный дистрибьютор X»).
+НЕ считается: похожие, но другие компании; отрасль и общие термины; бренд, прозвучавший только
+в вопросе пользователя; догадка «наверное, имелась в виду эта компания».
+Если доказательства нет — отвечай found=false. Сомнение трактуй как отсутствие упоминания.
+Ответь СТРОГО валидным JSON без markdown-обрамления:
+{"found": bool, "mention_types": ["text"|"link"|"marketplace"|"card"|"indirect"|"source"],
+ "confidence": 0.0-1.0, "quote": "дословная цитата-доказательство или пусто",
+ "reasoning": "одно предложение на русском: почему решил именно так"}"""
 
 
 @dataclass
@@ -83,10 +108,58 @@ async def evaluate(
         b64 = base64.b64encode(screenshot_bytes).decode("ascii")
         content.append({"type": "image_url", "image_url": {"url": f"data:image/webp;base64,{b64}"}})
 
+    return await _ask_model(_SYSTEM, content, api_key=api_key, model=model, timeout=timeout)
+
+
+async def arbitrate(
+    *,
+    brand_name: str,
+    aliases: list[str],
+    domains: list[str],
+    answer_text: str,
+    sources: list[str],
+    screenshot_bytes: bytes | None,
+    api_key: str,
+    model: str,
+    first_verdict: "LLMVerdict | None" = None,
+    first_quote: str = "",
+    timeout: float = 90.0,
+    query: str | None = None,
+) -> LLMVerdict:
+    """Окончательное решение по спорной строке — вместо ручной проверки.
+
+    Спорная строка это та, где правила молчат, а первая модель сказала
+    «найдено»: именно там она чаще всего выдумывает. Сюда идёт вторая, более
+    сильная модель, ей показывают текст, источники, скриншот и вывод первой
+    модели — и требуют однозначного ответа.
+    """
+    if not api_key:
+        return LLMVerdict(found=False, error="Ключ OpenRouter не задан")
+
+    said = first_quote or (first_verdict.quote if first_verdict else "")
+    why = first_verdict.reasoning if first_verdict else ""
+    doms = ", ".join(domains) if domains else "(не заданы)"
+    text = (
+        _build_prompt(brand_name, aliases, answer_text, sources, query)
+        + f"\n\nДомены бренда: {doms}\n\n"
+        "Первая модель сочла это упоминанием и сослалась на:\n"
+        f"цитата: {said or '(цитаты не дала)'}\n"
+        f"объяснение: {why or '(без объяснения)'}\n\n"
+        "Проверь это. Правила дословного поиска бренда в тексте и ссылках ничего не нашли."
+    )
+    content: list[dict] = [{"type": "text", "text": text}]
+    if screenshot_bytes:
+        b64 = base64.b64encode(screenshot_bytes).decode("ascii")
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/webp;base64,{b64}"}})
+
+    return await _ask_model(_ARBITER_SYSTEM, content, api_key=api_key, model=model, timeout=timeout)
+
+
+async def _ask_model(system: str, content: list[dict], *, api_key: str, model: str, timeout: float) -> LLMVerdict:
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": _SYSTEM},
+            {"role": "system", "content": system},
             {"role": "user", "content": content},
         ],
         "temperature": 0,

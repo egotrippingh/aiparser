@@ -44,7 +44,7 @@ from app.db import repo
 from app.detect import llm as llm_mod
 from app.detect import deep as deep_mod
 from app.detect import rules
-from app.detect.merge import merge, should_call_llm, with_deep
+from app.detect.merge import merge, should_call_llm, with_arbiter, with_deep
 from app.scanner import humanize
 from app.scanner.adapters import ADAPTERS, get_adapter
 from app.scanner.adapters.base import (
@@ -220,6 +220,10 @@ def _settings_snapshot() -> dict:
     return {
         "llm_mode": s.get("llm_mode", "smart"),
         "llm_confidence_threshold": float(s.get("llm_confidence_threshold", 0.6)),
+        # Спорные строки решает вторая модель прямо в скане — иначе они
+        # копились бы непроверенными до тех пор, пока до них дойдут руки.
+        "arbiter": (s.get("llm_arbiter") or llm_mod.ARBITER_DEFAULT) != "off",
+        "arbiter_model": s.get("openrouter_arbiter_model") or llm_mod.ARBITER_MODEL_DEFAULT,
         "speed_profile": name,
         "delay_min_sec": float(prof["delay_min_sec"]),
         "delay_max_sec": float(prof["delay_max_sec"]),
@@ -576,6 +580,30 @@ async def _run_one(
             )
             if hit.found and hit.url:
                 result = with_deep(result, hit.url, hit.quote)
+
+        # Спорная строка (правила молчат, а модель нашла) — второй, более
+        # сильный арбитр решает окончательно, вместо ручной проверки.
+        if result.needs_review and settings.get("arbiter") and api_key:
+            verdict = await llm_mod.arbitrate(
+                brand_name=project["brand_name"],
+                aliases=project["brand_aliases"],
+                domains=project["brand_domains"],
+                answer_text=cap.answer_text,
+                sources=cap.sources,
+                screenshot_bytes=webp_bytes,
+                api_key=api_key,
+                model=settings["arbiter_model"],
+                first_verdict=llm_verdict,
+                first_quote=result.evidence_quote or "",
+                query=query["text"],
+            )
+            if verdict.error:
+                # Арбитр не ответил — строка остаётся на ручную проверку, как
+                # было раньше. Молча принимать вердикт первой модели нельзя.
+                log.warning("Арбитр не ответил (%s, запрос %s): %s", service_id, query["id"], verdict.error)
+                ctl.emit("llm_error", service=service_id, query_id=query["id"], error=verdict.error)
+            else:
+                result = with_arbiter(result, verdict)
 
         repo.save_result(
             ctl.scan_id, query["id"], service_id, result.status,
