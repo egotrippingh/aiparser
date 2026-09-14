@@ -7,6 +7,7 @@ llm_mode из настроек). Модель получает и текст, и
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -175,10 +176,12 @@ async def _ask_model(system: str, content: list[dict], *, api_key: str, model: s
             {"role": "user", "content": content},
         ],
         "temperature": 0,
-        # Ответ — короткий JSON, но без явного лимита провайдер обрывал его на
-        # полуслове: 4 строки из 93 в прогоне арбитра 14.09.2026 вернулись как
-        # «Unterminated string». Лимит с запасом, на длинную цитату хватает.
-        "max_tokens": 700,
+        # Лимит считается ВМЕСТЕ с внутренним рассуждением модели, а сильные
+        # модели тратят на него почти всё: замер 14.09.2026 на
+        # gemini-3.8-flash — 670 из 693 токенов ушли в reasoning, и JSON
+        # обрывался на полуслове (finish_reason='length'). Сам ответ короткий,
+        # так что лимит ставим с большим запасом на рассуждение.
+        "max_tokens": 3000,
         "response_format": {"type": "json_object"},
     }
 
@@ -207,25 +210,59 @@ async def _ask_model(system: str, content: list[dict], *, api_key: str, model: s
         # 09.09.2026 осталось бесполезное «OpenRouter недоступен: » — без
         # единой зацепки, что именно сломалось.
         reason = f"{type(exc).__name__}: {exc}".rstrip(": ")
+        if retry:
+            # Сеть через VPN отваливается разово: в прогоне 14.09.2026 так
+            # потерялись 4 проверки из 50. Один повтор дешевле потери.
+            log.info("OpenRouter недоступен (%s) — повторяю", reason)
+            await asyncio.sleep(2)
+            return await _ask_model(system, content, api_key=api_key, model=model,
+                                    timeout=timeout, retry=False)
         log.warning("OpenRouter недоступен: %s", reason)
         return LLMVerdict(found=False, model=model, error=reason)
 
     try:
         raw = data["choices"][0]["message"]["content"]
-        parsed = json.loads(raw)
-    except (KeyError, IndexError, json.JSONDecodeError) as exc:
+    except (KeyError, IndexError) as exc:
+        return LLMVerdict(found=False, model=model, error=f"Не удалось разобрать ответ модели: {exc}")
+
+    verdict = parse_verdict(raw, model)
+    if verdict is None:
         if retry:
             # Оборванный или битый JSON — разовая осечка провайдера: спрашиваем
             # ещё раз, вместо того чтобы терять проверку целиком.
-            log.info("Ответ модели не разобрался (%s) — спрашиваю ещё раз", exc)
+            log.info("Ответ модели не разобрался — спрашиваю ещё раз: %r", (raw or "")[:120])
             return await _ask_model(system, content, api_key=api_key, model=model,
                                     timeout=timeout, retry=False)
-        return LLMVerdict(found=False, model=model, error=f"Не удалось разобрать ответ модели: {exc}")
+        return LLMVerdict(found=False, model=model,
+                          error=f"Не удалось разобрать ответ модели: {(raw or '')[:120]!r}")
+    return verdict
 
+
+def parse_verdict(raw: str | None, model: str) -> LLMVerdict | None:
+    """Разбирает ответ модели. None — ответ не похож на наш JSON.
+
+    Модели то и дело оборачивают JSON в ```json-блок или предваряют его
+    словами, хотя формат задан явно: берём то, что между первой «{» и
+    последней «}», вместо того чтобы терять проверку из-за обрамления.
+    """
+    s = (raw or "").strip()
+    i, j = s.find("{"), s.rfind("}")
+    if i < 0 or j <= i:
+        return None
+    try:
+        parsed = json.loads(s[i:j + 1])
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict) or "found" not in parsed:
+        return None
+    try:
+        confidence = float(parsed.get("confidence") or 0)
+    except (TypeError, ValueError):
+        confidence = 0.0
     return LLMVerdict(
         found=bool(parsed.get("found")),
-        mention_types=list(parsed.get("mention_types") or []),
-        confidence=float(parsed.get("confidence") or 0),
+        mention_types=[str(t) for t in (parsed.get("mention_types") or [])],
+        confidence=confidence,
         quote=str(parsed.get("quote") or ""),
         reasoning=str(parsed.get("reasoning") or ""),
         model=model,
