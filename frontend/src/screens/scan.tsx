@@ -44,6 +44,9 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
   const logRef = useRef<HTMLDivElement>(null)
   const [chosen, setChosen] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
+  // Режим окон выбирается на запуск, а не в настройках: он зависит от того,
+  // нужен ли компьютер прямо сейчас, а не от проекта.
+  const [headless, setHeadless] = useState(false)
 
   const ready = useMemo(() => services.filter((s) => s.has_adapter), [services])
   const notReady = useMemo(() => services.filter((s) => !s.has_adapter), [services])
@@ -105,6 +108,7 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
       const res = await api.post<{ scan_id: number }>(`/api/projects/${projectId}/scans`, {
         services: [...chosen],
         resume,
+        headless,
       })
       watchScan(res.scan_id)
       await refreshScan()
@@ -239,6 +243,18 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
               Добавить запросы
             </Button>
           ) : null}
+          <Label
+            className="flex cursor-pointer items-center gap-2 text-xs font-normal"
+            title="Браузер работает без окон: компьютер свободен, окна не мешают и их нельзя случайно перекрыть. Но без окон сервисы чаще просят капчу — если начнутся отказы, снимите галочку."
+          >
+            <Checkbox
+              checked={headless}
+              disabled={running}
+              onCheckedChange={(v) => setHeadless(!!v)}
+            />
+            Без окон браузера
+          </Label>
+
           <div className="ml-auto flex items-center gap-2">
             {partial ? (
               <ConfirmButton

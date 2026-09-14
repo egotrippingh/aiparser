@@ -5,7 +5,7 @@
 пришлось бы логиниться заново.
 
 Режим фиксирован планом: видимое окно, последовательно, один контекст в
-моменте. Никакого headless и никакой параллельности — это осознанный размен
+моменте. Окна по умолчанию видимые, а не headless — это осознанный размен
 скорости на выживаемость сессий и подробно объяснён в плане.
 """
 
@@ -98,8 +98,15 @@ class BrowserUnavailable(RuntimeError):
 
 
 @asynccontextmanager
-async def service_context(service_id: str, *, window: tuple[int, int] = (1360, 900)) -> AsyncGenerator:
-    """Персистентный контекст для одного сервиса; вкладку открывает вызывающий код."""
+async def service_context(service_id: str, *, window: tuple[int, int] = (1360, 900),
+                          headless: bool = False) -> AsyncGenerator:
+    """Персистентный контекст для одного сервиса; вкладку открывает вызывающий код.
+
+    headless=True — без окна: компьютер свободен, окна не мешают работать и
+    их нельзя перекрыть (перекрытое окно Firefox тормозит — см. _FIREFOX_PREFS).
+    Размен: без окна антибот-проверки строже, поэтому это выбор на запуск
+    скана, а не умолчание.
+    """
     if not camoufox_installed():
         raise BrowserUnavailable(
             "Браузер Camoufox не установлен. Откройте Настройки → «Скачать браузер»."
@@ -113,6 +120,8 @@ async def service_context(service_id: str, *, window: tuple[int, int] = (1360, 9
     # Копия настроек на каждый запуск: Camoufox дописывает в этот словарь свои ключи.
     launch = dict(persistent_context=True, user_data_dir=str(profile), window=window,
                   firefox_user_prefs=dict(_FIREFOX_PREFS), **_DEFAULT_LAUNCH)
+    if headless:
+        launch["headless"] = True
     if _geoip_works is False:
         # Уже знаем, что geoip в этой сессии не работает — не тратим на него
         # ещё один запуск браузера.
@@ -227,6 +236,38 @@ async def _ensure_profile_released(profile: Path, timeout: float = 6.0) -> None:
         profile, timeout,
     )
     await _kill_processes_for_profile(profile)
+
+
+async def open_captcha_window(service_id: str, url: str, timeout: float = 900) -> bool:
+    """Окно, чтобы человек решил капчу. True — окно закрыли, можно продолжать.
+
+    Нужно только скану без окон: решать капчу там некому. Открываем ровно ту
+    страницу, на которой сервис споткнулся, в том же профиле — решённая капча
+    остаётся в куках профиля, и дальше скан снова идёт без окон.
+
+    Ждём не вечно: если человека нет у компьютера, скан не должен стоять до
+    утра — по истечении срока сервис останавливается, а непроверенные запросы
+    заберёт дозапуск.
+    """
+    log.warning("%s: капча — открываю окно для решения (%s)", service_id, url[:120])
+    try:
+        async with service_context(service_id, headless=False) as context:
+            page = context.pages[0] if context.pages else await context.new_page()
+            await page.goto(url, wait_until="domcontentloaded")
+            try:
+                await asyncio.wait_for(page.wait_for_event("close", timeout=0), timeout)
+                solved = True
+            except asyncio.TimeoutError:
+                log.warning("%s: окно с капчей не закрыли за %.0f мин", service_id, timeout / 60)
+                solved = False
+            try:
+                await context.close()
+            except Exception:
+                pass
+            return solved
+    except Exception as exc:
+        log.warning("%s: не удалось открыть окно с капчей: %s", service_id, exc)
+        return False
 
 
 async def open_login_window(service_id: str, login_url: str) -> None:
