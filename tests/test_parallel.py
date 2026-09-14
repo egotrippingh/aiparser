@@ -13,6 +13,7 @@
 
 import asyncio
 import io
+import json
 import sys
 import tempfile
 import time
@@ -33,7 +34,7 @@ from PIL import Image  # noqa: E402
 
 from app.db import repo  # noqa: E402
 from app.scanner import orchestrator  # noqa: E402
-from app.scanner.adapters.base import Capture, ReadyState  # noqa: E402
+from app.scanner.adapters.base import Capture, CaptchaError, ReadyState  # noqa: E402
 
 repo.init_db()
 
@@ -58,12 +59,19 @@ class Journal:
         self.max_running = 0
         self.busy: dict[str, bool] = {}
         self.overlap_inside_service = False
+        self.headless: bool | None = None
+        # Сколько раз сервис должен споткнуться о капчу, и куда записались
+        # открытия окна для её решения.
+        self.captcha_left: dict[str, int] = {}
+        self.captcha_windows: list[tuple[str, str]] = []
 
 
 journal = Journal()
 
 
 class FakePage:
+    url = "https://example.test/sorry/index"
+
     def is_closed(self) -> bool:
         return False
 
@@ -77,7 +85,8 @@ class FakeContext:
 
 
 @asynccontextmanager
-async def fake_service_context(service_id: str, **_):
+async def fake_service_context(service_id: str, **kw):
+    journal.headless = kw.get("headless")
     yield FakeContext()
 
 
@@ -89,6 +98,9 @@ class FakeAdapter:
         return ReadyState(ok=True)
 
     async def ask(self, page, query: str, region, *, speed: float) -> None:
+        if journal.captcha_left.get(self.service_id):
+            journal.captcha_left[self.service_id] -= 1
+            raise CaptchaError("тестовая капча")
         if journal.busy.get(self.service_id):
             journal.overlap_inside_service = True
         journal.busy[self.service_id] = True
@@ -107,7 +119,13 @@ async def _no_pause(*_, **__) -> None:
     return None
 
 
+async def fake_captcha_window(service_id: str, url: str, timeout: float = 900) -> bool:
+    journal.captcha_windows.append((service_id, url))
+    return True
+
+
 orchestrator.service_context = fake_service_context
+orchestrator.open_captcha_window = fake_captcha_window
 orchestrator.get_adapter = lambda sid: FakeAdapter(sid)
 orchestrator.humanize.between_queries = _no_pause
 
@@ -115,15 +133,16 @@ orchestrator.humanize.between_queries = _no_pause
 _n = 0
 
 
-def _run(parallel: bool) -> tuple[int, Journal]:
+def _run(parallel: bool, headless: bool = False, captcha: dict[str, int] | None = None) -> tuple[int, Journal]:
     global journal, _n
     journal = Journal()
+    journal.captcha_left = dict(captcha or {})
     _n += 1
     pid = repo.create_project(f"Параллель {_n}", "Тестбренд", parallel_scan=parallel)
     repo.add_queries(pid, ["запрос один", "запрос два", "запрос три"])
 
     async def main() -> int:
-        scan_id = await orchestrator.start_scan(pid, SERVICES)
+        scan_id = await orchestrator.start_scan(pid, SERVICES, headless=headless)
         deadline = time.monotonic() + 15
         while orchestrator.get_controller(scan_id) is not None:
             assert time.monotonic() < deadline, "скан не завершился за 15 секунд"
@@ -166,6 +185,39 @@ def test_parallel_is_faster():
     seq = time.monotonic() - started
     # 3 запроса × 2 сервиса по 0.15 с: по очереди ≈ 0.9 с, параллельно ≈ 0.45 с.
     assert par < seq * 0.8, f"параллельно {par:.2f} с, по очереди {seq:.2f} с"
+
+
+def test_headless_choice_reaches_the_browser():
+    # Выбор режима делается на запуске скана, поэтому важно, что он доезжает
+    # до запуска браузера, а не теряется по дороге.
+    scan_id, j = _run(parallel=True, headless=True)
+    assert j.headless is True
+    snapshot = json.loads(repo.get_scan(scan_id)["settings_snapshot_json"])
+    assert snapshot["headless"] is True, "режим должен остаться в снимке настроек скана"
+
+    _, j = _run(parallel=False)
+    assert j.headless is False
+
+
+def test_captcha_without_windows_asks_the_human_and_retries():
+    # Без окон капчу решить некому: сервис должен попросить открыть окно, а
+    # после — переспросить тот же запрос, а не записать «капча» и уйти дальше.
+    scan_id, j = _run(parallel=True, headless=True, captcha={"perplexity": 1})
+    assert len(j.captcha_windows) == 1
+    assert j.captcha_windows[0][0] == "perplexity"
+    assert j.captcha_windows[0][1].startswith("https://"), "окно открывается на странице с капчей"
+
+    rows = repo.results_for_scan(scan_id)
+    assert len(rows) == 6, "запрос переспрошен, а не задвоен"
+    assert all(r["status"] == "found" for r in rows), [r["status"] for r in rows]
+
+
+def test_captcha_with_windows_is_left_as_is():
+    # В обычном режиме окно и так на экране — открывать второе незачем.
+    scan_id, j = _run(parallel=True, captcha={"chatgpt": 1})
+    assert j.captcha_windows == []
+    statuses = sorted(r["status"] for r in repo.results_for_scan(scan_id))
+    assert statuses.count("captcha") == 1 and statuses.count("found") == 5
 
 
 def _ctl_with(parallel: bool, now: float) -> "orchestrator.ScanController":

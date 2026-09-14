@@ -149,6 +149,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
           "err",
         ),
       )
+      // Скан без окон: капчу решить некому, поэтому окно открывается именно
+      // на ней. Тост держим долго — человек может отойти от компьютера.
+      on<{ service: string; name?: string }>("captcha_wait", (e) => {
+        pushLog(`${e.name || e.service}: капча — решите её в открывшемся окне и закройте его`, "err")
+        toast.warning("Нужна ваша помощь: капча", {
+          description: `${e.name || e.service}: решите капчу в открывшемся окне и закройте его — скан продолжится сам`,
+          duration: 600000,
+        })
+      })
+      on<{ service: string; name?: string }>("captcha_solved", (e) => {
+        pushLog(`${e.name || e.service}: капча решена, продолжаю без окон`, "ok")
+        toast.success("Капча решена, скан продолжается")
+      })
+      on<{ service: string; name?: string }>("captcha_timeout", (e) => {
+        pushLog(`${e.name || e.service}: капчу не решили — сервис остановлен, остаток заберёт дозапуск`, "err")
+      })
       on<{ service: string; query_id: number; status: Status }>("query_result", (e) => {
         const svc = servicesRef.current.find((s) => s.id === e.service)
         const kind =

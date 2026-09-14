@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api", tags=["scans"])
 class StartScanIn(BaseModel):
     services: list[str] | None = None  # пусто — все известные сервисы
     resume: bool = True                # продолжить незаконченный скан, если он есть
+    headless: bool = False             # без окон браузера
 
 
 @router.post("/projects/{project_id}/scans", status_code=201)
@@ -33,7 +34,8 @@ async def start_scan(project_id: int, body: StartScanIn) -> dict:
         raise HTTPException(400, f"Неизвестные сервисы: {unknown}")
 
     try:
-        scan_id = await orchestrator.start_scan(project_id, ids, resume=body.resume)
+        scan_id = await orchestrator.start_scan(project_id, ids, resume=body.resume,
+                                                headless=body.headless)
     except orchestrator.ScanAlreadyRunning as exc:
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:

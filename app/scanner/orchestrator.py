@@ -53,7 +53,7 @@ from app.scanner.adapters.base import (
     CaptchaError,
     ServiceUnavailableError,
 )
-from app.scanner.browser import service_context
+from app.scanner.browser import open_captcha_window, service_context
 
 log = logging.getLogger("aiparser.orchestrator")
 
@@ -244,7 +244,8 @@ def _record_auth_state(service_id: str, state: str) -> None:
     )
 
 
-async def start_scan(project_id: int, service_ids: list[str], *, resume: bool = True) -> int:
+async def start_scan(project_id: int, service_ids: list[str], *, resume: bool = True,
+                     headless: bool = False) -> int:
     if _active:
         raise ScanAlreadyRunning("Скан уже выполняется — дождитесь завершения или остановите его")
 
@@ -270,6 +271,9 @@ async def start_scan(project_id: int, service_ids: list[str], *, resume: bool = 
         raise ValueError(f"За {plan['date']} по выбранным сервисам всё уже проверено — нечего досканировать")
 
     snapshot = _settings_snapshot()
+    # В снимок настроек скана, а не в отдельный аргумент: так задним числом
+    # видно, в каком режиме собирались данные — это важно при разборе капч.
+    snapshot["headless"] = headless
     if plan["continue_scan_id"]:
         scan_id = plan["continue_scan_id"]
         repo.set_scan_status(scan_id, "running")
@@ -414,65 +418,105 @@ async def _run_service(
     llm_mode: str,
     ctl: ScanController,
 ) -> None:
-    """Один сервис целиком: одна вкладка, одна загрузка сайта, N запросов."""
+    """Один сервис целиком: одна вкладка, одна загрузка сайта, N запросов.
+
+    Без окон капчу решить некому. Поймав её, выходим из headless-контекста,
+    открываем окно на той же странице, ждём человека и возвращаемся обратно
+    без окон — с того же запроса. Остальные сервисы в это время идут своим
+    ходом, их это не касается.
+    """
     adapter = get_adapter(service_id)
+    headless = bool(settings.get("headless"))
+    queue = list(pending)
+    done = 0
 
-    async with service_context(service_id) as context:
-        page = context.pages[0] if context.pages else await context.new_page()
+    async def session() -> str | None:
+        """Проход по очереди в одном контексте. Вернёт адрес страницы с капчей."""
+        nonlocal done, queue
+        async with service_context(service_id, headless=headless) as context:
+            page = context.pages[0] if context.pages else await context.new_page()
 
-        ready = await adapter.ensure_ready(page)
-        _record_auth_state(service_id, "ok" if ready.ok else (ready.reason or "error"))
+            ready = await adapter.ensure_ready(page)
+            _record_auth_state(service_id, "ok" if ready.ok else (ready.reason or "error"))
 
-        if not ready.ok:
-            # Сессия не открылась — записываем причину сразу всем запросам
-            # сервиса, чтобы в таблице было видно «почему пусто», а не дыра.
-            for q in pending:
-                repo.save_result(ctl.scan_id, q["id"], service_id, ready.reason or "error")
-                ctl.advance(service_id)
-            ctl.emit("service_blocked", service=service_id, reason=ready.reason)
-            return
+            if not ready.ok:
+                # Сессия не открылась — записываем причину сразу всем запросам
+                # сервиса, чтобы в таблице было видно «почему пусто», а не дыра.
+                for q in queue:
+                    repo.save_result(ctl.scan_id, q["id"], service_id, ready.reason or "error")
+                    ctl.advance(service_id)
+                queue = []
+                ctl.emit("service_blocked", service=service_id, reason=ready.reason)
+                return None
 
-        strikes = 0
+            strikes = 0
 
-        for i, q in enumerate(pending):
-            if ctl.stop_requested:
-                break
-            await ctl.paused.wait()
-            if ctl.stop_requested:
-                break
+            while queue:
+                if ctl.stop_requested:
+                    return None
+                await ctl.paused.wait()
+                if ctl.stop_requested:
+                    return None
 
-            # Вкладка могла умереть (краш рендерера) — поднимаем новую и
-            # заново открываем сессию, иначе весь остаток сервиса посыплется.
-            if page.is_closed():
-                log.warning("Вкладка %s закрылась — открываю заново", service_id)
-                page = await context.new_page()
-                if not (await adapter.ensure_ready(page)).ok:
-                    break
+                # Вкладка могла умереть (краш рендерера) — поднимаем новую и
+                # заново открываем сессию, иначе весь остаток сервиса посыплется.
+                if page.is_closed():
+                    log.warning("Вкладка %s закрылась — открываю заново", service_id)
+                    page = await context.new_page()
+                    if not (await adapter.ensure_ready(page)).ok:
+                        return None
 
-            status = await _run_one(
-                project, q, service_id, adapter, page, settings, speed,
-                api_key, llm_model, llm_mode, ctl,
-            )
-            ctl.advance(service_id)
-
-            if status == "unavailable":
-                strikes += 1
-                if strikes >= LIMIT_STRIKES:
-                    _mark_limit_reached(ctl, service_id, pending, q)
-                    return
-            else:
-                strikes = 0
-
-            # Паузы и длинные перерывы — по счётчику ЭТОГО сервиса: при
-            # параллельном скане общий счётчик растёт в несколько раз быстрее,
-            # и сервисы отдыхали бы не в свой ритм.
-            if i < len(pending) - 1:
-                await humanize.between_queries(
-                    i + 1,
-                    lo=settings["delay_min_sec"],
-                    hi=settings["delay_max_sec"],
-                    break_every=settings["break_every_n"],
+                q = queue[0]
+                status = await _run_one(
+                    project, q, service_id, adapter, page, settings, speed,
+                    api_key, llm_model, llm_mode, ctl,
                 )
+
+                if status == "captcha" and headless:
+                    # Запрос остаётся в очереди и будет задан заново: результат
+                    # «капча» уже записан, повтор его перезапишет. Счётчик
+                    # прогресса не трогаем — проверка ещё не состоялась.
+                    return page.url
+
+                queue.pop(0)
+                done += 1
+                ctl.advance(service_id)
+
+                if status == "unavailable":
+                    strikes += 1
+                    if strikes >= LIMIT_STRIKES:
+                        _mark_limit_reached(ctl, service_id, pending, q)
+                        queue = []
+                        return None
+                else:
+                    strikes = 0
+
+                # Паузы и длинные перерывы — по счётчику ЭТОГО сервиса: при
+                # параллельном скане общий счётчик растёт в несколько раз быстрее,
+                # и сервисы отдыхали бы не в свой ритм.
+                if queue:
+                    await humanize.between_queries(
+                        done,
+                        lo=settings["delay_min_sec"],
+                        hi=settings["delay_max_sec"],
+                        break_every=settings["break_every_n"],
+                    )
+        return None
+
+    while queue:
+        captcha_url = await session()
+        if not captcha_url:
+            return
+        ctl.emit("captcha_wait", service=service_id, name=services.get(service_id).name,
+                 url=captcha_url)
+        solved = await open_captcha_window(service_id, captcha_url)
+        ctl.emit("captcha_solved" if solved else "captcha_timeout", service=service_id,
+                 name=services.get(service_id).name)
+        if not solved:
+            # Человек не пришёл: оставшиеся запросы заберёт дозапуск, а не
+            # молчаливая запись «капча» по всему хвосту.
+            log.warning("%s: капча не решена — останавливаю сервис", service_id)
+            return
 
 
 def _mark_limit_reached(ctl: ScanController, service_id: str, pending: list[dict], stopped_at: dict) -> None:
