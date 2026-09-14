@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from app import net, secrets_store
+from app import imaging, net, secrets_store
 from app.db import repo
 
 log = logging.getLogger("aiparser.llm")
@@ -104,11 +104,24 @@ async def evaluate(
         return LLMVerdict(found=False, error="Ключ OpenRouter не задан")
 
     content: list[dict] = [{"type": "text", "text": _build_prompt(brand_name, aliases, answer_text, sources, query)}]
-    if screenshot_bytes:
-        b64 = base64.b64encode(screenshot_bytes).decode("ascii")
-        content.append({"type": "image_url", "image_url": {"url": f"data:image/webp;base64,{b64}"}})
+    content += _image_parts(screenshot_bytes)
 
     return await _ask_model(_SYSTEM, content, api_key=api_key, model=model, timeout=timeout)
+
+
+def _image_parts(screenshot_bytes: bytes | None) -> list[dict]:
+    """Скриншот для модели: высокий режется на несколько картинок."""
+    if not screenshot_bytes:
+        return []
+    try:
+        parts = imaging.for_llm(screenshot_bytes)
+    except Exception as exc:
+        log.info("Не удалось подготовить скриншот для модели (%s) — шлю как есть", exc)
+        parts = [screenshot_bytes]
+    return [
+        {"type": "image_url", "image_url": {"url": f"data:image/webp;base64,{base64.b64encode(p).decode('ascii')}"}}
+        for p in parts
+    ]
 
 
 async def arbitrate(
@@ -148,14 +161,13 @@ async def arbitrate(
         "Проверь это. Правила дословного поиска бренда в тексте и ссылках ничего не нашли."
     )
     content: list[dict] = [{"type": "text", "text": text}]
-    if screenshot_bytes:
-        b64 = base64.b64encode(screenshot_bytes).decode("ascii")
-        content.append({"type": "image_url", "image_url": {"url": f"data:image/webp;base64,{b64}"}})
+    content += _image_parts(screenshot_bytes)
 
     return await _ask_model(_ARBITER_SYSTEM, content, api_key=api_key, model=model, timeout=timeout)
 
 
-async def _ask_model(system: str, content: list[dict], *, api_key: str, model: str, timeout: float) -> LLMVerdict:
+async def _ask_model(system: str, content: list[dict], *, api_key: str, model: str, timeout: float,
+                     retry: bool = True) -> LLMVerdict:
     payload = {
         "model": model,
         "messages": [
@@ -163,6 +175,10 @@ async def _ask_model(system: str, content: list[dict], *, api_key: str, model: s
             {"role": "user", "content": content},
         ],
         "temperature": 0,
+        # Ответ — короткий JSON, но без явного лимита провайдер обрывал его на
+        # полуслове: 4 строки из 93 в прогоне арбитра 14.09.2026 вернулись как
+        # «Unterminated string». Лимит с запасом, на длинную цитату хватает.
+        "max_tokens": 700,
         "response_format": {"type": "json_object"},
     }
 
@@ -198,6 +214,12 @@ async def _ask_model(system: str, content: list[dict], *, api_key: str, model: s
         raw = data["choices"][0]["message"]["content"]
         parsed = json.loads(raw)
     except (KeyError, IndexError, json.JSONDecodeError) as exc:
+        if retry:
+            # Оборванный или битый JSON — разовая осечка провайдера: спрашиваем
+            # ещё раз, вместо того чтобы терять проверку целиком.
+            log.info("Ответ модели не разобрался (%s) — спрашиваю ещё раз", exc)
+            return await _ask_model(system, content, api_key=api_key, model=model,
+                                    timeout=timeout, retry=False)
         return LLMVerdict(found=False, model=model, error=f"Не удалось разобрать ответ модели: {exc}")
 
     return LLMVerdict(
