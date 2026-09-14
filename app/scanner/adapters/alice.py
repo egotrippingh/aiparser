@@ -19,13 +19,11 @@ Perplexity.
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
 import time
 
-from PIL import Image
-
 from app.scanner import humanize
+from app.scanner.adapters import shot
 from app.scanner.adapters.base import (
     AdapterError,
     Capture,
@@ -60,37 +58,6 @@ _MIN_ANSWER_CHARS = 60
 _QUIET_SEC = 3.0
 _DONE_QUIET_SEC = 1.0
 _ANSWER_TIMEOUT = 120.0
-
-# Геометрия для скриншота длинного ответа: у чата Алисы своя прокрутка внутри
-# блока, а поле ввода висит поверх его низа. Помечаем прокручиваемый блок,
-# чтобы потом двигать именно его, и отдаём полосу окна, где ответ виден.
-_GEOMETRY_JS = """(el, inputSel) => {
-  let s = el.parentElement;
-  while (s && !(s.scrollHeight > s.clientHeight + 4 && /(auto|scroll)/.test(getComputedStyle(s).overflowY))) {
-    s = s.parentElement;
-  }
-  document.querySelectorAll('[data-aimt-scroller]').forEach(x => x.removeAttribute('data-aimt-scroller'));
-  if (s) s.setAttribute('data-aimt-scroller', '1');
-  const sr = s ? s.getBoundingClientRect() : { top: 0, bottom: innerHeight };
-  const inp = document.querySelector(inputSel);
-  const bar = inp ? (inp.closest('[data-testid="standalone-input"]') || inp) : null;
-  const barTop = bar ? bar.getBoundingClientRect().top : innerHeight;
-  const top = Math.max(sr.top, 0);
-  const bottom = Math.min(sr.bottom, barTop, innerHeight);
-  return { hasScroller: !!s, height: el.getBoundingClientRect().height, top, bottom };
-}"""
-
-# Прокрутить чат так, чтобы точка ответа `offset` оказалась у верхнего края
-# видимой полосы; вернуть, где ответ оказался на самом деле (у конца чата
-# прокрутка упирается в предел).
-_SCROLL_JS = """(el, a) => {
-  const s = document.querySelector('[data-aimt-scroller]');
-  if (s) s.scrollTop += (el.getBoundingClientRect().top + a.offset) - a.top;
-  const r = el.getBoundingClientRect();
-  return { x: r.left, width: r.width, top: r.top };
-}"""
-
-_MAX_SLICES = 15
 
 CARDS_MARK = "— Карточки в ответе —"
 
@@ -258,38 +225,12 @@ class AliceAdapter:
     async def _screenshot(self, page, answer) -> bytes:
         """Скриншот ответа целиком.
 
-        Короткий ответ — одним снимком элемента. Длинный в окно не влезает, а
-        чат Алисы прокручивается внутри своего блока: Firefox рисует только
-        видимую часть, и снимок элемента выходил наполовину чёрным — пропадал
-        как раз верх ответа (11.09.2026). Такой ответ снимаем кусками,
-        прокручивая чат, и склеиваем.
+        Чат Алисы прокручивается внутри своего блока, а поле ввода висит
+        поверх его низа: и то и другое умеет общая склейка (shot.full_shot),
+        ей же пользуются остальные адаптеры.
         """
-        try:
-            await page.mouse.move(5, 5)  # всплывающие карточки ссылок не должны попасть в кадр
-            geo = await answer.evaluate(_GEOMETRY_JS, _S["input"])
-            if not geo["hasScroller"] or geo["height"] <= geo["bottom"] - geo["top"]:
-                return await answer.screenshot(type="jpeg", quality=80, timeout=8000)
-            return await self._stitch(page, answer, geo)
-        except Exception as exc:
-            log.info("Скриншот ответа Алисы не снялся (%s) — снимаю окно", exc)
-            return await page.screenshot(type="jpeg", quality=80, full_page=False)
-
-    async def _stitch(self, page, answer, geo: dict) -> bytes:
-        total = geo["height"]
-        slices: list[bytes] = []
-        offset = 0.0
-        while offset < total - 1 and len(slices) < _MAX_SLICES:
-            r = await answer.evaluate(_SCROLL_JS, {"offset": offset, "top": geo["top"]})
-            await asyncio.sleep(0.3)  # дать дорисоваться после прокрутки
-            y = max(geo["top"], r["top"] + offset)
-            h = min(total - offset, geo["bottom"] - y)
-            if h < 1:
-                break
-            slices.append(await page.screenshot(
-                type="png", clip={"x": r["x"], "y": y, "width": r["width"], "height": h},
-            ))
-            offset += h
-        return _glue(slices)
+        await page.mouse.move(5, 5)  # всплывающие карточки ссылок не должны попасть в кадр
+        return await shot.full_shot(page, answer, bottom_selector=_S["input"])
 
     async def _extract_sources(self, page) -> list[str]:
         try:
@@ -313,14 +254,3 @@ class AliceAdapter:
             return []
 
 
-def _glue(slices: list[bytes]) -> bytes:
-    """Склеивает куски скриншота сверху вниз в один JPEG."""
-    images = [Image.open(io.BytesIO(b)).convert("RGB") for b in slices]
-    out = Image.new("RGB", (max(i.width for i in images), sum(i.height for i in images)), "white")
-    y = 0
-    for im in images:
-        out.paste(im, (0, y))
-        y += im.height
-    buf = io.BytesIO()
-    out.save(buf, "JPEG", quality=80)
-    return buf.getvalue()

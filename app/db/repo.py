@@ -492,12 +492,36 @@ def update_result_mention(
     evidence_quote: str | None,
     detected_by: str | None,
     confidence: float | None,
+    needs_review: bool | None = None,
+    llm_model: str | None = None,
 ) -> None:
-    _exec(
-        """UPDATE results SET status = ?, mention_types_json = ?, evidence_quote = ?,
-                              detected_by = ?, confidence = ?
-            WHERE id = ?""",
-        (status, json.dumps(mention_types, ensure_ascii=False), evidence_quote, detected_by, confidence, result_id),
+    sets = ["status = ?", "mention_types_json = ?", "evidence_quote = ?", "detected_by = ?", "confidence = ?"]
+    args: list = [status, json.dumps(mention_types, ensure_ascii=False), evidence_quote, detected_by, confidence]
+    # needs_review и модель трогаем только когда есть что сказать: проверка
+    # внешних источников о ручной проверке ничего не знает и не должна её
+    # молча снимать.
+    if needs_review is not None:
+        sets.append("needs_review = ?")
+        args.append(1 if needs_review else 0)
+    if llm_model is not None:
+        sets.append("llm_model = ?")
+        args.append(llm_model)
+    args.append(result_id)
+    _exec(f"UPDATE results SET {', '.join(sets)} WHERE id = ?", args)
+
+
+def results_for_review(project_id: int) -> list[dict]:
+    """Строки с пометкой «требует проверки» — вход для перерешения арбитром."""
+    return _rows(
+        """SELECT r.id, r.query_id, r.service, r.status, r.confidence, r.evidence_quote,
+                  r.answer_text, r.sources_json, r.screenshot_path, r.detected_by,
+                  q.text AS query_text, s.scan_date
+             FROM results r
+             JOIN scans s ON s.id = r.scan_id
+             JOIN queries q ON q.id = r.query_id
+            WHERE s.project_id = ? AND r.needs_review = 1
+            ORDER BY s.scan_date, r.id""",
+        (project_id,),
     )
 
 

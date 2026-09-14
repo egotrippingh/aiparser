@@ -569,26 +569,34 @@ function LlmPanel({ settings, onSaved }: { settings: Settings | null; onSaved: (
   const [form, setForm] = useState<{
     key: string
     model: string | null
+    arbiterModel: string | null
     mode: string | null
     threshold: string | null
-  }>({ key: "", model: null, mode: null, threshold: null })
+  }>({ key: "", model: null, arbiterModel: null, mode: null, threshold: null })
   const [busy, setBusy] = useState(false)
 
   const model = form.model ?? settings?.openrouter_model ?? ""
+  const arbiterModel =
+    form.arbiterModel ??
+    (settings?.llm_arbiter === "off" ? "" : (settings?.openrouter_arbiter_model ?? ""))
   const mode = form.mode ?? settings?.llm_mode ?? "smart"
   const threshold = form.threshold ?? settings?.llm_confidence_threshold ?? "0.6"
 
   async function save() {
     setBusy(true)
     try {
+      // Пустое поле арбитра — это «выключить»: отдельный переключатель рядом
+      // с полем модели был бы двумя ручками для одного решения.
       const body: Record<string, string> = {
         openrouter_model: model.trim(),
         llm_mode: mode,
         llm_confidence_threshold: threshold,
+        llm_arbiter: arbiterModel.trim() ? "on" : "off",
       }
+      if (arbiterModel.trim()) body.openrouter_arbiter_model = arbiterModel.trim()
       if (form.key) body.openrouter_api_key = form.key
       await api.put("/api/settings", body)
-      setForm({ key: "", model: null, mode: null, threshold: null })
+      setForm({ key: "", model: null, arbiterModel: null, mode: null, threshold: null })
       onSaved()
       toast.success("Настройки сохранены")
     } catch (e) {
@@ -641,6 +649,19 @@ function LlmPanel({ settings, onSaved }: { settings: Settings | null; onSaved: (
               id="f_ormodel"
               value={model}
               onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+            />
+          </Field>
+
+          <Field
+            label="Модель-арбитр"
+            htmlFor="f_orarb"
+            hint="Решает спорные строки вместо ручной проверки. Пусто — арбитр выключен, такие строки останутся вам."
+          >
+            <Input
+              id="f_orarb"
+              value={arbiterModel}
+              placeholder="например, anthropic/claude-opus-5"
+              onChange={(e) => setForm((f) => ({ ...f, arbiterModel: e.target.value }))}
             />
           </Field>
 

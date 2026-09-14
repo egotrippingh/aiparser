@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 
 from app.scanner import humanize
+from app.scanner.adapters import shot
 from app.scanner.adapters.base import (
     AdapterError,
     Capture,
@@ -146,11 +147,9 @@ class ChatGPTAdapter:
         # Снимок только самого ответа. На снимке всего экрана модель OpenRouter
         # видела и вопрос, и соседние сообщения — 10.09.2026 она «нашла» бренд
         # в плашке-источнике предыдущего ответа.
-        try:
-            screenshot = await page.locator(_S["answer_container"]).last.screenshot(
-                type="jpeg", quality=80, timeout=8000)
-        except Exception:
-            screenshot = await page.screenshot(type="jpeg", quality=80, full_page=False)
+        # Длинный ответ в окно не влезает, и снимок элемента выходил обрезанным:
+        # снимаем кусками с прокруткой и склеиваем (app/scanner/adapters/shot.py).
+        screenshot = await shot.full_shot(page, page.locator(_S["answer_container"]).last)
 
         return Capture(screenshot_bytes=screenshot, answer_text=answer_text.strip(), sources=sources)
 
