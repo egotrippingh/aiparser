@@ -64,6 +64,8 @@ class Journal:
         # открытия окна для её решения.
         self.captcha_left: dict[str, int] = {}
         self.captcha_windows: list[tuple[str, str]] = []
+        # С какими границами просили паузу между запросами.
+        self.pauses: list[tuple[float | None, float | None]] = []
 
 
 journal = Journal()
@@ -115,8 +117,8 @@ class FakeAdapter:
         return Capture(screenshot_bytes=PNG, answer_text="Лучший поставщик — Тестбренд.", sources=[])
 
 
-async def _no_pause(*_, **__) -> None:
-    return None
+async def _no_pause(*args, **kw) -> None:
+    journal.pauses.append((kw.get("lo"), kw.get("hi")))
 
 
 async def fake_captcha_window(service_id: str, url: str, timeout: float = 900) -> bool:
@@ -197,6 +199,24 @@ def test_headless_choice_reaches_the_browser():
 
     _, j = _run(parallel=False)
     assert j.headless is False
+
+
+def test_service_can_demand_a_longer_pause():
+    # ChatGPT считает частые запросы спамом раньше других и перекрывает поле
+    # ввода (живой случай 17.09.2026 в режиме «Быстро»). Своя нижняя граница
+    # адаптера должна перебивать профиль скорости.
+    class Slow(FakeAdapter):
+        min_delay_sec = (15.0, 35.0)
+
+    orchestrator.get_adapter = lambda sid: Slow(sid) if sid == "chatgpt" else FakeAdapter(sid)
+    try:
+        _, j = _run(parallel=False)
+    finally:
+        orchestrator.get_adapter = lambda sid: FakeAdapter(sid)
+
+    assert (15.0, 35.0) in j.pauses, j.pauses          # ChatGPT — по своей границе
+    # Остальные сервисы — по профилю скорости, их эта граница не касается.
+    assert any(p[0] is not None and p[0] < 15 for p in j.pauses), j.pauses
 
 
 def test_captcha_without_windows_asks_the_human_and_retries():

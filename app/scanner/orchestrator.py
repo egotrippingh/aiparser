@@ -430,6 +430,16 @@ async def _run_service(
     queue = list(pending)
     done = 0
 
+    # У сервиса может быть своя нижняя граница паузы: ChatGPT считает частые
+    # запросы спамом раньше остальных и перекрывает поле ввода. Берём большее
+    # из профиля скорости и требования адаптера — ускорить сервис профилем
+    # «Быстро» нельзя, а замедлить «Осторожным» можно.
+    own_lo, own_hi = getattr(adapter, "min_delay_sec", (0.0, 0.0))
+    delay_lo = max(settings["delay_min_sec"], own_lo)
+    delay_hi = max(settings["delay_max_sec"], own_hi, delay_lo)
+    if own_lo:
+        log.info("%s: пауза между запросами %.0f–%.0f с", service_id, delay_lo, delay_hi)
+
     async def session() -> str | None:
         """Проход по очереди в одном контексте. Вернёт адрес страницы с капчей."""
         nonlocal done, queue
@@ -497,8 +507,8 @@ async def _run_service(
                 if queue:
                     await humanize.between_queries(
                         done,
-                        lo=settings["delay_min_sec"],
-                        hi=settings["delay_max_sec"],
+                        lo=delay_lo,
+                        hi=delay_hi,
                         break_every=settings["break_every_n"],
                     )
         return None
