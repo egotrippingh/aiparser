@@ -40,10 +40,22 @@ _S = load_selectors()["chatgpt"]
 _MIN_ANSWER_CHARS = 60
 
 
+# Текст плашки, которой ChatGPT просит сбавить темп. Это не исчерпанный тариф,
+# а временное «слишком часто»: 17.09.2026 в режиме «Быстро» (паузы 2–5 с) он
+# перекрыл поле ввода, и два запроса ушли в базу как limit_reached.
+RATE_LIMIT_TEXT = "слишком часто"
+# Сколько ждать, увидев эту плашку, прежде чем пробовать снова.
+_COOLDOWN = (90, 180)
+
+
 class ChatGPTAdapter:
     service_id = "chatgpt"
     display_name = "ChatGPT"
     requires_auth = True
+    # Своя нижняя граница паузы между запросами: ChatGPT считает частые
+    # сообщения спамом раньше остальных сервисов. Оркестратор берёт большее из
+    # этого и профиля скорости — «Осторожно» она не ускорит.
+    min_delay_sec = (15.0, 35.0)
 
     async def ensure_ready(self, page) -> ReadyState:
         await page.goto(_S["home_url"], wait_until="domcontentloaded")
@@ -64,6 +76,7 @@ class ChatGPTAdapter:
         # Это SPA-клик, а не перезагрузка сайта — сам сайт грузится один раз
         # в ensure_ready на весь сервис.
         await self._new_chat(page)
+        await self._wait_out_rate_limit(page)
         await humanize.sleep(0.5 * speed, 1.0 * speed)
 
         await focus_input(
@@ -104,6 +117,27 @@ class ChatGPTAdapter:
             log.warning("ChatGPT: временный чат не включился — запрос сохранится в истории "
                         "и может учесть персонализацию аккаунта")
         await ensure_blank(page, _S["answer_container"], self.service_id, recover=fresh)
+
+    async def _wait_out_rate_limit(self, page) -> None:
+        """Пережидает плашку «отправляете запросы слишком часто».
+
+        Раньше она добиралась до `focus_input` и выглядела как заблокированное
+        поле, то есть как исчерпанный тариф: сервис останавливался после трёх
+        таких подряд. На деле это просьба сбавить темп — ждём и пробуем снова,
+        а ошибку записываем, только если и после ожидания плашка на месте.
+        """
+        for attempt in range(2):
+            try:
+                body = await page.locator("body").inner_text(timeout=5000)
+            except Exception:
+                return
+            if RATE_LIMIT_TEXT not in body.lower():
+                return
+            log.warning("ChatGPT просит сбавить темп — жду %s–%s с (попытка %s)",
+                        int(_COOLDOWN[0]), int(_COOLDOWN[1]), attempt + 1)
+            await humanize.sleep(*_COOLDOWN)
+            await page.goto(_S["temporary_url"], wait_until="domcontentloaded")
+            await visible(page.locator(_S["input"]).first, 20000)
 
     async def _wait_done(self, page) -> None:
         """Ждёт, пока ответ реально дописан.
