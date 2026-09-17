@@ -173,7 +173,11 @@ export function DashboardScreen({ onView }: { onView: (v: View) => void }) {
     <div className="space-y-3">
       {toolbar}
 
-      <SummaryPanel overview={data} changes={changes ?? { gained: 0, lost: 0, comparable: false }} />
+      <SummaryPanel
+        overview={data}
+        changes={changes ?? { gained: 0, lost: 0, comparable: false }}
+        params={params}
+      />
 
       {!compare ? (
         <Panel>

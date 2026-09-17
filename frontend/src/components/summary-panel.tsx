@@ -9,6 +9,7 @@ import type { ReactNode } from "react"
 
 import { Delta, ServiceDot } from "@/components/bits"
 import { ExternalSourcesButton } from "@/components/external-sources-button"
+import { MentionsExportButton } from "@/components/mentions-export-button"
 import { ReviewResolveButton } from "@/components/review-resolve-button"
 import { dmy } from "@/lib/dates"
 import { pct, plural, shortDate } from "@/lib/format"
@@ -18,9 +19,12 @@ import { useApp } from "@/store/app-store"
 export function SummaryPanel({
   overview,
   changes,
+  params,
 }: {
   overview: Overview
   changes: { gained: number; lost: number; comparable: boolean }
+  /** Выбор календаря строкой запроса — выгрузки берут ровно его. */
+  params: string
 }) {
   const { serviceById } = useApp()
   const s = overview.summary
@@ -50,6 +54,7 @@ export function SummaryPanel({
         )}
         <div className="ml-auto flex items-center gap-2">
           <ReviewResolveButton />
+          <MentionsExportButton params={params} />
           <ExternalSourcesButton date={s.date} />
         </div>
       </div>
