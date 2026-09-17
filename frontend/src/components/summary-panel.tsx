@@ -29,7 +29,10 @@ export function SummaryPanel({
   const { serviceById } = useApp()
   const s = overview.summary
   if (!s) return null
-  const compare = overview.selection.mode === "two"
+  // «За период» — когда диапазон или даты выбраны руками; иначе изменение
+  // считается к предыдущей проверке. Решает сервер, интерфейс только
+  // подписывает: две логики в двух местах разъехались бы.
+  const compare = s.compare === "period"
 
   return (
     <section className="bg-card rounded-md border">
@@ -45,7 +48,7 @@ export function SummaryPanel({
             {s.prev_date ? (
               <>
                 {" "}
-                · изменения к <span className="tnum">{dmy(s.prev_date)}</span>
+                · изменения к прошлой проверке <span className="tnum">{dmy(s.prev_date)}</span>
               </>
             ) : (
               " · первый срез, сравнивать не с чем"
@@ -122,7 +125,7 @@ export function SummaryPanel({
                 <th scope="col" className="px-3 py-1.5 text-right font-medium">
                   Упоминаний
                 </th>
-                {!compare && overview.dates.length > 2 ? (
+                {overview.dates.length > 2 ? (
                   <th scope="col" className="px-4 py-1.5 text-right font-medium">
                     Динамика
                   </th>
@@ -156,7 +159,7 @@ export function SummaryPanel({
                     <td className="tnum text-muted-foreground px-3 py-1.5 text-right">
                       <span className="text-foreground">{svc.found}</span> из {svc.checked}
                     </td>
-                    {!compare && overview.dates.length > 2 ? (
+                    {overview.dates.length > 2 ? (
                       <td className="px-4 py-1 text-right">
                         <Sparkline
                           values={series}

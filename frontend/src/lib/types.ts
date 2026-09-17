@@ -79,6 +79,8 @@ export interface ServiceSummary extends CellStats {
 export interface OverviewSummary {
   date: string
   prev_date: string | null
+  /** С чем сравниваем: «за выбранный период» или «к прошлой проверке». */
+  compare: "period" | "prev_scan"
   total: CellStats & { delta: number | null }
   by_service: ServiceSummary[]
   queries: number

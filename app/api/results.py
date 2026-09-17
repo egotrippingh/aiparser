@@ -305,7 +305,15 @@ def overview(
     summary = None
     if dates:
         last = dates[-1]
-        prev = dates[-2] if len(dates) > 1 else None
+        # С чем сравниваем. Явно выбранный диапазон или отмеченные даты — это
+        # вопрос «что изменилось ЗА период», поэтому базой служит первая дата
+        # выборки. Обычный вид без диапазона — «что изменилось с прошлой
+        # проверки»: база — предыдущий срез, и на цепочке 10 → 12 → 13
+        # изменение выходит +1, а не +3.
+        over_period = bool(date_from or date_to) or mode in ("two", "custom")
+        prev = None
+        if len(dates) > 1:
+            prev = dates[0] if over_period else dates[-2]
 
         def pct_of(d: str | None, key: str) -> float | None:
             return stats[d].get(key, {}).get("pct") if d else None
@@ -314,6 +322,9 @@ def overview(
         summary = {
             "date": last,
             "prev_date": prev,
+            # Чтобы интерфейс подписал цифру честно: «за период» или
+            # «к прошлой проверке».
+            "compare": "period" if over_period else "prev_scan",
             "total": {**total, "delta": _delta(total["pct"], pct_of(prev, "_all"))},
             "by_service": [
                 {

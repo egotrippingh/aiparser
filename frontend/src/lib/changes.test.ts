@@ -81,6 +81,7 @@ describe("totalChanges", () => {
   const summary = (prev: string | null) => ({
     date: "2026-09-02",
     prev_date: prev,
+    compare: "prev_scan" as const,
     total: { found: 0, checked: 0, pct: null, delta: null },
     by_service: [],
     queries: 0,
