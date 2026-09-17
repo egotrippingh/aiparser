@@ -188,6 +188,30 @@ def test_two_dates_compares_first_and_last_of_range():
     assert s["total"]["delta"] == 100.0      # было 0% (not_found), стало 100%
 
 
+def test_without_range_change_is_measured_against_the_previous_scan():
+    # Пять проверок подряд без выбранного диапазона: изменение считается к
+    # предыдущему срезу, а не к первому за всё время. Иначе на цепочке
+    # 10 → 12 → 13 упоминаний в «Изменениях» стояло бы +3 вместо +1.
+    pid = _calendar_project()
+    d = client.get(f"/api/projects/{pid}/overview").json()
+    s = d["summary"]
+    assert len(d["dates"]) == 5
+    assert s["compare"] == "prev_scan"
+    assert s["prev_date"] == "2026-08-30" and s["date"] == "2026-09-02"
+
+
+def test_picked_range_is_measured_across_the_whole_range():
+    # Диапазон выбран руками — вопрос «что изменилось за период», поэтому
+    # базой служит первая проверка диапазона, а не предпоследняя.
+    pid = _calendar_project()
+    d = client.get(f"/api/projects/{pid}/overview",
+                   params={"date_from": "2026-07-01", "date_to": "2026-09-30"}).json()
+    s = d["summary"]
+    assert len(d["dates"]) == 5
+    assert s["compare"] == "period"
+    assert s["prev_date"] == "2026-07-10" and s["date"] == "2026-09-02"
+
+
 def test_monthly_takes_last_check_of_each_month():
     pid = _calendar_project()
     d = client.get(f"/api/projects/{pid}/overview", params={"mode": "monthly"}).json()
