@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
 from app import services
-from app.api.results import MAX_DATES, MODES, SCOPES, _check_date, scoped_status, select_dates
+from app.api.results import MAX_DATES, MODES, SCOPES, _check_date, allowed_mention_types, scoped_status, select_dates
 from app.db import repo
 
 router = APIRouter(prefix="/api", tags=["mentions"])
@@ -152,6 +152,7 @@ def export_mentions(
     dates: str | None = None,
     max_dates: int = MAX_DATES,
     scope: str = "all",
+    include_cards: bool = True,
 ) -> Response:
     """Excel «запросы × ИИ-системы» за выбранный в календаре период."""
     project = repo.get_project(project_id)
@@ -182,7 +183,7 @@ def export_mentions(
     if not selected:
         raise HTTPException(404, "За выбранный период нет ни одной проверки")
 
-    rows, service_ids = collect(project_id, selected, SCOPES[scope])
+    rows, service_ids = collect(project_id, selected, allowed_mention_types(scope, include_cards))
     body = build_xlsx(project, selected, service_ids, rows)
 
     period = selected[0] if len(selected) == 1 else f"{selected[0]}—{selected[-1]}"

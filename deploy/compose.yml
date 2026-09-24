@@ -1,0 +1,54 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aiparser
+      POSTGRES_USER: aiparser
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aiparser -d aiparser"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg://aiparser:${DB_PASSWORD:?Set DB_PASSWORD}@db:5432/aiparser
+      PUBLIC_BASE_URL: https://${DOMAIN:?Set DOMAIN}
+      COINSO_PROJECT_ID: ${COINSO_PROJECT_ID:-}
+      COINSO_SECRET_KEY: ${COINSO_SECRET_KEY:-}
+      COINSO_API_BASE_URL: https://coinso.io/api
+      COINSO_ALLOW_TEST_PAYMENTS: "false"
+      CHECK_PRICE_KOPEKS: ${CHECK_PRICE_KOPEKS:-150}
+      MIN_TOPUP_KOPEKS: ${MIN_TOPUP_KOPEKS:-30000}
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

@@ -18,7 +18,7 @@ import Scanner from "./components/reactbits/Scanner"
 import SpotlightCard from "./components/reactbits/SpotlightCard"
 import { ProcessFlow } from "./components/process-flow"
 
-const APP_URL = "/app/"
+const APP_URL = import.meta.env.VITE_APP_URL || "/app/"
 
 function Brand() {
   return (

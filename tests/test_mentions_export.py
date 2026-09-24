@@ -107,6 +107,25 @@ def test_errors_are_explicit():
     assert client.get(f"/api/projects/{pid}/mentions.xlsx?mode=ерунда").status_code == 400
 
 
+def test_product_card_toggle_matches_dashboard_and_export():
+    pid, q = _project(["только карточка", "карточка и текст"])
+    sid = repo.create_scan(pid, ["perplexity"], {})
+    repo._exec("UPDATE scans SET scan_date = ?, status = 'done' WHERE id = ?", ("2026-09-15", sid))
+    repo.save_result(sid, q[0], "perplexity", "found", mention_types=["card"])
+    repo.save_result(sid, q[1], "perplexity", "found", mention_types=["card", "text"])
+
+    included = client.get(f"/api/projects/{pid}/overview?include_cards=true").json()
+    excluded = client.get(f"/api/projects/{pid}/overview?include_cards=false").json()
+    assert included["summary"]["total"]["found"] == 2
+    assert excluded["summary"]["total"]["found"] == 1
+    assert excluded["summary"]["total"]["checked"] == 2
+    assert excluded["selection"]["include_cards"] is False
+
+    ws = _book(pid, "include_cards=false")["Упоминаемость"]
+    assert [c.value for c in ws[2]] == ["только карточка", "✗"]
+    assert [c.value for c in ws[3]] == ["карточка и текст", "✓"]
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in list(globals().items()) if n.startswith("test_") and callable(f)]
     failed = 0

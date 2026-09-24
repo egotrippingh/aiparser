@@ -107,6 +107,7 @@ export interface Selection {
   mode: CalendarMode
   /** Выбранный учёт упоминаний. */
   scope: MentionScope
+  include_cards: boolean
   date_from: string | null
   date_to: string | null
   /** Сколько срезов подходило под выбор до обрезки до 30. */

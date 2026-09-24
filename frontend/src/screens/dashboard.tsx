@@ -22,6 +22,7 @@ import type { View } from "@/hooks/use-hash-route"
 
 const CAL_KEY = "aimt.calendar."
 const SCOPE_KEY = "aimt.scope."
+const CARDS_KEY = "aimt.includeCards."
 
 /** Выбор календаря помнится по проекту: открыл завтра — тот же период. */
 function loadCalendar(projectId: number): CalendarValue {
@@ -45,12 +46,20 @@ function loadScope(projectId: number): MentionScope {
   return "all"
 }
 
+function loadCards(projectId: number): boolean {
+  try {
+    return localStorage.getItem(CARDS_KEY + projectId) !== "false"
+  } catch {
+    return true
+  }
+}
+
 const SCOPE_BUTTONS: { id: MentionScope; label: string; hint: string }[] = [
-  { id: "all", label: "Все упоминания", hint: "Всё, что нашлось: слова ИИ, ссылки, карточки, чужие площадки" },
+  { id: "all", label: "Все упоминания", hint: "Слова ИИ, ссылки, чужие площадки и карточки, если они включены" },
   {
     id: "no_external",
     label: "Без внешних",
-    hint: "Только слова ИИ, ссылка на ваш сайт и карточки в ответе — без чужих площадок и сайтов-источников",
+    hint: "Слова ИИ, ссылка на ваш сайт и включённые карточки — без чужих площадок и сайтов-источников",
   },
   { id: "own_site", label: "Только мой сайт", hint: "Только ответы, где ИИ дал ссылку на домен бренда" },
 ]
@@ -60,12 +69,24 @@ export function DashboardScreen({ onView }: { onView: (v: View) => void }) {
   const [target, setTarget] = useState<QueryTarget | null>(null)
   const [calendars, setCalendars] = useState<Record<number, CalendarValue>>({})
   const [scopes, setScopes] = useState<Record<number, MentionScope>>({})
+  const [cards, setCards] = useState<Record<number, boolean>>({})
 
   const calendar = projectId ? (calendars[projectId] ?? loadCalendar(projectId)) : DEFAULT_CALENDAR
   const scope: MentionScope = projectId ? (scopes[projectId] ?? loadScope(projectId)) : "all"
+  const includeCards = projectId ? (cards[projectId] ?? loadCards(projectId)) : true
   // Один набор параметров на всё: и обзор, и выгрузки — иначе файл разойдётся
   // с тем, что на экране.
-  const params = `${calendarParams(calendar).toString()}&scope=${scope}`
+  const params = `${calendarParams(calendar).toString()}&scope=${scope}&include_cards=${includeCards}`
+
+  function setIncludeCards(value: boolean) {
+    if (!projectId) return
+    setCards((prev) => ({ ...prev, [projectId]: value }))
+    try {
+      localStorage.setItem(CARDS_KEY + projectId, String(value))
+    } catch {
+      /* выбор действует до закрытия приложения */
+    }
+  }
 
   function setScope(v: MentionScope) {
     if (!projectId) return
@@ -144,6 +165,22 @@ export function DashboardScreen({ onView }: { onView: (v: View) => void }) {
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
       <CalendarPicker value={calendar} onChange={setCalendar} scanDates={scanDates?.dates ?? []} />
+      <button
+        type="button"
+        role="switch"
+        aria-checked={includeCards}
+        aria-label="Учитывать карточки товаров в статистике упоминаемости"
+        aria-describedby="cards-filter-hint"
+        disabled={scope === "own_site"}
+        onClick={() => setIncludeCards(!includeCards)}
+        className="border-input hover:bg-muted focus-visible:ring-ring flex min-h-9 cursor-pointer items-center gap-2 rounded-md border px-3 text-xs transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <span className={cn("relative h-4 w-7 rounded-full transition-colors", includeCards ? "bg-primary" : "bg-muted-foreground/40")} aria-hidden="true">
+          <span className={cn("bg-background absolute top-0.5 h-3 w-3 rounded-full transition-transform", includeCards ? "translate-x-3.5" : "translate-x-0.5")} />
+        </span>
+        Карточки товаров
+      </button>
+      <span id="cards-filter-hint" className="sr-only">Фильтр меняет график, сводку, таблицу и Excel. В режиме «Только мой сайт» карточки не учитываются. Исходные результаты сохраняются.</span>
       <div className="flex rounded border" role="radiogroup" aria-label="Учёт упоминаний">
         {SCOPE_BUTTONS.map((b) => (
           <button

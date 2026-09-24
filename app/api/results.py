@@ -179,6 +179,16 @@ SCOPES: dict[str, set[str] | None] = {
 }
 
 
+def allowed_mention_types(scope: str, include_cards: bool = True) -> set[str] | None:
+    """Типы для аналитики; карточки можно убрать, не меняя сами результаты."""
+    allowed = SCOPES[scope]
+    if include_cards:
+        return allowed
+    if allowed is None:
+        return {"text", "link", "marketplace", "url", "indirect", "source"}
+    return allowed - {"card"}
+
+
 def in_scope(types: list[str], allowed: set[str] | None) -> bool:
     """Засчитывается ли упоминание при выбранном учёте."""
     return allowed is None or any(t in allowed for t in types)
@@ -261,6 +271,7 @@ def overview(
     dates: str | None = None,
     max_dates: int = MAX_DATES,
     scope: str = "all",
+    include_cards: bool = True,
 ) -> dict:
     """Всё для дашборда в виде Топвизора: даты в столбцах, запросы в строках.
 
@@ -277,7 +288,7 @@ def overview(
         raise HTTPException(400, f"mode: одно из {', '.join(MODES)}")
     if scope not in SCOPES:
         raise HTTPException(400, f"scope: одно из {', '.join(SCOPES)}")
-    allowed = SCOPES[scope]
+    allowed = allowed_mention_types(scope, include_cards)
     date_from = _check_date(date_from, "date_from")
     date_to = _check_date(date_to, "date_to")
     picked = [d.strip() for d in (dates or "").split(",") if d.strip()]
@@ -381,6 +392,7 @@ def overview(
         "selection": {
             "mode": mode,
             "scope": scope,
+            "include_cards": include_cards,
             "date_from": date_from,
             "date_to": date_to,
             "available": available,

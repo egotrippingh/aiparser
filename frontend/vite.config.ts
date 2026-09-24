@@ -20,6 +20,7 @@ export default defineConfig({
       input: {
         landing: path.resolve(import.meta.dirname, 'index.html'),
         app: path.resolve(import.meta.dirname, 'app/index.html'),
+        cabinet: path.resolve(import.meta.dirname, 'cabinet/index.html'),
       },
     },
   },
