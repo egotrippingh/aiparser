@@ -107,7 +107,7 @@ a:focus-visible, summary:focus-visible { outline: 3px solid #c99fff; outline-off
 .section-heading h2, .signals-copy h2, .history-copy h2, .faq-layout h2, .cta-inner h2 { margin: 0; font-size: clamp(38px,4.2vw,65px); line-height: 1.07; letter-spacing: -.075em; font-weight: 700; }
 .section-heading p, .signals-copy > p, .history-copy > p, .faq-layout > div:first-child > p { max-width: 365px; margin: 0; color: var(--muted); font-size: 15px; line-height: 1.7; }
 .process-flow { position: relative; height: 100px; margin: -10px 0 12px; }
-.process-flow-line { position: absolute; top: 49px; left: 6.6%; right: 6.6%; height: 2px; background: repeating-linear-gradient(to right, #7c5aa2 0 8px, transparent 8px 15px); }
+.process-flow-line { position: absolute; top: 50%; left: calc(5.7% + 11px); right: calc(5.7% + 11px); height: 2px; transform: translateY(-50%); background: repeating-linear-gradient(to right, #7c5aa2 0 8px, transparent 8px 15px); }
 .process-flow-nodes { position: absolute; inset: 0; display: flex; justify-content: space-between; align-items: center; padding-inline: 5.7%; }
 .process-flow-nodes span { width: 22px; height: 22px; border: 5px solid #bd91ff; border-radius: 50%; background: #21182b; box-shadow: 0 0 0 8px #30213f, 0 0 27px rgba(188,145,255,.3); }
 .process-flow-lottie { position: absolute; inset: 0; }
@@ -311,8 +311,6 @@ a:focus-visible, summary:focus-visible { outline: 3px solid #c99fff; outline-off
   .step-card + .step-card { border-top: 1px solid var(--border); }
   .step-icon { margin: 12px 0 25px; }
   .process-flow { height: 77px; }
-  .process-flow-line { top: 38px; }
-  .process-flow-lottie { top: -12px; }
   .signals-list article { grid-template-columns: 46px 1fr; gap: 14px; }
   .signal-symbol { width: 44px; height: 44px; }
   .signal-arrow { display: none; }
