@@ -37,6 +37,7 @@ def _is_writable(path: Path) -> bool:
 
 
 BASE_DIR = _base_dir()
+RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", BASE_DIR))
 
 _portable_data = BASE_DIR / "data"
 PORTABLE = _is_writable(_portable_data)
@@ -53,13 +54,9 @@ SCREENSHOTS_DIR = DATA_DIR / "screenshots"
 DEBUG_DIR = DATA_DIR / "debug"
 EXPORTS_DIR = DATA_DIR / "exports"
 
-# Браузер Camoufox: качается мастером первого запуска, чтобы дистрибутив
-# оставался лёгким. Каталог всегда рядом с приложением — он общий для всех
-# профилей и переезжает вместе с portable-папкой.
-RUNTIME_DIR = BASE_DIR / "runtime"
-CAMOUFOX_DIR = RUNTIME_DIR / "camoufox"
-
-WEB_DIR = BASE_DIR / "web"
+# Camoufox скачивается при первом запуске в пользовательский кэш Windows.
+# Профили и скриншоты остаются в DATA_DIR, отдельно от файлов сборки.
+WEB_DIR = RESOURCE_DIR / "web"
 
 # Сервер поднимается только на localhost и только для окна WebView.
 HOST = "127.0.0.1"
@@ -76,7 +73,7 @@ if ACCOUNT_URL and not (ACCOUNT_URL.startswith("https://") or
                         ACCOUNT_URL.startswith("http://localhost:")):
     raise RuntimeError("AIPARSER_ACCOUNT_URL должен использовать HTTPS")
 
-for _d in (PROFILES_DIR, SCREENSHOTS_DIR, DEBUG_DIR, EXPORTS_DIR, RUNTIME_DIR):
+for _d in (PROFILES_DIR, SCREENSHOTS_DIR, DEBUG_DIR, EXPORTS_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 

@@ -53,7 +53,30 @@ def main() -> None:
 
     url = f"http://{config.HOST}:{config.PORT}/app/"
     if not _wait_for_server(url):
-        log.error("Сервер не поднялся за отведённое время")
+        raise RuntimeError("Локальный сервер не поднялся за отведённое время")
+
+    if "--self-test" in sys.argv[1:]:
+        import urllib.request
+        import webview.platforms.winforms
+
+        for path in ("/api/meta", "/api/browser/status", "/app/"):
+            with urllib.request.urlopen(f"http://{config.HOST}:{config.PORT}{path}", timeout=5) as response:
+                if response.status != 200:
+                    raise RuntimeError(f"Проверка {path} завершилась с HTTP {response.status}")
+        if "--self-test-browser" in sys.argv[1:]:
+            import asyncio
+
+            from camoufox.async_api import AsyncCamoufox
+
+            async def check_browser() -> None:
+                async with AsyncCamoufox(headless=True, os="windows", geoip=False) as browser:
+                    page = await browser.new_page()
+                    await page.goto("about:blank")
+                    if page.url != "about:blank":
+                        raise RuntimeError("Camoufox не открыл тестовую страницу")
+
+            asyncio.run(check_browser())
+        log.info("Проверка настольного приложения прошла")
         return
 
     if "--browser" in sys.argv[1:]:

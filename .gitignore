@@ -1,5 +1,7 @@
 # Виртуальное окружение и кэш Python
 .venv/
+build/
+dist/
 __pycache__/
 *.pyc
 

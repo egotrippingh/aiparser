@@ -11,6 +11,8 @@ import asyncio
 import json
 import logging
 
+from camoufox.pkgman import camoufox_path
+
 from fastapi import APIRouter, HTTPException
 
 from app import services
@@ -65,20 +67,11 @@ def status() -> dict:
 
 
 async def _install() -> None:
-    _install_state.update(running=True, error=None)
+    _install_state.update(running=True, done=False, error=None,
+                          log=["Скачиваю Camoufox в пользовательский кэш. Это большой файл; подождите..."])
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *[__import__("sys").executable, "-m", "camoufox", "fetch"],
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        assert proc.stdout
-        async for line in proc.stdout:
-            _install_state["log"].append(line.decode(errors="replace").rstrip())
-            _install_state["log"] = _install_state["log"][-200:]
-        code = await proc.wait()
-        if code != 0:
-            _install_state["error"] = f"camoufox fetch завершился с кодом {code}"
+        await asyncio.to_thread(camoufox_path, download_if_missing=True)
+        _install_state["log"].append("Camoufox установлен")
     except Exception as exc:
         log.exception("Не удалось скачать Camoufox")
         _install_state["error"] = str(exc)
