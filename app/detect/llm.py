@@ -37,7 +37,7 @@ _SYSTEM = """Ты проверяешь, упоминается ли конкре
 НЕ засчитывай: упоминание похожих, но других компаний; общие термины отрасли;
 сам вопрос пользователя (бренд мог прозвучать в вопросе — важно, назван ли он в ОТВЕТЕ).
 Ответь СТРОГО валидным JSON без markdown-обрамления:
-{"found": bool, "mention_types": ["text"|"link"|"marketplace"|"card"|"indirect"],
+{"found": bool, "mention_types": ["text"|"link"|"marketplace"|"url"|"card"|"indirect"],
  "confidence": 0.0-1.0, "quote": "короткая цитата-доказательство или пусто",
  "reasoning": "одно предложение на русском"}"""
 
@@ -56,7 +56,7 @@ _ARBITER_SYSTEM = """Ты выносишь ОКОНЧАТЕЛЬНОЕ решен
 в вопросе пользователя; догадка «наверное, имелась в виду эта компания».
 Если доказательства нет — отвечай found=false. Сомнение трактуй как отсутствие упоминания.
 Ответь СТРОГО валидным JSON без markdown-обрамления:
-{"found": bool, "mention_types": ["text"|"link"|"marketplace"|"card"|"indirect"|"source"],
+{"found": bool, "mention_types": ["text"|"link"|"marketplace"|"url"|"card"|"indirect"|"source"],
  "confidence": 0.0-1.0, "quote": "дословная цитата-доказательство или пусто",
  "reasoning": "одно предложение на русском: почему решил именно так"}"""
 

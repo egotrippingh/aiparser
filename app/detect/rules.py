@@ -123,22 +123,40 @@ def check_links(sources: list[str], brand_domains: list[str]) -> RuleVerdict:
     return RuleVerdict(found=False)
 
 
-def check_marketplace_mention(sources: list[str], brand_name: str, aliases: list[str]) -> RuleVerdict:
-    """Ссылка на маркетплейс, в анкоре/URL которой встречается форма бренда.
+def check_marketplace_mention(sources: list[str], brand_name: str, aliases: list[str],
+                              brand_domains: list[str] | None = None) -> RuleVerdict:
+    """Форма бренда в адресе страницы, на которую сослался ИИ.
 
-    Отдельный признак от check_links: тут домен НЕ бренда (это Маркет или
-    Озон), а бренд ищется в самом URL — так ловятся карточки товаров вида
-    market.yandex.ru/.../opttorg24-...
+    Отдельный признак от check_links: домен тут НЕ брендовый, бренд стоит в
+    самом адресе — карточка товара или раздел бренда в чужом магазине
+    (stomshop.pro/geosoft-estus-multi-plus, denttrade.su/.../geosoft_dent/…).
+
+    До 24.09.2026 правило смотрело только на четыре площадки (Маркет, Озон,
+    WB, Авито), а всё остальное уходило моделям. Замер на 89 спорных строках
+    показал цену этого: 36 из 42 расхождений между Opus и Gemini были ровно
+    про такие адреса — одна модель считала их упоминанием, другая нет.
+    Совпадение здесь дословное, поэтому решают правила: вердикт перестаёт
+    зависеть от того, какую модель выбрали и в каком она настроении.
+
+    Тип «marketplace» — для известных площадок, «url» — для прочих сайтов:
+    карточка на Озоне и раздел бренда в каталоге дилера в отчёте различаются.
     """
     forms = {f for f in build_forms(brand_name, aliases) if len(f) >= _MIN_FORM_LEN}
     for url in sources:
-        host = (urlparse(url if "://" in url else f"//{url}").hostname or "").lower()
-        if not any(m in host for m in MARKETPLACE_DOMAINS):
+        try:
+            host = normalize_host((urlparse(url if "://" in url else f"//{url}").hostname or "").lower())
+        except ValueError:
+            continue
+        # Ссылку на сайт самого бренда засчитывает check_links — иначе один и
+        # тот же источник дал бы сразу два типа.
+        if any(same_site(host, d) for d in (brand_domains or [])):
             continue
         norm_url = normalize(url)
         for form in forms:
             if form in norm_url:
-                return RuleVerdict(found=True, mention_types=["marketplace"], evidence_quote=url, matched_forms=[form])
+                mtype = "marketplace" if any(m in host for m in MARKETPLACE_DOMAINS) else "url"
+                return RuleVerdict(found=True, mention_types=[mtype], evidence_quote=url,
+                                   matched_forms=[form])
     return RuleVerdict(found=False)
 
 
@@ -180,7 +198,7 @@ def evaluate(
     results = [
         check_text(answer_text, brand_name, aliases),
         check_links(sources, brand_domains),
-        check_marketplace_mention(sources, brand_name, aliases),
+        check_marketplace_mention(sources, brand_name, aliases, brand_domains),
         check_cards(card_text, brand_name, aliases),
     ]
     hits = [r for r in results if r.found]

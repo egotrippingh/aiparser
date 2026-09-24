@@ -113,6 +113,44 @@ def test_evaluate_not_found():
     assert not v.found
 
 
+def test_brand_in_any_source_url_is_a_mention():
+    # Живой случай 24.09.2026 на geosoft-dent.ru: бренда нет в словах ИИ, но
+    # он сослался на карточку товара в чужом магазине. Раньше такое видел
+    # только арбитр, и 36 из 42 расхождений между моделями были про это.
+    r = check_marketplace_mention(
+        ["https://stomshop.pro/geosoft-estus-multi-plus"], "Геософт Дент", ["Geosoft"]
+    )
+    assert r.found and r.mention_types == ["url"]
+    assert r.evidence_quote.startswith("https://stomshop.pro")
+
+
+def test_known_marketplace_keeps_its_own_type():
+    r = check_marketplace_mention(
+        ["https://market.yandex.ru/product--krepezh-opttorg24/123456"], BRAND, ALIASES
+    )
+    assert r.found and r.mention_types == ["marketplace"]
+
+
+def test_own_domain_is_left_to_check_links():
+    # Иначе один и тот же источник дал бы сразу два типа: «ссылка» и «в адресе».
+    r = check_marketplace_mention(["https://opttorg24.ru/catalog"], BRAND, ALIASES, DOMAINS)
+    assert not r.found
+
+
+def test_evaluate_counts_brand_in_source_url():
+    v = evaluate(
+        "Ответ без упоминания бренда.",
+        ["https://el-dent.ru/id/lampa-estus-light-geosoft.html"],
+        "Геософт", ["Geosoft"], ["geosoft-dent.ru"],
+    )
+    assert v.found and v.mention_types == ["url"]
+
+
+def test_unrelated_source_url_is_not_a_mention():
+    r = check_marketplace_mention(["https://denttrade.su/catalog/skalery/"], "Геософт", ["Geosoft"])
+    assert not r.found
+
+
 def test_cards_are_matched_strictly():
     # Сниппеты чужих сайтов в карточках: только целое слово, без нечёткого
     # сравнения — как в живой проверке 11.09.2026 на небрендовом запросе.
