@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hmac
 import os
 import uuid
 from datetime import timedelta, timezone
@@ -10,17 +11,19 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server.ai import AIError, OpenRouterAI
 from server.coinso import CoinsoClient, CoinsoError, kopeks, verify_webhook
-from server.models import Base, Check, LedgerEntry, PaymentOrder, SessionToken, User, Wallet, make_session_factory, utcnow
+from server.models import (Base, Check, DeviceCode, LedgerEntry, LoginTicket, OAuthAttempt, OAuthIdentity,
+                           PaymentOrder, SessionToken, User, Wallet, make_session_factory, utcnow)
 from server.security import hash_password, new_token, token_hash, verify_password
+from server.yandex import YandexError, YandexOAuth
 
 
 class Credentials(BaseModel):
@@ -44,6 +47,10 @@ class CompleteIn(BaseModel):
 class AnalyzeIn(BaseModel):
     system: str = Field(min_length=50, max_length=4000)
     content: list[dict] = Field(min_length=1, max_length=5)
+
+
+class TicketIn(BaseModel):
+    ticket: str = Field(min_length=30, max_length=200)
 
 
 def _email(raw: str) -> str:
@@ -96,7 +103,8 @@ def _order_payload(order: PaymentOrder) -> dict:
 
 
 def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient | None = None,
-               ai_client: OpenRouterAI | None = None) -> FastAPI:
+               ai_client: OpenRouterAI | None = None,
+               yandex_client: YandexOAuth | None = None) -> FastAPI:
     database_url = database_url or os.environ.get("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL не задан")
@@ -113,6 +121,15 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         )
     if ai_client is None and os.environ.get("OPENROUTER_API_KEY"):
         ai_client = OpenRouterAI(os.environ["OPENROUTER_API_KEY"])
+    public_base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+    if yandex_client is None and public_base and os.environ.get("YANDEX_CLIENT_ID") and os.environ.get("YANDEX_CLIENT_SECRET"):
+        if not (public_base.startswith("https://") or public_base.startswith("http://127.0.0.1:")
+                or public_base.startswith("http://localhost:")):
+            raise RuntimeError("Яндекс ID требует HTTPS-адрес сайта")
+        yandex_client = YandexOAuth(
+            os.environ["YANDEX_CLIENT_ID"], os.environ["YANDEX_CLIENT_SECRET"],
+            f"{public_base}/api/v1/auth/yandex/callback",
+        )
     allow_test = os.environ.get("COINSO_ALLOW_TEST_PAYMENTS", "false").lower() == "true"
     price = int(os.environ.get("CHECK_PRICE_KOPEKS", "150"))
     min_topup = int(os.environ.get("MIN_TOPUP_KOPEKS", "30000"))
@@ -120,6 +137,21 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         raise RuntimeError("Цена и минимальное пополнение должны быть положительными")
 
     app = FastAPI(title="AI Mentions Account API")
+    oauth_cookie = "aimt_yandex_state"
+    cookie_secure = public_base.startswith("https://")
+
+    def cabinet_location(fragment: str = "") -> str:
+        return f"{public_base}/cabinet/{fragment}" if public_base else f"/cabinet/{fragment}"
+
+    def oauth_redirect(suffix: str) -> RedirectResponse:
+        response = RedirectResponse(cabinet_location(suffix), status_code=303)
+        response.delete_cookie(oauth_cookie, path="/api/v1/auth/yandex")
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
+
+    def expired(value) -> bool:
+        at = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return at <= utcnow()
 
     def db_session():
         with SessionLocal() as db:
@@ -161,6 +193,144 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
                 "managed_detection": ai_client is not None,
                 "detection_model": ai_client.model if ai_client else None}
 
+    @app.get("/api/v1/auth/providers")
+    def auth_providers() -> dict:
+        return {"yandex": yandex_client is not None}
+
+    def start_yandex(db: Session, *, purpose: str, user_id: str | None = None) -> tuple[str, str]:
+        if not yandex_client:
+            raise HTTPException(503, "Вход через Яндекс ещё не настроен")
+        state, verifier = new_token(), new_token()
+        db.execute(delete(OAuthAttempt).where(OAuthAttempt.expires_at < utcnow()))
+        db.execute(delete(LoginTicket).where(LoginTicket.expires_at < utcnow()))
+        db.add(OAuthAttempt(state_hash=token_hash(state), code_verifier=verifier,
+                            purpose=purpose, user_id=user_id,
+                            expires_at=utcnow() + timedelta(minutes=10)))
+        db.commit()
+        return yandex_client.authorize_url(state, verifier), state
+
+    def set_yandex_cookie(response, state: str) -> None:
+        response.set_cookie(oauth_cookie, state, max_age=600, httponly=True,
+                            secure=cookie_secure, samesite="lax", path="/api/v1/auth/yandex")
+
+    @app.get("/api/v1/auth/yandex/start")
+    def yandex_start(db: Session = Depends(db_session)) -> RedirectResponse:
+        url, state = start_yandex(db, purpose="login")
+        response = RedirectResponse(url, status_code=303)
+        set_yandex_cookie(response, state)
+        return response
+
+    @app.post("/api/v1/auth/yandex/link/start")
+    def yandex_link_start(user: User = Depends(current_user),
+                          db: Session = Depends(db_session)) -> JSONResponse:
+        url, state = start_yandex(db, purpose="link", user_id=user.id)
+        response = JSONResponse({"authorization_url": url})
+        set_yandex_cookie(response, state)
+        return response
+
+    @app.get("/api/v1/auth/yandex/callback")
+    def yandex_callback(request: Request, state: str = "", code: str = "", error: str = "",
+                        db: Session = Depends(db_session)) -> RedirectResponse:
+        browser_state = request.cookies.get(oauth_cookie, "")
+        if not state or not browser_state or not hmac.compare_digest(state, browser_state):
+            raise HTTPException(400, "Неверное состояние входа через Яндекс")
+        attempt = db.execute(select(OAuthAttempt).where(OAuthAttempt.state_hash == token_hash(state))
+                             .with_for_update()).scalar_one_or_none()
+        if not attempt or expired(attempt.expires_at):
+            raise HTTPException(400, "Время входа через Яндекс истекло")
+        purpose, link_user_id, verifier = attempt.purpose, attempt.user_id, attempt.code_verifier
+        db.delete(attempt)
+        db.commit()  # состояние одноразовое, даже если Яндекс вернёт ошибку
+        if error or not code:
+            return oauth_redirect("?auth_error=cancelled")
+        if not yandex_client:
+            return oauth_redirect("?auth_error=provider")
+        try:
+            profile = yandex_client.profile(code, verifier)
+        except YandexError:
+            return oauth_redirect("?auth_error=provider")
+        if str(profile.get("client_id")) != yandex_client.client_id:
+            return oauth_redirect("?auth_error=provider")
+        subject = str(profile.get("id") or "")
+        if not subject or len(subject) > 190:
+            return oauth_redirect("?auth_error=provider")
+        identity = db.scalar(select(OAuthIdentity).where(OAuthIdentity.provider == "yandex",
+                                                       OAuthIdentity.subject == subject))
+        if purpose == "link":
+            if not link_user_id or not db.get(User, link_user_id):
+                return oauth_redirect("?auth_error=retry")
+            if identity and identity.user_id != link_user_id:
+                return oauth_redirect("?auth_error=already_linked")
+            other = db.scalar(select(OAuthIdentity).where(OAuthIdentity.provider == "yandex",
+                                                         OAuthIdentity.user_id == link_user_id))
+            if other and other.subject != subject:
+                return oauth_redirect("?auth_error=already_linked")
+            if not identity:
+                db.add(OAuthIdentity(provider="yandex", subject=subject, user_id=link_user_id))
+                try:
+                    db.commit()
+                except IntegrityError:
+                    db.rollback()
+                    return oauth_redirect("?auth_error=retry")
+            return oauth_redirect("?linked=1")
+        if identity:
+            user = db.get(User, identity.user_id)
+            if not user:
+                return oauth_redirect("?auth_error=retry")
+        else:
+            email_raw = profile.get("default_email")
+            if not isinstance(email_raw, str):
+                return oauth_redirect("?auth_error=email_required")
+            try:
+                email = _email(email_raw)
+            except HTTPException:
+                return oauth_redirect("?auth_error=email_required")
+            if db.scalar(select(User).where(User.email == email)):
+                return oauth_redirect("?auth_error=link_required")
+            user = User(id=uuid.uuid4().hex, email=email, password_hash="external:yandex")
+            db.add_all([user, Wallet(user_id=user.id, balance_kopeks=0),
+                        OAuthIdentity(provider="yandex", subject=subject, user_id=user.id)])
+        ticket = new_token()
+        db.add(LoginTicket(ticket_hash=token_hash(ticket), user_id=user.id,
+                           expires_at=utcnow() + timedelta(minutes=1)))
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            return oauth_redirect("?auth_error=retry")
+        return oauth_redirect(f"#auth_ticket={ticket}")
+
+    @app.post("/api/v1/auth/yandex/exchange")
+    def yandex_exchange(body: TicketIn, db: Session = Depends(db_session)) -> dict:
+        ticket = db.execute(select(LoginTicket).where(LoginTicket.ticket_hash == token_hash(body.ticket))
+                            .with_for_update()).scalar_one_or_none()
+        if not ticket or expired(ticket.expires_at):
+            raise HTTPException(401, "Ссылка для входа истекла")
+        user = db.get(User, ticket.user_id)
+        db.delete(ticket)
+        db.commit()
+        return issue_session(db, user)
+
+    @app.post("/api/v1/auth/device/code")
+    def device_code(user: User = Depends(current_user), db: Session = Depends(db_session)) -> dict:
+        code = new_token()
+        db.execute(delete(DeviceCode).where(DeviceCode.user_id == user.id))
+        db.add(DeviceCode(code_hash=token_hash(code), user_id=user.id,
+                          expires_at=utcnow() + timedelta(minutes=5)))
+        db.commit()
+        return {"code": code, "expires_in": 300}
+
+    @app.post("/api/v1/auth/device/exchange")
+    def device_exchange(body: TicketIn, db: Session = Depends(db_session)) -> dict:
+        code = db.execute(select(DeviceCode).where(DeviceCode.code_hash == token_hash(body.ticket))
+                          .with_for_update()).scalar_one_or_none()
+        if not code or expired(code.expires_at):
+            raise HTTPException(401, "Код подключения истёк или уже использован")
+        user = db.get(User, code.user_id)
+        db.delete(code)
+        db.commit()
+        return issue_session(db, user)
+
     @app.post("/api/v1/auth/register", status_code=201)
     def register(body: Credentials, db: Session = Depends(db_session)) -> dict:
         email = _email(body.email)
@@ -189,8 +359,10 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         return {"ok": True}
 
     @app.get("/api/v1/me")
-    def me(user: User = Depends(current_user)) -> dict:
-        return {"id": user.id, "email": user.email}
+    def me(user: User = Depends(current_user), db: Session = Depends(db_session)) -> dict:
+        linked = db.scalar(select(OAuthIdentity.id).where(OAuthIdentity.provider == "yandex",
+                                                        OAuthIdentity.user_id == user.id))
+        return {"id": user.id, "email": user.email, "yandex_linked": linked is not None}
 
     @app.get("/api/v1/wallet")
     def wallet(user: User = Depends(current_user), db: Session = Depends(db_session)) -> dict:

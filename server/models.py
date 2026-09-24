@@ -34,6 +34,43 @@ class SessionToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class OAuthIdentity(Base):
+    __tablename__ = "oauth_identities"
+    __table_args__ = (UniqueConstraint("provider", "subject"),
+                      UniqueConstraint("provider", "user_id"))
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider: Mapped[str] = mapped_column(String(24))
+    subject: Mapped[str] = mapped_column(String(190))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+
+
+class OAuthAttempt(Base):
+    __tablename__ = "oauth_attempts"
+
+    state_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    code_verifier: Mapped[str] = mapped_column(String(128))
+    purpose: Mapped[str] = mapped_column(String(12))
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class LoginTicket(Base):
+    __tablename__ = "login_tickets"
+
+    ticket_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class DeviceCode(Base):
+    __tablename__ = "device_codes"
+
+    code_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class Wallet(Base):
     __tablename__ = "wallets"
 

@@ -13,6 +13,10 @@ class Credentials(BaseModel):
     password: str
 
 
+class DeviceCode(BaseModel):
+    code: str
+
+
 @router.get("/status")
 async def account_status() -> dict:
     try:
@@ -25,6 +29,15 @@ async def account_status() -> dict:
 async def account_login(body: Credentials) -> dict:
     try:
         await billing.login(body.email, body.password)
+        return await billing.status()
+    except billing.BillingError as exc:
+        raise HTTPException(401, str(exc)) from exc
+
+
+@router.post("/login-code")
+async def account_login_code(body: DeviceCode) -> dict:
+    try:
+        await billing.login_with_code(body.code)
         return await billing.status()
     except billing.BillingError as exc:
         raise HTTPException(401, str(exc)) from exc

@@ -57,6 +57,13 @@ async def login(email: str, password: str) -> dict:
     return response["user"]
 
 
+async def login_with_code(code: str) -> dict:
+    response = await _request("POST", "/auth/device/exchange",
+                              body={"ticket": code.strip()}, auth=False)
+    repo.set_setting(TOKEN_KEY, secrets_store.protect(response["token"]), is_secret=True)
+    return response["user"]
+
+
 async def logout() -> None:
     if token():
         try:

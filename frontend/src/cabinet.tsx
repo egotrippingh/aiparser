@@ -9,7 +9,7 @@ const money = (kopeks: number) => new Intl.NumberFormat("ru-RU", {
   style: "currency", currency: "RUB", maximumFractionDigits: 2,
 }).format(kopeks / 100)
 
-type User = { id: string; email: string }
+type User = { id: string; email: string; yandex_linked?: boolean }
 type Entry = { amount_kopeks: number; kind: string; reference: string; created_at: string }
 type Wallet = { balance_kopeks: number; reserved_kopeks: number; available_kopeks: number; entries: Entry[] }
 type Payment = { id: string; amount_kopeks: number; method: string; status: string; payment_url: string | null; created_at: string }
@@ -33,7 +33,7 @@ function Brand() {
 }
 
 function Cabinet() {
-  const [token, setToken] = useState(() => sessionStorage.getItem(TOKEN_KEY) || "")
+  const [token, setToken] = useState(() => location.hash.includes("auth_ticket=") ? "" : sessionStorage.getItem(TOKEN_KEY) || "")
   const [user, setUser] = useState<User | null>(null)
   const [wallet, setWallet] = useState<Wallet | null>(null)
   const [payments, setPayments] = useState<Payment[]>([])
@@ -46,6 +46,8 @@ function Cabinet() {
   const [method, setMethod] = useState<"sbp" | "card">("sbp")
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
+  const [yandexEnabled, setYandexEnabled] = useState(false)
+  const [deviceCode, setDeviceCode] = useState("")
 
   async function refresh(activeToken: string) {
     const p = await request<Payment[]>("/payments", activeToken)
@@ -60,6 +62,41 @@ function Cabinet() {
     setWallet(w)
     setPayments(reconciled)
   }
+
+  useEffect(() => {
+    request<{ yandex: boolean }>("/auth/providers").then((p) => setYandexEnabled(p.yandex)).catch(() => null)
+    const ticket = new URLSearchParams(location.hash.slice(1)).get("auth_ticket")
+    if (ticket) {
+      history.replaceState(null, "", location.pathname + location.search)
+      sessionStorage.removeItem(TOKEN_KEY)
+      request<{ token: string; user: User }>("/auth/yandex/exchange", undefined, { ticket })
+        .then((result) => {
+          sessionStorage.setItem(TOKEN_KEY, result.token)
+          setToken(result.token)
+          setMessage("Вы вошли через Яндекс")
+        })
+        .catch(() => setMessage("Не удалось завершить вход через Яндекс. Попробуйте ещё раз."))
+    }
+    const params = new URLSearchParams(location.search)
+    const authError = params.get("auth_error")
+    if (authError) {
+      const errors: Record<string, string> = {
+        cancelled: "Вход через Яндекс отменён.",
+        provider: "Яндекс не подтвердил вход. Попробуйте ещё раз.",
+        email_required: "Разрешите доступ к email в Яндекс ID, чтобы создать аккаунт.",
+        link_required: "Аккаунт с таким email уже есть. Войдите по паролю и привяжите Яндекс ID в кабинете.",
+        already_linked: "Этот Яндекс ID уже привязан к другому аккаунту.",
+        retry: "Не удалось привязать Яндекс ID. Попробуйте ещё раз.",
+      }
+      setMessage(errors[authError] || "Не удалось войти через Яндекс.")
+      params.delete("auth_error")
+    }
+    if (params.has("linked")) {
+      setMessage("Яндекс ID подключён к аккаунту")
+      params.delete("linked")
+    }
+    history.replaceState(null, "", location.pathname + (params.size ? `?${params}` : "") + location.hash)
+  }, [])
 
   useEffect(() => {
     request<{ check_price_kopeks: number; min_topup_kopeks: number }>("/pricing")
@@ -118,12 +155,47 @@ function Cabinet() {
     setWallet(null)
   }
 
+  async function linkYandex() {
+    setBusy(true)
+    try {
+      const result = await request<{ authorization_url: string }>("/auth/yandex/link/start", token, {})
+      location.assign(result.authorization_url)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Не удалось открыть Яндекс ID")
+      setBusy(false)
+    }
+  }
+
+  async function createDeviceCode() {
+    setBusy(true)
+    try {
+      const result = await request<{ code: string; expires_in: number }>("/auth/device/code", token, {})
+      setDeviceCode(result.code)
+      setMessage("Код действует 5 минут и может быть использован один раз")
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Не удалось создать код")
+    } finally { setBusy(false) }
+  }
+
+  async function copyDeviceCode() {
+    try {
+      await navigator.clipboard.writeText(deviceCode)
+      setMessage("Код скопирован")
+    } catch { setMessage("Выделите и скопируйте код вручную") }
+  }
+
   return <div className="cabinet">
     <header className="cab-header"><div className="cab-container cab-header-inner"><Brand /><span className="cab-header-label">Личный кабинет</span>{user && <button className="cab-logout" onClick={logout}><LogOut size={16} /> Выйти</button>}</div></header>
     <main className="cab-container cab-main">
       {!user ? <section className="cab-auth-wrap">
         <div className="cab-intro"><span className="cab-kicker">AI MENTIONS / АККАУНТ</span><h1>Проверки под вашим контролем.</h1><p>Пополняйте баланс и смотрите историю проверок. Проекты и отчёты хранятся на вашем компьютере; для анализа текст ответа и снимок передаются в OpenRouter.</p><div className="cab-price-note"><ShieldCheck size={18} /> {money(price)} за запрос в одном ИИ-сервисе</div></div>
         <form className="cab-panel cab-auth" onSubmit={authenticate}>
+          <button className="cab-yandex" type="button" disabled={!yandexEnabled || busy}
+            title={yandexEnabled ? "" : "Доступно после настройки Яндекс ID на сервере"}
+            onClick={() => location.assign(`${API}/api/v1/auth/yandex/start`)}>
+            <span className="cab-yandex-mark" aria-hidden="true">Я</span> Продолжить через Яндекс
+          </button>
+          <div className="cab-auth-divider"><span>или по email</span></div>
           <div className="cab-tabs"><button type="button" className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>Войти</button><button type="button" className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>Создать аккаунт</button></div>
           <label>Email<input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
           <label>Пароль<input type="password" minLength={12} autoComplete={authMode === "login" ? "current-password" : "new-password"} required value={password} onChange={(e) => setPassword(e.target.value)} /></label>
@@ -131,11 +203,12 @@ function Cabinet() {
           <button className="cab-primary" disabled={busy}>{busy ? "Подождите…" : authMode === "login" ? "Войти" : "Зарегистрироваться"}</button>
         </form>
       </section> : <>
-        <div className="cab-title-row"><div><span className="cab-kicker">ВАШ АККАУНТ</span><h1>Баланс и проверки</h1><p>{user.email}</p></div><span className="cab-rate">Одна проверка · {money(price)}</span></div>
+        <div className="cab-title-row"><div><span className="cab-kicker">ВАШ АККАУНТ</span><h1>Баланс и проверки</h1><p>{user.email}</p>{yandexEnabled && <button className="cab-link-yandex" disabled={busy || user.yandex_linked} onClick={linkYandex}>{user.yandex_linked ? "Яндекс ID подключён" : "Привязать Яндекс ID"}</button>}</div><span className="cab-rate">Одна проверка · {money(price)}</span></div>
         <div className="cab-grid">
           <section className="cab-panel cab-balance"><span className="cab-kicker">ДОСТУПНО ДЛЯ ПРОВЕРОК</span><strong>{money(wallet?.available_kopeks || 0)}</strong><p>На балансе {money(wallet?.balance_kopeks || 0)}{wallet?.reserved_kopeks ? ` · Зарезервировано ${money(wallet.reserved_kopeks)}` : ""}</p><div className="cab-balance-foot">Примерно {Math.floor((wallet?.available_kopeks || 0) / price)} проверок по текущей цене</div></section>
           <form className="cab-panel cab-topup" onSubmit={topup}><span className="cab-kicker">ПОПОЛНЕНИЕ</span><h2>Добавить средства</h2><label>Сумма, ₽<input type="number" min={minimum / 100} max="100000" step="1" value={amount} onChange={(e) => setAmount(e.target.value)} /></label><fieldset><legend>Способ оплаты</legend><label><input type="radio" name="method" checked={method === "sbp"} onChange={() => setMethod("sbp")} /> СБП</label><label><input type="radio" name="method" checked={method === "card"} onChange={() => setMethod("card")} /> Карта</label></fieldset><button className="cab-primary" disabled={busy}><CreditCard size={17} /> Перейти к оплате</button><small>Минимальная сумма — {money(minimum)}. После оплаты средства появятся на балансе.</small></form>
         </div>
+        <section className="cab-panel cab-device"><div><span className="cab-kicker">НАСТОЛЬНОЕ ПРИЛОЖЕНИЕ</span><h2>Подключить парсер</h2><p>Откройте экран скана на компьютере и выберите «Код из кабинета». Код создаётся на 5 минут и подходит для одного входа.</p></div><button className="cab-primary" onClick={createDeviceCode} disabled={busy}>Получить код</button>{deviceCode && <div className="cab-device-code"><code>{deviceCode}</code><button onClick={copyDeviceCode}>Скопировать</button></div>}</section>
         <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ИСТОРИЯ</span><h2>Операции по балансу</h2></div><button onClick={() => refresh(token)} className="cab-refresh">Обновить</button></div>{wallet?.entries.length ? <div className="cab-list">{wallet.entries.map((entry) => <div className="cab-entry" key={entry.reference}><span className={entry.amount_kopeks > 0 ? "cab-entry-icon in" : "cab-entry-icon out"}>{entry.amount_kopeks > 0 ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}</span><span><b>{entry.kind === "topup" ? "Пополнение" : "Проверка запроса"}</b><small>{new Date(entry.created_at).toLocaleString("ru-RU")}</small></span><strong className={entry.amount_kopeks > 0 ? "positive" : ""}>{entry.amount_kopeks > 0 ? "+" : ""}{money(entry.amount_kopeks)}</strong></div>)}</div> : <p className="cab-empty">Пока нет операций. Пополните баланс, чтобы начать проверки.</p>}</section>
         {payments.some((p) => p.status === "pending") && <p className="cab-pending">Есть незавершённое пополнение. Если вы уже оплатили, нажмите «Обновить» после возврата на сайт.</p>}
       </>}

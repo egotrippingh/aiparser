@@ -46,6 +46,8 @@ function AccountPanel({ account, error, remaining, reload }: {
 }) {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [deviceCode, setDeviceCode] = useState("")
+  const [useCode, setUseCode] = useState(false)
   const [busy, setBusy] = useState(false)
   if (!account?.enabled && !error) return null
   const price = account?.pricing?.check_price_kopeks ?? 150
@@ -71,6 +73,21 @@ function AccountPanel({ account, error, remaining, reload }: {
     reload()
   }
 
+  async function loginCode(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    try {
+      await api.post("/api/account/login-code", { code: deviceCode.trim() })
+      setDeviceCode("")
+      reload()
+      toast.success("Аккаунт подключён")
+    } catch (e) {
+      toast.error(errText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return <Panel>
     <PanelHead title="Оплата проверок" hint="Сумма резервируется перед запуском. Капчи и сбои до получения ответа не оплачиваются." />
     <div className="flex flex-wrap items-center gap-4 px-4 pb-4">
@@ -79,11 +96,21 @@ function AccountPanel({ account, error, remaining, reload }: {
         <div className="min-w-0 flex-1 text-sm"><strong>{account.email}</strong><p className="text-muted-foreground mt-1">Доступно {rub(account.wallet?.available_kopeks ?? 0)} · {rub(price)} за проверку</p></div>
         <div className="text-sm font-semibold">Для запуска: до {rub(remaining * price)}</div>
         <Button size="sm" variant="outline" onClick={logout}>Выйти</Button>
-      </> : <form onSubmit={login} className="flex flex-1 flex-wrap items-end gap-2">
-        <label className="min-w-40 flex-1 text-xs">Email<Input className="mt-1" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-        <label className="min-w-40 flex-1 text-xs">Пароль<Input className="mt-1" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>
-        <Button size="sm" disabled={busy}>Войти</Button>
-      </form>}
+      </> : <div className="min-w-64 flex-1">
+        <div className="mb-3 flex gap-2">
+          <Button size="sm" type="button" variant={useCode ? "outline" : "secondary"} onClick={() => setUseCode(false)}>По email</Button>
+          <Button size="sm" type="button" variant={useCode ? "secondary" : "outline"} onClick={() => setUseCode(true)}>Код из кабинета</Button>
+        </div>
+        {useCode ? <form onSubmit={loginCode} className="flex flex-wrap items-end gap-2">
+          <label className="min-w-64 flex-1 text-xs">Одноразовый код<Input className="mt-1" autoComplete="off" required value={deviceCode} onChange={(e) => setDeviceCode(e.target.value)} /></label>
+          <Button size="sm" disabled={busy}>Подключить</Button>
+          <p className="text-muted-foreground w-full text-xs">Войдите через Яндекс в кабинете и скопируйте код в разделе «Подключить приложение».</p>
+        </form> : <form onSubmit={login} className="flex flex-wrap items-end gap-2">
+          <label className="min-w-40 flex-1 text-xs">Email<Input className="mt-1" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+          <label className="min-w-40 flex-1 text-xs">Пароль<Input className="mt-1" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+          <Button size="sm" disabled={busy}>Войти</Button>
+        </form>}
+      </div>}
       {account?.cabinet_url && <a className="text-primary text-xs underline underline-offset-2" href={account.cabinet_url} target="_blank" rel="noreferrer">Личный кабинет и пополнение</a>}
       {error && <p className="text-destructive w-full text-xs">{error}</p>}
     </div>
