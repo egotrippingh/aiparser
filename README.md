@@ -137,7 +137,7 @@ $env:HTTPS_PROXY = 'http://127.0.0.1:10809'
 Два закруглённых окна с примерами работы находятся в
 `frontend/src/landing-page.tsx`. В `GIF_SOURCES` можно указать пути к GIF
 интерфейса и процесса сканирования. Пока пути пусты, показываются встроенные
-анимированные примеры. Компоненты Topography и SpotlightCard взяты из
+анимированные примеры. Компоненты Scanner и SpotlightCard взяты из
 [React Bits](https://reactbits.dev/) и распространяются с приложением на
 условиях лицензии в `frontend/src/components/reactbits/LICENSE.md`.
 

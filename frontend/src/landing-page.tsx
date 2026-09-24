@@ -14,7 +14,7 @@ import {
 } from "lucide-react"
 
 import "./landing.css"
-import Topography from "./components/reactbits/Topography"
+import Scanner from "./components/reactbits/Scanner"
 import SpotlightCard from "./components/reactbits/SpotlightCard"
 import { ProcessFlow } from "./components/process-flow"
 
@@ -35,7 +35,7 @@ function Brand() {
 
 const services = ["ChatGPT", "Perplexity", "Алиса AI", "Google AI Overview"]
 
-function TopographyLayer() {
+function ScannerLayer() {
   const [reduced, setReduced] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches)
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -43,7 +43,7 @@ function TopographyLayer() {
     media.addEventListener("change", update)
     return () => media.removeEventListener("change", update)
   }, [])
-  return <div className="hero-topography" aria-hidden="true">{!reduced && <Topography lowColor="#c7d5ec" midColor="#92afe9" highColor="#3a6ae4" speed={0.13} morphAmount={1.7} morphSpeed={0.04} bands={5} thickness={0.008} glow={0.02} opacity={0.42} grain={false} mouseInteraction={false} />}</div>
+  return <div className="hero-scanner" aria-hidden="true">{!reduced && <Scanner color1="#5b2dce" color2="#d66edb" color3="#8eeaff" speed={0.18} sweepSpeed={0.14} sweepWidth={1.8} scale={1.2} frequency={1.5} ripple={0.26} bandDensity={8} glow={0.24} brightness={1.2} opacity={1} mouseInteraction={false} scanline={false} grain={false} />}</div>
 }
 
 // Set either source when demo GIFs are ready. Until then, each slot renders
@@ -95,11 +95,11 @@ function ReportPreview() {
             <div className="chart-grid" />
             <svg viewBox="0 0 260 90" preserveAspectRatio="none">
               <defs>
-                <linearGradient id="report-area" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#2f62e9" stopOpacity=".24"/><stop offset="1" stopColor="#2f62e9" stopOpacity="0"/></linearGradient>
+                <linearGradient id="report-area" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#a879ff" stopOpacity=".24"/><stop offset="1" stopColor="#a879ff" stopOpacity="0"/></linearGradient>
               </defs>
               <path d="M0 76 C28 72 36 68 57 70 S92 48 113 53 S150 38 166 42 S202 20 225 26 S250 11 260 13 V90 H0Z" fill="url(#report-area)" />
-              <path d="M0 76 C28 72 36 68 57 70 S92 48 113 53 S150 38 166 42 S202 20 225 26 S250 11 260 13" fill="none" stroke="#2f62e9" strokeWidth="3" strokeLinecap="round" />
-              <circle cx="260" cy="13" r="4.5" fill="#2f62e9" stroke="white" strokeWidth="3" />
+              <path d="M0 76 C28 72 36 68 57 70 S92 48 113 53 S150 38 166 42 S202 20 225 26 S250 11 260 13" fill="none" stroke="#a879ff" strokeWidth="3" strokeLinecap="round" />
+              <circle cx="260" cy="13" r="4.5" fill="#a879ff" stroke="white" strokeWidth="3" />
             </svg>
           </div>
         </div>
@@ -148,8 +148,7 @@ export function LandingPage() {
 
       <main>
         <section className="hero" aria-labelledby="hero-title">
-          <div className="hero-grid" aria-hidden="true" />
-          <TopographyLayer />
+          <ScannerLayer />
           <div className="site-container hero-inner">
             <div className="hero-copy">
               <div className="eyebrow"><span className="eyebrow-line" /> МОНИТОРИНГ ОТВЕТОВ ИИ</div>
@@ -161,10 +160,11 @@ export function LandingPage() {
               </div>
               <div className="hero-services"><span>ПРОВЕРЯЕМ</span><div>{services.map((name) => <span key={name}>{name}</span>)}</div></div>
             </div>
-            <ReportPreview />
           </div>
           <div className="site-container hero-foot"><span>ОТ ЗАПРОСА ДО КОНКРЕТНОГО ОТВЕТА</span><span>01 / 04</span></div>
         </section>
+
+        <section className="proof-section" aria-label="Пример интерфейса отчёта"><div className="site-container proof-layout"><div className="proof-copy"><span className="section-index">РЕЗУЛЬТАТ СКАНА</span><h2>Каждое упоминание видно в деталях.</h2><p>Смотрите ответы по каждому запросу и системе. Данные остаются под рукой для сравнения.</p></div><ReportPreview /></div></section>
 
         <section className="intro-section" id="how" aria-labelledby="how-title">
           <div className="site-container">
@@ -179,8 +179,8 @@ export function LandingPage() {
         </section>
 
         <section className="showcase-section" aria-labelledby="showcase-title"><div className="site-container"><div className="showcase-heading"><span className="section-index">ВНУТРИ ПРОДУКТА</span><h2 id="showcase-title">Весь путь проверки — перед глазами.</h2><p>Список запросов, ход скана и результаты по каждой ИИ-системе собраны в одном интерфейсе.</p></div><div className="showcase-grid">
-          <SpotlightCard className="media-card" spotlightColor="rgba(57, 104, 225, 0.14)"><div className="media-card-heading"><span>01 / ИНТЕРФЕЙС</span><h3>Все запросы и результаты в одном месте.</h3></div><GifWindow slot="interface" title="Обзор проекта"><InterfaceDemo /></GifWindow><p>Дашборд показывает видимость по запросам и датам. Каждый результат можно открыть и проверить.</p></SpotlightCard>
-          <SpotlightCard className="media-card" spotlightColor="rgba(57, 104, 225, 0.14)"><div className="media-card-heading"><span>02 / ПРОЦЕСС СКАНИРОВАНИЯ</span><h3>Видно, что происходит во время проверки.</h3></div><GifWindow slot="parsing" title="Ход проверки"><ParsingDemo /></GifWindow><p>Парсер показывает прогресс по сервисам и сохраняет ответы по мере выполнения скана.</p></SpotlightCard>
+          <SpotlightCard className="media-card" spotlightColor="rgba(162, 108, 255, 0.17)"><div className="media-card-heading"><span>01 / ИНТЕРФЕЙС</span><h3>Все запросы и результаты в одном месте.</h3></div><GifWindow slot="interface" title="Обзор проекта"><InterfaceDemo /></GifWindow><p>Дашборд показывает видимость по запросам и датам. Каждый результат можно открыть и проверить.</p></SpotlightCard>
+          <SpotlightCard className="media-card" spotlightColor="rgba(162, 108, 255, 0.17)"><div className="media-card-heading"><span>02 / ПРОЦЕСС СКАНИРОВАНИЯ</span><h3>Видно, что происходит во время проверки.</h3></div><GifWindow slot="parsing" title="Ход проверки"><ParsingDemo /></GifWindow><p>Парсер показывает прогресс по сервисам и сохраняет ответы по мере выполнения скана.</p></SpotlightCard>
         </div></div></section>
 
         <section className="signals-section" id="signals" aria-labelledby="signals-title">
@@ -196,7 +196,7 @@ export function LandingPage() {
 
         <section className="history-section" aria-labelledby="history-title">
           <div className="site-container history-layout">
-            <div className="history-visual" aria-hidden="true"><div className="history-axis"><span>ВИДИМОСТЬ</span><span>100%</span><span>50%</span><span>0%</span></div><svg viewBox="0 0 620 270" preserveAspectRatio="none"><path d="M0 232 C72 207 96 210 142 191 S226 206 276 163 S351 168 407 102 S492 133 548 57 S586 47 620 27" fill="none" stroke="#88a5ff" strokeWidth="3"/><path d="M0 232 C72 207 96 210 142 191 S226 206 276 163 S351 168 407 102 S492 133 548 57 S586 47 620 27 V270 H0Z" fill="url(#history-fill)"/><defs><linearGradient id="history-fill" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#547df5" stopOpacity=".31"/><stop offset="1" stopColor="#547df5" stopOpacity="0"/></linearGradient></defs></svg><div className="history-dates"><span>ПЕРВЫЙ СКАН</span><span>ПОСЛЕДНИЙ СКАН</span></div><div className="history-callout"><ArrowUpRight size={19} /> Изменение видно по датам</div></div>
+            <div className="history-visual" aria-hidden="true"><div className="history-axis"><span>ВИДИМОСТЬ</span><span>100%</span><span>50%</span><span>0%</span></div><svg viewBox="0 0 620 270" preserveAspectRatio="none"><path d="M0 232 C72 207 96 210 142 191 S226 206 276 163 S351 168 407 102 S492 133 548 57 S586 47 620 27" fill="none" stroke="#bc91ff" strokeWidth="3"/><path d="M0 232 C72 207 96 210 142 191 S226 206 276 163 S351 168 407 102 S492 133 548 57 S586 47 620 27 V270 H0Z" fill="url(#history-fill)"/><defs><linearGradient id="history-fill" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#9c64fb" stopOpacity=".31"/><stop offset="1" stopColor="#9c64fb" stopOpacity="0"/></linearGradient></defs></svg><div className="history-dates"><span>ПЕРВЫЙ СКАН</span><span>ПОСЛЕДНИЙ СКАН</span></div><div className="history-callout"><ArrowUpRight size={19} /> Изменение видно по датам</div></div>
             <div className="history-copy"><span className="section-index">03 / ДИНАМИКА</span><h2 id="history-title">Сравнивайте ответы между сканами.</h2><p>Смотрите, в каких запросах бренд появился или пропал. При необходимости выгружайте таблицу упоминаний в Excel.</p><a className="button button-light" href={APP_URL}>Открыть отчёт <ArrowUpRight size={17} aria-hidden="true" /></a></div>
           </div>
         </section>

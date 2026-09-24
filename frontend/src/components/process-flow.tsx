@@ -29,8 +29,8 @@ function dotLayer(name: string, size: number, color: number[], opacity: number, 
 const chainAnimation = {
   v: "5.7.1", fr: 30, ip: 0, op: 120, w: 1200, h: 150, nm: "AI Mentions process signal", ddd: 0, assets: [],
   layers: [
-    dotLayer("Signal", 21, [0.14, 0.35, 0.87, 1], 100, 1),
-    dotLayer("Signal halo", 47, [0.14, 0.35, 0.87, 1], 17, 2),
+    dotLayer("Signal", 21, [0.71, 0.47, 1, 1], 100, 1),
+    dotLayer("Signal halo", 47, [0.71, 0.47, 1, 1], 17, 2),
   ],
 }
 
