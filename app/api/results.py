@@ -165,6 +165,37 @@ def _delta(now: float | None, before: float | None) -> float | None:
 #   custom  — вручную выбранные даты.
 MODES = ("period", "two", "monthly", "custom")
 MAX_DATES = 30          # больше столбцов таблица не показывает, как и Топвизор
+# Что считать упоминанием. Переключатель отчёта, а не настройка проекта:
+# один и тот же скан смотрят под разными углами — «сколько нас вообще
+# упоминают», «сколько без чужих площадок», «сколько ведут на наш сайт».
+#   all         — все типы, как собрано;
+#   no_external — без чужих площадок: ни адрес ссылки, ни сайт-источник,
+#                 ни маркетплейс; остаются слова ИИ, ссылка на свой сайт и карточки;
+#   own_site    — только ответы со ссылкой на домен бренда.
+SCOPES: dict[str, set[str] | None] = {
+    "all": None,
+    "no_external": {"text", "link", "card", "indirect"},
+    "own_site": {"link"},
+}
+
+
+def in_scope(types: list[str], allowed: set[str] | None) -> bool:
+    """Засчитывается ли упоминание при выбранном учёте."""
+    return allowed is None or any(t in allowed for t in types)
+
+
+def scoped_status(status: str, mention_types_json: str | None, allowed: set[str] | None) -> str:
+    """Статус с учётом фильтра: «найдено» не тех типов — это «не найдено».
+
+    Именно not_found, а не пропуск: проверка состоялась, бренда в нужном виде
+    в ней нет. Иначе знаменатель видимости менялся бы вместе с фильтром и
+    проценты нельзя было бы сравнивать между режимами.
+    """
+    if status != "found" or allowed is None:
+        return status
+    return "found" if in_scope(json.loads(mention_types_json or "[]"), allowed) else "not_found"
+
+
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -229,6 +260,7 @@ def overview(
     date_to: str | None = None,
     dates: str | None = None,
     max_dates: int = MAX_DATES,
+    scope: str = "all",
 ) -> dict:
     """Всё для дашборда в виде Топвизора: даты в столбцах, запросы в строках.
 
@@ -243,6 +275,9 @@ def overview(
         raise HTTPException(404, "Проект не найден")
     if mode not in MODES:
         raise HTTPException(400, f"mode: одно из {', '.join(MODES)}")
+    if scope not in SCOPES:
+        raise HTTPException(400, f"scope: одно из {', '.join(SCOPES)}")
+    allowed = SCOPES[scope]
     date_from = _check_date(date_from, "date_from")
     date_to = _check_date(date_to, "date_to")
     picked = [d.strip() for d in (dates or "").split(",") if d.strip()]
@@ -268,7 +303,8 @@ def overview(
     with_data: set[str] = set()
 
     for r in results:
-        d, svc, status = r["scan_date"], r["service"], r["status"]
+        d, svc = r["scan_date"], r["service"]
+        status = scoped_status(r["status"], r.get("mention_types_json"), allowed)
         cells[r["query_id"]][d][svc] = {
             "status": status,
             "needs_review": bool(r["needs_review"]),
@@ -344,6 +380,7 @@ def overview(
         "project": project,
         "selection": {
             "mode": mode,
+            "scope": scope,
             "date_from": date_from,
             "date_to": date_to,
             "available": available,

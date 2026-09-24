@@ -16,11 +16,12 @@ import { useResource } from "@/hooks/use-resource"
 import { api } from "@/lib/api"
 import { DEFAULT_CALENDAR, calendarParams, type CalendarValue } from "@/lib/calendar"
 import { totalChanges } from "@/lib/changes"
-import type { Overview, ScanDate } from "@/lib/types"
+import type { MentionScope, Overview, ScanDate } from "@/lib/types"
 import { useApp } from "@/store/app-store"
 import type { View } from "@/hooks/use-hash-route"
 
 const CAL_KEY = "aimt.calendar."
+const SCOPE_KEY = "aimt.scope."
 
 /** Выбор календаря помнится по проекту: открыл завтра — тот же период. */
 function loadCalendar(projectId: number): CalendarValue {
@@ -33,13 +34,48 @@ function loadCalendar(projectId: number): CalendarValue {
   return DEFAULT_CALENDAR
 }
 
+/** Учёт упоминаний помнится по проекту — как и период. */
+function loadScope(projectId: number): MentionScope {
+  try {
+    const raw = localStorage.getItem(SCOPE_KEY + projectId)
+    if (raw === "no_external" || raw === "own_site" || raw === "all") return raw
+  } catch {
+    /* повреждённая запись — считаем всё */
+  }
+  return "all"
+}
+
+const SCOPE_BUTTONS: { id: MentionScope; label: string; hint: string }[] = [
+  { id: "all", label: "Все упоминания", hint: "Всё, что нашлось: слова ИИ, ссылки, карточки, чужие площадки" },
+  {
+    id: "no_external",
+    label: "Без внешних",
+    hint: "Только слова ИИ, ссылка на ваш сайт и карточки в ответе — без чужих площадок и сайтов-источников",
+  },
+  { id: "own_site", label: "Только мой сайт", hint: "Только ответы, где ИИ дал ссылку на домен бренда" },
+]
+
 export function DashboardScreen({ onView }: { onView: (v: View) => void }) {
   const { projectId, dataVersion } = useApp()
   const [target, setTarget] = useState<QueryTarget | null>(null)
   const [calendars, setCalendars] = useState<Record<number, CalendarValue>>({})
+  const [scopes, setScopes] = useState<Record<number, MentionScope>>({})
 
   const calendar = projectId ? (calendars[projectId] ?? loadCalendar(projectId)) : DEFAULT_CALENDAR
-  const params = calendarParams(calendar).toString()
+  const scope: MentionScope = projectId ? (scopes[projectId] ?? loadScope(projectId)) : "all"
+  // Один набор параметров на всё: и обзор, и выгрузки — иначе файл разойдётся
+  // с тем, что на экране.
+  const params = `${calendarParams(calendar).toString()}&scope=${scope}`
+
+  function setScope(v: MentionScope) {
+    if (!projectId) return
+    setScopes((prev) => ({ ...prev, [projectId]: v }))
+    try {
+      localStorage.setItem(SCOPE_KEY + projectId, v)
+    } catch {
+      /* без localStorage выбор просто не запомнится */
+    }
+  }
 
   function setCalendar(v: CalendarValue) {
     if (!projectId) return
@@ -108,6 +144,25 @@ export function DashboardScreen({ onView }: { onView: (v: View) => void }) {
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
       <CalendarPicker value={calendar} onChange={setCalendar} scanDates={scanDates?.dates ?? []} />
+      <div className="flex rounded border" role="radiogroup" aria-label="Учёт упоминаний">
+        {SCOPE_BUTTONS.map((b) => (
+          <button
+            key={b.id}
+            type="button"
+            role="radio"
+            aria-checked={scope === b.id}
+            onClick={() => setScope(b.id)}
+            title={b.hint}
+            className={cn(
+              "h-7 cursor-pointer px-3 text-xs transition-colors first:rounded-l last:rounded-r",
+              "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
+              scope === b.id ? "bg-foreground text-background" : "hover:bg-muted",
+            )}
+          >
+            {b.label}
+          </button>
+        ))}
+      </div>
       <div className="flex rounded border" role="radiogroup" aria-label="Вид отчёта">
         {[
           { id: "dynamics", label: "Динамика", on: !compare },

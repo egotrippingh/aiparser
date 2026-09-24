@@ -417,7 +417,7 @@ def results_by_date(project_id: int, dates: list[str]) -> list[dict]:
     marks = ",".join("?" * len(dates))
     rows = _rows(
         f"""SELECT r.id, r.query_id, r.service, r.status, r.needs_review,
-                   s.scan_date, s.id AS scan_id
+                   r.mention_types_json, s.scan_date, s.id AS scan_id
               FROM results r JOIN scans s ON s.id = r.scan_id
              WHERE s.project_id = ? AND s.scan_date IN ({marks})
              ORDER BY r.created_at, r.id""",

@@ -212,6 +212,52 @@ def test_picked_range_is_measured_across_the_whole_range():
     assert s["prev_date"] == "2026-07-10" and s["date"] == "2026-09-02"
 
 
+_scope_n = 0
+
+
+def _project_with_types() -> tuple[int, dict[str, int]]:
+    """Три запроса: бренд в словах ИИ, ссылка на свой сайт, только чужая площадка."""
+    global _scope_n
+    _scope_n += 1
+    pid, q = _project(f"Учёт упоминаний {_scope_n}", ["в тексте", "свой сайт", "чужая площадка"])
+    sid = _scan(pid, "2026-09-20", ["chatgpt"])
+    repo.save_result(sid, q["в тексте"], "chatgpt", "found", mention_types=["text"])
+    repo.save_result(sid, q["свой сайт"], "chatgpt", "found", mention_types=["text", "link"])
+    repo.save_result(sid, q["чужая площадка"], "chatgpt", "found", mention_types=["source", "url"])
+    return pid, q
+
+
+def test_scope_all_counts_every_mention():
+    pid, _ = _project_with_types()
+    d = client.get(f"/api/projects/{pid}/overview").json()
+    assert d["selection"]["scope"] == "all"
+    assert d["stats"]["2026-09-20"]["_all"] == {"found": 3, "checked": 3, "pct": 100.0}
+
+
+def test_scope_without_external_drops_foreign_sites():
+    # Упоминание только на чужой площадке становится «не найдено», но остаётся
+    # в знаменателе: проверка состоялась, проценты между режимами сравнимы.
+    pid, _ = _project_with_types()
+    d = client.get(f"/api/projects/{pid}/overview", params={"scope": "no_external"}).json()
+    assert d["stats"]["2026-09-20"]["_all"] == {"found": 2, "checked": 3, "pct": 66.7}
+    rows = {r["text"]: r for r in d["rows"]}
+    assert rows["чужая площадка"]["cells"]["2026-09-20"]["chatgpt"]["status"] == "not_found"
+
+
+def test_scope_own_site_keeps_only_links_to_the_brand():
+    pid, _ = _project_with_types()
+    d = client.get(f"/api/projects/{pid}/overview", params={"scope": "own_site"}).json()
+    assert d["stats"]["2026-09-20"]["_all"] == {"found": 1, "checked": 3, "pct": 33.3}
+    rows = {r["text"]: r for r in d["rows"]}
+    assert rows["свой сайт"]["cells"]["2026-09-20"]["chatgpt"]["status"] == "found"
+    assert rows["в тексте"]["cells"]["2026-09-20"]["chatgpt"]["status"] == "not_found"
+
+
+def test_unknown_scope_is_400():
+    pid, _ = _project_with_types()
+    assert client.get(f"/api/projects/{pid}/overview", params={"scope": "ерунда"}).status_code == 400
+
+
 def test_monthly_takes_last_check_of_each_month():
     pid = _calendar_project()
     d = client.get(f"/api/projects/{pid}/overview", params={"mode": "monthly"}).json()

@@ -67,6 +67,7 @@ describe("totalChanges", () => {
     },
     selection: {
       mode: "period",
+      scope: "all" as const,
       date_from: null,
       date_to: null,
       available: 2,

@@ -100,8 +100,13 @@ export interface ScanDate {
   services: string[]
 }
 
+/** Что считать упоминанием в отчёте. */
+export type MentionScope = "all" | "no_external" | "own_site"
+
 export interface Selection {
   mode: CalendarMode
+  /** Выбранный учёт упоминаний. */
+  scope: MentionScope
   date_from: string | null
   date_to: string | null
   /** Сколько срезов подходило под выбор до обрезки до 30. */

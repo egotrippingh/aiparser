@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
 from app import services
-from app.api.results import MAX_DATES, MODES, _check_date, select_dates
+from app.api.results import MAX_DATES, MODES, SCOPES, _check_date, scoped_status, select_dates
 from app.db import repo
 
 router = APIRouter(prefix="/api", tags=["mentions"])
@@ -45,13 +45,18 @@ LEGEND = [
 ]
 
 
-def collect(project_id: int, dates: list[str]) -> tuple[list[dict], list[str]]:
-    """Строки «запрос → дата → сервис → знак» и список сервисов с данными."""
+def collect(project_id: int, dates: list[str], allowed: set[str] | None = None) -> tuple[list[dict], list[str]]:
+    """Строки «запрос → дата → сервис → знак» и список сервисов с данными.
+
+    `allowed` — учёт упоминаний с экрана (см. SCOPES): файл обязан совпадать
+    с таблицей, иначе выгрузка и дашборд разойдутся в цифрах.
+    """
     results = repo.results_by_date(project_id, dates)
     cells: dict[int, dict[str, dict[str, str]]] = defaultdict(lambda: defaultdict(dict))
     with_data: set[str] = set()
     for r in results:
-        cells[r["query_id"]][r["scan_date"]][r["service"]] = SIGNS.get(r["status"], "?")
+        status = scoped_status(r["status"], r.get("mention_types_json"), allowed)
+        cells[r["query_id"]][r["scan_date"]][r["service"]] = SIGNS.get(status, "?")
         with_data.add(r["service"])
 
     # Порядок систем — как в интерфейсе, а не как в базе; системы без единой
@@ -146,6 +151,7 @@ def export_mentions(
     date_to: str | None = None,
     dates: str | None = None,
     max_dates: int = MAX_DATES,
+    scope: str = "all",
 ) -> Response:
     """Excel «запросы × ИИ-системы» за выбранный в календаре период."""
     project = repo.get_project(project_id)
@@ -153,6 +159,8 @@ def export_mentions(
         raise HTTPException(404, "Проект не найден")
     if mode not in MODES:
         raise HTTPException(400, f"mode: одно из {', '.join(MODES)}")
+    if scope not in SCOPES:
+        raise HTTPException(400, f"scope: одно из {', '.join(SCOPES)}")
     date_from = _check_date(date_from, "date_from")
     date_to = _check_date(date_to, "date_to")
     picked = [d.strip() for d in (dates or "").split(",") if d.strip()]
@@ -174,7 +182,7 @@ def export_mentions(
     if not selected:
         raise HTTPException(404, "За выбранный период нет ни одной проверки")
 
-    rows, service_ids = collect(project_id, selected)
+    rows, service_ids = collect(project_id, selected, SCOPES[scope])
     body = build_xlsx(project, selected, service_ids, rows)
 
     period = selected[0] if len(selected) == 1 else f"{selected[0]}—{selected[-1]}"
