@@ -17,6 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from server.ai import AIError, OpenRouterAI
 from server.coinso import CoinsoClient, CoinsoError, kopeks, verify_webhook
 from server.models import Base, Check, LedgerEntry, PaymentOrder, SessionToken, User, Wallet, make_session_factory, utcnow
 from server.security import hash_password, new_token, token_hash, verify_password
@@ -38,6 +39,11 @@ class ReserveIn(BaseModel):
 
 class CompleteIn(BaseModel):
     status: str = Field(pattern="^(found|not_found|skipped|error|captcha|auth_required|limit_reached)$")
+
+
+class AnalyzeIn(BaseModel):
+    system: str = Field(min_length=50, max_length=4000)
+    content: list[dict] = Field(min_length=1, max_length=5)
 
 
 def _email(raw: str) -> str:
@@ -89,7 +95,8 @@ def _order_payload(order: PaymentOrder) -> dict:
     }
 
 
-def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient | None = None) -> FastAPI:
+def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient | None = None,
+               ai_client: OpenRouterAI | None = None) -> FastAPI:
     database_url = database_url or os.environ.get("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL не задан")
@@ -104,6 +111,8 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             os.environ.get("COINSO_API_BASE_URL", "https://coinso.io/api"),
             int(os.environ["COINSO_PROJECT_ID"]), secret_key,
         )
+    if ai_client is None and os.environ.get("OPENROUTER_API_KEY"):
+        ai_client = OpenRouterAI(os.environ["OPENROUTER_API_KEY"])
     allow_test = os.environ.get("COINSO_ALLOW_TEST_PAYMENTS", "false").lower() == "true"
     price = int(os.environ.get("CHECK_PRICE_KOPEKS", "150"))
     min_topup = int(os.environ.get("MIN_TOPUP_KOPEKS", "30000"))
@@ -148,7 +157,9 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
 
     @app.get("/api/v1/pricing")
     def pricing() -> dict:
-        return {"check_price_kopeks": price, "min_topup_kopeks": min_topup}
+        return {"check_price_kopeks": price, "min_topup_kopeks": min_topup,
+                "managed_detection": ai_client is not None,
+                "detection_model": ai_client.model if ai_client else None}
 
     @app.post("/api/v1/auth/register", status_code=201)
     def register(body: Credentials, db: Session = Depends(db_session)) -> dict:
@@ -317,7 +328,50 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             else:
                 db.add(Check(user_id=user.id, client_check_id=check_id, price_kopeks=price))
         db.commit()
-        return {"price_kopeks": price, "checks": ids, **_wallet_payload(db, user.id)}
+        return {"price_kopeks": price, "checks": ids,
+                "managed_detection": ai_client is not None,
+                "detection_model": ai_client.model if ai_client else None,
+                **_wallet_payload(db, user.id)}
+
+    @app.post("/api/v1/checks/{check_id}/analyze")
+    def analyze(check_id: str, body: AnalyzeIn, user: User = Depends(current_user),
+                db: Session = Depends(db_session)) -> dict:
+        if not ai_client:
+            raise HTTPException(503, "Серверный анализ пока не настроен")
+        if (len(json.dumps(body.content)) > 2_000_000
+                or body.content[0].get("type") != "text"
+                or not isinstance(body.content[0].get("text"), str)
+                or len(body.content[0]["text"]) > 12000
+                or any(part.get("type") != "image_url"
+                       or not isinstance(part.get("image_url"), dict)
+                       or not str(part["image_url"].get("url", "")).startswith("data:image/webp;base64,")
+                       for part in body.content[1:])):
+            raise HTTPException(422, "Неверные или слишком большие данные для анализа")
+        check = db.execute(
+            select(Check).where(Check.user_id == user.id, Check.client_check_id == check_id).with_for_update()
+        ).scalar_one_or_none()
+        if not check:
+            raise HTTPException(404, "Проверка не зарезервирована")
+        if check.analysis_json:
+            return {"raw": check.analysis_json, "model": ai_client.model}
+        if check.status != "reserved":
+            raise HTTPException(409, "Проверка уже закрыта")
+        try:
+            raw = ai_client.analyze(body.system, body.content)
+        except AIError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        check.analysis_json = raw
+        db.commit()
+        return {"raw": raw, "model": ai_client.model}
+
+    def settle_check(db: Session, wallet_row: Wallet, check: Check, result_status: str) -> None:
+        check.status = "settled"
+        check.result_status = result_status
+        wallet_row.balance_kopeks -= check.price_kopeks
+        db.add(LedgerEntry(
+            user_id=check.user_id, amount_kopeks=-check.price_kopeks,
+            kind="check", reference=f"check:{check.user_id}:{check.client_check_id}",
+        ))
 
     @app.post("/api/v1/checks/{check_id}/complete")
     def complete(check_id: str, body: CompleteIn, user: User = Depends(current_user),
@@ -330,18 +384,35 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             raise HTTPException(404, "Проверка не зарезервирована")
         if check.status != "reserved":
             return {"status": check.status, **_wallet_payload(db, user.id)}
-        if body.status in ("found", "not_found"):
-            check.status = "settled"
-            wallet_row.balance_kopeks -= check.price_kopeks
-            db.add(LedgerEntry(
-                user_id=user.id, amount_kopeks=-check.price_kopeks,
-                kind="check", reference=f"check:{user.id}:{check_id}",
-            ))
+        if body.status in ("found", "not_found") or check.analysis_json:
+            settle_check(db, wallet_row, check, body.status)
         else:
             check.status = "released"
-        check.result_status = body.status
+            check.result_status = body.status
         db.commit()
         return {"status": check.status, **_wallet_payload(db, user.id)}
+
+    @app.post("/api/v1/checks/release")
+    def release_checks(body: ReserveIn, user: User = Depends(current_user),
+                       db: Session = Depends(db_session)) -> dict:
+        wallet_row = _locked_wallet(db, user.id)
+        checks = db.scalars(
+            select(Check).where(Check.user_id == user.id, Check.client_check_id.in_(body.check_ids))
+            .with_for_update()
+        ).all()
+        released = 0
+        settled = 0
+        for check in checks:
+            if check.status == "reserved":
+                if check.analysis_json:
+                    settle_check(db, wallet_row, check, "analyzed")
+                    settled += 1
+                else:
+                    check.status = "released"
+                    check.result_status = "not_started"
+                    released += 1
+        db.commit()
+        return {"released": released, "settled": settled, **_wallet_payload(db, user.id)}
 
     web_dir = Path(__file__).resolve().parent.parent / "web"
     if (web_dir / "index.html").exists():

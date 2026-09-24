@@ -50,6 +50,7 @@ def _project_with_review(answers: list[tuple[str, bool]]) -> tuple[int, list[int
     """Проект, где каждый ответ уже записан как спорный (found + needs_review)."""
     global _n
     _n += 1
+    repo.set_setting("llm_arbiter", "on")
     pid = repo.create_project(f"Арбитр {_n}", "Геософт", brand_domains=["geosoft-dent.ru"])
     repo.add_queries(pid, [f"запрос {i}" for i in range(len(answers))])
     qs = repo.list_queries(pid)

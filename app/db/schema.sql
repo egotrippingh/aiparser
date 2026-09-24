@@ -82,6 +82,14 @@ CREATE TABLE IF NOT EXISTS settings (
     is_secret  INTEGER NOT NULL DEFAULT 0  -- значение зашифровано через DPAPI
 );
 
+-- Удалённый биллинг может быть недоступен после сохранения локального ответа.
+-- Очередь переживает перезапуск и отправляется перед следующим сканом.
+CREATE TABLE IF NOT EXISTS billing_outbox (
+    check_id    TEXT PRIMARY KEY,
+    status      TEXT NOT NULL, -- found | not_found | release
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_queries_project  ON queries(project_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_scans_project    ON scans(project_id, scan_date);
 CREATE INDEX IF NOT EXISTS idx_results_scan     ON results(scan_id);

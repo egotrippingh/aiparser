@@ -201,6 +201,23 @@ def get_scan(scan_id: int) -> dict | None:
     return _row("SELECT * FROM scans WHERE id = ?", (scan_id,))
 
 
+def interrupted_billing_scans() -> list[dict]:
+    return _rows(
+        "SELECT * FROM scans WHERE status IN ('running', 'paused') AND "
+        "settings_snapshot_json LIKE '%billing_reserved_ids%'"
+    )
+
+
+def extend_billing_reservations(scan_id: int, run_id: str, check_ids: list[str]) -> None:
+    scan = get_scan(scan_id)
+    snapshot = json.loads(scan["settings_snapshot_json"] or "{}")
+    existing = snapshot.get("billing_reserved_ids", [])
+    snapshot["billing_run_id"] = run_id
+    snapshot["billing_reserved_ids"] = list(dict.fromkeys([*existing, *check_ids]))
+    _exec("UPDATE scans SET settings_snapshot_json = ? WHERE id = ?",
+          (json.dumps(snapshot, ensure_ascii=False), scan_id))
+
+
 def list_scans(project_id: int, limit: int = 60) -> list[dict]:
     return _rows(
         "SELECT * FROM scans WHERE project_id = ? ORDER BY started_at DESC, id DESC LIMIT ?",
@@ -564,3 +581,20 @@ def set_setting(key: str, value: str | None, is_secret: bool = False) -> None:
 
 def all_settings() -> dict[str, str]:
     return {r["key"]: r["value"] for r in _rows("SELECT key, value FROM settings WHERE is_secret = 0")}
+
+
+def queue_billing(check_id: str, status: str) -> None:
+    _exec(
+        "INSERT OR REPLACE INTO billing_outbox (check_id, status) VALUES (?, ?)",
+        (check_id, status),
+    )
+
+
+def pending_billing() -> list[dict]:
+    return _rows("SELECT check_id, status FROM billing_outbox ORDER BY created_at, check_id")
+
+
+def billing_sent(check_ids: list[str]) -> None:
+    if check_ids:
+        placeholders = ",".join("?" * len(check_ids))
+        _exec(f"DELETE FROM billing_outbox WHERE check_id IN ({placeholders})", check_ids)

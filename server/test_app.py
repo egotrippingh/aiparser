@@ -28,6 +28,17 @@ class FakeCoinso:
                 "currency": "RUB", "payment_method": method}
 
 
+class FakeAI:
+    model = "google/gemini-3.8-flash"
+
+    def __init__(self):
+        self.calls = 0
+
+    def analyze(self, system, content):
+        self.calls += 1
+        return '{"found": false, "confidence": 0.9}'
+
+
 def test_payment_and_checks_are_idempotent(tmp_path, monkeypatch):
     monkeypatch.setenv("COINSO_SECRET_KEY", "test-secret")
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.test")
@@ -85,6 +96,15 @@ def test_payment_and_checks_are_idempotent(tmp_path, monkeypatch):
     assert wallet["reserved_kopeks"] == 0
     assert len(wallet["entries"]) == 2
 
+    again = client.post("/api/v1/checks/reserve", headers=headers,
+                        json={"check_ids": ["scan-1-query-2-chatgpt"]})
+    assert again.json()["reserved_kopeks"] == 150
+    released = client.post("/api/v1/checks/release", headers=headers,
+                           json={"check_ids": ["scan-1-query-2-chatgpt"]})
+    assert released.json()["released"] == 1
+    assert released.json()["balance_kopeks"] == 29850
+    assert released.json()["reserved_kopeks"] == 0
+
 
 def test_payment_status_must_match_order(tmp_path, monkeypatch):
     monkeypatch.setenv("COINSO_SECRET_KEY", "test-secret")
@@ -102,3 +122,40 @@ def test_payment_status_must_match_order(tmp_path, monkeypatch):
     coinso.orders[invoice_id] = (order["id"], 29900, "sbp")
     assert client.get("/api/v1/payments/" + order["id"], headers=headers).json()["status"] == "pending"
     assert client.get("/api/v1/wallet", headers=headers).json()["balance_kopeks"] == 0
+
+
+def test_managed_analysis_is_once_per_reserved_check_and_paid(tmp_path, monkeypatch):
+    monkeypatch.setenv("COINSO_SECRET_KEY", "test-secret")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.test")
+    coinso, ai = FakeCoinso(), FakeAI()
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'server.db'}",
+                                   coinso_client=coinso, ai_client=ai))
+    token = client.post("/api/v1/auth/register", json={
+        "email": "user@example.test", "password": "a-long-test-password",
+    }).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    order = client.post("/api/v1/payments", headers=headers,
+                        json={"amount_kopeks": 30000, "method": "sbp"}).json()
+    invoice = next(iter(coinso.orders))
+    coinso.paid.add(invoice)
+    client.get("/api/v1/payments/" + order["id"], headers=headers)
+    reserve = client.post("/api/v1/checks/reserve", headers=headers,
+                          json={"check_ids": ["run:1:chatgpt"]})
+    assert reserve.json()["managed_detection"] is True
+    path = "/api/v1/checks/run:1:chatgpt/analyze"
+    body = {"system": "Проверь упоминание бренда в ответе ИИ и верни JSON.",
+            "content": [{"type": "text", "text": "Бренд: Test. Ответ: ничего."}]}
+    for _ in range(2):
+        response = client.post(path, headers=headers, json=body)
+        assert response.status_code == 200, response.text
+        assert response.json()["model"] == ai.model
+    assert ai.calls == 1
+    # Анализ уже выполнен: закрытие даже после сбоя настольного клиента
+    # списывает стоимость один раз.
+    closed = client.post("/api/v1/checks/release", headers=headers,
+                         json={"check_ids": ["run:1:chatgpt"]}).json()
+    assert closed["settled"] == 1 and closed["released"] == 0
+    again = client.post("/api/v1/checks/release", headers=headers,
+                        json={"check_ids": ["run:1:chatgpt"]}).json()
+    assert again["settled"] == 0
+    assert client.get("/api/v1/wallet", headers=headers).json()["balance_kopeks"] == 29850

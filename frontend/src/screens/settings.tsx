@@ -660,7 +660,7 @@ function LlmPanel({ settings, onSaved }: { settings: Settings | null; onSaved: (
             <Input
               id="f_orarb"
               value={arbiterModel}
-              placeholder="например, anthropic/claude-opus-5"
+              placeholder="например, google/gemini-3.8-flash"
               onChange={(e) => setForm((f) => ({ ...f, arbiterModel: e.target.value }))}
             />
           </Field>

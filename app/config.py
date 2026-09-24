@@ -65,6 +65,17 @@ WEB_DIR = BASE_DIR / "web"
 HOST = "127.0.0.1"
 PORT = 8756
 
+# Адрес только для выпуска, подключённого к платному серверу. Локальный API
+# остаётся на 127.0.0.1; наружу идут лишь запросы авторизации и биллинга.
+_account_url_file = BASE_DIR / "account-url.txt"
+ACCOUNT_URL = (os.environ.get("AIPARSER_ACCOUNT_URL") or
+               (_account_url_file.read_text(encoding="utf-8-sig").strip()
+                if _account_url_file.exists() else "")).rstrip("/")
+if ACCOUNT_URL and not (ACCOUNT_URL.startswith("https://") or
+                        ACCOUNT_URL.startswith("http://127.0.0.1:") or
+                        ACCOUNT_URL.startswith("http://localhost:")):
+    raise RuntimeError("AIPARSER_ACCOUNT_URL должен использовать HTTPS")
+
 for _d in (PROFILES_DIR, SCREENSHOTS_DIR, DEBUG_DIR, EXPORTS_DIR, RUNTIME_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 

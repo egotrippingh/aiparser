@@ -6,15 +6,16 @@
  * запросы.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { motion, useReducedMotion } from "motion/react"
-import { History, Play, RotateCcw } from "lucide-react"
+import { History, Play, RotateCcw, Wallet } from "lucide-react"
 import { cn } from "cn"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ConfirmButton } from "@/components/confirm-button"
 import { EmptyState, Panel, PanelFoot, PanelHead, ServiceDot } from "@/components/bits"
@@ -27,6 +28,67 @@ import { useApp } from "@/store/app-store"
 import type { View } from "@/hooks/use-hash-route"
 
 const checks = (n: number) => plural(n, "проверка", "проверки", "проверок")
+
+type AccountStatus = {
+  enabled: boolean
+  connected: boolean
+  email?: string
+  cabinet_url?: string
+  wallet?: { balance_kopeks: number; available_kopeks: number; reserved_kopeks: number }
+  pricing?: { check_price_kopeks: number }
+}
+
+function AccountPanel({ account, error, remaining, reload }: {
+  account: AccountStatus | null
+  error: string | null
+  remaining: number
+  reload: () => void
+}) {
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [busy, setBusy] = useState(false)
+  if (!account?.enabled && !error) return null
+  const price = account?.pricing?.check_price_kopeks ?? 150
+  const rub = (n: number) => new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB" }).format(n / 100)
+
+  async function login(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    try {
+      await api.post("/api/account/login", { email, password })
+      setPassword("")
+      reload()
+      toast.success("Аккаунт подключён")
+    } catch (e) {
+      toast.error(errText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function logout() {
+    await api.post("/api/account/logout")
+    reload()
+  }
+
+  return <Panel>
+    <PanelHead title="Оплата проверок" hint="Сумма резервируется перед запуском. Капчи и сбои до получения ответа не оплачиваются." />
+    <div className="flex flex-wrap items-center gap-4 px-4 pb-4">
+      <Wallet size={22} className="text-primary" aria-hidden="true" />
+      {account?.connected ? <>
+        <div className="min-w-0 flex-1 text-sm"><strong>{account.email}</strong><p className="text-muted-foreground mt-1">Доступно {rub(account.wallet?.available_kopeks ?? 0)} · {rub(price)} за проверку</p></div>
+        <div className="text-sm font-semibold">Для запуска: до {rub(remaining * price)}</div>
+        <Button size="sm" variant="outline" onClick={logout}>Выйти</Button>
+      </> : <form onSubmit={login} className="flex flex-1 flex-wrap items-end gap-2">
+        <label className="min-w-40 flex-1 text-xs">Email<Input className="mt-1" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+        <label className="min-w-40 flex-1 text-xs">Пароль<Input className="mt-1" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+        <Button size="sm" disabled={busy}>Войти</Button>
+      </form>}
+      {account?.cabinet_url && <a className="text-primary text-xs underline underline-offset-2" href={account.cabinet_url} target="_blank" rel="noreferrer">Личный кабинет и пополнение</a>}
+      {error && <p className="text-destructive w-full text-xs">{error}</p>}
+    </div>
+  </Panel>
+}
 
 export function ScanScreen({ onView }: { onView: (v: View) => void }) {
   const {
@@ -76,6 +138,10 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
       : null,
     [projectId, chosenKey, dataVersion],
   )
+  const { data: account, error: accountError, reload: reloadAccount } = useResource<AccountStatus>(
+    () => api.get<AccountStatus>("/api/account/status"),
+    [dataVersion],
+  )
 
   const activeCount = active?.length ?? 0
   const running = scan !== null && scan.state !== "finished"
@@ -123,6 +189,7 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
 
   return (
     <div className="space-y-4">
+      <AccountPanel account={account} error={accountError} remaining={plan?.remaining ?? 0} reload={reloadAccount} />
       {resumable ? (
         <Alert>
           <History />

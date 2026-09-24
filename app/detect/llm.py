@@ -15,18 +15,19 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from app import imaging, net, secrets_store
+from app import billing, imaging, net, secrets_store
 from app.db import repo
 
 log = logging.getLogger("aiparser.llm")
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_MODEL = "google/gemini-3.8-flash"
 
 # Значения по умолчанию для арбитра держим здесь, а не в app/api/settings.py:
 # их читают и сканер, и перерешение сохранённых строк, а импорт слоя API из
 # слоя детекции замкнул бы кольцо (API → сканер → детекция → API).
-ARBITER_MODEL_DEFAULT = "anthropic/claude-opus-5"
-ARBITER_DEFAULT = "on"          # on | off
+ARBITER_MODEL_DEFAULT = DEFAULT_MODEL
+ARBITER_DEFAULT = "off"         # отдельный вызов включается вручную
 
 _SYSTEM = """Ты проверяешь, упоминается ли конкретный бренд в ответе ИИ-поисковика.
 Упоминание засчитывается, даже если бренд не назван прямо: например, "обратитесь к
@@ -98,16 +99,18 @@ async def evaluate(
     screenshot_bytes: bytes | None,
     api_key: str,
     model: str,
+    managed_check_id: str | None = None,
     timeout: float = 45.0,
     query: str | None = None,
 ) -> LLMVerdict:
-    if not api_key:
+    if not api_key and not managed_check_id:
         return LLMVerdict(found=False, error="Ключ OpenRouter не задан")
 
     content: list[dict] = [{"type": "text", "text": _build_prompt(brand_name, aliases, answer_text, sources, query)}]
     content += _image_parts(screenshot_bytes)
 
-    return await _ask_model(_SYSTEM, content, api_key=api_key, model=model, timeout=timeout)
+    return await _ask_model(_SYSTEM, content, api_key=api_key, model=model,
+                            timeout=timeout, managed_check_id=managed_check_id)
 
 
 def _image_parts(screenshot_bytes: bytes | None) -> list[dict]:
@@ -168,7 +171,18 @@ async def arbitrate(
 
 
 async def _ask_model(system: str, content: list[dict], *, api_key: str, model: str, timeout: float,
-                     retry: bool = True) -> LLMVerdict:
+                     retry: bool = True, managed_check_id: str | None = None) -> LLMVerdict:
+    if managed_check_id:
+        try:
+            result = await billing.analyze(managed_check_id, system, content)
+            return parse_verdict(result["raw"], result["model"]) or LLMVerdict(
+                found=False, model=model, error="Не удалось разобрать ответ серверной модели")
+        except (billing.BillingError, KeyError) as exc:
+            if retry:
+                await asyncio.sleep(2)
+                return await _ask_model(system, content, api_key=api_key, model=model,
+                                        timeout=timeout, retry=False, managed_check_id=managed_check_id)
+            return LLMVerdict(found=False, model=model, error=str(exc))
     payload = {
         "model": model,
         "messages": [
@@ -272,5 +286,5 @@ def parse_verdict(raw: str | None, model: str) -> LLMVerdict | None:
 def load_credentials() -> tuple[str, str]:
     """Ключ (расшифрованный) и модель из настроек — то, что вводится в UI в две строки."""
     key = secrets_store.unprotect(repo.get_setting("openrouter_api_key"))
-    model = repo.get_setting("openrouter_model", "anthropic/claude-sonnet-5") or "anthropic/claude-sonnet-5"
+    model = repo.get_setting("openrouter_model", DEFAULT_MODEL) or DEFAULT_MODEL
     return key, model

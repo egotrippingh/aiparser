@@ -9,6 +9,7 @@ data/
 frontend/2026-*-this-session-is-being-continued-*.txt
 deploy/.env
 server/.env
+account-url.txt
 
 # Браузер Camoufox (~250 МБ), ставится командой `python -m camoufox fetch`
 runtime/

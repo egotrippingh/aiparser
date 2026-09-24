@@ -30,7 +30,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="AI Mentions Tracker", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
     from app.api import (
-        browser, external, mentions, projects, queries, recheck, results, scans, settings,
+        account, browser, external, mentions, projects, queries, recheck, results, scans, settings,
     )
 
     app.include_router(projects.router)
@@ -38,6 +38,7 @@ def create_app() -> FastAPI:
     app.include_router(scans.router)
     app.include_router(results.router)
     app.include_router(settings.router)
+    app.include_router(account.router)
     app.include_router(browser.router)
     app.include_router(external.router)
     app.include_router(recheck.router)

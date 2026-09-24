@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 KEY_OPENROUTER = "openrouter_api_key"
 
 DEFAULTS = {
-    "openrouter_model": "anthropic/claude-sonnet-5",
+    "openrouter_model": llm.DEFAULT_MODEL,
     "llm_mode": "smart",            # always | smart | never
     "llm_confidence_threshold": "0.6",
     # Спорные строки (правила молчат, а модель нашла) решает вторая, более

@@ -37,9 +37,10 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from datetime import date, datetime
 
-from app import config, imaging, services
+from app import billing, config, imaging, services
 from app.db import repo
 from app.detect import llm as llm_mod
 from app.detect import deep as deep_mod
@@ -70,12 +71,15 @@ class ScanAlreadyRunning(RuntimeError):
 class ScanController:
     """Состояние одного запущенного скана: события + прогресс + флаги управления."""
 
-    def __init__(self, scan_id: int, project_id: int, total: int, scan_date: str) -> None:
+    def __init__(self, scan_id: int, project_id: int, total: int, scan_date: str,
+                 billing_run_id: str = "") -> None:
         self.scan_id = scan_id
         self.project_id = project_id
         # Дата среза берётся из самого скана, а не из «сегодня»: при дозапуске
         # на следующий день результаты и скриншоты должны лечь к своему срезу.
         self.scan_date = scan_date
+        self.billing_run_id = billing_run_id
+        self.billing_pairs: dict[tuple[int, str], str] = {}
         self.total = total
         self.done = 0
         self.current_service: str | None = None
@@ -274,14 +278,55 @@ async def start_scan(project_id: int, service_ids: list[str], *, resume: bool = 
     # В снимок настроек скана, а не в отдельный аргумент: так задним числом
     # видно, в каком режиме собирались данные — это важно при разборе капч.
     snapshot["headless"] = headless
+    billing_run_id = ""
+    reserved: dict[tuple[int, str], str] = {}
+    if billing.enabled():
+        await billing.recover_interrupted_scans()
+        if plan["continue_scan_id"]:
+            old_scan = repo.get_scan(plan["continue_scan_id"])
+            old_settings = json.loads(old_scan["settings_snapshot_json"] or "{}")
+            billing_run_id = old_settings.get("billing_run_id") or f"legacy-{old_scan['id']}"
+        else:
+            billing_run_id = uuid.uuid4().hex
+        reserved = {
+            (q["id"], svc): billing.check_id(billing_run_id, q["id"], svc)
+            for svc, q in work
+        }
+        # Если сеть оборвётся после резервирования, эти записи позволят
+        # освободить сумму при следующем запуске.
+        for check_key in reserved.values():
+            repo.queue_billing(check_key, "release")
+        try:
+            reservation = await billing.reserve(list(reserved.values()))
+        except billing.BillingError:
+            try:
+                await billing.flush_outbox()
+            except billing.BillingError:
+                pass  # очередь сохранена для следующего запуска
+            raise
+        snapshot["billing_run_id"] = billing_run_id
+        snapshot["billing_reserved_ids"] = list(reserved.values())
+        snapshot["managed_llm"] = bool(reservation.get("managed_detection"))
+        snapshot["managed_model"] = reservation.get("detection_model") or llm_mod.DEFAULT_MODEL
     if plan["continue_scan_id"]:
         scan_id = plan["continue_scan_id"]
+        if reserved:
+            repo.extend_billing_reservations(scan_id, billing_run_id, list(reserved.values()))
         repo.set_scan_status(scan_id, "running")
         log.info("Продолжаю скан %s: осталось %s проверок", scan_id, len(work))
     else:
-        scan_id = repo.create_scan(project_id, known, snapshot)
+        try:
+            scan_id = repo.create_scan(project_id, known, snapshot)
+        except Exception:
+            if reserved:
+                await billing.release(list(reserved.values()))
+            raise
 
-    controller = ScanController(scan_id, project_id, total=len(work), scan_date=plan["date"])
+    controller = ScanController(scan_id, project_id, total=len(work), scan_date=plan["date"],
+                                billing_run_id=billing_run_id)
+    controller.billing_pairs = reserved
+    if reserved:
+        repo.billing_sent(list(reserved.values()))
     _active[scan_id] = controller
 
     asyncio.create_task(_run_scan(project, known, queries, done_pairs, snapshot, controller))
@@ -348,7 +393,10 @@ async def _run_scan(
     ctl: ScanController,
 ) -> None:
     api_key, llm_model = llm_mod.load_credentials()
-    llm_mode = settings["llm_mode"] if api_key else "never"
+    if settings.get("managed_llm"):
+        api_key = ""
+        llm_model = settings["managed_model"]
+    llm_mode = settings["llm_mode"] if api_key or settings.get("managed_llm") else "never"
     speed = settings["typing_speed"]
 
     parallel = bool(project.get("parallel_scan"))
@@ -398,6 +446,18 @@ async def _run_scan(
                 if ctl.stop_requested:
                     break
                 await run_service(service_id)
+
+        if ctl.billing_pairs:
+            completed = {(r["query_id"], r["service"]): r["status"]
+                         for r in repo.results_for_scan(ctl.scan_id)}
+            for pair, check_key in ctl.billing_pairs.items():
+                if completed.get(pair) not in ("found", "not_found"):
+                    repo.queue_billing(check_key, "release")
+            try:
+                await billing.flush_outbox()
+            except billing.BillingError as exc:
+                ctl.emit("billing_error", error=str(exc))
+                log.warning("Биллинг скана %s ожидает повторной отправки: %s", ctl.scan_id, exc)
 
         status = "stopped" if ctl.stop_requested else "done"
         ctl.state = "finished"
@@ -597,6 +657,8 @@ async def _run_one(
 
         llm_verdict = None
         if should_call_llm(rule_verdict, llm_mode):
+            managed_check_id = (billing.check_id(ctl.billing_run_id, query["id"], service_id)
+                                if settings.get("managed_llm") else None)
             llm_verdict = await llm_mod.evaluate(
                 query=query["text"],
                 brand_name=project["brand_name"],
@@ -606,6 +668,7 @@ async def _run_one(
                 screenshot_bytes=webp_bytes,
                 api_key=api_key,
                 model=llm_model,
+                managed_check_id=managed_check_id,
             )
             if llm_verdict.error:
                 # Вызов не состоялся (сеть, прокси, исчерпанный ключ) — это
@@ -672,6 +735,15 @@ async def _run_one(
             llm_model=result.llm_model,
             duration_ms=int((time.monotonic() - started) * 1000),
         )
+        if ctl.billing_run_id and result.status in ("found", "not_found"):
+            check_key = billing.check_id(ctl.billing_run_id, query["id"], service_id)
+            repo.queue_billing(check_key, result.status)
+            try:
+                await billing.flush_outbox()
+            except billing.BillingError as exc:
+                log.warning("Ответ сохранён, списание ожидает повторной отправки: %s", exc)
+                ctl.emit("billing_error", error=str(exc))
+                ctl.stop()
         ctl.emit("query_result", query_id=query["id"], service=service_id, status=result.status)
         return result.status
 

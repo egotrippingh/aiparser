@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app import services
+from app import billing, services
 from app.db import repo
 from app.scanner import orchestrator
 from app.scanner.adapters import ADAPTERS
@@ -40,6 +40,9 @@ async def start_scan(project_id: int, body: StartScanIn) -> dict:
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
+    except billing.BillingError as exc:
+        status = 402 if "Недостаточно средств" in str(exc) else 503
+        raise HTTPException(status, str(exc)) from exc
 
     return {"scan_id": scan_id}
 
