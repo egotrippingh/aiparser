@@ -51,7 +51,7 @@ def main() -> None:
     server_thread = threading.Thread(target=_run_server, daemon=True)
     server_thread.start()
 
-    url = f"http://{config.HOST}:{config.PORT}/"
+    url = f"http://{config.HOST}:{config.PORT}/app/"
     if not _wait_for_server(url):
         log.error("Сервер не поднялся за отведённое время")
         return

@@ -89,4 +89,9 @@ def create_app() -> FastAPI:
             # index.html со ссылками на уже удалённые файлы.
             return FileResponse(config.WEB_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
+        @app.get("/app/", include_in_schema=False)
+        @app.get("/app", include_in_schema=False)
+        def workspace() -> FileResponse:
+            return FileResponse(config.WEB_DIR / "app" / "index.html", headers={"Cache-Control": "no-cache"})
+
     return app

@@ -10,12 +10,18 @@ const backend = 'http://127.0.0.1:8756'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: { '@': path.resolve(__dirname, './src') },
+    alias: { '@': path.resolve(import.meta.dirname, './src') },
   },
   build: {
     outDir: '../web',
     emptyOutDir: true,
     chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      input: {
+        landing: path.resolve(import.meta.dirname, 'index.html'),
+        app: path.resolve(import.meta.dirname, 'app/index.html'),
+      },
+    },
   },
   server: {
     proxy: { '/api': backend, '/shots': backend },
