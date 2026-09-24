@@ -14,7 +14,7 @@ $archive = Join-Path $tempRoot ('aiparser-source-' + [guid]::NewGuid().ToString(
 
 try {
     & git -C $root archive --format=zip "--output=$archive" HEAD
-    if ($LASTEXITCODE -ne 0) { throw 'Не удалось собрать архив из последнего коммита' }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not archive the latest commit' }
 
     New-Item -ItemType Directory -Path $stage | Out-Null
     Expand-Archive -LiteralPath $archive -DestinationPath $stage
@@ -24,7 +24,7 @@ try {
     Write-Output $outputPath
 }
 finally {
-    # Удаляются только два пути, созданные выше внутри системного TEMP.
+    # Remove only the two paths created above inside the system TEMP directory.
     if ($stage.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase) -and
         (Test-Path -LiteralPath $stage)) {
         Remove-Item -LiteralPath $stage -Recurse -Force
