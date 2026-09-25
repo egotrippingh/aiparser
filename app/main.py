@@ -4,9 +4,9 @@
 разделение на «сервер» и «клиент» здесь чисто внутреннее. Интерфейс
 показывается одним из двух способов:
 
-* по умолчанию — окном десктопного приложения (pywebview + WebView2);
-* с ключом ``--browser`` — вкладкой в обычном браузере. Так запускает
-  start.bat. Программа живёт, пока открыто окно консоли.
+* Windows-сборка показывает окно WebView2, а при закрытии скрывает его в трее;
+* с ключом ``--background`` агент запускается со скрытым окном;
+* с ключом ``--browser`` интерфейс открывается в обычном браузере.
 """
 
 from __future__ import annotations
@@ -48,10 +48,17 @@ def _wait_for_server(url: str, timeout: float = 15.0) -> bool:
 def main() -> None:
     log.info("Каталог данных: %s (portable=%s)", config.DATA_DIR, config.PORTABLE)
 
+    url = f"http://{config.HOST}:{config.PORT}/app/"
+    # A second launch should focus the already-running agent instead of
+    # creating another tray icon or competing for its localhost port.
+    if _wait_for_server(url, timeout=0.7):
+        if "--background" not in sys.argv[1:]:
+            webbrowser.open(url)
+        return
+
     server_thread = threading.Thread(target=_run_server, daemon=True)
     server_thread.start()
 
-    url = f"http://{config.HOST}:{config.PORT}/app/"
     if not _wait_for_server(url):
         raise RuntimeError("Локальный сервер не поднялся за отведённое время")
 
@@ -79,26 +86,68 @@ def main() -> None:
         log.info("Проверка настольного приложения прошла")
         return
 
-    if "--browser" in sys.argv[1:]:
-        log.info("Интерфейс: %s", url)
+    import pystray
+    from PIL import Image, ImageDraw
+
+    browser_mode = "--browser" in sys.argv[1:]
+    background = "--background" in sys.argv[1:]
+    window = None
+    exiting = False
+    if not browser_mode:
+        import webview
+
+        window = webview.create_window(
+            "AI Mentions — агент", url, width=1320, height=860,
+            min_size=(960, 650), hidden=background,
+        )
+
+        def on_closing() -> bool:
+            if exiting:
+                return True
+            window.hide()
+            return False
+
+        window.events.closing += on_closing
+    elif not background:
         webbrowser.open(url)
-        try:
-            while server_thread.is_alive():
-                server_thread.join(1)
-        except KeyboardInterrupt:
-            pass
-        return
 
-    import webview
+    image = Image.new("RGBA", (64, 64), (19, 13, 30, 255))
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((7, 7, 57, 57), radius=15, fill=(135, 82, 213, 255))
+    draw.ellipse((23, 23, 41, 41), fill=(247, 244, 255, 255))
 
-    webview.create_window(
-        "AI Mentions Tracker",
-        url,
-        width=1440,
-        height=900,
-        min_size=(1100, 700),
+    def open_agent(icon, item) -> None:
+        if window is not None:
+            window.show()
+        else:
+            webbrowser.open(url)
+
+    def open_account(icon, item) -> None:
+        if config.ACCOUNT_URL:
+            webbrowser.open(f"{config.ACCOUNT_URL}/cabinet/")
+
+    def quit_agent(icon, item) -> None:
+        nonlocal exiting
+        exiting = True
+        icon.stop()
+        if window is not None:
+            window.destroy()
+
+    menu = pystray.Menu(
+        pystray.MenuItem("Открыть агент", open_agent, default=True),
+        pystray.MenuItem("Личный кабинет", open_account,
+                         enabled=lambda _: bool(config.ACCOUNT_URL)),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Выйти", quit_agent),
     )
-    webview.start()
+    icon = pystray.Icon("AI Mentions", image, "AI Mentions — агент", menu)
+    if window is not None:
+        # pystray allows a non-main thread on Windows; WebView2 needs main.
+        threading.Thread(target=icon.run, daemon=True, name="agent-tray").start()
+        webview.start()
+        icon.stop()
+    else:
+        icon.run()
 
 
 if __name__ == "__main__":

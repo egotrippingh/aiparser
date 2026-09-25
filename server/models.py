@@ -143,6 +143,61 @@ class Screenshot(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class ScanPreferences(Base):
+    """One account-wide schedule, shared by the website and local agent."""
+
+    __tablename__ = "scan_preferences"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    local_time: Mapped[str] = mapped_column(String(5), default="09:00")
+    month_days_json: Mapped[str] = mapped_column(Text, default="[1]")
+    browser_mode: Mapped[str] = mapped_column(String(12), default="headless")
+    services_json: Mapped[str] = mapped_column(Text, default='["perplexity","chatgpt"]')
+    speed_profile: Mapped[str] = mapped_column(String(12), default="balanced")
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AgentDevice(Base):
+    __tablename__ = "agent_devices"
+    __table_args__ = (UniqueConstraint("user_id", "device_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    device_id: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(100))
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    local_time_zone: Mapped[str] = mapped_column(String(80), default="")
+    active_scan: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class CloudResult(Base):
+    """A local scan result mirrored to the account for browser reports."""
+
+    __tablename__ = "cloud_results"
+    __table_args__ = (UniqueConstraint("user_id", "device_id", "local_result_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    device_id: Mapped[str] = mapped_column(String(64))
+    local_result_id: Mapped[int] = mapped_column(Integer)
+    local_project_id: Mapped[int] = mapped_column(Integer)
+    project_name: Mapped[str] = mapped_column(String(120))
+    brand_name: Mapped[str] = mapped_column(String(120))
+    query_text: Mapped[str] = mapped_column(Text)
+    group_tag: Mapped[str | None] = mapped_column(String(120))
+    service: Mapped[str] = mapped_column(String(40))
+    scan_date: Mapped[str] = mapped_column(String(10), index=True)
+    status: Mapped[str] = mapped_column(String(24))
+    mention_types_json: Mapped[str] = mapped_column(Text, default="[]")
+    evidence_quote: Mapped[str | None] = mapped_column(Text)
+    answer_text: Mapped[str | None] = mapped_column(Text)
+    sources_json: Mapped[str] = mapped_column(Text, default="[]")
+    check_id: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 def make_session_factory(database_url: str):
     engine = create_engine(database_url, pool_pre_ping=True)
     return engine, sessionmaker(engine, expire_on_commit=False)

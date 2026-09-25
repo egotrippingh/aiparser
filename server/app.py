@@ -21,13 +21,15 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from server.agent_schemas import AgentHeartbeatIn, CloudResultsIn, ScanPreferencesIn
 from server.ai import AIError, OpenRouterAI
 from server.auth_limit import clear as clear_auth_failures
 from server.auth_limit import email_key, guard as guard_auth, record as record_auth, source_key
 from server.coinso import CoinsoClient, CoinsoError, kopeks, verify_webhook
 from server.mailer import PasswordMailer
 from server.migrate import upgrade_database
-from server.models import (Check, Screenshot, DeviceCode, LedgerEntry, LoginTicket, OAuthAttempt, OAuthIdentity, PasswordReset,
+from server.models import (AgentDevice, Check, CloudResult, ScanPreferences, Screenshot, DeviceCode,
+                           LedgerEntry, LoginTicket, OAuthAttempt, OAuthIdentity, PasswordReset,
                            PaymentOrder, SessionToken, User, Wallet, make_session_factory, utcnow)
 from server.security import hash_password, new_token, token_hash, verify_password
 from server.storage import ScreenshotStorage, StorageError
@@ -117,6 +119,24 @@ def _order_payload(order: PaymentOrder) -> dict:
         "payment_url": order.payment_url,
         "created_at": order.created_at.isoformat(),
     }
+
+
+def _scan_preferences_payload(row: ScanPreferences | None) -> dict:
+    if row is None:
+        return {"revision": 0, "enabled": False, "local_time": "09:00",
+                "month_days": [1], "browser_mode": "headless",
+                "services": ["perplexity", "chatgpt"], "speed_profile": "balanced"}
+    return {"revision": row.revision, "enabled": row.enabled,
+            "local_time": row.local_time, "month_days": json.loads(row.month_days_json),
+            "browser_mode": row.browser_mode, "services": json.loads(row.services_json),
+            "speed_profile": row.speed_profile}
+
+
+def _counts_as_found(row: CloudResult, *, include_cards: bool) -> bool:
+    if row.status != "found":
+        return False
+    kinds = set(json.loads(row.mention_types_json or "[]"))
+    return include_cards or not kinds or bool(kinds - {"marketplace"})
 
 
 def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient | None = None,
@@ -220,6 +240,166 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         return {"check_price_kopeks": price, "min_topup_kopeks": min_topup,
                 "managed_detection": ai_client is not None,
                 "detection_model": ai_client.model if ai_client else None}
+
+    @app.get("/api/v1/scan-preferences")
+    def get_scan_preferences(user: User = Depends(current_user),
+                             db: Session = Depends(db_session)) -> dict:
+        return _scan_preferences_payload(db.get(ScanPreferences, user.id))
+
+    @app.put("/api/v1/scan-preferences")
+    def put_scan_preferences(body: ScanPreferencesIn, user: User = Depends(current_user),
+                             db: Session = Depends(db_session)) -> dict:
+        # Revision prevents the website and an older desktop settings tab from
+        # silently overwriting one another.
+        row = db.execute(select(ScanPreferences).where(ScanPreferences.user_id == user.id)
+                         .with_for_update()).scalar_one_or_none()
+        actual_revision = row.revision if row else 0
+        if body.revision != actual_revision:
+            raise HTTPException(409, "Настройки изменились на другом устройстве. Обновите их и повторите.")
+        if row is None:
+            row = ScanPreferences(user_id=user.id)
+            db.add(row)
+        row.enabled = body.enabled
+        row.local_time = body.local_time
+        row.month_days_json = json.dumps(body.month_days)
+        row.browser_mode = body.browser_mode
+        row.services_json = json.dumps(body.services)
+        row.speed_profile = body.speed_profile
+        row.revision = actual_revision + 1
+        row.updated_at = utcnow()
+        db.commit()
+        return _scan_preferences_payload(row)
+
+    @app.post("/api/v1/agent/heartbeat")
+    def agent_heartbeat(body: AgentHeartbeatIn, user: User = Depends(current_user),
+                        db: Session = Depends(db_session)) -> dict:
+        device = db.scalar(select(AgentDevice).where(AgentDevice.user_id == user.id,
+                                                     AgentDevice.device_id == body.device_id))
+        if device is None:
+            device = AgentDevice(user_id=user.id, device_id=body.device_id)
+            db.add(device)
+        device.name = body.name.strip()
+        device.local_time_zone = body.local_time_zone
+        device.active_scan = body.active_scan
+        device.last_seen_at = utcnow()
+        db.commit()
+        return {"ok": True, "preferences": _scan_preferences_payload(db.get(ScanPreferences, user.id))}
+
+    @app.get("/api/v1/agent/devices")
+    def agent_devices(user: User = Depends(current_user),
+                      db: Session = Depends(db_session)) -> list[dict]:
+        devices = db.scalars(select(AgentDevice).where(AgentDevice.user_id == user.id)
+                             .order_by(AgentDevice.last_seen_at.desc())).all()
+        online_since = utcnow() - timedelta(minutes=3)
+        result = []
+        for device in devices:
+            seen = device.last_seen_at
+            if seen.tzinfo is None:  # SQLite drops timezone metadata.
+                seen = seen.replace(tzinfo=timezone.utc)
+            online = seen > online_since
+            result.append({"device_id": device.device_id, "name": device.name,
+                           "local_time_zone": device.local_time_zone,
+                           "active_scan": device.active_scan and online,
+                           "online": online, "last_seen_at": seen.isoformat()})
+        return result
+
+    @app.post("/api/v1/agent/results")
+    def upload_agent_results(body: CloudResultsIn, user: User = Depends(current_user),
+                             db: Session = Depends(db_session)) -> dict:
+        ids = [item.local_result_id for item in body.results]
+        if len(ids) != len(set(ids)):
+            raise HTTPException(422, "Результат повторяется в пакете")
+        if any(item.status in ("found", "not_found") and not item.check_id for item in body.results):
+            raise HTTPException(422, "Для результата проверки нужен оплаченный check_id")
+        device = db.scalar(select(AgentDevice.id).where(AgentDevice.user_id == user.id,
+                                                        AgentDevice.device_id == body.device_id))
+        if device is None:
+            raise HTTPException(409, "Сначала подключите агент к аккаунту")
+        check_ids = {item.check_id for item in body.results if item.check_id}
+        if check_ids:
+            owned = set(db.scalars(select(Check.client_check_id).where(
+                Check.user_id == user.id, Check.client_check_id.in_(check_ids),
+                Check.status == "settled")).all())
+            if owned != check_ids:
+                raise HTTPException(409, "Часть результатов ещё не оплачена или относится к другому аккаунту")
+        existing = set(db.scalars(select(CloudResult.local_result_id).where(
+            CloudResult.user_id == user.id, CloudResult.device_id == body.device_id,
+            CloudResult.local_result_id.in_([item.local_result_id for item in body.results]))).all())
+        for item in body.results:
+            if item.local_result_id in existing:
+                continue
+            db.add(CloudResult(
+                user_id=user.id, device_id=body.device_id,
+                local_result_id=item.local_result_id, local_project_id=item.local_project_id,
+                project_name=item.project_name, brand_name=item.brand_name,
+                query_text=item.query_text, group_tag=item.group_tag, service=item.service,
+                scan_date=item.scan_date, status=item.status,
+                mention_types_json=json.dumps(item.mention_types, ensure_ascii=False),
+                evidence_quote=item.evidence_quote, answer_text=item.answer_text,
+                sources_json=json.dumps(item.sources, ensure_ascii=False), check_id=item.check_id,
+            ))
+        db.commit()
+        return {"accepted": len(body.results)}
+
+    @app.get("/api/v1/reports/projects")
+    def report_projects(user: User = Depends(current_user),
+                        db: Session = Depends(db_session)) -> list[dict]:
+        rows = db.execute(select(CloudResult.device_id, CloudResult.local_project_id,
+                                 CloudResult.project_name, CloudResult.brand_name,
+                                 CloudResult.scan_date).where(CloudResult.user_id == user.id)
+                          .order_by(CloudResult.scan_date.desc(), CloudResult.id.desc())).all()
+        projects: dict[str, dict] = {}
+        for row in rows:
+            key = f"{row.device_id}:{row.local_project_id}"
+            if key not in projects:
+                projects[key] = {"key": key, "name": row.project_name,
+                                 "brand_name": row.brand_name, "last_scan_date": row.scan_date,
+                                 "checks": 0}
+            projects[key]["checks"] += 1
+        return list(projects.values())
+
+    @app.get("/api/v1/reports")
+    def report(project: str, days: int = 30, include_cards: bool = True,
+               limit: int = 100, offset: int = 0,
+               user: User = Depends(current_user), db: Session = Depends(db_session)) -> dict:
+        if not re.fullmatch(r"[a-f0-9]{32}:[1-9]\d*", project):
+            raise HTTPException(422, "Неверный проект")
+        if not 1 <= days <= 365 or not 1 <= limit <= 200 or offset < 0:
+            raise HTTPException(422, "Неверный период или страница отчёта")
+        device_id, project_id_text = project.split(":")
+        cutoff = (utcnow().date() - timedelta(days=days - 1)).isoformat()
+        rows = db.scalars(select(CloudResult).where(
+            CloudResult.user_id == user.id, CloudResult.device_id == device_id,
+            CloudResult.local_project_id == int(project_id_text), CloudResult.scan_date >= cutoff,
+        ).order_by(CloudResult.scan_date.desc(), CloudResult.id.desc())).all()
+        by_service: dict[str, dict] = {}
+        by_date: dict[str, dict] = {}
+        found = 0
+        checked = 0
+        for row in rows:
+            if row.status not in ("found", "not_found"):
+                continue
+            counted = _counts_as_found(row, include_cards=include_cards)
+            checked += 1
+            found += int(counted)
+            for bucket, name in ((by_service, row.service), (by_date, row.scan_date)):
+                stats = bucket.setdefault(name, {"found": 0, "checked": 0})
+                stats["found"] += int(counted)
+                stats["checked"] += 1
+        page = rows[offset:offset + limit]
+        return {"summary": {"found": found, "checked": checked,
+                            "visibility_pct": round(found * 100 / checked) if checked else None,
+                            "by_service": by_service, "by_date": by_date},
+                "total": len(rows), "results": [{
+                    "id": row.id, "query_text": row.query_text, "project_name": row.project_name,
+                    "brand_name": row.brand_name, "group_tag": row.group_tag,
+                    "service": row.service, "scan_date": row.scan_date,
+                    "status": row.status, "counts_as_found": _counts_as_found(row, include_cards=include_cards),
+                    "mention_types": json.loads(row.mention_types_json or "[]"),
+                    "evidence_quote": row.evidence_quote, "answer_text": row.answer_text,
+                    "sources": json.loads(row.sources_json or "[]"),
+                    "check_id": row.check_id,
+                } for row in page]}
 
     @app.get("/api/v1/auth/providers")
     def auth_providers() -> dict:

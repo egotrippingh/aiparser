@@ -21,6 +21,7 @@ import { ConfirmButton } from "@/components/confirm-button"
 import { EmptyState, Panel, PanelFoot, PanelHead, ServiceDot } from "@/components/bits"
 import { useResource } from "@/hooks/use-resource"
 import { api, errText } from "@/lib/api"
+import type { ScanPreferences } from "@/lib/scan-preferences"
 import { dmy } from "@/lib/dates"
 import { plural } from "@/lib/format"
 import type { Query, Resumable, ScanPlan } from "@/lib/types"
@@ -136,6 +137,16 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
   // Режим окон выбирается на запуск, а не в настройках: он зависит от того,
   // нужен ли компьютер прямо сейчас, а не от проекта.
   const [headless, setHeadless] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    api.get<ScanPreferences>("/api/agent/preferences").then((preferences) => {
+      if (cancelled) return
+      setHeadless(preferences.browser_mode === "headless")
+      setChosen(new Set(preferences.services.filter((id) => services.some((service) => service.id === id && service.has_adapter))))
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [services])
 
   const ready = useMemo(() => services.filter((s) => s.has_adapter), [services])
   const notReady = useMemo(() => services.filter((s) => !s.has_adapter), [services])

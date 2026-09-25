@@ -7,6 +7,7 @@
 """
 
 import asyncio
+import json
 import sys
 import tempfile
 import traceback
@@ -106,6 +107,19 @@ def test_start_over_ignores_done():
     assert orchestrator.plan_scan(pid, ["perplexity"])["remaining"] == 0
     plan = orchestrator.plan_scan(pid, ["perplexity"], resume=False)
     assert (plan["continue_scan_id"], plan["remaining"]) == (None, 3)
+
+
+def test_new_payer_never_continues_previous_accounts_scan():
+    pid, queries = _project(2)
+    old_scan = _scan(pid, ["perplexity"], {"perplexity": queries[:1]})
+    repo._exec("UPDATE scans SET settings_snapshot_json = ? WHERE id = ?",
+               (json.dumps({"billing_user_id": "account-a"}), old_scan))
+    own = orchestrator._plan_for_billing_user(pid, ["perplexity"], True, "account-a")
+    changed = orchestrator._plan_for_billing_user(pid, ["perplexity"], True, "account-b")
+    assert own["continue_scan_id"] == old_scan
+    assert own["done_pairs"] == {(queries[0], "perplexity")}
+    assert changed["continue_scan_id"] is None
+    assert changed["done_pairs"] == set()
 
 
 def test_start_with_nothing_left_creates_no_scan():

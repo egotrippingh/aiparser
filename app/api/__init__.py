@@ -30,7 +30,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="AI Mentions Tracker", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
     from app.api import (
-        account, browser, external, mentions, projects, queries, recheck, results, scans, settings,
+        account, agent, browser, external, mentions, projects, queries, recheck, results, scans, settings,
     )
 
     app.include_router(projects.router)
@@ -39,10 +39,30 @@ def create_app() -> FastAPI:
     app.include_router(results.router)
     app.include_router(settings.router)
     app.include_router(account.router)
+    app.include_router(agent.router)
     app.include_router(browser.router)
     app.include_router(external.router)
     app.include_router(recheck.router)
     app.include_router(mentions.router)
+
+    import asyncio
+    from app.agent import run_agent
+
+    agent_task: asyncio.Task | None = None
+
+    @app.on_event("startup")
+    async def start_agent() -> None:
+        nonlocal agent_task
+        agent_task = asyncio.create_task(run_agent())
+
+    @app.on_event("shutdown")
+    async def stop_agent() -> None:
+        if agent_task:
+            agent_task.cancel()
+            try:
+                await agent_task
+            except asyncio.CancelledError:
+                pass
 
     @app.get("/api/meta")
     def meta() -> dict:

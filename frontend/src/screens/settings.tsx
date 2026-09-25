@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { ConfirmButton } from "@/components/confirm-button"
+import { AgentSettingsPanel } from "@/components/agent-settings-panel"
 import { Panel, PanelFoot, PanelHead, ServiceDot } from "@/components/bits"
 import { useResource } from "@/hooks/use-resource"
 import { api, errText } from "@/lib/api"
@@ -110,14 +111,15 @@ export function SettingsScreen() {
 
   if (!project) {
     return (
-      <Panel>
-        <div className="text-muted-foreground p-6 text-sm">Сначала выберите или создайте проект.</div>
-      </Panel>
+      <div className="space-y-4"><AgentSettingsPanel /><Panel>
+        <div className="text-muted-foreground p-6 text-sm">Создайте проект, чтобы настроить запросы и ИИ-сервисы.</div>
+      </Panel></div>
     )
   }
 
   return (
     <div className="space-y-4">
+      <AgentSettingsPanel />
       <ProjectForm
         key={project.id}
         project={project}
@@ -132,7 +134,6 @@ export function SettingsScreen() {
         services={services}
         onChanged={reloadBrowser}
       />
-      <ScanSpeedPanel settings={settings} onSaved={reloadSettings} />
       <LlmPanel settings={settings} onSaved={reloadSettings} />
     </div>
   )
@@ -477,88 +478,6 @@ function BrowserPanel({
           )
         })}
       </div>
-    </Panel>
-  )
-}
-
-/* --- скорость скана ----------------------------------------------------- */
-
-const SPEED_LABELS: Record<string, string> = {
-  careful: "Осторожно — максимальная безопасность аккаунтов",
-  balanced: "Сбалансированно — примерно вдвое быстрее (по умолчанию)",
-  fast: "Быстро — минимальные паузы, выше риск капчи",
-}
-
-function ScanSpeedPanel({
-  settings,
-  onSaved,
-}: {
-  settings: Settings | null
-  onSaved: () => void
-}) {
-  const [value, setValue] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  const current = value ?? settings?.speed_profile ?? "balanced"
-  const prof = settings?.speed_profiles?.[current]
-
-  async function save() {
-    setBusy(true)
-    try {
-      await api.put("/api/settings", { speed_profile: current })
-      onSaved()
-      toast.success("Режим сохранён")
-    } catch (e) {
-      toast.error(errText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Panel>
-      <PanelHead
-        title="Скорость скана"
-        hint="размен между временем прогона и живучестью аккаунтов"
-      />
-      <div className="space-y-3 p-4">
-        {settings ? (
-          <Field label="Режим" htmlFor="f_speed">
-            <NativeSelect
-              id="f_speed"
-              value={current}
-              onChange={(e) => setValue(e.target.value)}
-            >
-              {Object.keys(settings.speed_profiles || {}).map((k) => (
-                <option key={k} value={k}>
-                  {SPEED_LABELS[k] ?? k}
-                </option>
-              ))}
-            </NativeSelect>
-          </Field>
-        ) : (
-          <Skeleton className="h-8 w-full" />
-        )}
-        {prof ? (
-          <p className="text-muted-foreground text-xs">
-            Пауза между запросами {prof.delay_min_sec}–{prof.delay_max_sec} сек,{" "}
-            {prof.break_every_n
-              ? `длинный перерыв каждые ${prof.break_every_n} запросов`
-              : "без длинных перерывов"}
-            . Ускорение не сокращает время ответа самой нейросети — только паузы между запросами.
-          </p>
-        ) : null}
-      </div>
-      <PanelFoot className="justify-end">
-        <Button
-          size="sm"
-          onClick={save}
-          disabled={busy || !settings || current === settings.speed_profile}
-        >
-          <Save />
-          Сохранить
-        </Button>
-      </PanelFoot>
     </Panel>
   )
 }

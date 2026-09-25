@@ -50,7 +50,7 @@ function Workspace() {
           ) : null
         }
       >
-        {!project ? (
+        {!project && view !== "settings" ? (
           <Panel>
             <EmptyState
               icon={<FolderPlus />}

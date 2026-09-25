@@ -98,6 +98,14 @@ CREATE TABLE IF NOT EXISTS screenshot_outbox (
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Prevent a scheduled project from starting twice after an agent restart.
+CREATE TABLE IF NOT EXISTS scheduled_scan_runs (
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    scan_date  TEXT NOT NULL,
+    scan_id    INTEGER,
+    PRIMARY KEY (project_id, scan_date)
+);
+
 CREATE INDEX IF NOT EXISTS idx_queries_project  ON queries(project_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_scans_project    ON scans(project_id, scan_date);
 CREATE INDEX IF NOT EXISTS idx_results_scan     ON results(scan_id);

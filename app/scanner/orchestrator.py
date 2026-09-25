@@ -268,7 +268,9 @@ async def start_scan(project_id: int, service_ids: list[str], *, resume: bool = 
     if not queries:
         raise ValueError("В проекте нет активных запросов")
 
-    plan = _plan(project_id, known, resume)
+    billing_user = await billing.identity() if billing.enabled() else None
+    plan = _plan_for_billing_user(project_id, known, resume,
+                                  billing_user["id"] if billing_user else None)
     done_pairs = plan["done_pairs"]
     work = [(svc, q) for svc in known for q in queries if (q["id"], svc) not in done_pairs]
     if not work:
@@ -309,6 +311,7 @@ async def start_scan(project_id: int, service_ids: list[str], *, resume: bool = 
                 pass  # очередь сохранена для следующего запуска
             raise
         snapshot["billing_run_id"] = billing_run_id
+        snapshot["billing_user_id"] = billing_user["id"]
         snapshot["billing_reserved_ids"] = list(reserved.values())
         snapshot["managed_llm"] = bool(reservation.get("managed_detection"))
         snapshot["managed_model"] = reservation.get("detection_model") or llm_mod.DEFAULT_MODEL
@@ -361,6 +364,19 @@ def _plan(project_id: int, service_ids: list[str], resume: bool) -> dict:
             continue_scan_id, scan_date = prev["id"], prev["scan_date"]
         done_pairs = repo.conclusive_pairs_on_date(project_id, scan_date)
     return {"date": scan_date, "continue_scan_id": continue_scan_id, "done_pairs": done_pairs}
+
+
+def _plan_for_billing_user(project_id: int, service_ids: list[str], resume: bool,
+                           user_id: str | None) -> dict:
+    plan = _plan(project_id, service_ids, resume)
+    if user_id:
+        latest = repo.latest_scan(project_id)
+        if latest:
+            owner = json.loads(latest["settings_snapshot_json"] or "{}").get("billing_user_id")
+            if owner != user_id:
+                # A new payer must not inherit earlier results or reservations.
+                return _plan(project_id, service_ids, False)
+    return plan
 
 
 def plan_scan(project_id: int, service_ids: list[str], *, resume: bool = True) -> dict:

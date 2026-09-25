@@ -590,6 +590,39 @@ def queue_billing(check_id: str, status: str) -> None:
     )
 
 
+def scheduled_scan_exists(project_id: int, scan_date: str) -> bool:
+    row = _row("""SELECT r.scan_id, s.status FROM scheduled_scan_runs r
+                    LEFT JOIN scans s ON s.id = r.scan_id
+                   WHERE r.project_id = ? AND r.scan_date = ?""",
+               (project_id, scan_date))
+    return bool(row and (row["scan_id"] is None or row["status"] in ("done", "stopped")))
+
+
+def mark_scheduled_scan(project_id: int, scan_date: str, scan_id: int | None) -> None:
+    _exec("""INSERT INTO scheduled_scan_runs (project_id, scan_date, scan_id) VALUES (?,?,?)
+             ON CONFLICT(project_id, scan_date) DO UPDATE SET scan_id = excluded.scan_id""",
+          (project_id, scan_date, scan_id))
+
+
+def cloud_results_after(result_id: int, limit: int = 100) -> list[dict]:
+    """Read saved results in ID order for retryable upload to the account.
+
+    The scan snapshot carries the account owner. Results from an old local
+    account are never sent to whoever connected the agent later.
+    """
+    return _rows(
+        """SELECT r.*, s.project_id, s.scan_date, s.settings_snapshot_json,
+                  p.name AS project_name, p.brand_name, q.text AS query_text,
+                  q.group_tag
+             FROM results r
+             JOIN scans s ON s.id = r.scan_id
+             JOIN projects p ON p.id = s.project_id
+             JOIN queries q ON q.id = r.query_id
+            WHERE r.id > ? ORDER BY r.id LIMIT ?""",
+        (result_id, limit),
+    )
+
+
 def pending_billing() -> list[dict]:
     return _rows("SELECT check_id, status FROM billing_outbox ORDER BY created_at, check_id")
 

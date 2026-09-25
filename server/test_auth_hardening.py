@@ -81,7 +81,8 @@ def test_legacy_database_upgrade_preserves_account(tmp_path):
     url = f"sqlite:///{tmp_path / 'legacy.db'}"
     engine = create_engine(url)
     Base.metadata.create_all(engine, tables=[table for table in Base.metadata.tables.values()
-                                          if table.name not in {"auth_failures", "password_resets"}])
+                                          if table.name not in {"auth_failures", "password_resets",
+                                                                "scan_preferences", "agent_devices", "cloud_results"}])
     with engine.begin() as connection:
         connection.execute(text("ALTER TABLE checks DROP COLUMN analysis_json"))
     with Session(engine) as db:

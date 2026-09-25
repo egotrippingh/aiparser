@@ -89,9 +89,33 @@ async def status() -> dict:
     user = await _request("GET", "/me")
     wallet = await _request("GET", "/wallet")
     pricing = await _request("GET", "/pricing", auth=False)
-    return {"enabled": True, "connected": True, "email": user["email"],
+    return {"enabled": True, "connected": True, "user_id": user["id"], "email": user["email"],
             "wallet": wallet, "pricing": pricing,
             "cabinet_url": f"{config.ACCOUNT_URL}/cabinet/"}
+
+
+async def identity() -> dict:
+    return await _request("GET", "/me")
+
+
+async def heartbeat(device_id: str, name: str, zone: str, active_scan: bool) -> dict:
+    return await _request("POST", "/agent/heartbeat", body={
+        "device_id": device_id, "name": name, "local_time_zone": zone,
+        "active_scan": active_scan,
+    })
+
+
+async def scan_preferences() -> dict:
+    return await _request("GET", "/scan-preferences")
+
+
+async def save_scan_preferences(preferences: dict) -> dict:
+    return await _request("PUT", "/scan-preferences", body=preferences)
+
+
+async def upload_cloud_results(device_id: str, results: list[dict]) -> dict:
+    return await _request("POST", "/agent/results",
+                          body={"device_id": device_id, "results": results}, timeout=60)
 
 
 async def reserve(check_ids: list[str]) -> dict:
