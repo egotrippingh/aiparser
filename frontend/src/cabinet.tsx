@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react"
 import { createRoot } from "react-dom/client"
-import { ArrowDownLeft, ArrowUpRight, CreditCard, LogOut, ShieldCheck } from "lucide-react"
+import { ArrowDownLeft, ArrowUpRight, CreditCard, Image as ImageIcon, LogOut, ShieldCheck } from "lucide-react"
 import "./cabinet.css"
 
 const API = (import.meta.env.VITE_ACCOUNT_API_URL || "").replace(/\/$/, "")
@@ -13,6 +13,7 @@ type User = { id: string; email: string; yandex_linked?: boolean }
 type Entry = { amount_kopeks: number; kind: string; reference: string; created_at: string }
 type Wallet = { balance_kopeks: number; reserved_kopeks: number; available_kopeks: number; entries: Entry[] }
 type Payment = { id: string; amount_kopeks: number; method: string; status: string; payment_url: string | null; created_at: string }
+type Screenshot = { check_id: string; size_bytes: number; created_at: string }
 
 async function request<T>(path: string, token?: string, body?: unknown): Promise<T> {
   const response = await fetch(`${API}/api/v1${path}`, {
@@ -37,6 +38,9 @@ function Cabinet() {
   const [user, setUser] = useState<User | null>(null)
   const [wallet, setWallet] = useState<Wallet | null>(null)
   const [payments, setPayments] = useState<Payment[]>([])
+  const [screenshots, setScreenshots] = useState<Screenshot[]>([])
+  const [visibleScreenshots, setVisibleScreenshots] = useState(12)
+  const [openedScreenshot, setOpenedScreenshot] = useState<{ id: string; url: string } | null>(null)
   const [price, setPrice] = useState(150)
   const [minimum, setMinimum] = useState(30000)
   const [authMode, setAuthMode] = useState<"login" | "register">("login")
@@ -54,13 +58,16 @@ function Cabinet() {
     const reconciled = await Promise.all(p.map((payment) => payment.status === "pending"
       ? request<Payment>(`/payments/${encodeURIComponent(payment.id)}`, activeToken).catch(() => payment)
       : payment))
-    const [u, w] = await Promise.all([
+    const [u, w, shots] = await Promise.all([
       request<User>("/me", activeToken),
       request<Wallet>("/wallet", activeToken),
+      request<{ screenshots: Screenshot[] }>("/screenshots", activeToken)
+        .catch(() => ({ screenshots: [] })),
     ])
     setUser(u)
     setWallet(w)
     setPayments(reconciled)
+    setScreenshots(shots.screenshots)
   }
 
   useEffect(() => {
@@ -153,6 +160,17 @@ function Cabinet() {
     setToken("")
     setUser(null)
     setWallet(null)
+    setScreenshots([])
+    setOpenedScreenshot(null)
+  }
+
+  async function openScreenshot(checkId: string) {
+    try {
+      const result = await request<{ url: string }>(`/screenshots/${encodeURIComponent(checkId)}/url`, token)
+      setOpenedScreenshot({ id: checkId, url: result.url })
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Не удалось открыть скриншот")
+    }
   }
 
   async function linkYandex() {
@@ -188,7 +206,7 @@ function Cabinet() {
     <header className="cab-header"><div className="cab-container cab-header-inner"><Brand /><span className="cab-header-label">Личный кабинет</span>{user && <button className="cab-logout" onClick={logout}><LogOut size={16} /> Выйти</button>}</div></header>
     <main className="cab-container cab-main">
       {!user ? <section className="cab-auth-wrap">
-        <div className="cab-intro"><span className="cab-kicker">AI MENTIONS / АККАУНТ</span><h1>Проверки под вашим контролем.</h1><p>Пополняйте баланс и смотрите историю проверок. Проекты и отчёты хранятся на вашем компьютере; для анализа текст ответа и снимок передаются в OpenRouter.</p><div className="cab-price-note"><ShieldCheck size={18} /> {money(price)} за запрос в одном ИИ-сервисе</div></div>
+        <div className="cab-intro"><span className="cab-kicker">AI MENTIONS / АККАУНТ</span><h1>Проверки под вашим контролем.</h1><p>Пополняйте баланс и смотрите историю проверок. Проекты и отчёты хранятся на вашем компьютере. При подключённом облачном хранилище снимки проверок доступны и в кабинете.</p><div className="cab-price-note"><ShieldCheck size={18} /> {money(price)} за запрос в одном ИИ-сервисе</div></div>
         <form className="cab-panel cab-auth" onSubmit={authenticate}>
           <button className="cab-yandex" type="button" disabled={!yandexEnabled || busy}
             title={yandexEnabled ? "" : "Доступно после настройки Яндекс ID на сервере"}
@@ -210,6 +228,7 @@ function Cabinet() {
         </div>
         <section className="cab-panel cab-device"><div><span className="cab-kicker">НАСТОЛЬНОЕ ПРИЛОЖЕНИЕ</span><h2>Подключить парсер</h2><p>Откройте экран скана на компьютере и выберите «Код из кабинета». Код создаётся на 5 минут и подходит для одного входа.</p></div><button className="cab-primary" onClick={createDeviceCode} disabled={busy}>Получить код</button>{deviceCode && <div className="cab-device-code"><code>{deviceCode}</code><button onClick={copyDeviceCode}>Скопировать</button></div>}</section>
         <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ИСТОРИЯ</span><h2>Операции по балансу</h2></div><button onClick={() => refresh(token)} className="cab-refresh">Обновить</button></div>{wallet?.entries.length ? <div className="cab-list">{wallet.entries.map((entry) => <div className="cab-entry" key={entry.reference}><span className={entry.amount_kopeks > 0 ? "cab-entry-icon in" : "cab-entry-icon out"}>{entry.amount_kopeks > 0 ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}</span><span><b>{entry.kind === "topup" ? "Пополнение" : "Проверка запроса"}</b><small>{new Date(entry.created_at).toLocaleString("ru-RU")}</small></span><strong className={entry.amount_kopeks > 0 ? "positive" : ""}>{entry.amount_kopeks > 0 ? "+" : ""}{money(entry.amount_kopeks)}</strong></div>)}</div> : <p className="cab-empty">Пока нет операций. Пополните баланс, чтобы начать проверки.</p>}</section>
+        <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">СКРИНШОТЫ</span><h2>Снимки проверок</h2></div><button onClick={() => refresh(token)} className="cab-refresh">Обновить</button></div>{screenshots.length ? <><div className="cab-list">{screenshots.slice(0, visibleScreenshots).map((shot) => { const parts = shot.check_id.split(":"); return <div className="cab-entry" key={shot.check_id}><span className="cab-entry-icon out" aria-hidden="true"><ImageIcon size={18} /></span><span><b>Запрос №{parts.at(-2)} · {parts.at(-1)}</b><small>{new Date(shot.created_at).toLocaleString("ru-RU")}</small></span><button className="cab-shot-button" onClick={() => openScreenshot(shot.check_id)}>Открыть</button></div> })}</div>{screenshots.length > visibleScreenshots && <button className="cab-refresh" onClick={() => setVisibleScreenshots((count) => count + 12)}>Показать ещё</button>}</> : <p className="cab-empty">Загруженных снимков пока нет. Снимки остаются в настольном приложении.</p>}{openedScreenshot && <div className="cab-shot-preview"><div className="cab-section-head"><b>Снимок проверки</b><button className="cab-refresh" onClick={() => setOpenedScreenshot(null)}>Закрыть</button></div><img src={openedScreenshot.url} alt="Скриншот ответа ИИ по выбранной проверке" /></div>}</section>
         {payments.some((p) => p.status === "pending") && <p className="cab-pending">Есть незавершённое пополнение. Если вы уже оплатили, нажмите «Обновить» после возврата на сайт.</p>}
       </>}
       {message && <p className="cab-message" role="status">{message}</p>}

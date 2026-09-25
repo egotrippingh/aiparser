@@ -13,6 +13,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
@@ -20,9 +21,10 @@ from sqlalchemy.orm import Session
 
 from server.ai import AIError, OpenRouterAI
 from server.coinso import CoinsoClient, CoinsoError, kopeks, verify_webhook
-from server.models import (Base, Check, DeviceCode, LedgerEntry, LoginTicket, OAuthAttempt, OAuthIdentity,
+from server.models import (Base, Check, Screenshot, DeviceCode, LedgerEntry, LoginTicket, OAuthAttempt, OAuthIdentity,
                            PaymentOrder, SessionToken, User, Wallet, make_session_factory, utcnow)
 from server.security import hash_password, new_token, token_hash, verify_password
+from server.storage import ScreenshotStorage, StorageError
 from server.yandex import YandexError, YandexOAuth
 
 
@@ -104,7 +106,8 @@ def _order_payload(order: PaymentOrder) -> dict:
 
 def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient | None = None,
                ai_client: OpenRouterAI | None = None,
-               yandex_client: YandexOAuth | None = None) -> FastAPI:
+               yandex_client: YandexOAuth | None = None,
+               screenshot_storage: ScreenshotStorage | None = None) -> FastAPI:
     database_url = database_url or os.environ.get("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL не задан")
@@ -121,6 +124,8 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         )
     if ai_client is None and os.environ.get("OPENROUTER_API_KEY"):
         ai_client = OpenRouterAI(os.environ["OPENROUTER_API_KEY"])
+    if screenshot_storage is None:
+        screenshot_storage = ScreenshotStorage.from_env()
     public_base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
     if yandex_client is None and public_base and os.environ.get("YANDEX_CLIENT_ID") and os.environ.get("YANDEX_CLIENT_SECRET"):
         if not (public_base.startswith("https://") or public_base.startswith("http://127.0.0.1:")
@@ -563,6 +568,67 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             check.result_status = body.status
         db.commit()
         return {"status": check.status, **_wallet_payload(db, user.id)}
+
+    @app.put("/api/v1/checks/{check_id}/screenshot")
+    async def upload_screenshot(check_id: str, request: Request,
+                                user: User = Depends(current_user),
+                                db: Session = Depends(db_session)) -> dict:
+        if not screenshot_storage:
+            raise HTTPException(503, "Хранение скриншотов ещё не настроено")
+        check = db.scalar(select(Check).where(Check.user_id == user.id,
+                                              Check.client_check_id == check_id))
+        if not check or check.status != "settled":
+            raise HTTPException(404, "Завершённая проверка не найдена")
+        data = bytearray()
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > 8 * 1024 * 1024:
+                raise HTTPException(413, "Скриншот превышает 8 МБ")
+            data.extend(chunk)
+        if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WEBP":
+            raise HTTPException(422, "Требуется изображение WebP")
+        object_key = f"screenshots/{user.id}/{check.id}.webp"
+        try:
+            await run_in_threadpool(screenshot_storage.put, object_key, bytes(data))
+        except StorageError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        screenshot = db.get(Screenshot, check.id)
+        if screenshot is None:
+            db.add(Screenshot(check_id=check.id, object_key=object_key,
+                              size_bytes=len(data)))
+        else:
+            screenshot.size_bytes = len(data)
+        db.commit()
+        return {"stored": True}
+
+    @app.get("/api/v1/screenshots")
+    def list_screenshots(user: User = Depends(current_user),
+                         db: Session = Depends(db_session)) -> dict:
+        rows = db.execute(
+            select(Check.client_check_id, Screenshot.size_bytes, Screenshot.created_at)
+            .join(Screenshot, Screenshot.check_id == Check.id)
+            .where(Check.user_id == user.id)
+            .order_by(Screenshot.created_at.desc()).limit(100)
+        ).all()
+        return {"screenshots": [
+            {"check_id": row.client_check_id, "size_bytes": row.size_bytes,
+             "created_at": row.created_at.isoformat()} for row in rows
+        ]}
+
+    @app.get("/api/v1/screenshots/{check_id}/url")
+    def screenshot_url(check_id: str, user: User = Depends(current_user),
+                       db: Session = Depends(db_session)) -> dict:
+        if not screenshot_storage:
+            raise HTTPException(503, "Хранение скриншотов ещё не настроено")
+        object_key = db.scalar(
+            select(Screenshot.object_key).join(Check, Screenshot.check_id == Check.id)
+            .where(Check.user_id == user.id, Check.client_check_id == check_id)
+        )
+        if not object_key:
+            raise HTTPException(404, "Скриншот не найден")
+        try:
+            return {"url": screenshot_storage.download_url(object_key), "expires_in": 300}
+        except StorageError as exc:
+            raise HTTPException(502, str(exc)) from exc
 
     @app.post("/api/v1/checks/release")
     def release_checks(body: ReserveIn, user: User = Depends(current_user),

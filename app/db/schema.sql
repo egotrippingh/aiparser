@@ -90,6 +90,14 @@ CREATE TABLE IF NOT EXISTS billing_outbox (
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Скриншоты отправляются после подтверждённого списания; сбой сети не
+-- блокирует сканирование и не теряет локальный файл.
+CREATE TABLE IF NOT EXISTS screenshot_outbox (
+    check_id    TEXT PRIMARY KEY,
+    local_path  TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_queries_project  ON queries(project_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_scans_project    ON scans(project_id, scan_date);
 CREATE INDEX IF NOT EXISTS idx_results_scan     ON results(scan_id);

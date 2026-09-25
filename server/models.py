@@ -118,6 +118,15 @@ class Check(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class Screenshot(Base):
+    __tablename__ = "screenshots"
+
+    check_id: Mapped[int] = mapped_column(ForeignKey("checks.id"), primary_key=True)
+    object_key: Mapped[str] = mapped_column(String(240), unique=True)
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 def make_session_factory(database_url: str):
     engine = create_engine(database_url, pool_pre_ping=True)
     return engine, sessionmaker(engine, expire_on_commit=False)

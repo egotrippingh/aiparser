@@ -71,6 +71,7 @@ def create_app() -> FastAPI:
 
     # Скриншоты отдаём как статику: в WebView путь к файлу на диске напрямую
     # не подставить, а гонять их через base64 в JSON — лишний расход памяти.
+    config.SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
     app.mount("/shots", StaticFiles(directory=config.SCREENSHOTS_DIR), name="shots")
 
     # Интерфейс — собранный React (исходники в frontend/, `npm run build`

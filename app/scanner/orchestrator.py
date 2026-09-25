@@ -282,6 +282,10 @@ async def start_scan(project_id: int, service_ids: list[str], *, resume: bool = 
     reserved: dict[tuple[int, str], str] = {}
     if billing.enabled():
         await billing.recover_interrupted_scans()
+        try:
+            await billing.flush_screenshot_outbox()
+        except billing.ScreenshotError as exc:
+            log.warning("Скриншоты ожидают повторной отправки: %s", exc)
         if plan["continue_scan_id"]:
             old_scan = repo.get_scan(plan["continue_scan_id"])
             old_settings = json.loads(old_scan["settings_snapshot_json"] or "{}")
@@ -738,8 +742,13 @@ async def _run_one(
         if ctl.billing_run_id and result.status in ("found", "not_found"):
             check_key = billing.check_id(ctl.billing_run_id, query["id"], service_id)
             repo.queue_billing(check_key, result.status)
+            repo.queue_screenshot(check_key, rel_path)
             try:
                 await billing.flush_outbox()
+                try:
+                    await billing.flush_screenshot_outbox()
+                except billing.ScreenshotError as exc:
+                    log.warning("Скриншот ожидает повторной отправки: %s", exc)
             except billing.BillingError as exc:
                 log.warning("Ответ сохранён, списание ожидает повторной отправки: %s", exc)
                 ctl.emit("billing_error", error=str(exc))

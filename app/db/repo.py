@@ -598,3 +598,16 @@ def billing_sent(check_ids: list[str]) -> None:
     if check_ids:
         placeholders = ",".join("?" * len(check_ids))
         _exec(f"DELETE FROM billing_outbox WHERE check_id IN ({placeholders})", check_ids)
+
+
+def queue_screenshot(check_id: str, local_path: str) -> None:
+    _exec("INSERT OR REPLACE INTO screenshot_outbox (check_id, local_path) VALUES (?, ?)",
+          (check_id, local_path))
+
+
+def pending_screenshots() -> list[dict]:
+    return _rows("SELECT check_id, local_path FROM screenshot_outbox ORDER BY created_at, check_id")
+
+
+def screenshot_sent(check_id: str) -> None:
+    _exec("DELETE FROM screenshot_outbox WHERE check_id = ?", (check_id,))

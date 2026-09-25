@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import time
+from pathlib import Path
 
 import httpx
 
@@ -10,9 +12,14 @@ from app import config, secrets_store
 from app.db import repo
 
 TOKEN_KEY = "account_token"
+_screenshot_retry_after = 0.0
 
 
 class BillingError(RuntimeError):
+    pass
+
+
+class ScreenshotError(RuntimeError):
     pass
 
 
@@ -129,6 +136,43 @@ async def flush_outbox() -> None:
         chunk = releases[offset:offset + 1000]
         await release(chunk)
         repo.billing_sent(chunk)
+
+
+async def flush_screenshot_outbox() -> None:
+    """Best-effort upload; billing and the local result remain independent."""
+    global _screenshot_retry_after
+    if not enabled() or not token():
+        return
+    if time.monotonic() < _screenshot_retry_after:
+        return
+    root = Path(config.SCREENSHOTS_DIR).resolve()
+    for item in repo.pending_screenshots():
+        path = (root / item["local_path"]).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            repo.screenshot_sent(item["check_id"])
+            continue
+        if path.stat().st_size > 8 * 1024 * 1024:
+            repo.screenshot_sent(item["check_id"])
+            continue
+        try:
+            async with httpx.AsyncClient(timeout=45) as client:
+                response = await client.put(
+                    f"{config.ACCOUNT_URL}/api/v1/checks/{item['check_id']}/screenshot",
+                    content=path.read_bytes(),
+                    headers={"Authorization": f"Bearer {token()}",
+                             "Content-Type": "image/webp"},
+                )
+        except httpx.HTTPError as exc:
+            _screenshot_retry_after = time.monotonic() + 60
+            raise ScreenshotError("Не удалось отправить скриншот") from exc
+        if response.status_code == 404:
+            # Проверка могла принадлежать другому аккаунту на этом ПК.
+            # Сохраняем очередь для прежнего владельца, остальные шлём дальше.
+            continue
+        if response.is_error:
+            _screenshot_retry_after = time.monotonic() + 60
+            raise ScreenshotError(f"Сервер не принял скриншот: HTTP {response.status_code}")
+        repo.screenshot_sent(item["check_id"])
 
 
 async def recover_interrupted_scans() -> None:
