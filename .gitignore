@@ -2,6 +2,7 @@
 .venv/
 build/
 dist/
+deploy/downloads/
 __pycache__/
 *.pyc
 

@@ -11,6 +11,7 @@ import { DEFAULT_SCAN_PREFERENCES, MONTH_DAYS, SCAN_SERVICES, type ScanPreferenc
 type AccountStatus = {
   enabled: boolean
   connected: boolean
+  is_admin?: boolean
   email?: string
   cabinet_url?: string
   wallet?: { available_kopeks: number; reserved_kopeks: number }
@@ -81,14 +82,14 @@ export function AgentSettingsPanel() {
       <div className="space-y-4 p-4">
         {account?.connected ? <div className="flex flex-wrap items-center gap-3">
           <Wallet className="text-primary size-5" aria-hidden="true" />
-          <div className="min-w-40 flex-1"><strong className="text-sm">{account.email}</strong><p className="text-muted-foreground text-xs">Доступно: {rub(account.wallet?.available_kopeks ?? 0)} · В резерве: {rub(account.wallet?.reserved_kopeks ?? 0)}</p></div>
+          <div className="min-w-40 flex-1"><strong className="text-sm">{account.email}</strong><p className="text-muted-foreground text-xs">{account.is_admin ? "Безлимитные проверки · бесплатно" : `Доступно: ${rub(account.wallet?.available_kopeks ?? 0)} · В резерве: ${rub(account.wallet?.reserved_kopeks ?? 0)}`}</p></div>
           <Button type="button" size="sm" variant="outline" onClick={() => void refresh().catch((cause) => setError(errText(cause)))}>Обновить баланс</Button>
         </div> : <form onSubmit={connect} className="flex flex-wrap items-end gap-3">
           <label className="min-w-56 flex-1 text-xs">Одноразовый код из кабинета<Input className="mt-1" value={code} onChange={(event) => setCode(event.target.value)} required autoComplete="off" /></label>
           <Button size="sm" disabled={busy}>Подключить</Button>
           <p className="text-muted-foreground w-full text-xs">Войдите через Яндекс на сайте и создайте код в разделе «Аккаунт».</p>
         </form>}
-        {account?.cabinet_url && <a href={account.cabinet_url} target="_blank" rel="noreferrer" className="text-primary inline-flex items-center gap-1 text-xs underline">Личный кабинет и пополнение <ExternalLink size={13} /></a>}
+        {account?.cabinet_url && <a href={account.cabinet_url} target="_blank" rel="noreferrer" className="text-primary inline-flex items-center gap-1 text-xs underline">{account.is_admin ? "Личный кабинет" : "Личный кабинет и пополнение"} <ExternalLink size={13} /></a>}
         {autostart && <label className="flex items-center gap-3 text-sm"><input type="checkbox" className="accent-primary size-4" checked={autostart.enabled} disabled={!autostart.available} onChange={(event) => void changeAutostart(event.target.checked)} /> Запускать агент вместе с Windows</label>}
         {autostart && !autostart.available && <p className="text-muted-foreground text-xs">Автозапуск доступен в собранном EXE.</p>}
       </div>

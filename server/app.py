@@ -22,7 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server.agent_schemas import AgentHeartbeatIn, CloudResultsIn, ScanPreferencesIn
-from server.ai import AIError, OpenRouterAI
+from server.ai import AIError, AIResult, OpenRouterAI
 from server.auth_limit import clear as clear_auth_failures
 from server.auth_limit import email_key, guard as guard_auth, record as record_auth, source_key
 from server.coinso import CoinsoClient, CoinsoError, kopeks, verify_webhook
@@ -56,7 +56,25 @@ class CompleteIn(BaseModel):
 
 class AnalyzeIn(BaseModel):
     system: str = Field(min_length=50, max_length=4000)
-    content: list[dict] = Field(min_length=1, max_length=5)
+    content: list[dict] = Field(min_length=1, max_length=4)
+
+
+def _validate_ai_content(content: list[dict]) -> None:
+    if (len(json.dumps(content)) > 2_000_000
+            or content[0].get("type") != "text"
+            or not isinstance(content[0].get("text"), str)
+            or len(content[0]["text"]) > 12000
+            or any(part.get("type") != "image_url"
+                   or not isinstance(part.get("image_url"), dict)
+                   or not str(part["image_url"].get("url", "")).startswith("data:image/webp;base64,")
+                   for part in content[1:])):
+        raise HTTPException(422, "Неверные или слишком большие данные для анализа")
+
+
+def _ai_payload(result: AIResult | str, fallback_model: str) -> tuple[str, str, str]:
+    if isinstance(result, AIResult):
+        return result.raw, result.model, json.dumps(result.usage)
+    return result, fallback_model, "{}"
 
 
 class TicketIn(BaseModel):
@@ -93,12 +111,14 @@ def _held(db: Session, user_id: str) -> int:
 
 def _wallet_payload(db: Session, user_id: str) -> dict:
     wallet = db.get(Wallet, user_id)
+    user = db.get(User, user_id)
     held = _held(db, user_id)
     entries = db.scalars(
         select(LedgerEntry).where(LedgerEntry.user_id == user_id)
         .order_by(LedgerEntry.id.desc()).limit(50)
     ).all()
     return {
+        "unlimited_checks": bool(user.is_admin),
         "balance_kopeks": wallet.balance_kopeks,
         "reserved_kopeks": held,
         "available_kopeks": wallet.balance_kopeks - held,
@@ -179,7 +199,7 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             f"{public_base}/api/v1/auth/yandex/callback",
         )
     allow_test = os.environ.get("COINSO_ALLOW_TEST_PAYMENTS", "false").lower() == "true"
-    price = int(os.environ.get("CHECK_PRICE_KOPEKS", "150"))
+    price = int(os.environ.get("CHECK_PRICE_KOPEKS", "200"))
     min_topup = int(os.environ.get("MIN_TOPUP_KOPEKS", "30000"))
     if price <= 0 or min_topup <= 0:
         raise RuntimeError("Цена и минимальное пополнение должны быть положительными")
@@ -239,7 +259,27 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
     def pricing() -> dict:
         return {"check_price_kopeks": price, "min_topup_kopeks": min_topup,
                 "managed_detection": ai_client is not None,
-                "detection_model": ai_client.model if ai_client else None}
+                "detection_model": ai_client.model if ai_client else None,
+                "arbiter_model": getattr(ai_client, "arbiter_model", ai_client.model) if ai_client else None}
+
+    def agent_archive() -> Path:
+        return Path(os.environ.get("AGENT_DOWNLOAD_FILE") or
+                    Path(__file__).resolve().parent.parent / "dist" / "AI-Mentions-Windows-latest.zip")
+
+    @app.get("/api/v1/agent-download")
+    def agent_download_status() -> dict:
+        archive = agent_archive()
+        return {"available": archive.is_file(),
+                "url": "/downloads/AI-Mentions-Windows.zip" if archive.is_file() else None,
+                "size_bytes": archive.stat().st_size if archive.is_file() else None}
+
+    @app.get("/downloads/AI-Mentions-Windows.zip", include_in_schema=False)
+    def download_agent() -> FileResponse:
+        archive = agent_archive()
+        if not archive.is_file():
+            raise HTTPException(404, "Агент пока не опубликован")
+        return FileResponse(archive, media_type="application/zip",
+                            filename="AI-Mentions-Windows.zip")
 
     @app.get("/api/v1/scan-preferences")
     def get_scan_preferences(user: User = Depends(current_user),
@@ -637,7 +677,8 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
     def me(user: User = Depends(current_user), db: Session = Depends(db_session)) -> dict:
         linked = db.scalar(select(OAuthIdentity.id).where(OAuthIdentity.provider == "yandex",
                                                         OAuthIdentity.user_id == user.id))
-        return {"id": user.id, "email": user.email, "yandex_linked": linked is not None}
+        return {"id": user.id, "email": user.email, "yandex_linked": linked is not None,
+                "is_admin": user.is_admin}
 
     @app.get("/api/v1/wallet")
     def wallet(user: User = Depends(current_user), db: Session = Depends(db_session)) -> dict:
@@ -754,7 +795,10 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
     @app.post("/api/v1/checks/reserve")
     def reserve(body: ReserveIn, user: User = Depends(current_user),
                 db: Session = Depends(db_session)) -> dict:
+        if os.environ.get("APP_ENV") == "production" and not ai_client:
+            raise HTTPException(503, "Серверный анализ не настроен; новые проверки временно недоступны")
         ids = body.check_ids
+        effective_price = 0 if user.is_admin else price
         if len(ids) != len(set(ids)) or any(not 1 <= len(i) <= 100 for i in ids):
             raise HTTPException(422, "Идентификаторы проверок должны быть уникальными")
         wallet_row = _locked_wallet(db, user.id)
@@ -765,19 +809,28 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         }
         pending = [check_id for check_id in ids if check_id not in existing or existing[check_id].status == "released"]
         available = wallet_row.balance_kopeks - _held(db, user.id)
-        if len(pending) * price > available:
+        if len(pending) * effective_price > available:
             raise HTTPException(402, "Недостаточно средств для выбранных проверок")
         for check_id in pending:
             if check_id in existing:
                 existing[check_id].status = "reserved"
                 existing[check_id].result_status = None
-                existing[check_id].price_kopeks = price
+                existing[check_id].price_kopeks = effective_price
+                existing[check_id].analysis_json = None
+                existing[check_id].analysis_model = None
+                existing[check_id].analysis_usage_json = None
+                existing[check_id].analysis_attempts = 0
+                existing[check_id].arbitration_json = None
+                existing[check_id].arbitration_model = None
+                existing[check_id].arbitration_usage_json = None
+                existing[check_id].arbitration_attempts = 0
             else:
-                db.add(Check(user_id=user.id, client_check_id=check_id, price_kopeks=price))
+                db.add(Check(user_id=user.id, client_check_id=check_id, price_kopeks=effective_price))
         db.commit()
-        return {"price_kopeks": price, "checks": ids,
+        return {"price_kopeks": effective_price, "checks": ids,
                 "managed_detection": ai_client is not None,
                 "detection_model": ai_client.model if ai_client else None,
+                "arbiter_model": getattr(ai_client, "arbiter_model", ai_client.model) if ai_client else None,
                 **_wallet_payload(db, user.id)}
 
     @app.post("/api/v1/checks/{check_id}/analyze")
@@ -785,40 +838,72 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
                 db: Session = Depends(db_session)) -> dict:
         if not ai_client:
             raise HTTPException(503, "Серверный анализ пока не настроен")
-        if (len(json.dumps(body.content)) > 2_000_000
-                or body.content[0].get("type") != "text"
-                or not isinstance(body.content[0].get("text"), str)
-                or len(body.content[0]["text"]) > 12000
-                or any(part.get("type") != "image_url"
-                       or not isinstance(part.get("image_url"), dict)
-                       or not str(part["image_url"].get("url", "")).startswith("data:image/webp;base64,")
-                       for part in body.content[1:])):
-            raise HTTPException(422, "Неверные или слишком большие данные для анализа")
+        _validate_ai_content(body.content)
         check = db.execute(
             select(Check).where(Check.user_id == user.id, Check.client_check_id == check_id).with_for_update()
         ).scalar_one_or_none()
         if not check:
             raise HTTPException(404, "Проверка не зарезервирована")
         if check.analysis_json:
-            return {"raw": check.analysis_json, "model": ai_client.model}
+            return {"raw": check.analysis_json, "model": check.analysis_model or ai_client.model}
         if check.status != "reserved":
             raise HTTPException(409, "Проверка уже закрыта")
+        if check.analysis_attempts >= 2:
+            raise HTTPException(409, "Лимит попыток анализа исчерпан")
+        check.analysis_attempts += 1
         try:
-            raw = ai_client.analyze(body.system, body.content)
+            raw, model, usage = _ai_payload(ai_client.analyze(body.system, body.content), ai_client.model)
         except AIError as exc:
+            db.commit()
             raise HTTPException(502, str(exc)) from exc
         check.analysis_json = raw
+        check.analysis_model = model
+        check.analysis_usage_json = usage
         db.commit()
-        return {"raw": raw, "model": ai_client.model}
+        return {"raw": raw, "model": model}
+
+    @app.post("/api/v1/checks/{check_id}/arbitrate")
+    def arbitrate(check_id: str, body: AnalyzeIn, user: User = Depends(current_user),
+                  db: Session = Depends(db_session)) -> dict:
+        if not ai_client:
+            raise HTTPException(503, "Серверный арбитр пока не настроен")
+        _validate_ai_content(body.content)
+        check = db.execute(
+            select(Check).where(Check.user_id == user.id, Check.client_check_id == check_id).with_for_update()
+        ).scalar_one_or_none()
+        if not check:
+            raise HTTPException(404, "Проверка не зарезервирована")
+        if check.arbitration_json:
+            return {"raw": check.arbitration_json,
+                    "model": check.arbitration_model or getattr(ai_client, "arbiter_model", ai_client.model)}
+        if not check.analysis_json or not json.loads(check.analysis_json).get("found"):
+            raise HTTPException(409, "Арбитр доступен только после положительного первого анализа")
+        if check.status not in ("reserved", "settled"):
+            raise HTTPException(409, "Проверка закрыта без оплаты")
+        if check.arbitration_attempts >= 2:
+            raise HTTPException(409, "Лимит попыток арбитра исчерпан")
+        check.arbitration_attempts += 1
+        try:
+            fallback = getattr(ai_client, "arbiter_model", ai_client.model)
+            raw, model, usage = _ai_payload(ai_client.arbitrate(body.system, body.content), fallback)
+        except AIError as exc:
+            db.commit()
+            raise HTTPException(502, str(exc)) from exc
+        check.arbitration_json = raw
+        check.arbitration_model = model
+        check.arbitration_usage_json = usage
+        db.commit()
+        return {"raw": raw, "model": model}
 
     def settle_check(db: Session, wallet_row: Wallet, check: Check, result_status: str) -> None:
         check.status = "settled"
         check.result_status = result_status
-        wallet_row.balance_kopeks -= check.price_kopeks
-        db.add(LedgerEntry(
-            user_id=check.user_id, amount_kopeks=-check.price_kopeks,
-            kind="check", reference=f"check:{check.user_id}:{check.client_check_id}",
-        ))
+        if check.price_kopeks:
+            wallet_row.balance_kopeks -= check.price_kopeks
+            db.add(LedgerEntry(
+                user_id=check.user_id, amount_kopeks=-check.price_kopeks,
+                kind="check", reference=f"check:{check.user_id}:{check.client_check_id}",
+            ))
 
     @app.post("/api/v1/checks/{check_id}/complete")
     def complete(check_id: str, body: CompleteIn, user: User = Depends(current_user),

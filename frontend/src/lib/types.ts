@@ -217,17 +217,8 @@ export interface SpeedProfile {
 }
 
 export interface Settings {
-  openrouter_model: string
-  /** Модель, которая решает спорные строки вместо ручной проверки. */
-  openrouter_arbiter_model: string
-  llm_arbiter: "on" | "off"
-  llm_mode: "smart" | "always" | "never"
-  llm_confidence_threshold: string
   screenshot_retention_days: string
   speed_profile: string
-  openrouter_api_key_masked: string
-  openrouter_api_key_set: boolean
-  secrets_encrypted: boolean
   speed_profiles: Record<string, SpeedProfile>
 }
 

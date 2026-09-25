@@ -90,12 +90,13 @@ def test_dashboard_empty_before_first_scan():
 
 
 def test_settings_roundtrip():
-    r = client.put("/api/settings", json={"llm_mode": "always", "openrouter_model": "test/model"})
+    r = client.put("/api/settings", json={"speed_profile": "balanced"})
     assert r.status_code == 200
     body = r.json()
-    assert body["llm_mode"] == "always"
-    assert body["openrouter_model"] == "test/model"
-    assert body["openrouter_api_key_set"] is False
+    assert body["speed_profile"] == "balanced"
+    assert "openrouter_model" not in body
+    assert client.put("/api/settings", json={"openrouter_model": "test/model"}).status_code == 422
+    assert client.put("/api/settings", json={"openrouter_api_key": "test-key"}).status_code == 422
 
 
 def test_browser_status_reports_installed_flag():

@@ -18,7 +18,7 @@ import { Panel, PanelFoot, PanelHead, ServiceDot } from "@/components/bits"
 import { useResource } from "@/hooks/use-resource"
 import { api, errText } from "@/lib/api"
 import { fmtWhen, splitLines } from "@/lib/format"
-import type { BrowserStatus, Project, ServiceAuth, Settings } from "@/lib/types"
+import type { BrowserStatus, Project, ServiceAuth } from "@/lib/types"
 import { useApp } from "@/store/app-store"
 
 /* --- мелкие обёртки формы ---------------------------------------------- */
@@ -42,18 +42,6 @@ function Field({
       {children}
       {hint ? <p className="text-muted-foreground text-xs">{hint}</p> : null}
     </div>
-  )
-}
-
-function NativeSelect({ className, ...props }: React.ComponentProps<"select">) {
-  return (
-    <select
-      {...props}
-      className={cn(
-        "border-input bg-card focus-visible:border-ring focus-visible:ring-ring/50 h-8 w-full cursor-pointer rounded-lg border px-2 text-[13px] focus-visible:ring-3 focus-visible:outline-none",
-        className,
-      )}
-    />
   )
 }
 
@@ -100,10 +88,6 @@ const TONE: Record<string, { color: string; bg: string }> = {
 export function SettingsScreen() {
   const { project, services, applyProject, removeProject, reloadProjects } = useApp()
 
-  const { data: settings, reload: reloadSettings } = useResource<Settings>(
-    () => api.get<Settings>("/api/settings"),
-    [],
-  )
   const { data: browser, reload: reloadBrowser } = useResource<BrowserStatus>(
     () => api.get<BrowserStatus>("/api/browser/status"),
     [],
@@ -134,7 +118,13 @@ export function SettingsScreen() {
         services={services}
         onChanged={reloadBrowser}
       />
-      <LlmPanel settings={settings} onSaved={reloadSettings} />
+      <Panel>
+        <PanelHead title="Анализ упоминаний" hint="Модели и арбитр работают на сервере aiParser" />
+        <p className="text-muted-foreground p-4 text-sm">
+          Настраивать ключи и выбирать модели на этом компьютере не требуется.
+          Спорные результаты проверяет серверный арбитр в рамках стоимости проверки.
+        </p>
+      </Panel>
     </div>
   )
 }
@@ -478,153 +468,6 @@ function BrowserPanel({
           )
         })}
       </div>
-    </Panel>
-  )
-}
-
-/* --- OpenRouter --------------------------------------------------------- */
-
-function LlmPanel({ settings, onSaved }: { settings: Settings | null; onSaved: () => void }) {
-  const [form, setForm] = useState<{
-    key: string
-    model: string | null
-    arbiterModel: string | null
-    mode: string | null
-    threshold: string | null
-  }>({ key: "", model: null, arbiterModel: null, mode: null, threshold: null })
-  const [busy, setBusy] = useState(false)
-
-  const model = form.model ?? settings?.openrouter_model ?? ""
-  const arbiterModel =
-    form.arbiterModel ??
-    (settings?.llm_arbiter === "off" ? "" : (settings?.openrouter_arbiter_model ?? ""))
-  const mode = form.mode ?? settings?.llm_mode ?? "smart"
-  const threshold = form.threshold ?? settings?.llm_confidence_threshold ?? "0.6"
-
-  async function save() {
-    setBusy(true)
-    try {
-      // Пустое поле арбитра — это «выключить»: отдельный переключатель рядом
-      // с полем модели был бы двумя ручками для одного решения.
-      const body: Record<string, string> = {
-        openrouter_model: model.trim(),
-        llm_mode: mode,
-        llm_confidence_threshold: threshold,
-        llm_arbiter: arbiterModel.trim() ? "on" : "off",
-      }
-      if (arbiterModel.trim()) body.openrouter_arbiter_model = arbiterModel.trim()
-      if (form.key) body.openrouter_api_key = form.key
-      await api.put("/api/settings", body)
-      setForm({ key: "", model: null, arbiterModel: null, mode: null, threshold: null })
-      onSaved()
-      toast.success("Настройки сохранены")
-    } catch (e) {
-      toast.error(errText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Panel>
-      <PanelHead
-        title="OpenRouter"
-        hint="LLM-детекция упоминаний там, где правила не справились"
-      />
-      {settings ? (
-        <div className="grid gap-4 p-4 sm:grid-cols-2">
-          <Field
-            label={
-              <>
-                API-ключ
-                {settings.openrouter_api_key_set ? (
-                  <span className="text-muted-foreground ml-1.5 font-normal">
-                    сейчас: {settings.openrouter_api_key_masked}
-                  </span>
-                ) : null}
-              </>
-            }
-            htmlFor="f_orkey"
-            hint={
-              settings.secrets_encrypted
-                ? "Ключ хранится в зашифрованном виде."
-                : "Ключ хранится на этом компьютере в файле настроек."
-            }
-          >
-            <Input
-              id="f_orkey"
-              type="password"
-              autoComplete="off"
-              value={form.key}
-              placeholder={
-                settings.openrouter_api_key_set ? "оставьте пустым, чтобы не менять" : "sk-or-..."
-              }
-              onChange={(e) => setForm((f) => ({ ...f, key: e.target.value }))}
-            />
-          </Field>
-
-          <Field label="Модель" htmlFor="f_ormodel">
-            <Input
-              id="f_ormodel"
-              value={model}
-              onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
-            />
-          </Field>
-
-          <Field
-            label="Модель-арбитр"
-            htmlFor="f_orarb"
-            hint="Решает спорные строки вместо ручной проверки. Пусто — арбитр выключен, такие строки останутся вам."
-          >
-            <Input
-              id="f_orarb"
-              value={arbiterModel}
-              placeholder="например, google/gemini-3.8-flash"
-              onChange={(e) => setForm((f) => ({ ...f, arbiterModel: e.target.value }))}
-            />
-          </Field>
-
-          <Field label="Когда вызывать LLM" htmlFor="f_llmmode">
-            <NativeSelect
-              id="f_llmmode"
-              value={mode}
-              onChange={(e) => setForm((f) => ({ ...f, mode: e.target.value }))}
-            >
-              <option value="smart">Только когда правила не нашли (рекомендуется)</option>
-              <option value="always">Всегда</option>
-              <option value="never">Никогда</option>
-            </NativeSelect>
-          </Field>
-
-          <Field
-            label="Порог уверенности"
-            htmlFor="f_llmthr"
-            hint="Ниже порога результат помечается как «требует проверки»."
-          >
-            <Input
-              id="f_llmthr"
-              type="number"
-              min={0}
-              max={1}
-              step={0.05}
-              value={threshold}
-              onChange={(e) => setForm((f) => ({ ...f, threshold: e.target.value }))}
-            />
-          </Field>
-        </div>
-      ) : (
-        <div className="grid gap-4 p-4 sm:grid-cols-2">
-          {Array.from({ length: 4 }, (_, i) => (
-            <Skeleton key={i} className="h-14 w-full" />
-          ))}
-        </div>
-      )}
-      <PanelFoot className="justify-end">
-        <Button size="sm" onClick={save} disabled={busy || !settings}>
-          <Save />
-          Сохранить
-        </Button>
-      </PanelFoot>
     </Panel>
   )
 }

@@ -33,6 +33,7 @@ const checks = (n: number) => plural(n, "проверка", "проверки", 
 type AccountStatus = {
   enabled: boolean
   connected: boolean
+  is_admin?: boolean
   email?: string
   cabinet_url?: string
   wallet?: { balance_kopeks: number; available_kopeks: number; reserved_kopeks: number }
@@ -51,7 +52,7 @@ function AccountPanel({ account, error, remaining, reload }: {
   const [useCode, setUseCode] = useState(false)
   const [busy, setBusy] = useState(false)
   if (!account?.enabled && !error) return null
-  const price = account?.pricing?.check_price_kopeks ?? 150
+  const price = account?.pricing?.check_price_kopeks ?? 200
   const rub = (n: number) => new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB" }).format(n / 100)
 
   async function login(event: FormEvent) {
@@ -90,12 +91,12 @@ function AccountPanel({ account, error, remaining, reload }: {
   }
 
   return <Panel>
-    <PanelHead title="Оплата проверок" hint="Сумма резервируется перед запуском. Капчи и сбои до получения ответа не оплачиваются." />
+    <PanelHead title={account?.is_admin ? "Проверки администратора" : "Оплата проверок"} hint={account?.is_admin ? "Без ограничений по количеству и без списаний с баланса" : "Сумма резервируется перед запуском. Капчи и сбои до получения ответа не оплачиваются."} />
     <div className="flex flex-wrap items-center gap-4 px-4 pb-4">
       <Wallet size={22} className="text-primary" aria-hidden="true" />
       {account?.connected ? <>
-        <div className="min-w-0 flex-1 text-sm"><strong>{account.email}</strong><p className="text-muted-foreground mt-1">Доступно {rub(account.wallet?.available_kopeks ?? 0)} · {rub(price)} за проверку</p></div>
-        <div className="text-sm font-semibold">Для запуска: до {rub(remaining * price)}</div>
+        <div className="min-w-0 flex-1 text-sm"><strong>{account.email}</strong><p className="text-muted-foreground mt-1">{account.is_admin ? "Администратор · проверки бесплатно" : `Доступно ${rub(account.wallet?.available_kopeks ?? 0)} · ${rub(price)} за проверку`}</p></div>
+        <div className="text-sm font-semibold">Для запуска: {account.is_admin ? "0 ₽" : `до ${rub(remaining * price)}`}</div>
         <Button size="sm" variant="outline" onClick={logout}>Выйти</Button>
       </> : <div className="min-w-64 flex-1">
         <div className="mb-3 flex gap-2">

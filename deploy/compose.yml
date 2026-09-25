@@ -29,6 +29,8 @@ services:
       COINSO_PROJECT_ID: ${COINSO_PROJECT_ID:-}
       COINSO_SECRET_KEY: ${COINSO_SECRET_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_PRIMARY_MODEL: ${OPENROUTER_PRIMARY_MODEL:-google/gemini-3.1-flash-lite}
+      OPENROUTER_ARBITER_MODEL: ${OPENROUTER_ARBITER_MODEL:-google/gemini-3.8-flash}
       YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
       YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
       SMTP_HOST: ${SMTP_HOST:-}
@@ -39,11 +41,14 @@ services:
       SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
       COINSO_API_BASE_URL: https://coinso.io/api
       COINSO_ALLOW_TEST_PAYMENTS: "false"
-      CHECK_PRICE_KOPEKS: ${CHECK_PRICE_KOPEKS:-150}
+      CHECK_PRICE_KOPEKS: ${CHECK_PRICE_KOPEKS:-200}
       MIN_TOPUP_KOPEKS: ${MIN_TOPUP_KOPEKS:-30000}
       S3_SCREENSHOTS_BUCKET: ${S3_SCREENSHOTS_BUCKET:-}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      AGENT_DOWNLOAD_FILE: /srv/downloads/AI-Mentions-Windows-latest.zip
+    volumes:
+      - ./downloads:/srv/downloads:ro
 
   backup-upload:
     profiles: ["ops"]

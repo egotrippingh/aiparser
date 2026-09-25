@@ -22,6 +22,7 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     email: Mapped[str] = mapped_column(String(190), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(250))
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     wallet: Mapped[Wallet] = relationship(back_populates="user", uselist=False)
 
@@ -131,6 +132,13 @@ class Check(Base):
     status: Mapped[str] = mapped_column(String(16), default="reserved")
     result_status: Mapped[str | None] = mapped_column(String(30))
     analysis_json: Mapped[str | None] = mapped_column(Text)
+    analysis_model: Mapped[str | None] = mapped_column(String(100))
+    analysis_usage_json: Mapped[str | None] = mapped_column(Text)
+    analysis_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    arbitration_json: Mapped[str | None] = mapped_column(Text)
+    arbitration_model: Mapped[str | None] = mapped_column(String(100))
+    arbitration_usage_json: Mapped[str | None] = mapped_column(Text)
+    arbitration_attempts: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

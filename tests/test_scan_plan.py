@@ -122,7 +122,8 @@ def test_new_payer_never_continues_previous_accounts_scan():
     assert changed["done_pairs"] == set()
 
 
-def test_start_with_nothing_left_creates_no_scan():
+def test_start_with_nothing_left_creates_no_scan(monkeypatch):
+    monkeypatch.setattr(orchestrator.billing, "enabled", lambda: False)
     pid, q = _project()
     _scan(pid, ["perplexity"], {"perplexity": q}, status="done")
     before = len(repo.list_scans(pid))

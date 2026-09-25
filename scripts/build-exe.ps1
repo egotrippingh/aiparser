@@ -89,9 +89,14 @@ try {
     Move-Item -LiteralPath $bundle -Destination $releaseDir
     $archive = Join-Path $distRoot ($releaseName + '.zip')
     Compress-Archive -Path (Join-Path $releaseDir '*') -DestinationPath $archive
+    $latest = Join-Path $distRoot 'AI-Mentions-Windows-latest.zip'
+    $latestTemp = Join-Path $distRoot ('AI-Mentions-Windows-latest-' + [guid]::NewGuid().ToString('N') + '.tmp')
+    Copy-Item -LiteralPath $archive -Destination $latestTemp
+    Move-Item -LiteralPath $latestTemp -Destination $latest -Force
 
     Write-Output "EXE: $(Join-Path $releaseDir 'AI-Mentions.exe')"
     Write-Output "ZIP: $archive"
+    Write-Output "LATEST: $latest"
 }
 finally {
     if ($stageFull.StartsWith($buildFull, [System.StringComparison]::OrdinalIgnoreCase) -and

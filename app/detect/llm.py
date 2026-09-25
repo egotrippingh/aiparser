@@ -13,21 +13,17 @@ import json
 import logging
 from dataclasses import dataclass, field
 
-import httpx
-
-from app import billing, imaging, net, secrets_store
-from app.db import repo
+from app import billing, imaging
 
 log = logging.getLogger("aiparser.llm")
 
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "google/gemini-3.8-flash"
+DEFAULT_MODEL = "google/gemini-3.1-flash-lite"
 
 # Значения по умолчанию для арбитра держим здесь, а не в app/api/settings.py:
 # их читают и сканер, и перерешение сохранённых строк, а импорт слоя API из
 # слоя детекции замкнул бы кольцо (API → сканер → детекция → API).
-ARBITER_MODEL_DEFAULT = DEFAULT_MODEL
-ARBITER_DEFAULT = "off"         # отдельный вызов включается вручную
+ARBITER_MODEL_DEFAULT = "google/gemini-3.8-flash"
+ARBITER_DEFAULT = "on"
 
 _SYSTEM = """Ты проверяешь, упоминается ли конкретный бренд в ответе ИИ-поисковика.
 Упоминание засчитывается, даже если бренд не назван прямо: например, "обратитесь к
@@ -103,8 +99,8 @@ async def evaluate(
     timeout: float = 45.0,
     query: str | None = None,
 ) -> LLMVerdict:
-    if not api_key and not managed_check_id:
-        return LLMVerdict(found=False, error="Ключ OpenRouter не задан")
+    if not managed_check_id:
+        return LLMVerdict(found=False, error="Серверный анализ недоступен")
 
     content: list[dict] = [{"type": "text", "text": _build_prompt(brand_name, aliases, answer_text, sources, query)}]
     content += _image_parts(screenshot_bytes)
@@ -142,6 +138,7 @@ async def arbitrate(
     first_quote: str = "",
     timeout: float = 90.0,
     query: str | None = None,
+    managed_check_id: str | None = None,
 ) -> LLMVerdict:
     """Окончательное решение по спорной строке — вместо ручной проверки.
 
@@ -150,8 +147,8 @@ async def arbitrate(
     сильная модель, ей показывают текст, источники, скриншот и вывод первой
     модели — и требуют однозначного ответа.
     """
-    if not api_key:
-        return LLMVerdict(found=False, error="Ключ OpenRouter не задан")
+    if not managed_check_id:
+        return LLMVerdict(found=False, error="Серверный арбитр недоступен")
 
     said = first_quote or (first_verdict.quote if first_verdict else "")
     why = first_verdict.reasoning if first_verdict else ""
@@ -167,89 +164,28 @@ async def arbitrate(
     content: list[dict] = [{"type": "text", "text": text}]
     content += _image_parts(screenshot_bytes)
 
-    return await _ask_model(_ARBITER_SYSTEM, content, api_key=api_key, model=model, timeout=timeout)
+    return await _ask_model(_ARBITER_SYSTEM, content, api_key=api_key, model=model,
+                            timeout=timeout, managed_check_id=managed_check_id,
+                            managed_arbiter=True)
 
 
 async def _ask_model(system: str, content: list[dict], *, api_key: str, model: str, timeout: float,
-                     retry: bool = True, managed_check_id: str | None = None) -> LLMVerdict:
-    if managed_check_id:
-        try:
-            result = await billing.analyze(managed_check_id, system, content)
-            return parse_verdict(result["raw"], result["model"]) or LLMVerdict(
-                found=False, model=model, error="Не удалось разобрать ответ серверной модели")
-        except (billing.BillingError, KeyError) as exc:
-            if retry:
-                await asyncio.sleep(2)
-                return await _ask_model(system, content, api_key=api_key, model=model,
-                                        timeout=timeout, retry=False, managed_check_id=managed_check_id)
-            return LLMVerdict(found=False, model=model, error=str(exc))
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": content},
-        ],
-        "temperature": 0,
-        # Лимит считается ВМЕСТЕ с внутренним рассуждением модели, а сильные
-        # модели тратят на него почти всё: замер 14.09.2026 на
-        # gemini-3.8-flash — 670 из 693 токенов ушли в reasoning, и JSON
-        # обрывался на полуслове (finish_reason='length'). Сам ответ короткий,
-        # так что лимит ставим с большим запасом на рассуждение.
-        "max_tokens": 3000,
-        "response_format": {"type": "json_object"},
-    }
-
+                     retry: bool = True, managed_check_id: str | None = None,
+                     managed_arbiter: bool = False) -> LLMVerdict:
+    if not managed_check_id:
+        return LLMVerdict(found=False, model=model, error="Серверный анализ недоступен")
     try:
-        # Через net.proxied_client, а не голый httpx: системный прокси Windows
-        # приезжает со схемой https:// для HTTP-прокси, и клиент по умолчанию
-        # падает мгновенным ConnectError. Молча, под видом «OpenRouter
-        # недоступен» — то есть LLM-детекция просто не работала бы.
-        async with net.proxied_client(timeout=timeout) as client:
-            resp = await client.post(
-                OPENROUTER_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "HTTP-Referer": "https://local.aiparser",
-                    "X-Title": "AI Mentions Tracker",
-                },
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-    except httpx.HTTPStatusError as exc:
-        log.warning("OpenRouter HTTP %s: %s", exc.response.status_code, exc.response.text[:300])
-        return LLMVerdict(found=False, model=model, error=f"OpenRouter вернул {exc.response.status_code}")
-    except Exception as exc:
-        # Имя класса обязательно: у ConnectError текст бывает пустым, и в логе
-        # 09.09.2026 осталось бесполезное «OpenRouter недоступен: » — без
-        # единой зацепки, что именно сломалось.
-        reason = f"{type(exc).__name__}: {exc}".rstrip(": ")
+        result = (await billing.arbitrate(managed_check_id, system, content)
+                  if managed_arbiter else await billing.analyze(managed_check_id, system, content))
+        return parse_verdict(result["raw"], result["model"]) or LLMVerdict(
+            found=False, model=model, error="Не удалось разобрать ответ серверной модели")
+    except (billing.BillingError, KeyError) as exc:
         if retry:
-            # Сеть через VPN отваливается разово: в прогоне 14.09.2026 так
-            # потерялись 4 проверки из 50. Один повтор дешевле потери.
-            log.info("OpenRouter недоступен (%s) — повторяю", reason)
             await asyncio.sleep(2)
             return await _ask_model(system, content, api_key=api_key, model=model,
-                                    timeout=timeout, retry=False)
-        log.warning("OpenRouter недоступен: %s", reason)
-        return LLMVerdict(found=False, model=model, error=reason)
-
-    try:
-        raw = data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError) as exc:
-        return LLMVerdict(found=False, model=model, error=f"Не удалось разобрать ответ модели: {exc}")
-
-    verdict = parse_verdict(raw, model)
-    if verdict is None:
-        if retry:
-            # Оборванный или битый JSON — разовая осечка провайдера: спрашиваем
-            # ещё раз, вместо того чтобы терять проверку целиком.
-            log.info("Ответ модели не разобрался — спрашиваю ещё раз: %r", (raw or "")[:120])
-            return await _ask_model(system, content, api_key=api_key, model=model,
-                                    timeout=timeout, retry=False)
-        return LLMVerdict(found=False, model=model,
-                          error=f"Не удалось разобрать ответ модели: {(raw or '')[:120]!r}")
-    return verdict
+                                    timeout=timeout, retry=False, managed_check_id=managed_check_id,
+                                    managed_arbiter=managed_arbiter)
+        return LLMVerdict(found=False, model=model, error=str(exc))
 
 
 def parse_verdict(raw: str | None, model: str) -> LLMVerdict | None:
@@ -281,10 +217,3 @@ def parse_verdict(raw: str | None, model: str) -> LLMVerdict | None:
         reasoning=str(parsed.get("reasoning") or ""),
         model=model,
     )
-
-
-def load_credentials() -> tuple[str, str]:
-    """Ключ (расшифрованный) и модель из настроек — то, что вводится в UI в две строки."""
-    key = secrets_store.unprotect(repo.get_setting("openrouter_api_key"))
-    model = repo.get_setting("openrouter_model", DEFAULT_MODEL) or DEFAULT_MODEL
-    return key, model

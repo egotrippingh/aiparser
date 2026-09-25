@@ -43,18 +43,17 @@ async def fake_arbitrate(**kw) -> LLMVerdict:
 
 
 recheck.llm_mod.arbitrate = fake_arbitrate
-recheck.llm_mod.load_credentials = lambda: ("test-key", "test/first")
+recheck.billing.enabled = lambda: True
 
 
 def _project_with_review(answers: list[tuple[str, bool]]) -> tuple[int, list[int]]:
     """Проект, где каждый ответ уже записан как спорный (found + needs_review)."""
     global _n
     _n += 1
-    repo.set_setting("llm_arbiter", "on")
     pid = repo.create_project(f"Арбитр {_n}", "Геософт", brand_domains=["geosoft-dent.ru"])
     repo.add_queries(pid, [f"запрос {i}" for i in range(len(answers))])
     qs = repo.list_queries(pid)
-    scan_id = repo.create_scan(pid, ["perplexity"], {})
+    scan_id = repo.create_scan(pid, ["perplexity"], {"billing_run_id": f"test-run-{_n}"})
     ids = []
     for q, (text, _) in zip(qs, answers):
         repo.save_result(scan_id, q["id"], "perplexity", "found", mention_types=["indirect"],

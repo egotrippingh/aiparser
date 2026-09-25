@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   CircleHelp,
+  Download,
   ExternalLink,
   Link2,
   ListFilter,
@@ -18,7 +19,7 @@ import Scanner from "./components/reactbits/Scanner"
 import SpotlightCard from "./components/reactbits/SpotlightCard"
 import { ProcessFlow } from "./components/process-flow"
 
-const APP_URL = import.meta.env.VITE_APP_URL || "/app/"
+const APP_URL = import.meta.env.VITE_APP_URL || "/cabinet/"
 
 function Brand() {
   return (
@@ -123,6 +124,14 @@ function ReportPreview() {
 }
 
 export function LandingPage() {
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
+  useEffect(() => {
+    fetch("/api/v1/agent-download")
+      .then((response) => response.ok ? response.json() : null)
+      .then((result: { available?: boolean; url?: string } | null) => {
+        if (result?.available && result.url) setDownloadUrl(result.url)
+      }).catch(() => undefined)
+  }, [])
   return (
     <div className="landing" id="top">
       <header className="site-header">
@@ -133,14 +142,15 @@ export function LandingPage() {
             <a href="#signals">Что видно в отчёте</a>
             <a href="#faq">Вопросы</a>
           </nav>
-          <a className="header-cta" href={APP_URL}>Открыть парсер <ArrowUpRight size={16} aria-hidden="true" /></a>
+          <a className="header-cta" href={APP_URL}>Личный кабинет <ArrowUpRight size={16} aria-hidden="true" /></a>
           <details className="mobile-nav">
             <summary>Меню <ChevronDown size={16} aria-hidden="true" /></summary>
             <nav aria-label="Мобильная навигация">
               <a href="#how">Как работает</a>
               <a href="#signals">Что видно в отчёте</a>
               <a href="#faq">Вопросы</a>
-              <a href={APP_URL}>Открыть парсер</a>
+              <a href={APP_URL}>Личный кабинет</a>
+              {downloadUrl && <a href={downloadUrl}>Скачать агент</a>}
             </nav>
           </details>
         </div>
@@ -156,7 +166,7 @@ export function LandingPage() {
               <p>Проверяйте свои запросы в четырёх ИИ-системах. Сохраняйте ответы, смотрите источник каждого упоминания и сравнивайте видимость по датам.</p>
               <div className="hero-actions">
                 <a className="button button-primary" href="#how">Как это работает <ArrowRight size={18} aria-hidden="true" /></a>
-                <a className="text-link" href={APP_URL}>Открыть парсер <ArrowUpRight size={17} aria-hidden="true" /></a>
+                {downloadUrl ? <a className="text-link" href={downloadUrl}>Скачать агент для Windows <Download size={17} aria-hidden="true" /></a> : <a className="text-link" href={APP_URL}>Личный кабинет <ArrowUpRight size={17} aria-hidden="true" /></a>}
               </div>
               <div className="hero-services"><span>ПРОВЕРЯЕМ</span><div>{services.map((name) => <span key={name}>{name}</span>)}</div></div>
             </div>
@@ -205,10 +215,10 @@ export function LandingPage() {
           <details><summary><span>Какие ИИ-системы доступны?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Сейчас работают ChatGPT, Perplexity, Алиса AI и Google AI Overview.</p></details>
           <details><summary><span>Что считается упоминанием?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Отчёт различает бренд в тексте ответа, ссылку на ваш сайт, карточку и упоминания в сторонних источниках. На дашборде можно выбрать, какие типы учитывать.</p></details>
           <details><summary><span>Нужен ли вход в ИИ-сервисы?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Некоторые сервисы могут запросить вход или показать капчу. Парсер работает через браузерные сессии на вашем компьютере.</p></details>
-          <details><summary><span>Где хранятся результаты?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Проекты, результаты и профили браузера хранятся на вашем компьютере. Снимки остаются локально; для оплаченных проверок после подключения облачного хранилища сохраняется и приватная копия, доступная в кабинете. Для распознавания упоминаний текст ответа и снимок передаются в OpenRouter напрямую или через сервер сервиса.</p></details>
+          <details><summary><span>Где хранятся результаты?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Проекты, результаты и профили браузера хранятся на вашем компьютере. Снимки остаются локально; для проверок сохраняется и приватная копия в облачном хранилище, доступная в кабинете в течение 90 дней. Для распознавания упоминаний текст ответа и снимок передаются через сервер сервиса.</p></details>
         </div></div></section>
 
-        <section className="bottom-cta" aria-labelledby="cta-title"><div className="site-container cta-inner"><div><span className="section-index">НАЧНИТЕ С ВАШИХ ЗАПРОСОВ</span><h2 id="cta-title">Проверьте, что ИИ уже говорит о вашем бренде.</h2></div><a className="button button-primary" href={APP_URL}>Открыть парсер <ArrowUpRight size={18} aria-hidden="true" /></a><ArrowDownRight className="cta-decoration" size={210} strokeWidth={.5} aria-hidden="true" /></div></section>
+        <section className="bottom-cta" aria-labelledby="cta-title"><div className="site-container cta-inner"><div><span className="section-index">НАЧНИТЕ С ВАШИХ ЗАПРОСОВ</span><h2 id="cta-title">Проверьте, что ИИ уже говорит о вашем бренде.</h2></div><a className="button button-primary" href={downloadUrl || APP_URL}>{downloadUrl ? "Скачать агент" : "Личный кабинет"} {downloadUrl ? <Download size={18} aria-hidden="true" /> : <ArrowUpRight size={18} aria-hidden="true" />}</a><ArrowDownRight className="cta-decoration" size={210} strokeWidth={.5} aria-hidden="true" /></div></section>
       </main>
 
       <footer className="site-footer"><div className="site-container footer-inner"><Brand /><span>Мониторинг упоминаний бренда в ответах ИИ.</span><a href="https://github.com/egotrippingh/aiparser" target="_blank" rel="noreferrer">GitHub <ExternalLink size={14} aria-hidden="true" /></a><a className="back-to-top" href="#top">Наверх ↑</a></div></footer>

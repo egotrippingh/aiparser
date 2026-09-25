@@ -222,12 +222,12 @@ def _settings_snapshot() -> dict:
     name = s.get("speed_profile", humanize.DEFAULT_PROFILE)
     prof = humanize.profile(name)
     return {
-        "llm_mode": s.get("llm_mode", "smart"),
-        "llm_confidence_threshold": float(s.get("llm_confidence_threshold", 0.6)),
+        "llm_mode": "smart",
+        "llm_confidence_threshold": 0.6,
         # Спорные строки решает вторая модель прямо в скане — иначе они
         # копились бы непроверенными до тех пор, пока до них дойдут руки.
-        "arbiter": (s.get("llm_arbiter") or llm_mod.ARBITER_DEFAULT) != "off",
-        "arbiter_model": s.get("openrouter_arbiter_model") or llm_mod.ARBITER_MODEL_DEFAULT,
+        "arbiter": True,
+        "arbiter_model": llm_mod.ARBITER_MODEL_DEFAULT,
         "speed_profile": name,
         "delay_min_sec": float(prof["delay_min_sec"]),
         "delay_max_sec": float(prof["delay_max_sec"]),
@@ -315,6 +315,7 @@ async def start_scan(project_id: int, service_ids: list[str], *, resume: bool = 
         snapshot["billing_reserved_ids"] = list(reserved.values())
         snapshot["managed_llm"] = bool(reservation.get("managed_detection"))
         snapshot["managed_model"] = reservation.get("detection_model") or llm_mod.DEFAULT_MODEL
+        snapshot["arbiter_model"] = reservation.get("arbiter_model") or llm_mod.ARBITER_MODEL_DEFAULT
     if plan["continue_scan_id"]:
         scan_id = plan["continue_scan_id"]
         if reserved:
@@ -412,11 +413,9 @@ async def _run_scan(
     settings: dict,
     ctl: ScanController,
 ) -> None:
-    api_key, llm_model = llm_mod.load_credentials()
-    if settings.get("managed_llm"):
-        api_key = ""
-        llm_model = settings["managed_model"]
-    llm_mode = settings["llm_mode"] if api_key or settings.get("managed_llm") else "never"
+    api_key = ""
+    llm_model = settings.get("managed_model", llm_mod.DEFAULT_MODEL)
+    llm_mode = settings["llm_mode"] if settings.get("managed_llm") else "never"
     speed = settings["typing_speed"]
 
     parallel = bool(project.get("parallel_scan"))
@@ -676,6 +675,7 @@ async def _run_one(
         )
 
         llm_verdict = None
+        llm_failed = False
         if should_call_llm(rule_verdict, llm_mode):
             managed_check_id = (billing.check_id(ctl.billing_run_id, query["id"], service_id)
                                 if settings.get("managed_llm") else None)
@@ -691,6 +691,7 @@ async def _run_one(
                 managed_check_id=managed_check_id,
             )
             if llm_verdict.error:
+                llm_failed = True
                 # Вызов не состоялся (сеть, прокси, исчерпанный ключ) — это
                 # отсутствие проверки, а не вердикт «не найдено». До 10.09.2026
                 # такой результат всё равно уходил в merge и получал пометку
@@ -718,9 +719,13 @@ async def _run_one(
             if hit.found and hit.url:
                 result = with_deep(result, hit.url, hit.quote)
 
+        if llm_failed and result.status == "not_found":
+            result.status = "error"
+
         # Спорная строка (правила молчат, а модель нашла) — второй, более
         # сильный арбитр решает окончательно, вместо ручной проверки.
-        if result.needs_review and settings.get("arbiter") and api_key:
+        if result.needs_review and settings.get("arbiter") and settings.get("managed_llm"):
+            arbiter_check_id = billing.check_id(ctl.billing_run_id, query["id"], service_id)
             verdict = await llm_mod.arbitrate(
                 brand_name=project["brand_name"],
                 aliases=project["brand_aliases"],
@@ -733,6 +738,7 @@ async def _run_one(
                 first_verdict=llm_verdict,
                 first_quote=result.evidence_quote or "",
                 query=query["text"],
+                managed_check_id=arbiter_check_id,
             )
             if verdict.error:
                 # Арбитр не ответил — строка остаётся на ручную проверку, как

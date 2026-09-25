@@ -532,7 +532,7 @@ def results_for_review(project_id: int) -> list[dict]:
     return _rows(
         """SELECT r.id, r.query_id, r.service, r.status, r.confidence, r.evidence_quote,
                   r.answer_text, r.sources_json, r.screenshot_path, r.detected_by,
-                  q.text AS query_text, s.scan_date
+                  q.text AS query_text, s.scan_date, s.settings_snapshot_json
              FROM results r
              JOIN scans s ON s.id = r.scan_id
              JOIN queries q ON q.id = r.query_id

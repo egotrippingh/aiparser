@@ -90,6 +90,7 @@ async def status() -> dict:
     wallet = await _request("GET", "/wallet")
     pricing = await _request("GET", "/pricing", auth=False)
     return {"enabled": True, "connected": True, "user_id": user["id"], "email": user["email"],
+            "is_admin": user.get("is_admin", False),
             "wallet": wallet, "pricing": pricing,
             "cabinet_url": f"{config.ACCOUNT_URL}/cabinet/"}
 
@@ -128,7 +129,12 @@ async def reserve(check_ids: list[str]) -> dict:
 
 async def analyze(check_id_value: str, system: str, content: list[dict]) -> dict:
     return await _request("POST", f"/checks/{check_id_value}/analyze",
-                          body={"system": system, "content": content}, timeout=75)
+                          body={"system": system, "content": content}, timeout=100)
+
+
+async def arbitrate(check_id_value: str, system: str, content: list[dict]) -> dict:
+    return await _request("POST", f"/checks/{check_id_value}/arbitrate",
+                          body={"system": system, "content": content}, timeout=100)
 
 
 async def complete(check_id_value: str, status: str) -> dict:

@@ -1,26 +1,14 @@
 from __future__ import annotations
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
-from app import secrets_store
 from app.db import repo
-from app.detect import llm
 from app.scanner import humanize
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-KEY_OPENROUTER = "openrouter_api_key"
-
 DEFAULTS = {
-    "openrouter_model": llm.DEFAULT_MODEL,
-    "llm_mode": "smart",            # always | smart | never
-    "llm_confidence_threshold": "0.6",
-    # Спорные строки (правила молчат, а модель нашла) решает вторая, более
-    # сильная модель — вместо ручной проверки человеком. Таких строк мало:
-    # 94 из 2185 на 14.09.2026, поэтому дорогая модель здесь не разорительна.
-    "llm_arbiter": llm.ARBITER_DEFAULT,                    # on | off
-    "openrouter_arbiter_model": llm.ARBITER_MODEL_DEFAULT,
     "screenshot_retention_days": "90",
     # Скорость задаётся одним профилем, а не тремя отдельными полями пауз:
     # два источника правды неминуемо разъезжаются. Конкретные значения
@@ -30,12 +18,8 @@ DEFAULTS = {
 
 
 class SettingsIn(BaseModel):
-    openrouter_api_key: str | None = None    # пустая строка — стереть ключ
-    openrouter_model: str | None = None
-    llm_arbiter: str | None = None
-    openrouter_arbiter_model: str | None = None
-    llm_mode: str | None = None
-    llm_confidence_threshold: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
     screenshot_retention_days: str | None = None
     speed_profile: str | None = None
 
@@ -43,11 +27,7 @@ class SettingsIn(BaseModel):
 @router.get("")
 def get_settings() -> dict:
     stored = repo.all_settings()
-    out = {**DEFAULTS, **stored}
-    key = secrets_store.unprotect(repo.get_setting(KEY_OPENROUTER))
-    out["openrouter_api_key_masked"] = secrets_store.mask(key)
-    out["openrouter_api_key_set"] = bool(key)
-    out["secrets_encrypted"] = secrets_store.is_encrypted()
+    out = {key: stored.get(key, value) for key, value in DEFAULTS.items()}
 
     # Отдаём и сам справочник профилей: интерфейс показывает рядом с выбором
     # реальные секунды, чтобы решение «ускориться» принималось осознанно, а
@@ -59,10 +39,6 @@ def get_settings() -> dict:
 @router.put("")
 def put_settings(body: SettingsIn) -> dict:
     data = body.model_dump(exclude_none=True)
-
-    if "openrouter_api_key" in data:
-        raw = data.pop("openrouter_api_key").strip()
-        repo.set_setting(KEY_OPENROUTER, secrets_store.protect(raw) if raw else None, is_secret=True)
 
     if "speed_profile" in data and data["speed_profile"] not in humanize.PROFILES:
         data["speed_profile"] = humanize.DEFAULT_PROFILE
