@@ -34,7 +34,9 @@ function Brand() {
 }
 
 function Cabinet() {
-  const [token, setToken] = useState(() => location.hash.includes("auth_ticket=") ? "" : sessionStorage.getItem(TOKEN_KEY) || "")
+  const [token, setToken] = useState(() =>
+    location.hash.includes("auth_ticket=") || location.hash.includes("reset_token=")
+      ? "" : sessionStorage.getItem(TOKEN_KEY) || "")
   const [user, setUser] = useState<User | null>(null)
   const [wallet, setWallet] = useState<Wallet | null>(null)
   const [payments, setPayments] = useState<Payment[]>([])
@@ -43,7 +45,9 @@ function Cabinet() {
   const [openedScreenshot, setOpenedScreenshot] = useState<{ id: string; url: string } | null>(null)
   const [price, setPrice] = useState(150)
   const [minimum, setMinimum] = useState(30000)
-  const [authMode, setAuthMode] = useState<"login" | "register">("login")
+  const [resetToken, setResetToken] = useState(() => new URLSearchParams(location.hash.slice(1)).get("reset_token") || "")
+  const [authMode, setAuthMode] = useState<"login" | "register" | "forgot" | "reset">(() =>
+    new URLSearchParams(location.hash.slice(1)).has("reset_token") ? "reset" : "login")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [amount, setAmount] = useState("300")
@@ -51,6 +55,7 @@ function Cabinet() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
   const [yandexEnabled, setYandexEnabled] = useState(false)
+  const [resetEnabled, setResetEnabled] = useState(false)
   const [deviceCode, setDeviceCode] = useState("")
 
   async function refresh(activeToken: string) {
@@ -71,7 +76,12 @@ function Cabinet() {
   }
 
   useEffect(() => {
-    request<{ yandex: boolean }>("/auth/providers").then((p) => setYandexEnabled(p.yandex)).catch(() => null)
+    request<{ yandex: boolean; password_reset: boolean }>("/auth/providers")
+      .then((p) => { setYandexEnabled(p.yandex); setResetEnabled(p.password_reset) }).catch(() => null)
+    if (new URLSearchParams(location.hash.slice(1)).has("reset_token")) {
+      sessionStorage.removeItem(TOKEN_KEY)
+      history.replaceState(null, "", location.pathname + location.search)
+    }
     const ticket = new URLSearchParams(location.hash.slice(1)).get("auth_ticket")
     if (ticket) {
       history.replaceState(null, "", location.pathname + location.search)
@@ -126,6 +136,19 @@ function Cabinet() {
     setBusy(true)
     setMessage("")
     try {
+      if (authMode === "forgot") {
+        await request("/auth/password/request", undefined, { email })
+        setMessage("Если такой аккаунт есть, мы отправили ссылку для смены пароля на почту.")
+        return
+      }
+      if (authMode === "reset") {
+        await request("/auth/password/confirm", undefined, { token: resetToken, password })
+        setResetToken("")
+        setPassword("")
+        setAuthMode("login")
+        setMessage("Пароль изменён. Войдите с новым паролем.")
+        return
+      }
       const result = await request<{ token: string; user: User }>(`/auth/${authMode}`, undefined, { email, password })
       sessionStorage.setItem(TOKEN_KEY, result.token)
       setToken(result.token)
@@ -214,11 +237,15 @@ function Cabinet() {
             <span className="cab-yandex-mark" aria-hidden="true">Я</span> Продолжить через Яндекс
           </button>
           <div className="cab-auth-divider"><span>или по email</span></div>
-          <div className="cab-tabs"><button type="button" className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>Войти</button><button type="button" className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>Создать аккаунт</button></div>
-          <label>Email<input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-          <label>Пароль<input type="password" minLength={12} autoComplete={authMode === "login" ? "current-password" : "new-password"} required value={password} onChange={(e) => setPassword(e.target.value)} /></label>
-          {authMode === "register" && <small>Не менее 12 символов.</small>}
-          <button className="cab-primary" disabled={busy}>{busy ? "Подождите…" : authMode === "login" ? "Войти" : "Зарегистрироваться"}</button>
+          {authMode === "forgot" || authMode === "reset"
+            ? <div className="cab-tabs"><button type="button" onClick={() => { setAuthMode("login"); setResetToken("") }}>← Вернуться ко входу</button></div>
+            : <div className="cab-tabs"><button type="button" className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>Войти</button><button type="button" className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>Создать аккаунт</button></div>}
+          {authMode === "reset" ? <p>Придумайте новый пароль для аккаунта.</p>
+            : <label>Email<input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>}
+          {authMode !== "forgot" && <label>{authMode === "reset" ? "Новый пароль" : "Пароль"}<input type="password" minLength={12} autoComplete={authMode === "login" ? "current-password" : "new-password"} required value={password} onChange={(e) => setPassword(e.target.value)} /></label>}
+          {(authMode === "register" || authMode === "reset") && <small>Не менее 12 символов.</small>}
+          <button className="cab-primary" disabled={busy}>{busy ? "Подождите…" : authMode === "login" ? "Войти" : authMode === "register" ? "Зарегистрироваться" : authMode === "forgot" ? "Отправить ссылку" : "Сменить пароль"}</button>
+          {authMode === "login" && resetEnabled && <button className="cab-refresh" type="button" onClick={() => setAuthMode("forgot")}>Забыли пароль?</button>}
         </form>
       </section> : <>
         <div className="cab-title-row"><div><span className="cab-kicker">ВАШ АККАУНТ</span><h1>Баланс и проверки</h1><p>{user.email}</p>{yandexEnabled && <button className="cab-link-yandex" disabled={busy || user.yandex_linked} onClick={linkYandex}>{user.yandex_linked ? "Яндекс ID подключён" : "Привязать Яндекс ID"}</button>}</div><span className="cab-rate">Одна проверка · {money(price)}</span></div>
@@ -228,7 +255,7 @@ function Cabinet() {
         </div>
         <section className="cab-panel cab-device"><div><span className="cab-kicker">НАСТОЛЬНОЕ ПРИЛОЖЕНИЕ</span><h2>Подключить парсер</h2><p>Откройте экран скана на компьютере и выберите «Код из кабинета». Код создаётся на 5 минут и подходит для одного входа.</p></div><button className="cab-primary" onClick={createDeviceCode} disabled={busy}>Получить код</button>{deviceCode && <div className="cab-device-code"><code>{deviceCode}</code><button onClick={copyDeviceCode}>Скопировать</button></div>}</section>
         <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ИСТОРИЯ</span><h2>Операции по балансу</h2></div><button onClick={() => refresh(token)} className="cab-refresh">Обновить</button></div>{wallet?.entries.length ? <div className="cab-list">{wallet.entries.map((entry) => <div className="cab-entry" key={entry.reference}><span className={entry.amount_kopeks > 0 ? "cab-entry-icon in" : "cab-entry-icon out"}>{entry.amount_kopeks > 0 ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}</span><span><b>{entry.kind === "topup" ? "Пополнение" : "Проверка запроса"}</b><small>{new Date(entry.created_at).toLocaleString("ru-RU")}</small></span><strong className={entry.amount_kopeks > 0 ? "positive" : ""}>{entry.amount_kopeks > 0 ? "+" : ""}{money(entry.amount_kopeks)}</strong></div>)}</div> : <p className="cab-empty">Пока нет операций. Пополните баланс, чтобы начать проверки.</p>}</section>
-        <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">СКРИНШОТЫ</span><h2>Снимки проверок</h2></div><button onClick={() => refresh(token)} className="cab-refresh">Обновить</button></div>{screenshots.length ? <><div className="cab-list">{screenshots.slice(0, visibleScreenshots).map((shot) => { const parts = shot.check_id.split(":"); return <div className="cab-entry" key={shot.check_id}><span className="cab-entry-icon out" aria-hidden="true"><ImageIcon size={18} /></span><span><b>Запрос №{parts.at(-2)} · {parts.at(-1)}</b><small>{new Date(shot.created_at).toLocaleString("ru-RU")}</small></span><button className="cab-shot-button" onClick={() => openScreenshot(shot.check_id)}>Открыть</button></div> })}</div>{screenshots.length > visibleScreenshots && <button className="cab-refresh" onClick={() => setVisibleScreenshots((count) => count + 12)}>Показать ещё</button>}</> : <p className="cab-empty">Загруженных снимков пока нет. Снимки остаются в настольном приложении.</p>}{openedScreenshot && <div className="cab-shot-preview"><div className="cab-section-head"><b>Снимок проверки</b><button className="cab-refresh" onClick={() => setOpenedScreenshot(null)}>Закрыть</button></div><img src={openedScreenshot.url} alt="Скриншот ответа ИИ по выбранной проверке" /></div>}</section>
+        <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">СКРИНШОТЫ · 90 ДНЕЙ</span><h2>Снимки проверок</h2></div><button onClick={() => refresh(token)} className="cab-refresh">Обновить</button></div>{screenshots.length ? <><div className="cab-list">{screenshots.slice(0, visibleScreenshots).map((shot) => { const parts = shot.check_id.split(":"); return <div className="cab-entry" key={shot.check_id}><span className="cab-entry-icon out" aria-hidden="true"><ImageIcon size={18} /></span><span><b>Запрос №{parts.at(-2)} · {parts.at(-1)}</b><small>{new Date(shot.created_at).toLocaleString("ru-RU")}</small></span><button className="cab-shot-button" onClick={() => openScreenshot(shot.check_id)}>Открыть</button></div> })}</div>{screenshots.length > visibleScreenshots && <button className="cab-refresh" onClick={() => setVisibleScreenshots((count) => count + 12)}>Показать ещё</button>}</> : <p className="cab-empty">Загруженных снимков пока нет. Снимки остаются в настольном приложении.</p>}{openedScreenshot && <div className="cab-shot-preview"><div className="cab-section-head"><b>Снимок проверки</b><button className="cab-refresh" onClick={() => setOpenedScreenshot(null)}>Закрыть</button></div><img src={openedScreenshot.url} alt="Скриншот ответа ИИ по выбранной проверке" /></div>}</section>
         {payments.some((p) => p.status === "pending") && <p className="cab-pending">Есть незавершённое пополнение. Если вы уже оплатили, нажмите «Обновить» после возврата на сайт.</p>}
       </>}
       {message && <p className="cab-message" role="status">{message}</p>}

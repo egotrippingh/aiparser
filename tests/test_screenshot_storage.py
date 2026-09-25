@@ -2,6 +2,7 @@
 
 import asyncio
 import sqlite3
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -60,6 +61,11 @@ def test_private_screenshot_upload_and_retry(tmp_path):
         "https://storage.example/screenshots/"
     )
     assert client.get("/api/v1/screenshots", headers=owner).json()["screenshots"][0]["check_id"] == check_id
+    old_date = (datetime.now(timezone.utc) - timedelta(days=91)).isoformat()
+    with sqlite3.connect(db_path) as db:
+        db.execute("UPDATE screenshots SET created_at = ?", (old_date,))
+    assert client.get("/api/v1/screenshots", headers=owner).json() == {"screenshots": []}
+    assert client.get(f"/api/v1/screenshots/{check_id}/url", headers=owner).status_code == 404
 
 
 def test_screenshot_size_limit(tmp_path):

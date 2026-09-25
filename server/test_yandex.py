@@ -47,7 +47,7 @@ def callback(client, state):
 
 def test_yandex_register_login_and_single_use_ticket(tmp_path, monkeypatch):
     client, fake = setup(tmp_path, monkeypatch)
-    assert client.get("/api/v1/auth/providers").json() == {"yandex": True}
+    assert client.get("/api/v1/auth/providers").json() == {"yandex": True, "password_reset": False}
     state = start(client)
     assert callback(client, "wrong-state").status_code == 400
     response = callback(client, state)

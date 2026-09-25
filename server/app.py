@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import hmac
+import logging
 import os
+import re
 import uuid
 from datetime import timedelta, timezone
 from pathlib import Path
@@ -20,8 +22,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server.ai import AIError, OpenRouterAI
+from server.auth_limit import clear as clear_auth_failures
+from server.auth_limit import email_key, guard as guard_auth, record as record_auth, source_key
 from server.coinso import CoinsoClient, CoinsoError, kopeks, verify_webhook
-from server.models import (Base, Check, Screenshot, DeviceCode, LedgerEntry, LoginTicket, OAuthAttempt, OAuthIdentity,
+from server.mailer import PasswordMailer
+from server.migrate import upgrade_database
+from server.models import (Check, Screenshot, DeviceCode, LedgerEntry, LoginTicket, OAuthAttempt, OAuthIdentity, PasswordReset,
                            PaymentOrder, SessionToken, User, Wallet, make_session_factory, utcnow)
 from server.security import hash_password, new_token, token_hash, verify_password
 from server.storage import ScreenshotStorage, StorageError
@@ -55,9 +61,18 @@ class TicketIn(BaseModel):
     ticket: str = Field(min_length=30, max_length=200)
 
 
+class PasswordResetRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=190)
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str = Field(pattern=r"^[A-Za-z0-9_-]{30,200}$")
+    password: str = Field(min_length=12, max_length=256)
+
+
 def _email(raw: str) -> str:
     email = raw.strip().lower()
-    if "@" not in email or " " in email or email.startswith("@") or email.endswith("@"):
+    if not re.fullmatch(r"[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+", email):
         raise HTTPException(422, "Укажите корректный email")
     return email
 
@@ -107,14 +122,15 @@ def _order_payload(order: PaymentOrder) -> dict:
 def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient | None = None,
                ai_client: OpenRouterAI | None = None,
                yandex_client: YandexOAuth | None = None,
-               screenshot_storage: ScreenshotStorage | None = None) -> FastAPI:
+               screenshot_storage: ScreenshotStorage | None = None,
+               password_mailer: PasswordMailer | None = None) -> FastAPI:
     database_url = database_url or os.environ.get("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL не задан")
     if os.environ.get("APP_ENV") == "production" and not database_url.startswith("postgresql+"):
         raise RuntimeError("В продакшне требуется PostgreSQL")
+    upgrade_database(database_url)
     engine, SessionLocal = make_session_factory(database_url)
-    Base.metadata.create_all(engine)
 
     secret_key = os.environ.get("COINSO_SECRET_KEY", "")
     if coinso_client is None and secret_key and os.environ.get("COINSO_PROJECT_ID"):
@@ -127,6 +143,13 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
     if screenshot_storage is None:
         screenshot_storage = ScreenshotStorage.from_env()
     public_base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+    if password_mailer is None and os.environ.get("SMTP_HOST"):
+        password_mailer = PasswordMailer(
+            os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT", "587")),
+            os.environ["SMTP_FROM"], os.environ.get("SMTP_USER", ""),
+            os.environ.get("SMTP_PASSWORD", ""), os.environ.get("SMTP_SECURITY", "starttls"),
+            public_base,
+        )
     if yandex_client is None and public_base and os.environ.get("YANDEX_CLIENT_ID") and os.environ.get("YANDEX_CLIENT_SECRET"):
         if not (public_base.startswith("https://") or public_base.startswith("http://127.0.0.1:")
                 or public_base.startswith("http://localhost:")):
@@ -200,7 +223,8 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
 
     @app.get("/api/v1/auth/providers")
     def auth_providers() -> dict:
-        return {"yandex": yandex_client is not None}
+        return {"yandex": yandex_client is not None,
+                "password_reset": password_mailer is not None}
 
     def start_yandex(db: Session, *, purpose: str, user_id: str | None = None) -> tuple[str, str]:
         if not yandex_client:
@@ -219,7 +243,10 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
                             secure=cookie_secure, samesite="lax", path="/api/v1/auth/yandex")
 
     @app.get("/api/v1/auth/yandex/start")
-    def yandex_start(db: Session = Depends(db_session)) -> RedirectResponse:
+    def yandex_start(request: Request, db: Session = Depends(db_session)) -> RedirectResponse:
+        source = source_key(request)
+        guard_auth(db, "yandex_start", [(source, 30)])
+        record_auth(db, "yandex_start", [source])
         url, state = start_yandex(db, purpose="login")
         response = RedirectResponse(url, status_code=303)
         set_yandex_cookie(response, state)
@@ -306,10 +333,14 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         return oauth_redirect(f"#auth_ticket={ticket}")
 
     @app.post("/api/v1/auth/yandex/exchange")
-    def yandex_exchange(body: TicketIn, db: Session = Depends(db_session)) -> dict:
+    def yandex_exchange(body: TicketIn, request: Request,
+                        db: Session = Depends(db_session)) -> dict:
+        source = source_key(request)
+        guard_auth(db, "ticket", [(source, 20)])
         ticket = db.execute(select(LoginTicket).where(LoginTicket.ticket_hash == token_hash(body.ticket))
                             .with_for_update()).scalar_one_or_none()
         if not ticket or expired(ticket.expires_at):
+            record_auth(db, "ticket", [source])
             raise HTTPException(401, "Ссылка для входа истекла")
         user = db.get(User, ticket.user_id)
         db.delete(ticket)
@@ -326,10 +357,14 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         return {"code": code, "expires_in": 300}
 
     @app.post("/api/v1/auth/device/exchange")
-    def device_exchange(body: TicketIn, db: Session = Depends(db_session)) -> dict:
+    def device_exchange(body: TicketIn, request: Request,
+                        db: Session = Depends(db_session)) -> dict:
+        source = source_key(request)
+        guard_auth(db, "device", [(source, 20)])
         code = db.execute(select(DeviceCode).where(DeviceCode.code_hash == token_hash(body.ticket))
                           .with_for_update()).scalar_one_or_none()
         if not code or expired(code.expires_at):
+            record_auth(db, "device", [source])
             raise HTTPException(401, "Код подключения истёк или уже использован")
         user = db.get(User, code.user_id)
         db.delete(code)
@@ -337,7 +372,11 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         return issue_session(db, user)
 
     @app.post("/api/v1/auth/register", status_code=201)
-    def register(body: Credentials, db: Session = Depends(db_session)) -> dict:
+    def register(body: Credentials, request: Request,
+                 db: Session = Depends(db_session)) -> dict:
+        source = source_key(request)
+        guard_auth(db, "register", [(source, 10)])
+        record_auth(db, "register", [source])
         email = _email(body.email)
         user = User(id=uuid.uuid4().hex, email=email, password_hash=hash_password(body.password))
         db.add(user)
@@ -350,11 +389,62 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         return issue_session(db, user)
 
     @app.post("/api/v1/auth/login")
-    def login(body: Credentials, db: Session = Depends(db_session)) -> dict:
-        user = db.scalar(select(User).where(User.email == _email(body.email)))
+    def login(body: Credentials, request: Request, db: Session = Depends(db_session)) -> dict:
+        email = _email(body.email)
+        source, account = source_key(request), email_key(email)
+        guard_auth(db, "login", [(source, 30), (account, 5)])
+        user = db.scalar(select(User).where(User.email == email))
         if not user or not verify_password(body.password, user.password_hash):
+            record_auth(db, "login", [source, account])
             raise HTTPException(401, "Неверный email или пароль")
+        clear_auth_failures(db, "login", account)
         return issue_session(db, user)
+
+    @app.post("/api/v1/auth/password/request")
+    def request_password_reset(body: PasswordResetRequest, request: Request,
+                               db: Session = Depends(db_session)) -> dict:
+        if not password_mailer:
+            raise HTTPException(503, "Восстановление пароля пока недоступно")
+        email = _email(body.email)
+        source, account = source_key(request), email_key(email)
+        guard_auth(db, "password_request", [(source, 20), (account, 3)])
+        record_auth(db, "password_request", [source, account])
+        user = db.scalar(select(User).where(User.email == email))
+        if user:
+            token = new_token()
+            db.execute(delete(PasswordReset).where(PasswordReset.user_id == user.id))
+            db.add(PasswordReset(token_hash=token_hash(token), user_id=user.id,
+                                 expires_at=utcnow() + timedelta(minutes=30)))
+            db.commit()
+            try:
+                password_mailer.send_reset(email, token)
+            except Exception:
+                db.execute(delete(PasswordReset).where(PasswordReset.token_hash == token_hash(token)))
+                db.commit()
+                logging.getLogger(__name__).exception("Не удалось отправить письмо восстановления")
+        return {"ok": True, "message": "Если аккаунт существует, письмо отправлено"}
+
+    @app.post("/api/v1/auth/password/confirm")
+    def confirm_password_reset(body: PasswordResetConfirm, request: Request,
+                               db: Session = Depends(db_session)) -> dict:
+        source = source_key(request)
+        guard_auth(db, "password_confirm", [(source, 20)])
+        reset = db.execute(select(PasswordReset).where(
+            PasswordReset.token_hash == token_hash(body.token)).with_for_update()).scalar_one_or_none()
+        if not reset or expired(reset.expires_at):
+            record_auth(db, "password_confirm", [source])
+            raise HTTPException(400, "Ссылка устарела или уже использована")
+        user = db.get(User, reset.user_id)
+        if not user:
+            record_auth(db, "password_confirm", [source])
+            raise HTTPException(400, "Ссылка устарела или уже использована")
+        user.password_hash = hash_password(body.password)
+        db.execute(delete(PasswordReset).where(PasswordReset.user_id == user.id))
+        db.execute(delete(SessionToken).where(SessionToken.user_id == user.id))
+        db.execute(delete(DeviceCode).where(DeviceCode.user_id == user.id))
+        db.execute(delete(LoginTicket).where(LoginTicket.user_id == user.id))
+        db.commit()
+        return {"ok": True}
 
     @app.post("/api/v1/auth/logout")
     def logout(user: User = Depends(current_user), db: Session = Depends(db_session),
@@ -603,10 +693,11 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
     @app.get("/api/v1/screenshots")
     def list_screenshots(user: User = Depends(current_user),
                          db: Session = Depends(db_session)) -> dict:
+        visible_since = utcnow() - timedelta(days=90)
         rows = db.execute(
             select(Check.client_check_id, Screenshot.size_bytes, Screenshot.created_at)
             .join(Screenshot, Screenshot.check_id == Check.id)
-            .where(Check.user_id == user.id)
+            .where(Check.user_id == user.id, Screenshot.created_at > visible_since)
             .order_by(Screenshot.created_at.desc()).limit(100)
         ).all()
         return {"screenshots": [
@@ -621,7 +712,8 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             raise HTTPException(503, "Хранение скриншотов ещё не настроено")
         object_key = db.scalar(
             select(Screenshot.object_key).join(Check, Screenshot.check_id == Check.id)
-            .where(Check.user_id == user.id, Check.client_check_id == check_id)
+            .where(Check.user_id == user.id, Check.client_check_id == check_id,
+                   Screenshot.created_at > utcnow() - timedelta(days=90))
         )
         if not object_key:
             raise HTTPException(404, "Скриншот не найден")

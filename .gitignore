@@ -10,6 +10,7 @@ __pycache__/
 data/
 frontend/2026-*-this-session-is-being-continued-*.txt
 deploy/.env
+deploy/backups/
 server/.env
 account-url.txt
 
