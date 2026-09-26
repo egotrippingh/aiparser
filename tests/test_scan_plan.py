@@ -13,6 +13,7 @@ import tempfile
 import traceback
 from datetime import date, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -143,6 +144,124 @@ def test_plan_endpoint():
     body = r.json()
     assert body["remaining"] == 2 and set(body["by_service"]) == set(orchestrator.ADAPTERS)
     assert client.get("/api/projects/99999/scan-plan").status_code == 404
+
+
+def test_browser_crash_retries_only_unsaved_queries(monkeypatch):
+    pid, query_ids = _project(2)
+    sid = repo.create_scan(pid, ["perplexity"], {})
+    controller = orchestrator.ScanController(sid, pid, 2, TODAY)
+    attempts = []
+
+    async def interrupted(_project, service, pending, _settings, _speed, _key,
+                          _model, _mode, ctl):
+        attempts.append([item["id"] for item in pending])
+        if len(attempts) == 1:
+            repo.save_result(sid, query_ids[0], service, "not_found")
+            ctl.advance(service)
+            raise RuntimeError("browser context closed")
+        repo.save_result(sid, query_ids[1], service, "not_found")
+        ctl.advance(service)
+
+    monkeypatch.setattr(orchestrator, "_run_service", interrupted)
+    asyncio.run(orchestrator._run_scan(
+        repo.get_project(pid), ["perplexity"], repo.list_queries(pid), set(),
+        {"llm_mode": "never", "typing_speed": 0.5}, controller,
+    ))
+    assert attempts == [query_ids, query_ids[1:]]
+    assert controller.done == 2
+    assert repo.get_scan(sid)["status"] == "done"
+
+
+def test_browser_crash_with_unchecked_tail_is_failed(monkeypatch):
+    pid, query_ids = _project(2)
+    sid = repo.create_scan(pid, ["perplexity"], {})
+    controller = orchestrator.ScanController(sid, pid, 2, TODAY)
+
+    async def interrupted(_project, service, pending, _settings, _speed, _key,
+                          _model, _mode, ctl):
+        if ctl.done == 0:
+            repo.save_result(sid, query_ids[0], service, "not_found")
+            ctl.advance(service)
+        raise RuntimeError("browser context closed")
+
+    monkeypatch.setattr(orchestrator, "_run_service", interrupted)
+    asyncio.run(orchestrator._run_scan(
+        repo.get_project(pid), ["perplexity"], repo.list_queries(pid), set(),
+        {"llm_mode": "never", "typing_speed": 0.5}, controller,
+    ))
+    assert controller.done == 1
+    assert repo.get_scan(sid)["status"] == "failed"
+    assert orchestrator.plan_scan(pid, ["perplexity"])["remaining"] == 1
+
+
+def test_completed_attempts_with_error_remain_failed(monkeypatch):
+    pid, query_ids = _project(1)
+    sid = repo.create_scan(pid, ["google_aio"], {})
+    controller = orchestrator.ScanController(sid, pid, 1, TODAY)
+
+    async def failed_attempt(_project, service, _pending, _settings, _speed, _key,
+                             _model, _mode, ctl):
+        repo.save_result(sid, query_ids[0], service, "error", error_message="Анализ недоступен")
+        ctl.advance(service)
+
+    monkeypatch.setattr(orchestrator, "_run_service", failed_attempt)
+    asyncio.run(orchestrator._run_scan(
+        repo.get_project(pid), ["google_aio"], repo.list_queries(pid), set(),
+        {"llm_mode": "never", "typing_speed": 0.5}, controller,
+    ))
+    assert controller.done == 1
+    assert repo.get_scan(sid)["status"] == "failed"
+
+
+def test_llm_error_is_saved_with_result(monkeypatch, tmp_path):
+    pid, _ = _project(1)
+    sid = repo.create_scan(pid, ["google_aio"], {})
+    controller = orchestrator.ScanController(sid, pid, 1, TODAY)
+    capture = SimpleNamespace(shown=True, screenshot_bytes=b"raw",
+                              answer_text="Компания предлагает услуги", sources=[], extra={})
+
+    class Adapter:
+        async def ask(self, *_args, **_kwargs):
+            pass
+
+        async def capture(self, _page):
+            return capture
+
+    async def unavailable(**_kwargs):
+        return SimpleNamespace(error="Сервер анализа вернул HTTP 422")
+
+    monkeypatch.setattr(orchestrator.imaging, "to_webp", lambda _: b"webp")
+    monkeypatch.setattr(orchestrator.config, "screenshot_dir", lambda *_: tmp_path)
+    monkeypatch.setattr(orchestrator.llm_mod, "evaluate", unavailable)
+    status = asyncio.run(orchestrator._run_one(
+        repo.get_project(pid), repo.list_queries(pid)[0], "google_aio", Adapter(),
+        object(), {"managed_llm": True, "llm_confidence_threshold": 0.6,
+                   "arbiter": False}, 0.5, "", "test-model", "smart", controller,
+    ))
+    result = repo.results_for_scan(sid)[0]
+    assert status == result["status"] == "error"
+    assert result["error_message"] == "Сервер анализа вернул HTTP 422"
+    assert result["answer_text"] == capture.answer_text
+
+
+def test_closed_browser_is_retried_without_error_result():
+    pid, _ = _project(1)
+    sid = repo.create_scan(pid, ["perplexity"], {})
+    controller = orchestrator.ScanController(sid, pid, 1, TODAY)
+
+    class Adapter:
+        async def ask(self, *_args, **_kwargs):
+            raise RuntimeError("Mouse.wheel: Target page, context or browser has been closed")
+
+    try:
+        asyncio.run(orchestrator._run_one(
+            repo.get_project(pid), repo.list_queries(pid)[0], "perplexity", Adapter(),
+            object(), {}, 0.5, "", "", "never", controller,
+        ))
+        raise AssertionError("Закрытие браузера должно попасть в повтор сервиса")
+    except RuntimeError as exc:
+        assert "browser has been closed" in str(exc)
+    assert repo.results_for_scan(sid) == []
 
 
 if __name__ == "__main__":

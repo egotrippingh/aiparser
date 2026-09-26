@@ -179,15 +179,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
       })
       on<{ status: string }>("scan_finished", (e) => {
-        pushLog(
-          e.status === "done" ? "Скан завершён" : `Скан остановлен (${e.status})`,
-          e.status === "done" ? "ok" : undefined,
-        )
+        const message = e.status === "done" ? "Скан завершён" : e.status === "failed"
+          ? "Скан прерван: часть запросов не проверена" : "Скан остановлен"
+        pushLog(message, e.status === "done" ? "ok" : "err")
         setScan(null)
         es.close()
         esRef.current = null
         setDataVersion((v) => v + 1)
-        toast.success(e.status === "done" ? "Скан завершён" : "Скан остановлен")
+        if (e.status === "done") toast.success(message)
+        else toast.error(message)
       })
 
       // Кратковременный обрыв EventSource переживает сам — переподключается.

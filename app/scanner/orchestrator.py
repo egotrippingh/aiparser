@@ -426,6 +426,8 @@ async def _run_scan(
             ctl.per_service[s] = {"done": 0, "total": n, "started": None}
     ctl.emit("scan_started", parallel=parallel, **ctl.snapshot())
 
+    failed_services: list[str] = []
+
     async def run_service(service_id: str) -> None:
         pending = [q for q in queries if (q["id"], service_id) not in done_pairs]
         if not pending or ctl.stop_requested:
@@ -438,15 +440,29 @@ async def _run_scan(
         ctl.emit("service_started", service=service_id,
                  name=services.get(service_id).name, pending=len(pending))
         try:
-            await _run_service(
-                project, service_id, pending, settings, speed,
-                api_key, llm_model, llm_mode, ctl,
-            )
-        except Exception as exc:
-            # Падение одного сервиса не должно ронять остальные — ни в
-            # очереди, ни тем более идущие рядом параллельно.
-            log.exception("Сервис %s упал целиком", service_id)
-            ctl.emit("service_error", service=service_id, error=str(exc))
+            for attempt in range(2):
+                try:
+                    await _run_service(
+                        project, service_id, pending, settings, speed,
+                        api_key, llm_model, llm_mode, ctl,
+                    )
+                    break
+                except Exception as exc:
+                    # После падения браузера создаём новый контекст один раз.
+                    # Уже записанные результаты и их счётчики не повторяем.
+                    log.exception("Сервис %s упал (попытка %s)", service_id, attempt + 1)
+                    if attempt == 0 and not ctl.stop_requested:
+                        recorded = {row["query_id"] for row in repo.results_for_scan(ctl.scan_id)
+                                    if row["service"] == service_id}
+                        pending = [q for q in pending if q["id"] not in recorded]
+                        if not pending:
+                            break
+                        ctl.emit("service_retry", service=service_id, remaining=len(pending))
+                        await asyncio.sleep(1)
+                        continue
+                    failed_services.append(service_id)
+                    ctl.emit("service_error", service=service_id, error=str(exc))
+                    break
         finally:
             if service_id in ctl.running:
                 ctl.running.remove(service_id)
@@ -478,7 +494,13 @@ async def _run_scan(
                 ctl.emit("billing_error", error=str(exc))
                 log.warning("Биллинг скана %s ожидает повторной отправки: %s", ctl.scan_id, exc)
 
-        status = "stopped" if ctl.stop_requested else "done"
+        unresolved = any(
+            row["service"] in service_ids
+            and row["status"] not in repo.CONCLUSIVE_STATUSES
+            for row in repo.results_for_scan(ctl.scan_id)
+        )
+        status = ("stopped" if ctl.stop_requested else
+                  "failed" if failed_services or ctl.done < ctl.total or unresolved else "done")
         ctl.state = "finished"
         repo.finish_scan(ctl.scan_id, status=status)
         ctl.emit("scan_finished", status=status, **ctl.snapshot())
@@ -675,7 +697,7 @@ async def _run_one(
         )
 
         llm_verdict = None
-        llm_failed = False
+        llm_error_text = None
         if should_call_llm(rule_verdict, llm_mode):
             managed_check_id = (billing.check_id(ctl.billing_run_id, query["id"], service_id)
                                 if settings.get("managed_llm") else None)
@@ -691,7 +713,7 @@ async def _run_one(
                 managed_check_id=managed_check_id,
             )
             if llm_verdict.error:
-                llm_failed = True
+                llm_error_text = llm_verdict.error
                 # Вызов не состоялся (сеть, прокси, исчерпанный ключ) — это
                 # отсутствие проверки, а не вердикт «не найдено». До 10.09.2026
                 # такой результат всё равно уходил в merge и получал пометку
@@ -719,7 +741,7 @@ async def _run_one(
             if hit.found and hit.url:
                 result = with_deep(result, hit.url, hit.quote)
 
-        if llm_failed and result.status == "not_found":
+        if llm_error_text and result.status == "not_found":
             result.status = "error"
 
         # Спорная строка (правила молчат, а модель нашла) — второй, более
@@ -760,6 +782,7 @@ async def _run_one(
             needs_review=result.needs_review,
             llm_model=result.llm_model,
             duration_ms=int((time.monotonic() - started) * 1000),
+            error_message=llm_error_text if result.status == "error" else None,
         )
         if ctl.billing_run_id and result.status in ("found", "not_found"):
             check_key = billing.check_id(ctl.billing_run_id, query["id"], service_id)
@@ -796,6 +819,10 @@ async def _run_one(
         ctl.emit("query_result", query_id=query["id"], service=service_id, status="error")
         return "error"
     except Exception as exc:
+        if "Target page, context or browser has been closed" in str(exc):
+            # Весь браузер умер: внешний цикл поднимет новый профиль и
+            # повторит текущий запрос. Не записываем ложный результат.
+            raise
         log.exception("Ошибка на запросе %s / %s", query["text"], service_id)
         repo.save_result(ctl.scan_id, query["id"], service_id, "error", error_message=str(exc))
         ctl.emit("query_result", query_id=query["id"], service=service_id, status="error")
