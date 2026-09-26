@@ -108,17 +108,17 @@ async def run_agent() -> None:
                 preferences = response["preferences"]
                 if repo.get_setting("speed_profile") != preferences["speed_profile"]:
                     repo.set_setting("speed_profile", preferences["speed_profile"])
-                if not active:
-                    # During a scan all reservations sit in the outbox as
-                    # provisional releases. Flushing them early would cancel
-                    # valid checks. Completed results can still be uploaded
-                    # while the scan runs; only recovery and outbox flushing wait.
-                    await billing.recover_interrupted_scans()
-                    await billing.flush_outbox()
-                    try:
-                        await billing.flush_screenshot_outbox()
-                    except billing.ScreenshotError as exc:
-                        log.warning("Отложенная отправка снимков: %s", exc)
+                # A scan can begin while heartbeat is in flight. Hold the same
+                # lock as start_scan and recheck before touching provisional
+                # release entries in the billing outbox.
+                async with orchestrator.scan_start_lock():
+                    if orchestrator.active_controller() is None:
+                        await billing.recover_interrupted_scans()
+                        await billing.flush_outbox()
+                        try:
+                            await billing.flush_screenshot_outbox()
+                        except billing.ScreenshotError as exc:
+                            log.warning("Отложенная отправка снимков: %s", exc)
                 user = await billing.identity()
                 try:
                     await _sync_results(user["id"], current_device_id)

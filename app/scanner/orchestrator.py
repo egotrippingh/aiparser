@@ -199,6 +199,12 @@ class ScanController:
 
 
 _active: dict[int, ScanController] = {}
+_scan_start_lock = asyncio.Lock()
+
+
+def scan_start_lock() -> asyncio.Lock:
+    """Serialize reservation setup with the agent's idle outbox recovery."""
+    return _scan_start_lock
 
 
 def get_controller(scan_id: int) -> ScanController | None:
@@ -250,6 +256,13 @@ def _record_auth_state(service_id: str, state: str) -> None:
 
 async def start_scan(project_id: int, service_ids: list[str], *, resume: bool = True,
                      headless: bool = False) -> int:
+    async with _scan_start_lock:
+        return await _start_scan_unlocked(project_id, service_ids, resume=resume,
+                                          headless=headless)
+
+
+async def _start_scan_unlocked(project_id: int, service_ids: list[str], *, resume: bool,
+                               headless: bool) -> int:
     if _active:
         raise ScanAlreadyRunning("Скан уже выполняется — дождитесь завершения или остановите его")
 

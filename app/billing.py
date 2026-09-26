@@ -158,6 +158,11 @@ async def flush_outbox() -> None:
         if item["status"] == "release":
             continue
         response = await complete(item["check_id"], item["status"])
+        if response.get("status") == "released":
+            # A saved answer can outlive an accidental release during an
+            # interrupted scan. Reserve that same ID again before settling.
+            await reserve([item["check_id"]])
+            response = await complete(item["check_id"], item["status"])
         if response.get("status") != "settled":
             raise BillingError("Сервер не подтвердил списание за сохранённую проверку")
         repo.billing_sent([item["check_id"]])
