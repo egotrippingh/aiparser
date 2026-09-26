@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import logging
+import json
+import socket
 import sys
 import threading
 import time
@@ -19,7 +21,7 @@ import webbrowser
 
 import uvicorn
 
-from app import config
+from app import config, window_control
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("aiparser.main")
@@ -45,16 +47,51 @@ def _wait_for_server(url: str, timeout: float = 15.0) -> bool:
     return False
 
 
+def _focus_existing(url: str) -> bool:
+    import urllib.request
+
+    request = urllib.request.Request(url.replace("/app/", "/api/agent/focus"),
+                                     data=b"", method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=2) as response:
+            return bool(json.load(response).get("focused"))
+    except Exception:
+        return False
+
+
+def _port_available(port: int) -> bool:
+    with socket.socket() as listener:
+        try:
+            listener.bind((config.HOST, port))
+        except OSError:
+            return False
+        return True
+
+
+def _free_local_port() -> int:
+    with socket.socket() as listener:
+        listener.bind((config.HOST, 0))
+        return listener.getsockname()[1]
+
+
 def main() -> None:
     log.info("Каталог данных: %s (portable=%s)", config.DATA_DIR, config.PORTABLE)
 
+    # Use predictable fallback ports so a second launch can find the first
+    # native window even when the development server owns 8756.
+    for port in (8756, *range(8758, 8776)):
+        candidate = f"http://{config.HOST}:{port}/app/"
+        if not _port_available(port):
+            if "--self-test" not in sys.argv[1:] and _focus_existing(candidate):
+                return
+            continue
+        config.PORT = port
+        break
+    else:
+        config.PORT = _free_local_port()
     url = f"http://{config.HOST}:{config.PORT}/app/"
-    # A second launch should focus the already-running agent instead of
-    # creating another tray icon or competing for its localhost port.
-    if _wait_for_server(url, timeout=0.7):
-        if "--background" not in sys.argv[1:]:
-            webbrowser.open(url)
-        return
+    if config.PORT != 8756:
+        log.info("Порт 8756 занят; агент откроется на %s", url)
 
     server_thread = threading.Thread(target=_run_server, daemon=True)
     server_thread.start()
@@ -108,6 +145,7 @@ def main() -> None:
             return False
 
         window.events.closing += on_closing
+        window_control.set_focus(window.show)
     elif not background:
         webbrowser.open(url)
 

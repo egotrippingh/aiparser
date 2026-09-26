@@ -49,6 +49,7 @@ a:focus-visible, summary:focus-visible { outline: 3px solid #c99fff; outline-off
 .hero h1 span { color: #cfb2ff; }
 .hero-copy > p { max-width: 680px; margin: 0 auto; color: #bfb4cf; font-size: clamp(16px, 1.32vw, 19px); line-height: 1.6; letter-spacing: -.02em; }
 .hero-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 12px; margin-top: 33px; }
+.hero-copy > .hero-setup { max-width: 720px; margin: 15px auto 0; color: #b7a6cb; font-size: 13px; line-height: 1.5; }
 .button { display: inline-flex; align-items: center; justify-content: center; gap: 21px; min-height: 54px; padding: 0 21px; border: 1px solid transparent; border-radius: 12px; font-size: 14px; font-weight: 800; transition: background .2s ease, transform .2s ease, border-color .2s ease; }
 .button:hover { transform: translateY(-2px); }
 .button-primary { color: #1a1423; background: #faf8ff; }

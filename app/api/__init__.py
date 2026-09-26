@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import config, services
+from app import config, services, window_control
 from app.db import repo
 from app.scanner.adapters import ADAPTERS
 
@@ -88,6 +88,17 @@ def create_app() -> FastAPI:
                 for s in services.SERVICES
             ],
         }
+
+    @app.post("/api/agent/focus", include_in_schema=False)
+    def focus_agent() -> dict:
+        return {"focused": window_control.focus()}
+
+    @app.get("/cabinet/", include_in_schema=False)
+    @app.get("/cabinet", include_in_schema=False)
+    def open_cabinet() -> RedirectResponse:
+        if not config.ACCOUNT_URL:
+            raise HTTPException(404, "Адрес личного кабинета не настроен")
+        return RedirectResponse(f"{config.ACCOUNT_URL}/cabinet/", status_code=307)
 
     # Скриншоты отдаём как статику: в WebView путь к файлу на диске напрямую
     # не подставить, а гонять их через base64 в JSON — лишний расход памяти.

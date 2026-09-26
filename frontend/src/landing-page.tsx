@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react"
 import {
   ArrowDownRight,
-  ArrowRight,
   ArrowUpRight,
   Check,
   ChevronDown,
@@ -141,8 +140,9 @@ export function LandingPage() {
             <a href="#how">Как работает</a>
             <a href="#signals">Что видно в отчёте</a>
             <a href="#faq">Вопросы</a>
+            <a href={APP_URL}>Личный кабинет</a>
           </nav>
-          <a className="header-cta" href={APP_URL}>Личный кабинет <ArrowUpRight size={16} aria-hidden="true" /></a>
+          <a className="header-cta" href={downloadUrl || APP_URL}>{downloadUrl ? "Скачать для Windows" : "Личный кабинет"} {downloadUrl ? <Download size={16} aria-hidden="true" /> : <ArrowUpRight size={16} aria-hidden="true" />}</a>
           <details className="mobile-nav">
             <summary>Меню <ChevronDown size={16} aria-hidden="true" /></summary>
             <nav aria-label="Мобильная навигация">
@@ -165,9 +165,10 @@ export function LandingPage() {
               <h1 id="hero-title">Смотрите, где ИИ упоминает <span>ваш бренд.</span></h1>
               <p>Проверяйте свои запросы в четырёх ИИ-системах. Сохраняйте ответы, смотрите источник каждого упоминания и сравнивайте видимость по датам.</p>
               <div className="hero-actions">
-                <a className="button button-primary" href="#how">Как это работает <ArrowRight size={18} aria-hidden="true" /></a>
-                {downloadUrl ? <a className="text-link" href={downloadUrl}>Скачать агент для Windows <Download size={17} aria-hidden="true" /></a> : <a className="text-link" href={APP_URL}>Личный кабинет <ArrowUpRight size={17} aria-hidden="true" /></a>}
+                <a className="button button-primary" href={downloadUrl || APP_URL}>{downloadUrl ? "Скачать агент для Windows" : "Личный кабинет"} {downloadUrl ? <Download size={18} aria-hidden="true" /> : <ArrowUpRight size={18} aria-hidden="true" />}</a>
+                <a className="text-link" href={APP_URL}>Войти в кабинет <ArrowUpRight size={17} aria-hidden="true" /></a>
               </div>
+              <p className="hero-setup">Скачайте агент → войдите в кабинет через Яндекс ID → получите код в разделе «Аккаунт» и введите его в настройках агента.</p>
               <div className="hero-services"><span>ПРОВЕРЯЕМ</span><div>{services.map((name) => <span key={name}>{name}</span>)}</div></div>
             </div>
           </div>

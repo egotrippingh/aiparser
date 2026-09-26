@@ -37,6 +37,20 @@ def test_meta_lists_all_services():
     assert ids == {"perplexity", "chatgpt", "yandex_neuro", "alice", "google_aio"}
 
 
+def test_headless_development_server_does_not_claim_desktop_window():
+    response = client.post("/api/agent/focus")
+    assert response.status_code == 200
+    assert response.json() == {"focused": False}
+
+
+def test_local_cabinet_url_redirects_to_account_site():
+    if not config.ACCOUNT_URL:
+        return
+    response = client.get("/cabinet/", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == f"{config.ACCOUNT_URL}/cabinet/"
+
+
 def test_project_lifecycle():
     r = client.post("/api/projects", json={
         "name": "Smoke-проект", "brand_name": "Тестбренд",
