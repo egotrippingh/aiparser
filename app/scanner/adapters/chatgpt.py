@@ -1,10 +1,8 @@
 """Адаптер ChatGPT (chatgpt.com).
 
-Селекторы сняты вживую 28.08.2026 на реальном залогиненном аккаунте:
-``#prompt-textarea`` (ProseMirror, contenteditable) и
-``[data-message-author-role="assistant"]`` — известный по множеству других
-инструментов устойчивый паттерн разметки ChatGPT, не привязанный к
-сгенерированным id.
+Селекторы сверены на залогиненном профиле 26.09.2026. Поле ввода и ответ
+находятся по атрибутам редактора и сообщения, с сохранёнными старыми
+селекторами для совместимости.
 
 Источники НЕ проверены живьём: обычный ответ без включённого веб-поиска их
 не показывает, а решение искать ли в интернете ChatGPT принимает сам по
@@ -15,6 +13,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from app.scanner import humanize
 from app.scanner.adapters import shot
@@ -63,14 +62,17 @@ class ChatGPTAdapter:
     min_delay_sec = (10.0, 15.0)
 
     async def ensure_ready(self, page) -> ReadyState:
-        await page.goto(_S["home_url"], wait_until="domcontentloaded")
-
-        try:
-            marker = page.locator(_S["logged_in_marker"])
-            if not await visible(marker.first, 6000):
+        await page.goto(_S["temporary_url"], wait_until="domcontentloaded")
+        marker = page.locator(_S["logged_in_marker"]).first
+        if not await visible(marker, 15000):
+            login = page.get_by_role("button", name=re.compile(r"^(Log in|Sign in|Войти)$", re.I))
+            if await visible(login.first, 1500):
                 return ReadyState(ok=False, reason="auth_required")
-        except Exception:
-            return ReadyState(ok=False, reason="auth_required")
+            await dump_debug_html(page, "chatgpt_unknown_session")
+            raise AdapterError("ChatGPT: не удалось определить состояние входа")
+        if not await visible(page.locator(_S["input"]).first, 10000):
+            await dump_debug_html(page, "chatgpt_no_composer")
+            raise AdapterError("ChatGPT: вход выполнен, но поле запроса не появилось")
 
         return ReadyState(ok=True)
 
@@ -117,7 +119,11 @@ class ChatGPTAdapter:
             await visible(page.locator(_S["input"]).first, 20000)
 
         await fresh()
-        if not await visible(page.get_by_role("button", name=_S["temporary_active_label"]), 5000):
+        temporary_active = page.get_by_role("button", name=re.compile(
+            r"(Выключить временный чат|Выйти из режима временного чата|"
+            r"Turn off temporary chat|Exit temporary chat)", re.I,
+        ))
+        if not await visible(temporary_active, 5000):
             # Данные важнее чистоты истории: запрос уходит, но это видно в логе.
             log.warning("ChatGPT: временный чат не включился — запрос сохранится в истории "
                         "и может учесть персонализацию аккаунта")

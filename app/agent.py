@@ -7,6 +7,7 @@ import json
 import logging
 import uuid
 from datetime import datetime
+from urllib.parse import urlparse
 
 from app import billing
 from app.db import repo
@@ -36,14 +37,18 @@ def _payload(row: dict) -> dict:
     run_id = snapshot.get("billing_run_id")
     check_id = (billing.check_id(run_id, row["query_id"], row["service"])
                 if run_id and row["status"] in ("found", "not_found") else None)
+    sources = [url for url in json.loads(row["sources_json"] or "[]")
+               if isinstance(url, str) and len(url) <= 2000
+               and urlparse(url).scheme in ("http", "https")][:50]
     return {
         "local_result_id": row["id"], "local_project_id": row["project_id"],
         "project_name": row["project_name"], "brand_name": row["brand_name"],
         "query_text": row["query_text"], "group_tag": row["group_tag"],
         "service": row["service"], "scan_date": row["scan_date"],
         "status": row["status"], "mention_types": json.loads(row["mention_types_json"] or "[]"),
-        "evidence_quote": row["evidence_quote"], "answer_text": row["answer_text"],
-        "sources": json.loads(row["sources_json"] or "[]"), "check_id": check_id,
+        "evidence_quote": row["evidence_quote"][:12000] if row["evidence_quote"] else None,
+        "answer_text": row["answer_text"][:60000] if row["answer_text"] else None,
+        "sources": sources, "check_id": check_id,
     }
 
 

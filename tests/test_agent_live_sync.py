@@ -1,6 +1,7 @@
 """Completed results reach the cabinet while a long scan is still running."""
 
 import asyncio
+import json
 
 import pytest
 
@@ -36,3 +37,18 @@ def test_active_scan_uploads_results_without_releasing_reservations(monkeypatch)
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(agent.run_agent())
     assert calls == [("owner", "desktop")]
+
+
+def test_cloud_payload_keeps_local_answer_but_limits_upload_fields():
+    row = {
+        "settings_snapshot_json": "{}", "query_id": 1, "service": "google_aio",
+        "status": "found", "id": 1, "project_id": 2, "project_name": "Project",
+        "brand_name": "Brand", "query_text": "Query", "group_tag": None,
+        "scan_date": "2026-09-26", "mention_types_json": "[]",
+        "evidence_quote": "q" * 12001, "answer_text": "a" * 60001,
+        "sources_json": json.dumps(["https://example.org"] * 71 + ["invalid"]),
+    }
+    payload = agent._payload(row)
+    assert len(payload["sources"]) == 50
+    assert len(payload["answer_text"]) == 60000
+    assert len(payload["evidence_quote"]) == 12000
