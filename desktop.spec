@@ -15,7 +15,7 @@ binaries = []
 hiddenimports = []
 
 for package in ("camoufox", "browserforge", "apify_fingerprint_datapoints", "pystray",
-                "language_tags", "playwright", "pymorphy3_dicts_ru"):
+                "language_tags", "playwright", "pymorphy3_dicts_ru", "tzdata"):
     package_data, package_binaries, package_imports = collect_all(package)
     datas += package_data
     binaries += package_binaries

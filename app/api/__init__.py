@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import config, services, window_control
@@ -29,9 +29,21 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="AI Mentions Tracker", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
+    @app.middleware("http")
+    async def desktop_boundaries(request, call_next):
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            origin = request.headers.get("origin")
+            if origin and origin != f"{request.url.scheme}://{request.url.netloc}":
+                return JSONResponse({"detail": "Недопустимый источник запроса"}, status_code=403)
+            if config.ACCOUNT_URL and not request.url.path.startswith((
+                    "/api/desktop/", "/api/browser/", "/api/account/", "/api/agent/focus", "/api/agent/autostart")):
+                return JSONResponse({"detail": "Управляйте проектами и проверками на сайте"}, status_code=403)
+        return await call_next(request)
+
     from app.api import (
-        account, agent, browser, external, mentions, projects, queries, recheck, results, scans, settings,
+        account, agent, browser, desktop, external, mentions, projects, queries, recheck, results, scans, settings,
     )
+    app.include_router(desktop.router)
 
     app.include_router(projects.router)
     app.include_router(queries.router)
@@ -46,7 +58,7 @@ def create_app() -> FastAPI:
     app.include_router(mentions.router)
 
     import asyncio
-    from app.agent import run_agent
+    from app.control_agent import run_agent
 
     agent_task: asyncio.Task | None = None
 

@@ -15,7 +15,8 @@ from server.models import Base
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "69338e58324c"
-NEW_TABLES = {"auth_failures", "password_resets", "scan_preferences", "agent_devices", "cloud_results"}
+NEW_TABLES = {"auth_failures", "password_resets", "scan_preferences", "agent_devices", "cloud_results",
+              "control_projects", "control_runs", "control_links", "device_grants", "device_connect"}
 
 
 def upgrade_database(database_url: str) -> None:

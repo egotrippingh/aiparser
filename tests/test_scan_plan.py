@@ -11,6 +11,7 @@ import json
 import sys
 import tempfile
 import traceback
+import pytest
 from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -33,6 +34,12 @@ from app.scanner import orchestrator  # noqa: E402
 client = TestClient(create_app())
 TODAY = date.today().isoformat()
 _n = 0
+
+
+@pytest.fixture(autouse=True)
+def standalone_local_api(monkeypatch):
+    # These tests exercise the standalone planner; managed agents are read-only.
+    monkeypatch.setattr(config, "ACCOUNT_URL", "")
 
 
 def _project(n_queries: int = 3) -> tuple[int, list[int]]:
@@ -157,10 +164,10 @@ def test_browser_crash_retries_only_unsaved_queries(monkeypatch):
         attempts.append([item["id"] for item in pending])
         if len(attempts) == 1:
             repo.save_result(sid, query_ids[0], service, "not_found")
-            ctl.advance(service)
+            ctl.advance(service, query_ids[0])
             raise RuntimeError("browser context closed")
         repo.save_result(sid, query_ids[1], service, "not_found")
-        ctl.advance(service)
+        ctl.advance(service, query_ids[1])
 
     monkeypatch.setattr(orchestrator, "_run_service", interrupted)
     asyncio.run(orchestrator._run_scan(
@@ -181,7 +188,7 @@ def test_browser_crash_with_unchecked_tail_is_failed(monkeypatch):
                           _model, _mode, ctl):
         if ctl.done == 0:
             repo.save_result(sid, query_ids[0], service, "not_found")
-            ctl.advance(service)
+            ctl.advance(service, query_ids[0])
         raise RuntimeError("browser context closed")
 
     monkeypatch.setattr(orchestrator, "_run_service", interrupted)
@@ -202,7 +209,7 @@ def test_completed_attempts_with_error_remain_failed(monkeypatch):
     async def failed_attempt(_project, service, _pending, _settings, _speed, _key,
                              _model, _mode, ctl):
         repo.save_result(sid, query_ids[0], service, "error", error_message="Анализ недоступен")
-        ctl.advance(service)
+        ctl.advance(service, query_ids[0])
 
     monkeypatch.setattr(orchestrator, "_run_service", failed_attempt)
     asyncio.run(orchestrator._run_scan(

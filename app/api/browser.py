@@ -97,6 +97,9 @@ def install_log() -> dict:
 
 @router.post("/services/{service_id}/login", status_code=202)
 async def login(service_id: str) -> dict:
+    from app.scanner import orchestrator
+    if orchestrator.active_controller():
+        raise HTTPException(409, "Сначала остановите проверку на сайте, затем откройте вход")
     try:
         info = services.get(service_id)
     except ValueError as exc:

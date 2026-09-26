@@ -44,6 +44,9 @@ class AgentHeartbeatIn(BaseModel):
 
 
 class CloudResultIn(BaseModel):
+    project_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    query_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    run_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     local_result_id: int = Field(gt=0)
     local_project_id: int = Field(gt=0)
     project_name: str = Field(min_length=1, max_length=120)

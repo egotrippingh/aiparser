@@ -35,15 +35,20 @@ def schedule_due(preferences: dict, now: datetime) -> bool:
 def _payload(row: dict) -> dict:
     snapshot = json.loads(row["settings_snapshot_json"] or "{}")
     run_id = snapshot.get("billing_run_id")
-    check_id = (billing.check_id(run_id, row["query_id"], row["service"])
+    query_id = snapshot.get("cloud_query_map", {}).get(str(row["query_id"]), row["query_id"])
+    query = next((q for q in snapshot.get("cloud_queries", []) if q["id"] == query_id), {})
+    check_id = (billing.check_id(run_id, query_id, row["service"])
                 if run_id and row["status"] in ("found", "not_found") else None)
     sources = [url for url in json.loads(row["sources_json"] or "[]")
                if isinstance(url, str) and len(url) <= 2000
                and urlparse(url).scheme in ("http", "https")][:50]
     return {
+        "project_id": snapshot.get("cloud_project_id"),
+        "query_id": query_id if isinstance(query_id, str) else None,
+        "run_id": snapshot.get("cloud_job_id"),
         "local_result_id": row["id"], "local_project_id": row["project_id"],
         "project_name": row["project_name"], "brand_name": row["brand_name"],
-        "query_text": row["query_text"], "group_tag": row["group_tag"],
+        "query_text": query.get("text", row["query_text"]), "group_tag": query.get("group_tag", row["group_tag"]),
         "service": row["service"], "scan_date": row["scan_date"],
         "status": row["status"], "mention_types": json.loads(row["mention_types_json"] or "[]"),
         "evidence_quote": row["evidence_quote"][:12000] if row["evidence_quote"] else None,

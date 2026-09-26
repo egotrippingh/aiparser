@@ -178,6 +178,8 @@ class AgentDevice(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     local_time_zone: Mapped[str] = mapped_column(String(80), default="")
     active_scan: Mapped[bool] = mapped_column(Boolean, default=False)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    capabilities_json: Mapped[str] = mapped_column(Text, default="{}")
 
 
 class CloudResult(Base):
@@ -204,6 +206,74 @@ class CloudResult(Base):
     sources_json: Mapped[str] = mapped_column(Text, default="[]")
     check_id: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    project_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    query_id: Mapped[str | None] = mapped_column(String(32))
+    run_id: Mapped[str | None] = mapped_column(String(32), index=True)
+
+
+class ControlProject(Base):
+    __tablename__ = "control_projects"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    brand_name: Mapped[str] = mapped_column(String(120))
+    device_id: Mapped[str | None] = mapped_column(String(64))
+    config_json: Mapped[str] = mapped_column(Text, default="{}")
+    queries_json: Mapped[str] = mapped_column(Text, default="[]")
+    schedule_json: Mapped[str] = mapped_column(Text, default="{}")
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ControlRun(Base):
+    __tablename__ = "control_runs"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("control_projects.id"), index=True)
+    device_id: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(24), default="queued")
+    desired_state: Mapped[str] = mapped_column(String(24), default="running")
+    # Nullable unique keys serialize projects and execution on each device.
+    active_project_key: Mapped[str | None] = mapped_column(String(100), unique=True)
+    active_device_key: Mapped[str | None] = mapped_column(String(100), unique=True)
+    request_key: Mapped[str] = mapped_column(String(160), unique=True)
+    snapshot_json: Mapped[str] = mapped_column(Text)
+    progress_json: Mapped[str] = mapped_column(Text, default="{}")
+    error: Mapped[str | None] = mapped_column(String(1000))
+    lease_token: Mapped[str | None] = mapped_column(String(64))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ControlLink(Base):
+    __tablename__ = "control_links"
+    __table_args__ = (UniqueConstraint("user_id", "device_id", "local_project_id"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    device_id: Mapped[str] = mapped_column(String(64))
+    local_project_id: Mapped[int] = mapped_column(Integer)
+    project_id: Mapped[str] = mapped_column(ForeignKey("control_projects.id"))
+
+
+class DeviceGrant(Base):
+    __tablename__ = "device_grants"
+    token_hash: Mapped[str] = mapped_column(ForeignKey("sessions.token_hash", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    device_id: Mapped[str] = mapped_column(String(64))
+
+
+class DeviceConnect(Base):
+    __tablename__ = "device_connect"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    secret_hash: Mapped[str] = mapped_column(String(64))
+    device_id: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(100))
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 def make_session_factory(database_url: str):

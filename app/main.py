@@ -107,6 +107,8 @@ def main() -> None:
             with urllib.request.urlopen(f"http://{config.HOST}:{config.PORT}{path}", timeout=5) as response:
                 if response.status != 200:
                     raise RuntimeError(f"Проверка {path} завершилась с HTTP {response.status}")
+        from zoneinfo import ZoneInfo
+        ZoneInfo("Europe/Moscow")
         if "--self-test-browser" in sys.argv[1:]:
             import asyncio
 
@@ -128,14 +130,16 @@ def main() -> None:
 
     browser_mode = "--browser" in sys.argv[1:]
     background = "--background" in sys.argv[1:]
+    from app import billing
+    background = background or bool(billing.token())
     window = None
     exiting = False
     if not browser_mode:
         import webview
 
         window = webview.create_window(
-            "AI Mentions — агент", url, width=1320, height=860,
-            min_size=(960, 650), hidden=background,
+            "AI Mentions — агент", url, width=540, height=760,
+            min_size=(430, 600), hidden=background,
         )
 
         def on_closing() -> bool:
@@ -146,6 +150,7 @@ def main() -> None:
 
         window.events.closing += on_closing
         window_control.set_focus(window.show)
+        window_control.set_hide(window.hide)
     elif not background:
         webbrowser.open(url)
 
@@ -171,14 +176,25 @@ def main() -> None:
         if window is not None:
             window.destroy()
 
+    import platform
+    from app.db import repo
+
+    device_label = [repo.get_setting("agent_display_name") or platform.node() or "Windows агент"]
     menu = pystray.Menu(
+        pystray.MenuItem(lambda item: f"Компьютер: {device_label[0]}", None, enabled=False),
+        pystray.Menu.SEPARATOR,
         pystray.MenuItem("Открыть агент", open_agent, default=True),
         pystray.MenuItem("Личный кабинет", open_account,
                          enabled=lambda _: bool(config.ACCOUNT_URL)),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Выйти", quit_agent),
     )
-    icon = pystray.Icon("AI Mentions", image, "AI Mentions — агент", menu)
+    icon = pystray.Icon("AI Mentions", image, f"AI Mentions · {device_label[0]}"[:127], menu)
+    def update_label(name: str) -> None:
+        device_label[0] = name
+        icon.title = f"AI Mentions · {name}"[:127]
+        icon.update_menu()
+    window_control.set_device_name_callback(update_label)
     if window is not None:
         # pystray allows a non-main thread on Windows; WebView2 needs main.
         threading.Thread(target=icon.run, daemon=True, name="agent-tray").start()

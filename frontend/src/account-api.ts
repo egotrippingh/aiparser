@@ -10,6 +10,9 @@ export async function accountRequest<T>(path: string, token?: string, body?: unk
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const data = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(data.detail || `Ошибка ${response.status}`)
+  if (!response.ok) {
+    const detail = data.detail
+    throw new Error(Array.isArray(detail) ? detail.map((item: {msg?: string}) => item.msg || "Проверьте поля формы").join(". ") : typeof detail === "string" ? detail : `Ошибка ${response.status}`)
+  }
   return data as T
 }

@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react"
 import { createRoot } from "react-dom/client"
 import { ArrowDownLeft, ArrowUpRight, CreditCard, Download, Image as ImageIcon, LogOut, ShieldCheck } from "lucide-react"
 import { ACCOUNT_API as API, accountRequest as request } from "./account-api"
-import { CloudDashboard } from "./cloud-dashboard"
+import { ControlCenter } from "./control-center"
 import "./cabinet.css"
 
 const TOKEN_KEY = "aimt.account.token"
@@ -43,7 +43,6 @@ function Cabinet() {
   const [message, setMessage] = useState("")
   const [yandexEnabled, setYandexEnabled] = useState(false)
   const [resetEnabled, setResetEnabled] = useState(false)
-  const [deviceCode, setDeviceCode] = useState("")
   const [section, setSection] = useState<"dashboard" | "account">("dashboard")
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
 
@@ -65,6 +64,8 @@ function Cabinet() {
   }
 
   useEffect(() => {
+    const connect = new URLSearchParams(location.search).get("connect")
+    if (connect && /^[a-f0-9]{32}$/.test(connect)) sessionStorage.setItem("aimt.connect", connect)
     request<{ available: boolean; url: string | null }>("/agent-download")
       .then((result) => setDownloadUrl(result.available ? result.url : null)).catch(() => null)
     request<{ yandex: boolean; password_reset: boolean }>("/auth/providers")
@@ -198,26 +199,8 @@ function Cabinet() {
     }
   }
 
-  async function createDeviceCode() {
-    setBusy(true)
-    try {
-      const result = await request<{ code: string; expires_in: number }>("/auth/device/code", token, {})
-      setDeviceCode(result.code)
-      setMessage("Код действует 5 минут и может быть использован один раз")
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Не удалось создать код")
-    } finally { setBusy(false) }
-  }
-
-  async function copyDeviceCode() {
-    try {
-      await navigator.clipboard.writeText(deviceCode)
-      setMessage("Код скопирован")
-    } catch { setMessage("Выделите и скопируйте код вручную") }
-  }
-
   return <div className="cabinet">
-    <header className="cab-header"><div className="cab-container cab-header-inner"><Brand /><span className="cab-header-label">Личный кабинет</span>{user && <nav className="cab-nav" aria-label="Разделы кабинета"><button className={section === "dashboard" ? "active" : ""} onClick={() => setSection("dashboard")}>Дашборд</button><button className={section === "account" ? "active" : ""} onClick={() => setSection("account")}>{user.is_admin ? "Аккаунт" : "Аккаунт и оплата"}</button></nav>}{user && <button className="cab-logout" onClick={logout}><LogOut size={16} /> Выйти</button>}</div></header>
+    <header className="cab-header"><div className="cab-container cab-header-inner"><Brand /><span className="cab-header-label">Личный кабинет</span>{user && <nav className="cab-nav" aria-label="Разделы кабинета"><button className={section === "dashboard" ? "active" : ""} onClick={() => setSection("dashboard")}>Рабочее пространство</button><button className={section === "account" ? "active" : ""} onClick={() => setSection("account")}>{user.is_admin ? "Аккаунт" : "Аккаунт и оплата"}</button></nav>}{user && <button className="cab-logout" onClick={logout}><LogOut size={16} /> Выйти</button>}</div></header>
     <main className="cab-container cab-main">
       {!user ? <section className="cab-auth-wrap">
         <div className="cab-intro"><span className="cab-kicker">AI MENTIONS / АККАУНТ</span><h1>Проверки под вашим контролем.</h1><p>Смотрите отчёты в браузере, задавайте расписание для агента и пополняйте баланс. Новые результаты синхронизируются с вашим аккаунтом после проверки на компьютере.</p><div className="cab-price-note"><ShieldCheck size={18} /> {money(price)} за запрос в одном ИИ-сервисе</div>{downloadUrl && <p><a className="cab-download" href={downloadUrl}><Download size={17} /> Скачать агент для Windows</a></p>}</div>
@@ -238,13 +221,13 @@ function Cabinet() {
           <button className="cab-primary" disabled={busy}>{busy ? "Подождите…" : authMode === "login" ? "Войти" : authMode === "register" ? "Зарегистрироваться" : authMode === "forgot" ? "Отправить ссылку" : "Сменить пароль"}</button>
           {authMode === "login" && resetEnabled && <button className="cab-refresh" type="button" onClick={() => setAuthMode("forgot")}>Забыли пароль?</button>}
         </form>
-      </section> : section === "dashboard" ? <CloudDashboard token={token} /> : <>
+      </section> : section === "dashboard" ? <ControlCenter token={token} downloadUrl={downloadUrl} /> : <>
         <div className="cab-title-row"><div><span className="cab-kicker">ВАШ АККАУНТ</span><h1>Баланс и проверки</h1><p>{user.email}</p>{yandexEnabled && <button className="cab-link-yandex" disabled={busy || user.yandex_linked} onClick={linkYandex}>{user.yandex_linked ? "Яндекс ID подключён" : "Привязать Яндекс ID"}</button>}</div><span className="cab-rate">{user.is_admin ? "Администратор · проверки бесплатно" : `Одна проверка · ${money(price)}`}</span></div>
         <div className={`cab-grid${user.is_admin ? " cab-grid-admin" : ""}`}>
           <section className="cab-panel cab-balance"><span className="cab-kicker">ДОСТУПНО ДЛЯ ПРОВЕРОК</span><strong>{user.is_admin ? "Безлимитно" : money(wallet?.available_kopeks || 0)}</strong><p>{user.is_admin ? "Проверки вашего аккаунта не списывают баланс." : `На балансе ${money(wallet?.balance_kopeks || 0)}${wallet?.reserved_kopeks ? ` · Зарезервировано ${money(wallet.reserved_kopeks)}` : ""}`}</p><div className="cab-balance-foot">{user.is_admin ? "Каждый запрос в каждом ИИ-сервисе · 0 ₽" : `Примерно ${Math.floor((wallet?.available_kopeks || 0) / price)} проверок по текущей цене`}</div></section>
           {!user.is_admin && <form className="cab-panel cab-topup" onSubmit={topup}><span className="cab-kicker">ПОПОЛНЕНИЕ</span><h2>Добавить средства</h2><label>Сумма, ₽<input type="number" min={minimum / 100} max="100000" step="1" value={amount} onChange={(e) => setAmount(e.target.value)} /></label><fieldset><legend>Способ оплаты</legend><label><input type="radio" name="method" checked={method === "sbp"} onChange={() => setMethod("sbp")} /> СБП</label><label><input type="radio" name="method" checked={method === "card"} onChange={() => setMethod("card")} /> Карта</label></fieldset><button className="cab-primary" disabled={busy}><CreditCard size={17} /> Перейти к оплате</button><small>Минимальная сумма — {money(minimum)}. После оплаты средства появятся на балансе.</small></form>}
         </div>
-        <section className="cab-panel cab-device"><div><span className="cab-kicker">НАСТОЛЬНОЕ ПРИЛОЖЕНИЕ</span><h2>Подключить агент</h2><p>Откройте «Настройки» в приложении на компьютере и введите код подключения. Код действует 5 минут и подходит для одного входа.</p></div><div className="cab-device-actions">{downloadUrl && <a className="cab-download" href={downloadUrl}><Download size={17} /> Скачать для Windows</a>}<button className="cab-primary" onClick={createDeviceCode} disabled={busy}>Получить код</button></div>{deviceCode && <div className="cab-device-code"><code>{deviceCode}</code><button onClick={copyDeviceCode}>Скопировать</button></div>}</section>
+        <section className="cab-panel cab-device"><div><span className="cab-kicker">НАСТОЛЬНЫЙ АГЕНТ</span><h2>Подключите компьютер</h2><p>Запустите агент и нажмите «Войти через браузер». Подтвердите подключение на сайте. Агент будет работать в трее и выполнять назначенные ему проверки.</p></div><div className="cab-device-actions">{downloadUrl && <a className="cab-download" href={downloadUrl}><Download size={17} /> Скачать для Windows</a>}</div></section>
         {(wallet?.entries.length || !user.is_admin) && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ИСТОРИЯ</span><h2>Операции по балансу</h2></div><button onClick={() => refresh(token)} className="cab-refresh">Обновить</button></div>{wallet?.entries.length ? <div className="cab-list">{wallet.entries.map((entry) => <div className="cab-entry" key={entry.reference}><span className={entry.amount_kopeks > 0 ? "cab-entry-icon in" : "cab-entry-icon out"}>{entry.amount_kopeks > 0 ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}</span><span><b>{entry.kind === "topup" ? "Пополнение" : "Проверка запроса"}</b><small>{new Date(entry.created_at).toLocaleString("ru-RU")}</small></span><strong className={entry.amount_kopeks > 0 ? "positive" : ""}>{entry.amount_kopeks > 0 ? "+" : ""}{money(entry.amount_kopeks)}</strong></div>)}</div> : <p className="cab-empty">Пока нет операций. Пополните баланс, чтобы начать проверки.</p>}</section>}
         <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">СКРИНШОТЫ · 90 ДНЕЙ</span><h2>Снимки проверок</h2></div><button onClick={() => refresh(token)} className="cab-refresh">Обновить</button></div>{screenshots.length ? <><div className="cab-list">{screenshots.slice(0, visibleScreenshots).map((shot) => { const parts = shot.check_id.split(":"); return <div className="cab-entry" key={shot.check_id}><span className="cab-entry-icon out" aria-hidden="true"><ImageIcon size={18} /></span><span><b>Запрос №{parts.at(-2)} · {parts.at(-1)}</b><small>{new Date(shot.created_at).toLocaleString("ru-RU")}</small></span><button className="cab-shot-button" onClick={() => openScreenshot(shot.check_id)}>Открыть</button></div> })}</div>{screenshots.length > visibleScreenshots && <button className="cab-refresh" onClick={() => setVisibleScreenshots((count) => count + 12)}>Показать ещё</button>}</> : <p className="cab-empty">Загруженных снимков пока нет. Снимки остаются в настольном приложении.</p>}{openedScreenshot && <div className="cab-shot-preview"><div className="cab-section-head"><b>Снимок проверки</b><button className="cab-refresh" onClick={() => setOpenedScreenshot(null)}>Закрыть</button></div><img src={openedScreenshot.url} alt="Скриншот ответа ИИ по выбранной проверке" /></div>}</section>
         {payments.some((p) => p.status === "pending") && <p className="cab-pending">Есть незавершённое пополнение. Если вы уже оплатили, нажмите «Обновить» после возврата на сайт.</p>}

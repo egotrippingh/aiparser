@@ -261,14 +261,14 @@ def _record_auth_state(service_id: str, state: str) -> None:
 
 
 async def start_scan(project_id: int, service_ids: list[str], *, resume: bool = True,
-                     headless: bool = False) -> int:
+                     headless: bool = False, managed_job: dict | None = None) -> int:
     async with _scan_start_lock:
         return await _start_scan_unlocked(project_id, service_ids, resume=resume,
-                                          headless=headless)
+                                          headless=headless, managed_job=managed_job)
 
 
 async def _start_scan_unlocked(project_id: int, service_ids: list[str], *, resume: bool,
-                               headless: bool) -> int:
+                               headless: bool, managed_job: dict | None = None) -> int:
     if _active:
         raise ScanAlreadyRunning("Скан уже выполняется — дождитесь завершения или остановите его")
 
@@ -290,15 +290,27 @@ async def _start_scan_unlocked(project_id: int, service_ids: list[str], *, resum
     billing_user = await billing.identity() if billing.enabled() else None
     plan = _plan_for_billing_user(project_id, known, resume,
                                   billing_user["id"] if billing_user else None)
+    if managed_job:
+        previous_id = int(repo.get_setting(f"managed_scan:{managed_job['id']}", "0") or 0)
+        previous = repo.get_scan(previous_id) if previous_id else None
+        plan = {"date": managed_job["date"], "continue_scan_id": previous_id if previous else None,
+                "done_pairs": {(r["query_id"], r["service"]) for r in repo.results_for_scan(previous_id)
+                               if r["status"] in repo.CONCLUSIVE_STATUSES} if previous else set()}
     done_pairs = plan["done_pairs"]
     work = [(svc, q) for svc in known for q in queries if (q["id"], svc) not in done_pairs]
     if not work:
+        if managed_job and plan["continue_scan_id"]:
+            repo.set_scan_status(plan["continue_scan_id"], "done")
+            return plan["continue_scan_id"]
         raise ValueError(f"За {plan['date']} по выбранным сервисам всё уже проверено — нечего досканировать")
 
     snapshot = _settings_snapshot()
     # В снимок настроек скана, а не в отдельный аргумент: так задним числом
     # видно, в каком режиме собирались данные — это важно при разборе капч.
     snapshot["headless"] = headless
+    if managed_job:
+        snapshot.update(cloud_job_id=managed_job["id"], cloud_project_id=managed_job["project_id"],
+                        cloud_query_map=managed_job["query_map"], cloud_queries=managed_job["queries"])
     billing_run_id = ""
     reserved: dict[tuple[int, str], str] = {}
     if billing.enabled():
@@ -313,8 +325,11 @@ async def _start_scan_unlocked(project_id: int, service_ids: list[str], *, resum
             billing_run_id = old_settings.get("billing_run_id") or f"legacy-{old_scan['id']}"
         else:
             billing_run_id = uuid.uuid4().hex
+        if managed_job:
+            billing_run_id = managed_job["id"]
         reserved = {
-            (q["id"], svc): billing.check_id(billing_run_id, q["id"], svc)
+            (q["id"], svc): billing.check_id(billing_run_id,
+                managed_job["query_map"][str(q["id"])] if managed_job else q["id"], svc)
             for svc, q in work
         }
         # Если сеть оборвётся после резервирования, эти записи позволят
@@ -344,6 +359,9 @@ async def _start_scan_unlocked(project_id: int, service_ids: list[str], *, resum
     else:
         try:
             scan_id = repo.create_scan(project_id, known, snapshot)
+            if managed_job:
+                repo._exec("UPDATE scans SET scan_date=? WHERE id=?", (plan["date"], scan_id))
+                repo.set_setting(f"managed_scan:{managed_job['id']}", str(scan_id))
         except Exception:
             if reserved:
                 await billing.release(list(reserved.values()))

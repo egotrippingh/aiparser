@@ -34,6 +34,8 @@ from server.models import (AgentDevice, Check, CloudResult, ScanPreferences, Scr
 from server.security import hash_password, new_token, token_hash, verify_password
 from server.storage import ScreenshotStorage, StorageError
 from server.yandex import YandexError, YandexOAuth
+from server.models import ControlProject, ControlRun, ControlLink, DeviceGrant
+from server.control import register_control
 
 
 class Credentials(BaseModel):
@@ -225,7 +227,7 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         with SessionLocal() as db:
             yield db
 
-    def current_user(authorization: Annotated[str | None, Header()] = None,
+    def current_user(request: Request, authorization: Annotated[str | None, Header()] = None,
                      db: Session = Depends(db_session)) -> User:
         if not authorization or not authorization.startswith("Bearer "):
             raise HTTPException(401, "Войдите в аккаунт")
@@ -240,7 +242,42 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             expires = expires.replace(tzinfo=timezone.utc)
         if expires <= utcnow():
             raise HTTPException(401, "Сессия истекла")
+        grant = db.get(DeviceGrant, session.token_hash)
+        if grant:
+            device = db.scalar(select(AgentDevice).where(AgentDevice.user_id == grant.user_id,
+                                                         AgentDevice.device_id == grant.device_id))
+            if not device or device.revoked:
+                raise HTTPException(401, "Доступ компьютера отозван")
+            allowed = request.url.path.startswith(("/api/v1/control/agent/", "/api/v1/checks/")) or request.url.path in (
+                "/api/v1/me", "/api/v1/wallet", "/api/v1/auth/logout", "/api/v1/agent/results")
+            if not allowed:
+                raise HTTPException(403, "Это действие доступно только на сайте")
+            check_id = request.path_params.get("check_id")
+            if check_id:
+                assigned_check(db, grant, check_id,
+                    live=request.url.path.endswith(("/analyze", "/arbitrate")))
         return db.get(User, session.user_id)
+
+    def assigned_check(db, grant, check_id, *, live=False, new=False):
+        parts = check_id.split(":")
+        run = db.get(ControlRun, parts[0]) if len(parts) == 3 else None
+        if not run:
+            # Existing pre-upgrade checks may still need settlement or screenshots.
+            if not new and db.scalar(select(Check.id).where(Check.user_id == grant.user_id,
+                    Check.client_check_id == check_id)):
+                return
+            raise HTTPException(403, "Проверка не назначена этому компьютеру")
+        snap = json.loads(run.snapshot_json)
+        if (run.user_id != grant.user_id or run.device_id != grant.device_id
+                or parts[1] not in {q["id"] for q in snap["queries"]}
+                or parts[2] not in snap["config"]["services"]):
+            raise HTTPException(403, "Проверка не назначена этому компьютеру")
+        until = run.lease_until
+        if until and until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        if live and (run.state not in ("running", "paused") or run.desired_state == "cancelled"
+                     or not until or until < utcnow()):
+            raise HTTPException(409, "Задание остановлено или связь с агентом потеряна")
 
     def issue_session(db: Session, user: User) -> dict:
         token = new_token()
@@ -250,6 +287,8 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         ))
         db.commit()
         return {"token": token, "user": {"id": user.id, "email": user.email}}
+
+    register_control(app, db_session, current_user, SessionLocal)
 
     @app.get("/api/v1/health")
     def health() -> dict:
@@ -344,9 +383,12 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         return result
 
     @app.post("/api/v1/agent/results")
-    def upload_agent_results(body: CloudResultsIn, user: User = Depends(current_user),
+    def upload_agent_results(body: CloudResultsIn, request: Request, user: User = Depends(current_user),
                              db: Session = Depends(db_session)) -> dict:
         ids = [item.local_result_id for item in body.results]
+        grant = db.get(DeviceGrant, token_hash(request.headers.get("authorization", "")[7:]))
+        if grant and body.device_id != grant.device_id:
+            raise HTTPException(403, "Результаты относятся к другому компьютеру")
         if len(ids) != len(set(ids)):
             raise HTTPException(422, "Результат повторяется в пакете")
         if any(item.status in ("found", "not_found") and not item.check_id for item in body.results):
@@ -368,6 +410,29 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         for item in body.results:
             if item.local_result_id in existing:
                 continue
+            project_id = item.project_id
+            if item.run_id:
+                run = db.get(ControlRun, item.run_id)
+                if not run or run.user_id != user.id or run.device_id != body.device_id or run.project_id != project_id:
+                    raise HTTPException(403, "Результат не соответствует заданию устройства")
+                snap = json.loads(run.snapshot_json)
+                query = next((q for q in snap["queries"] if q["id"] == item.query_id), None)
+                if not query or item.service not in snap["config"]["services"] or query["text"] != item.query_text:
+                    raise HTTPException(422, "Запрос отсутствует в задании")
+                expected_check = f"{run.id}:{item.query_id}:{item.service}"
+                if item.check_id and item.check_id != expected_check:
+                    raise HTTPException(422, "Проверка не соответствует заданию")
+            elif project_id:
+                project_row = db.get(ControlProject, project_id)
+                link = db.scalar(select(ControlLink).where(ControlLink.user_id == user.id,
+                    ControlLink.device_id == body.device_id, ControlLink.local_project_id == item.local_project_id,
+                    ControlLink.project_id == project_id))
+                if not project_row or project_row.user_id != user.id or not link:
+                    raise HTTPException(403, "Проект не принадлежит устройству")
+            else:
+                link = db.scalar(select(ControlLink).where(ControlLink.user_id == user.id,
+                    ControlLink.device_id == body.device_id, ControlLink.local_project_id == item.local_project_id))
+                project_id = link.project_id if link else None
             db.add(CloudResult(
                 user_id=user.id, device_id=body.device_id,
                 local_result_id=item.local_result_id, local_project_id=item.local_project_id,
@@ -377,6 +442,7 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
                 mention_types_json=json.dumps(item.mention_types, ensure_ascii=False),
                 evidence_quote=item.evidence_quote, answer_text=item.answer_text,
                 sources_json=json.dumps(item.sources, ensure_ascii=False), check_id=item.check_id,
+                project_id=project_id, query_id=item.query_id, run_id=item.run_id,
             ))
         db.commit()
         return {"accepted": len(body.results)}
@@ -402,16 +468,24 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
     def report(project: str, days: int = 30, include_cards: bool = True,
                limit: int = 100, offset: int = 0,
                user: User = Depends(current_user), db: Session = Depends(db_session)) -> dict:
-        if not re.fullmatch(r"[a-f0-9]{32}:[1-9]\d*", project):
+        if not re.fullmatch(r"[a-f0-9]{32}(?::[1-9]\d*)?", project):
             raise HTTPException(422, "Неверный проект")
         if not 1 <= days <= 365 or not 1 <= limit <= 200 or offset < 0:
             raise HTTPException(422, "Неверный период или страница отчёта")
-        device_id, project_id_text = project.split(":")
         cutoff = (utcnow().date() - timedelta(days=days - 1)).isoformat()
+        if ":" in project:
+            device_id, project_id_text = project.split(":")
+            project_filter = (CloudResult.device_id == device_id) & (CloudResult.local_project_id == int(project_id_text))
+        else:
+            project_filter = CloudResult.project_id == project
         rows = db.scalars(select(CloudResult).where(
-            CloudResult.user_id == user.id, CloudResult.device_id == device_id,
-            CloudResult.local_project_id == int(project_id_text), CloudResult.scan_date >= cutoff,
+            CloudResult.user_id == user.id, project_filter, CloudResult.scan_date >= cutoff,
         ).order_by(CloudResult.scan_date.desc(), CloudResult.id.desc())).all()
+        # A daily view shows the latest measurement per query and service.
+        picked = {}
+        for row in rows:
+            picked.setdefault((row.query_id or row.query_text, row.service, row.scan_date), row)
+        rows = list(picked.values())
         by_service: dict[str, dict] = {}
         by_date: dict[str, dict] = {}
         found = 0
@@ -793,11 +867,15 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         return {"ok": True}
 
     @app.post("/api/v1/checks/reserve")
-    def reserve(body: ReserveIn, user: User = Depends(current_user),
+    def reserve(body: ReserveIn, request: Request, user: User = Depends(current_user),
                 db: Session = Depends(db_session)) -> dict:
         if os.environ.get("APP_ENV") == "production" and not ai_client:
             raise HTTPException(503, "Серверный анализ не настроен; новые проверки временно недоступны")
         ids = body.check_ids
+        grant = db.get(DeviceGrant, token_hash(request.headers.get("authorization", "")[7:]))
+        if grant:
+            for check_id in ids:
+                assigned_check(db, grant, check_id, live=True, new=True)
         effective_price = 0 if user.is_admin else price
         if len(ids) != len(set(ids)) or any(not 1 <= len(i) <= 100 for i in ids):
             raise HTTPException(422, "Идентификаторы проверок должны быть уникальными")
@@ -988,8 +1066,14 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             raise HTTPException(502, str(exc)) from exc
 
     @app.post("/api/v1/checks/release")
-    def release_checks(body: ReserveIn, user: User = Depends(current_user),
+    def release_checks(body: ReserveIn, request: Request, user: User = Depends(current_user),
                        db: Session = Depends(db_session)) -> dict:
+        grant = db.get(DeviceGrant, token_hash(request.headers.get("authorization", "")[7:]))
+        if grant:
+            for check_id in body.check_ids:
+                # A failed reservation can leave an unknown ID in the durable outbox.
+                if db.scalar(select(Check.id).where(Check.user_id == user.id, Check.client_check_id == check_id)):
+                    assigned_check(db, grant, check_id)
         wallet_row = _locked_wallet(db, user.id)
         checks = db.scalars(
             select(Check).where(Check.user_id == user.id, Check.client_check_id.in_(body.check_ids))
