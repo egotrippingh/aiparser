@@ -105,12 +105,12 @@ function AccountPanel({ account, error, remaining, reload }: {
         </div>
         {useCode ? <form onSubmit={loginCode} className="flex flex-wrap items-end gap-2">
           <label className="min-w-64 flex-1 text-xs">Одноразовый код<Input className="mt-1" autoComplete="off" required value={deviceCode} onChange={(e) => setDeviceCode(e.target.value)} /></label>
-          <Button size="sm" disabled={busy}>Подключить</Button>
+          <Button type="submit" size="sm" disabled={busy}>Подключить</Button>
           <p className="text-muted-foreground w-full text-xs">Войдите через Яндекс в кабинете и скопируйте код в разделе «Подключить приложение».</p>
         </form> : <form onSubmit={login} className="flex flex-wrap items-end gap-2">
           <label className="min-w-40 flex-1 text-xs">Email<Input className="mt-1" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
           <label className="min-w-40 flex-1 text-xs">Пароль<Input className="mt-1" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>
-          <Button size="sm" disabled={busy}>Войти</Button>
+          <Button type="submit" size="sm" disabled={busy}>Войти</Button>
         </form>}
       </div>}
       {account?.cabinet_url && <a className="text-primary text-xs underline underline-offset-2" href={account.cabinet_url} target="_blank" rel="noreferrer">Личный кабинет и пополнение</a>}

@@ -86,8 +86,9 @@ export function AgentSettingsPanel() {
           <Button type="button" size="sm" variant="outline" onClick={() => void refresh().catch((cause) => setError(errText(cause)))}>Обновить баланс</Button>
         </div> : <form onSubmit={connect} className="flex flex-wrap items-end gap-3">
           <label className="min-w-56 flex-1 text-xs">Одноразовый код из кабинета<Input className="mt-1" value={code} onChange={(event) => setCode(event.target.value)} required autoComplete="off" /></label>
-          <Button size="sm" disabled={busy}>Подключить</Button>
+          <Button type="submit" size="sm" disabled={busy}>{busy ? "Подключаем…" : "Подключить"}</Button>
           <p className="text-muted-foreground w-full text-xs">Войдите через Яндекс на сайте и создайте код в разделе «Аккаунт».</p>
+          {error && <p className="text-destructive w-full text-sm" role="alert">{error}</p>}
         </form>}
         {account?.cabinet_url && <a href={account.cabinet_url} target="_blank" rel="noreferrer" className="text-primary inline-flex items-center gap-1 text-xs underline">{account.is_admin ? "Личный кабинет" : "Личный кабинет и пополнение"} <ExternalLink size={13} /></a>}
         {autostart && <label className="flex items-center gap-3 text-sm"><input type="checkbox" className="accent-primary size-4" checked={autostart.enabled} disabled={!autostart.available} onChange={(event) => void changeAutostart(event.target.checked)} /> Запускать агент вместе с Windows</label>}
@@ -102,9 +103,9 @@ export function AgentSettingsPanel() {
         <fieldset><legend className="mb-2 text-sm font-medium">Числа месяца</legend><div className="grid grid-cols-7 gap-1.5 sm:grid-cols-10">{MONTH_DAYS.map((day) => <label key={day} className="cursor-pointer"><input type="checkbox" className="peer sr-only" checked={preferences.month_days.includes(day)} onChange={(event) => setPreferences({ ...preferences, month_days: event.target.checked ? [...preferences.month_days, day].sort((a, b) => a - b) : preferences.month_days.filter((value) => value !== day) })} /><span className="border-input bg-card peer-checked:border-primary peer-checked:bg-primary/20 peer-focus-visible:outline-primary grid h-9 place-items-center rounded-lg border text-xs peer-focus-visible:outline-2">{day}</span></label>)}</div><p className="text-muted-foreground mt-2 text-xs">Если в месяце нет выбранного числа, запуск пропускается. Пропущенная из-за выключенного ПК проверка начнётся при запуске агента в тот же день.</p></fieldset>
         <div className="grid gap-4 sm:grid-cols-2"><label className="text-sm">Браузер<select className="border-input bg-card mt-1 block h-9 w-full rounded-lg border px-2" value={preferences.browser_mode} onChange={(event) => setPreferences({ ...preferences, browser_mode: event.target.value as ScanPreferences["browser_mode"] })}><option value="headless">Без окон</option><option value="headful">С видимыми окнами</option></select></label><label className="text-sm">Скорость<select className="border-input bg-card mt-1 block h-9 w-full rounded-lg border px-2" value={preferences.speed_profile} onChange={(event) => setPreferences({ ...preferences, speed_profile: event.target.value as ScanPreferences["speed_profile"] })}><option value="careful">Осторожная</option><option value="balanced">Сбалансированная</option><option value="fast">Быстрая</option></select></label></div>
         <fieldset><legend className="mb-2 text-sm font-medium">ИИ-сервисы</legend><div className="flex flex-wrap gap-x-5 gap-y-2">{SCAN_SERVICES.map((service) => <label key={service.id} className="flex items-center gap-2 text-sm"><input type="checkbox" className="accent-primary size-4" disabled={"available" in service && !service.available} checked={preferences.services.includes(service.id)} onChange={(event) => setPreferences({ ...preferences, services: event.target.checked ? [...preferences.services, service.id] : preferences.services.filter((id) => id !== service.id) })} />{service.label}</label>)}</div></fieldset>
-        <Button disabled={busy}>{busy ? "Сохраняем…" : "Сохранить настройки"}</Button>
+        <Button type="submit" disabled={busy}>{busy ? "Сохраняем…" : "Сохранить настройки"}</Button>
       </form>
     </Panel>}
-    {error && <p className="text-destructive text-sm" role="alert">{error}</p>}
+    {error && account?.connected && <p className="text-destructive text-sm" role="alert">{error}</p>}
   </div>
 }
