@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState, type FormEvent } from "react"
+import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { CalendarClock, ChevronDown, Monitor, RefreshCw, ScanSearch } from "lucide-react"
 
 import { accountRequest } from "./account-api"
@@ -33,6 +33,7 @@ export function CloudDashboard({ token }: { token: string }) {
   const [saved, setSaved] = useState("")
   const [expanded, setExpanded] = useState<number | null>(null)
   const [preview, setPreview] = useState("")
+  const knownProjectKeys = useRef<Set<string> | null>(null)
 
   const refreshHeader = useCallback(async (includePreferences = false) => {
     const [nextProjects, nextDevices, nextPreferences] = await Promise.all([
@@ -40,11 +41,15 @@ export function CloudDashboard({ token }: { token: string }) {
       accountRequest<AgentDevice[]>("/agent/devices", token),
       includePreferences ? accountRequest<ScanPreferences>("/scan-preferences", token) : Promise.resolve(null),
     ])
+    const added = knownProjectKeys.current
+      ? nextProjects.find((project) => !knownProjectKeys.current!.has(project.key))
+      : null
+    knownProjectKeys.current = new Set(nextProjects.map((project) => project.key))
     setProjects(nextProjects)
     setDevices(nextDevices)
     if (nextPreferences) setPreferences(nextPreferences)
-    setProjectKey((current) => nextProjects.some((project) => project.key === current)
-      ? current : nextProjects[0]?.key || "")
+    setProjectKey((current) => added?.key || (nextProjects.some((project) => project.key === current)
+      ? current : nextProjects[0]?.key || ""))
     setLoaded(true)
   }, [token])
 
@@ -52,7 +57,7 @@ export function CloudDashboard({ token }: { token: string }) {
     refreshHeader(true).catch((cause) => { setError(cause instanceof Error ? cause.message : "Не удалось загрузить дашборд"); setLoaded(true) })
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") refreshHeader().catch(() => undefined)
-    }, 60_000)
+    }, 15_000)
     return () => window.clearInterval(timer)
   }, [refreshHeader])
 
@@ -69,6 +74,14 @@ export function CloudDashboard({ token }: { token: string }) {
     setPreview("")
     refreshReport().catch((cause) => setError(cause instanceof Error ? cause.message : "Не удалось загрузить отчёт"))
   }, [refreshReport])
+
+  useEffect(() => {
+    if (!devices.some((device) => device.active_scan)) return
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") refreshReport().catch(() => undefined)
+    }, 30_000)
+    return () => window.clearInterval(timer)
+  }, [devices, refreshReport])
 
   async function savePreferences(event: FormEvent) {
     event.preventDefault()
@@ -106,7 +119,7 @@ export function CloudDashboard({ token }: { token: string }) {
       {devices.length ? devices.map((device) => <div className="cloud-device" key={device.device_id}>
         <span className={`cloud-status ${device.online ? "online" : ""}`} aria-hidden="true" />
         <Monitor size={18} aria-hidden="true" />
-        <span><strong>{device.name}</strong><small>{device.active_scan ? "Проверка идёт" : device.online ? "Агент на связи" : `Не в сети с ${new Date(device.last_seen_at).toLocaleString("ru-RU")}`}</small></span>
+        <span><strong>{device.name}</strong><small>{device.active_scan ? "Проверка идёт · отчёт обновляется по ходу скана" : device.online ? "Агент на связи" : `Не в сети с ${new Date(device.last_seen_at).toLocaleString("ru-RU")}`}</small></span>
       </div>) : <div className="cloud-device"><span className="cloud-status" aria-hidden="true" /><Monitor size={18} aria-hidden="true" /><span><strong>Агент пока не подключён</strong><small>Подключите приложение кодом в разделе «Аккаунт».</small></span></div>}
       <span className="cloud-next"><CalendarClock size={17} aria-hidden="true" /> {preferences.enabled ? `${preferences.local_time} по времени компьютера · ${preferences.browser_mode === "headless" ? "без окон" : "с окнами"}` : "Расписание выключено"}</span>
     </section>

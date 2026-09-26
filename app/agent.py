@@ -111,18 +111,20 @@ async def run_agent() -> None:
                 if not active:
                     # During a scan all reservations sit in the outbox as
                     # provisional releases. Flushing them early would cancel
-                    # valid checks, so sync only after the controller exits.
+                    # valid checks. Completed results can still be uploaded
+                    # while the scan runs; only recovery and outbox flushing wait.
                     await billing.recover_interrupted_scans()
                     await billing.flush_outbox()
                     try:
                         await billing.flush_screenshot_outbox()
                     except billing.ScreenshotError as exc:
                         log.warning("Отложенная отправка снимков: %s", exc)
-                    user = await billing.identity()
-                    try:
-                        await _sync_results(user["id"], current_device_id)
-                    except billing.BillingError as exc:
-                        log.warning("Отложенная синхронизация отчётов: %s", exc)
+                user = await billing.identity()
+                try:
+                    await _sync_results(user["id"], current_device_id)
+                except billing.BillingError as exc:
+                    log.warning("Отложенная синхронизация отчётов: %s", exc)
+                if not active:
                     await _scheduled_scan(preferences, retry_after)
         except asyncio.CancelledError:
             raise

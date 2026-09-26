@@ -184,6 +184,14 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
 
   const activeCount = active?.length ?? 0
   const running = scan !== null && scan.state !== "finished"
+  useEffect(() => {
+    if (!running) return
+    const timer = window.setInterval(() => {
+      reloadResumable()
+      reloadPlan()
+    }, 30_000)
+    return () => window.clearInterval(timer)
+  }, [running, reloadResumable, reloadPlan])
   const done = (id: string) => plan?.by_service[id]?.done ?? 0
   // За дату уже что-то собрано хоть по одной системе — показываем прогресс
   // по каждой и предлагаем досканировать хвосты.

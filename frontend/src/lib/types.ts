@@ -174,6 +174,7 @@ export type ScanState = "running" | "paused" | "stopping" | "finished"
 
 export interface ScanSnapshot {
   scan_id: number
+  project_id: number
   state: ScanState
   done: number
   total: number
