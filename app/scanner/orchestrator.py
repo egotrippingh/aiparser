@@ -93,6 +93,7 @@ class ScanController:
         # минуты, и когда Google закончит, общий прогноз окажется заниженным.
         # {service: {"done", "total", "started"}} — заполняет _run_scan.
         self.per_service: dict[str, dict] = {}
+        self.completed_pairs: set[tuple[int, str]] = set()
         self.parallel = False
 
         # Своя очередь у каждого подписчика. Раньше очередь была одна на скан,
@@ -141,7 +142,9 @@ class ScanController:
 
     # --- прогресс ---------------------------------------------------------
 
-    def advance(self, service_id: str) -> None:
+    def advance(self, service_id: str, query_id: int | None = None) -> None:
+        if query_id is not None:
+            self.completed_pairs.add((query_id, service_id))
         self.done += 1
         if service_id in self.per_service:
             self.per_service[service_id]["done"] += 1
@@ -192,9 +195,12 @@ class ScanController:
             "state": self.state,
             "current_service": self.current_service,
             "running_services": list(self.running),
+            "parallel": self.parallel,
             "elapsed_sec": int(elapsed),
             "eta_sec": eta,
-            "services": {s: {"done": st["done"], "total": st["total"]} for s, st in self.per_service.items()},
+            "services": {s: {"done": st["done"], "total": st["total"],
+                             "state": st.get("state", "pending"), "error": st.get("error")}
+                         for s, st in self.per_service.items()},
         }
 
 
@@ -436,8 +442,8 @@ async def _run_scan(
     for s in service_ids:
         n = sum(1 for q in queries if (q["id"], s) not in done_pairs)
         if n:
-            ctl.per_service[s] = {"done": 0, "total": n, "started": None}
-    ctl.emit("scan_started", parallel=parallel, **ctl.snapshot())
+            ctl.per_service[s] = {"done": 0, "total": n, "started": None, "state": "pending"}
+    ctl.emit("scan_started", **ctl.snapshot())
 
     failed_services: list[str] = []
 
@@ -450,6 +456,8 @@ async def _run_scan(
         ctl.current_service = service_id
         if service_id in ctl.per_service:
             ctl.per_service[service_id]["started"] = time.time()
+            ctl.per_service[service_id]["state"] = "running"
+        ctl.emit("progress", **ctl.snapshot())
         ctl.emit("service_started", service=service_id,
                  name=services.get(service_id).name, pending=len(pending))
         try:
@@ -465,22 +473,28 @@ async def _run_scan(
                     # Уже записанные результаты и их счётчики не повторяем.
                     log.exception("Сервис %s упал (попытка %s)", service_id, attempt + 1)
                     if attempt == 0 and not ctl.stop_requested:
-                        recorded = {row["query_id"] for row in repo.results_for_scan(ctl.scan_id)
-                                    if row["service"] == service_id}
-                        pending = [q for q in pending if q["id"] not in recorded]
+                        # Старые ошибки дозапуска ещё лежат в results. Они не
+                        # означают, что запрос обработан в текущей попытке.
+                        pending = [q for q in pending
+                                   if (q["id"], service_id) not in ctl.completed_pairs]
                         if not pending:
                             break
                         ctl.emit("service_retry", service=service_id, remaining=len(pending))
                         await asyncio.sleep(1)
                         continue
                     failed_services.append(service_id)
+                    ctl.per_service[service_id].update(state="failed", error=str(exc))
                     ctl.emit("service_error", service=service_id, error=str(exc))
                     break
         finally:
+            st = ctl.per_service[service_id]
+            if st["state"] != "failed":
+                st["state"] = "finished" if st["done"] == st["total"] else "stopped"
             if service_id in ctl.running:
                 ctl.running.remove(service_id)
             ctl.current_service = ctl.running[-1] if ctl.running else None
-        ctl.emit("service_finished", service=service_id)
+            ctl.emit("progress", **ctl.snapshot())
+        ctl.emit("service_finished", service=service_id, state=ctl.per_service[service_id]["state"])
 
     try:
         if parallel:
@@ -568,7 +582,7 @@ async def _run_service(
                 # сервиса, чтобы в таблице было видно «почему пусто», а не дыра.
                 for q in queue:
                     repo.save_result(ctl.scan_id, q["id"], service_id, ready.reason or "error")
-                    ctl.advance(service_id)
+                    ctl.advance(service_id, q["id"])
                 queue = []
                 ctl.emit("service_blocked", service=service_id, reason=ready.reason)
                 return None
@@ -604,7 +618,7 @@ async def _run_service(
 
                 queue.pop(0)
                 done += 1
-                ctl.advance(service_id)
+                ctl.advance(service_id, q["id"])
 
                 if status == "unavailable":
                     strikes += 1
@@ -658,7 +672,7 @@ def _mark_limit_reached(ctl: ScanController, service_id: str, pending: list[dict
             ctl.scan_id, q["id"], service_id, "limit_reached",
             error_message="Лимит тарифа: сервис перестал принимать запросы",
         )
-        ctl.advance(service_id)
+        ctl.advance(service_id, q["id"])
 
     log.warning("Сервис %s упёрся в лимит, пропускаю оставшиеся %s запросов", service_id, len(rest))
     ctl.emit("service_limit", service=service_id, skipped=len(rest))

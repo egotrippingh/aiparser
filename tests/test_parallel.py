@@ -29,6 +29,7 @@ from app import config  # noqa: E402
 
 config.DB_PATH = _tmp / "test.db"
 config.SCREENSHOTS_DIR = _tmp / "shots"
+config.ACCOUNT_URL = ""  # These isolated browser tests never contact a real billing server.
 
 from PIL import Image  # noqa: E402
 
@@ -275,7 +276,10 @@ def test_snapshot_has_per_service_progress():
     ctl = _ctl_with(True, time.time())
     ctl.advance("perplexity")
     snap = ctl.snapshot()
-    assert snap["services"] == {"google_aio": {"done": 10, "total": 20}, "perplexity": {"done": 3, "total": 20}}
+    assert {s: {k: st[k] for k in ("done", "total")} for s, st in snap["services"].items()} == {
+        "google_aio": {"done": 10, "total": 20}, "perplexity": {"done": 3, "total": 20},
+    }
+    assert snap["parallel"] is True
     assert snap["done"] == 13
 
 

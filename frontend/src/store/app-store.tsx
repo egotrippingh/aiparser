@@ -140,7 +140,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       on<{ name: string; pending: number }>("service_started", (e) =>
         pushLog(`→ сервис ${e.name} · запросов: ${e.pending}`),
       )
-      on<{ service: string }>("service_finished", (e) => pushLog(`← сервис ${e.service} завершён`))
+      on<{ service: string; state?: string }>("service_finished", (e) => {
+        const failed = e.state === "failed" || e.state === "stopped"
+        pushLog(`← сервис ${e.service} ${failed ? "остановлен" : "завершён"}`, failed ? "err" : undefined)
+      })
       on<{ service: string; error: string }>("service_error", (e) =>
         pushLog(`сервис ${e.service} упал: ${e.error}`, "err"),
       )

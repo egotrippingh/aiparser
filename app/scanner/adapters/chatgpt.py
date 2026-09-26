@@ -70,11 +70,21 @@ class ChatGPTAdapter:
                 return ReadyState(ok=False, reason="auth_required")
             await dump_debug_html(page, "chatgpt_unknown_session")
             raise AdapterError("ChatGPT: не удалось определить состояние входа")
-        if not await visible(page.locator(_S["input"]).first, 10000):
-            await dump_debug_html(page, "chatgpt_no_composer")
-            raise AdapterError("ChatGPT: вход выполнен, но поле запроса не появилось")
+        await self._wait_for_composer(page)
 
         return ReadyState(ok=True)
+
+    async def _wait_for_composer(self, page) -> None:
+        # SSR сначала показывает #pending-home-input. Это ещё не редактор:
+        # ждём загрузки приложения, включая медленный старт четырёх браузеров.
+        for attempt in range(2):
+            if await visible(page.locator(_S["input"]).first, 60000):
+                return
+            if attempt == 0:
+                log.warning("ChatGPT: редактор не загрузился — обновляю временный чат")
+                await page.goto(_S["temporary_url"], wait_until="domcontentloaded")
+        await dump_debug_html(page, "chatgpt_no_composer")
+        raise AdapterError("ChatGPT: редактор не загрузился после повторного открытия страницы")
 
     async def ask(self, page, query: str, region: str | None, *, speed: float = 1.0) -> None:
         # Новый чат перед каждым запросом: контекст предыдущего не должен
@@ -116,7 +126,7 @@ class ChatGPTAdapter:
         """
         async def fresh():
             await page.goto(_S["temporary_url"], wait_until="domcontentloaded")
-            await visible(page.locator(_S["input"]).first, 20000)
+            await self._wait_for_composer(page)
 
         await fresh()
         temporary_active = page.get_by_role("button", name=re.compile(
