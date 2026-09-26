@@ -146,7 +146,6 @@ function ProjectForm({
     aliases: (project.brand_aliases || []).join("\n"),
     domains: (project.brand_domains || []).join("\n"),
     region_code: project.region_code ?? "",
-    deep_check_depth: String(project.deep_check_depth ?? 0),
     parallel: Boolean(project.parallel_scan),
   })
   const [busy, setBusy] = useState(false)
@@ -182,7 +181,6 @@ function ProjectForm({
         brand_aliases: splitLines(form.aliases),
         brand_domains: splitLines(form.domains),
         region_code: form.region_code.trim() || null,
-        deep_check_depth: Number(form.deep_check_depth) || 0,
         parallel_scan: form.parallel,
       })
       onSaved(updated)
@@ -260,21 +258,6 @@ function ProjectForm({
             placeholder="213"
             value={form.region_code}
             onChange={(e) => setForm((f) => ({ ...f, region_code: e.target.value }))}
-          />
-        </Field>
-
-        <Field
-          label="Глубокая проверка источников"
-          htmlFor="f_deep"
-          hint="Сколько процитированных страниц открывать, 0 — выключено. Если бренда нет в самом ответе, программа заглянет в источники и поищет его там: так ловятся упоминания на сайтах партнёров и перекупщиков. Добавляет около 5 секунд на каждый запрос без упоминания — на базе в 100 запросов это примерно полчаса к прогону."
-        >
-          <Input
-            id="f_deep"
-            type="number"
-            min={0}
-            max={5}
-            value={form.deep_check_depth}
-            onChange={(e) => setForm((f) => ({ ...f, deep_check_depth: e.target.value }))}
           />
         </Field>
 
