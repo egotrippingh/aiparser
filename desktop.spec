@@ -7,6 +7,7 @@ from PyInstaller.utils.hooks import collect_all
 
 root = Path(SPECPATH).resolve()
 datas = [
+    (str(root / "assets" / "airate.ico"), "assets"),
     (str(root / "web"), "web"),
     (str(root / "app" / "db" / "schema.sql"), "app/db"),
     (str(root / "app" / "scanner" / "adapters" / "selectors.json"), "app/scanner/adapters"),
@@ -40,6 +41,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="AI-Mentions",
+    icon=str(root / "assets" / "airate.ico"),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

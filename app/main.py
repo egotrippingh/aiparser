@@ -108,6 +108,12 @@ def main() -> None:
         import urllib.request
         import webview.platforms.winforms
 
+        from PIL import Image
+        with Image.open(config.RESOURCE_DIR / "assets" / "airate.ico") as app_icon:
+            app_icon.load()
+            if not {(16, 16), (32, 32), (256, 256)}.issubset(app_icon.ico.sizes()):
+                raise RuntimeError("В сборке отсутствуют нужные размеры иконки AIRate")
+
         for path in ("/api/meta", "/api/browser/status", "/app/"):
             with urllib.request.urlopen(f"http://{config.HOST}:{config.PORT}{path}", timeout=5) as response:
                 if response.status != 200:
@@ -140,7 +146,7 @@ def main() -> None:
         return
 
     import pystray
-    from PIL import Image, ImageDraw
+    from PIL import Image
 
     browser_mode = "--browser" in sys.argv[1:]
     from app import billing
@@ -152,7 +158,7 @@ def main() -> None:
         import webview
 
         window = webview.create_window(
-            "AI Mentions — агент", url, width=540, height=760,
+            "AIRate — агент", url, width=540, height=760,
             min_size=(430, 600), hidden=background,
         )
 
@@ -172,10 +178,8 @@ def main() -> None:
     elif not background:
         webbrowser.open(url)
 
-    image = Image.new("RGBA", (64, 64), (19, 13, 30, 255))
-    draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((7, 7, 57, 57), radius=15, fill=(135, 82, 213, 255))
-    draw.ellipse((23, 23, 41, 41), fill=(247, 244, 255, 255))
+    with Image.open(config.RESOURCE_DIR / "assets" / "airate.ico") as source:
+        image = source.convert("RGBA")
 
     def open_agent(icon, item) -> None:
         if window is not None:
@@ -215,10 +219,10 @@ def main() -> None:
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Выйти", quit_agent),
     )
-    icon = pystray.Icon("AI Mentions", image, f"AI Mentions · {device_label[0]}"[:127], menu)
+    icon = pystray.Icon("AIRate", image, f"AIRate · {device_label[0]}"[:127], menu)
     def update_label(name: str) -> None:
         device_label[0] = name
-        icon.title = f"AI Mentions · {name}"[:127]
+        icon.title = f"AIRate · {name}"[:127]
         icon.update_menu()
     window_control.set_device_name_callback(update_label)
     if window is not None:

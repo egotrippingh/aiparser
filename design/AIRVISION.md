@@ -21,6 +21,10 @@ Browser automation collects answers from the services' web interfaces. The prima
 
 ## Icon system
 
+### Windows agent
+
+`assets/airate.ico` packages the existing graphite logo in 16, 20, 24, 32, 40, 48, 64, 128 and 256 px sizes with transparency. Regenerate it with `python scripts/build-brand-icon.py` (Pillow format conversion, no visual redesign). `desktop.spec` embeds it in the EXE and bundles it for the tray. Windows WebView uses the executable's embedded icon for its window. The tray tooltip and window title display AIRate; device names remain visible. These changes take effect after the next EXE build; existing EXEs are not modified.
+
 ### Final recoloring prompt (built-in imagegen)
 
 Edit target: attached AIRvision website logo. Recolor and clean this exact icon to match a calm graphite, warm ivory and sand website. Preserve the rounded browser frame, three header dots, two opening quotation marks, two branching nodes and central check badge, proportions and layout. Replace vivid orange everywhere with flat muted sand #e9ad7c. Replace white inner window with solid graphite #1e1f1c. Make the two quotation marks warm ivory #e5e5d8. Make the three header dots graphite #1e1f1c, check mark graphite #1e1f1c, and thin separating ring around badge graphite #1e1f1c. Exterior must be genuinely transparent alpha, no background panel. Flat solid colors, sharp smooth vector-like contours, absolutely no texture, gradients, shadows or glow. Clean stray pixels from original. No text. One icon nearly fills square canvas with only small safe margins, no clipping. This is a production header icon also used at 32px as favicon; prioritize crisp simplified edges and high contrast.
