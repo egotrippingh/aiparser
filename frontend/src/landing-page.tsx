@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 
 import "./landing.css"
+import { SiteFooter } from "./site-footer"
 import { Brand } from "./brand"
 import { ProductPrinciples } from "./product-principles"
 import Scanner from "./components/reactbits/Scanner"
@@ -205,7 +206,7 @@ export function LandingPage() {
         <section className="bottom-cta" aria-labelledby="cta-title"><div className="site-container cta-inner"><div><span className="section-index">НАЧНИТЕ С ВАШИХ ЗАПРОСОВ</span><h2 id="cta-title">Проверьте, что ИИ уже говорит о вашем бренде.</h2></div><a className="button button-primary" href={downloadUrl}>Скачать агент <Download size={18} aria-hidden="true" /></a><ArrowDownRight className="cta-decoration" size={210} strokeWidth={.5} aria-hidden="true" /></div></section>
       </main>
 
-      <footer className="site-footer"><div className="site-container footer-inner"><Brand className="brand" href="#top" /><span>Мониторинг упоминаний бренда в ответах ИИ.</span><a className="back-to-top" href="#top">Наверх ↑</a></div></footer>
+      <SiteFooter />
       <a className="floating-help" href="#faq" aria-label="Частые вопросы"><CircleHelp size={22} aria-hidden="true" /></a>
     </div>
   )

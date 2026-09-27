@@ -4,6 +4,7 @@ import { ArrowDownLeft, ArrowUpRight, CreditCard, Download, Image as ImageIcon, 
 import { ACCOUNT_API as API, COOKIE_SESSION, accountRequest as request } from "./account-api"
 import { ControlCenter } from "./control-center"
 import "./cabinet.css"
+import { SiteFooter } from "./site-footer"
 import { Brand } from "./brand"
 
 const TOKEN_KEY = "aimt.account.token"
@@ -276,6 +277,7 @@ function Cabinet() {
       </>}
       {message && <p className="cab-message" role="status">{message}</p>}
     </main>
+    <SiteFooter />
   </div>
 }
 

@@ -1152,6 +1152,16 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         def favicon() -> FileResponse:
             return FileResponse(web_dir / "favicon.svg")
 
+        @app.get("/terms/", include_in_schema=False)
+        @app.get("/terms", include_in_schema=False)
+        def terms_page() -> FileResponse:
+            return FileResponse(web_dir / "terms" / "index.html", headers={"Cache-Control": "no-cache"})
+
+        @app.get("/privacy/", include_in_schema=False)
+        @app.get("/privacy", include_in_schema=False)
+        def privacy_page() -> FileResponse:
+            return FileResponse(web_dir / "privacy" / "index.html", headers={"Cache-Control": "no-cache"})
+
         @app.get("/cabinet/", include_in_schema=False)
         @app.get("/cabinet", include_in_schema=False)
         def cabinet() -> FileResponse:
