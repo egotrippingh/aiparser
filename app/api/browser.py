@@ -12,7 +12,7 @@ import json
 import logging
 from datetime import datetime
 
-from camoufox.pkgman import camoufox_path
+from app.scanner.browser_install import install_browser
 
 from fastapi import APIRouter, HTTPException
 
@@ -28,6 +28,7 @@ _install_state = {"running": False, "done": False, "error": None, "log": []}
 _login_running: set[str] = set()
 _login_status: dict[str, dict] = {}
 _login_tasks: set[asyncio.Task] = set()
+_install_task: asyncio.Task | None = None
 
 
 def _service_auth(service_id: str) -> dict:
@@ -76,7 +77,7 @@ async def _install() -> None:
     _install_state.update(running=True, done=False, error=None,
                           log=["Скачиваю Camoufox в пользовательский кэш. Это большой файл; подождите..."])
     try:
-        await asyncio.to_thread(camoufox_path, download_if_missing=True)
+        await asyncio.to_thread(install_browser)
         _install_state["log"].append("Camoufox установлен")
     except Exception as exc:
         log.exception("Не удалось скачать Camoufox")
@@ -88,11 +89,13 @@ async def _install() -> None:
 
 @router.post("/install", status_code=202)
 async def install() -> dict:
+    global _install_task
     if _install_state["running"]:
         return {"ok": True, "already_running": True}
     if camoufox_installed():
         return {"ok": True, "already_installed": True}
-    asyncio.create_task(_install())
+    _install_state.update(running=True, done=False, error=None)
+    _install_task = asyncio.create_task(_install())
     return {"ok": True}
 
 

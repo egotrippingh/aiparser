@@ -118,9 +118,11 @@ def main() -> None:
             import asyncio
 
             from camoufox.async_api import AsyncCamoufox
+            from app.scanner.browser_install import browser_executable
 
             async def check_browser() -> None:
-                async with AsyncCamoufox(headless=True, os="windows", geoip=False) as browser:
+                async with AsyncCamoufox(headless=True, os="windows", geoip=False,
+                                        executable_path=browser_executable()) as browser:
                     page = await browser.new_page()
                     await page.goto("about:blank")
                     if page.url != "about:blank":
