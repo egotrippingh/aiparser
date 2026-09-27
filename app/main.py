@@ -159,7 +159,7 @@ def main() -> None:
 
         window = webview.create_window(
             "AIRate — агент", url, width=540, height=760,
-            min_size=(430, 600), hidden=background,
+            min_size=(430, 600), hidden=background, background_color="#1e1f1c",
         )
 
         def on_closing() -> bool:

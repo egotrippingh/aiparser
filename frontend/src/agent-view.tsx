@@ -33,7 +33,7 @@ function Agent(){
     await act("/api/desktop/login/password",{email,password:enteredPassword})
   }
   const problem=error||state?.error||state?.sync_error
-  return <main className="agent-window"><header><a href="#" onClick={e=>e.preventDefault()} className="agent-brand"><span aria-hidden="true">a</span>AI Mentions</a><span>Агент</span></header>
+  return <main className="agent-window"><header><a href="#" onClick={e=>e.preventDefault()} className="agent-brand"><img src="/assets/brand/airvision-icon-graphite.png" alt="" width={36} height={36}/><strong>AIRate</strong></a><span>Агент</span></header>
     {!state?<div className="agent-loading" role="status">Подключаемся…</div>:<>
       <section className="agent-identity"><div className={`agent-status-icon ${state.connected?"connected":""}`}><Monitor size={28}/></div><h1>{state.connected?state.name:"Подключите компьютер"}</h1><p>{state.connected?state.user?.email:"Войдите в аккаунт, чтобы подключить этот компьютер. Проекты и отчёты будут доступны на сайте."}</p></section>
       {!state.connected?<section className="agent-login">

@@ -1,4 +1,4 @@
-/* AIRate: shared website palette. Edit these tokens to recolor landing and cabinet. */
+/* AIRate: shared website palette. Edit these tokens to recolor landing, cabinet and desktop agent. */
 :root {
   --air-bg: #1e1f1c;
   --air-panel: #252622;
@@ -15,6 +15,9 @@
   --air-success: #adc6ae;
   --air-success-bg: #29372b;
   --air-warning: #dfbd86;
+  --air-danger: #edb4a7;
+  --air-danger-bg: #3e2924;
+  --air-danger-line: #956558;
   --air-warning-bg: #3b3328;
   --air-chart-grid: #41443b;
   --air-chart-total: #e9ad7c;
