@@ -4,6 +4,7 @@ import { ArrowDownLeft, ArrowUpRight, CreditCard, Download, Image as ImageIcon, 
 import { ACCOUNT_API as API, COOKIE_SESSION, accountRequest as request } from "./account-api"
 import { ControlCenter } from "./control-center"
 import "./cabinet.css"
+import { Brand } from "./brand"
 
 const TOKEN_KEY = "aimt.account.token"
 const money = (kopeks: number) => new Intl.NumberFormat("ru-RU", {
@@ -15,10 +16,6 @@ type Entry = { amount_kopeks: number; kind: string; reference: string; created_a
 type Wallet = { balance_kopeks: number; reserved_kopeks: number; available_kopeks: number; entries: Entry[] }
 type Payment = { id: string; amount_kopeks: number; method: string; status: string; payment_url: string | null; created_at: string }
 type Screenshot = { check_id: string; size_bytes: number; created_at: string }
-
-function Brand() {
-  return <a className="cab-brand" href="/"><span className="cab-mark" aria-hidden="true"><i /></span>AI Mentions</a>
-}
 
 function Cabinet() {
   const [token, setToken] = useState(() =>
@@ -244,7 +241,7 @@ function Cabinet() {
   }
 
   return <div className={`cabinet ${user && section === "dashboard" ? "cab-workspace" : ""}`}>
-    <header className="cab-header"><div className="cab-container cab-header-inner"><Brand /><span className="cab-header-label">Личный кабинет</span>{user && <nav className="cab-nav" aria-label="Разделы кабинета"><button className={section === "dashboard" ? "active" : ""} onClick={() => setSection("dashboard")}>Рабочее пространство</button><button className={section === "account" ? "active" : ""} onClick={() => setSection("account")}>{user.is_admin ? "Аккаунт" : "Аккаунт и оплата"}</button></nav>}{user && <button className="cab-logout" onClick={logout}><LogOut size={16} /> Выйти</button>}</div></header>
+    <header className="cab-header"><div className="cab-container cab-header-inner"><Brand className="cab-brand" /><span className="cab-header-label">Личный кабинет</span>{user && <nav className="cab-nav" aria-label="Разделы кабинета"><button className={section === "dashboard" ? "active" : ""} onClick={() => setSection("dashboard")}>Рабочее пространство</button><button className={section === "account" ? "active" : ""} onClick={() => setSection("account")}>{user.is_admin ? "Аккаунт" : "Аккаунт и оплата"}</button></nav>}{user && <button className="cab-logout" onClick={logout}><LogOut size={16} /> Выйти</button>}</div></header>
     <main className="cab-container cab-main">
       {checkingSession ? <p role="status">Открываем кабинет…</p> : !user ? <section className="cab-auth-wrap">
         <div className="cab-intro"><span className="cab-kicker">AI MENTIONS / АККАУНТ</span><h1>Проверки под вашим контролем.</h1><p>Смотрите отчёты в браузере, задавайте расписание для агента и пополняйте баланс. Новые результаты синхронизируются с вашим аккаунтом после проверки на компьютере.</p><div className="cab-price-note"><ShieldCheck size={18} /> {money(price)} за запрос в одном ИИ-сервисе</div>{downloadUrl && <p><a className="cab-download" href={downloadUrl}><Download size={17} /> Скачать агент для Windows</a></p>}</div>

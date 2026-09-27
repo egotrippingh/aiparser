@@ -1,0 +1,5 @@
+.air-brand{display:inline-flex;align-items:center;flex-shrink:0;gap:9px;line-height:1;white-space:nowrap}
+.air-brand img{display:block;width:48px;height:48px;object-fit:contain}
+.air-brand>span{font-size:26px;font-weight:800;letter-spacing:-.065em;color:var(--air-text)}
+.cab-header .air-brand>span{font-size:24px}
+@media(max-width:620px){.air-brand img{width:40px;height:40px}.air-brand>span,.cab-header .air-brand>span{font-size:23px}}

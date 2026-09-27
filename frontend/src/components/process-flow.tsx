@@ -26,10 +26,10 @@ function chainAnimation(width: number, height: number, startX: number, endX: num
   const start = [startX, centerY, 0]
   const end = [endX, centerY, 0]
   return {
-    v: "5.7.1", fr: 30, ip: 0, op: 120, w: width, h: height, nm: "AI Mentions process signal", ddd: 0, assets: [],
+    v: "5.7.1", fr: 30, ip: 0, op: 120, w: width, h: height, nm: "AIRvision process signal", ddd: 0, assets: [],
     layers: [
-      dotLayer("Signal", 21, [0.71, 0.47, 1, 1], 100, 1, start, end),
-      dotLayer("Signal halo", 47, [0.71, 0.47, 1, 1], 17, 2, start, end),
+      dotLayer("Signal", 21, [0.91, 0.68, 0.49, 1], 100, 1, start, end),
+      dotLayer("Signal halo", 47, [0.91, 0.68, 0.49, 1], 17, 2, start, end),
     ],
   }
 }

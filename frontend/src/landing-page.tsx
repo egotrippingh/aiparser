@@ -14,24 +14,13 @@ import {
 } from "lucide-react"
 
 import "./landing.css"
+import { Brand } from "./brand"
+import { ProductPrinciples } from "./product-principles"
 import Scanner from "./components/reactbits/Scanner"
 import SpotlightCard from "./components/reactbits/SpotlightCard"
 import { ProcessFlow } from "./components/process-flow"
 
 const APP_URL = import.meta.env.VITE_APP_URL || "/cabinet/"
-
-function Brand() {
-  return (
-    <a className="brand" href="#top" aria-label="AI Mentions, к началу страницы">
-      <span className="brand-mark" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </span>
-      <span>AI Mentions</span>
-    </a>
-  )
-}
 
 const services = ["ChatGPT", "Perplexity", "Алиса AI", "Google AI Overview"]
 
@@ -43,7 +32,7 @@ function ScannerLayer() {
     media.addEventListener("change", update)
     return () => media.removeEventListener("change", update)
   }, [])
-  return <div className="hero-scanner" aria-hidden="true">{!reduced && <Scanner color1="#5b2dce" color2="#d66edb" color3="#8eeaff" speed={0.18} sweepSpeed={0.14} sweepWidth={1.8} scale={1.2} frequency={1.5} ripple={0.26} bandDensity={8} glow={0.24} brightness={1.2} opacity={1} mouseInteraction={false} scanline={false} grain={false} />}</div>
+  return <div className="hero-scanner" aria-hidden="true">{!reduced && <Scanner color1="#827c65" color2="#b4a084" color3="#adb8a0" speed={0.18} sweepSpeed={0.14} sweepWidth={1.8} scale={1.2} frequency={1.5} ripple={0.26} bandDensity={8} glow={0.24} brightness={1.2} opacity={1} mouseInteraction={false} scanline={false} grain={false} />}</div>
 }
 
 // Set either source when demo GIFs are ready. Until then, each slot renders
@@ -54,14 +43,14 @@ function GifWindow({ slot, title, children }: { slot: keyof typeof GIF_SOURCES; 
   const source = GIF_SOURCES[slot]
   return (
     <div className="gif-window" data-gif-slot={slot}>
-      <div className="gif-window-bar"><span className="window-dots"><i /><i /><i /></span><span>{title}</span><span className="window-bar-action">AI Mentions</span></div>
+      <div className="gif-window-bar"><span className="window-dots"><i /><i /><i /></span><span>{title}</span><span className="window-bar-action">AIRvision.ru</span></div>
       {source ? <img src={source} alt={title} loading="lazy" /> : <div className="gif-window-preview">{children}</div>}
     </div>
   )
 }
 
 function InterfaceDemo() {
-  return <div className="interface-demo"><div className="demo-sidebar"><b>AI<br />Mentions</b><span>Обзор</span><span>Запросы</span><span>Скан</span><span>Настройки</span></div><div className="demo-content"><div className="demo-breadcrumb">ПРОЕКТ / СЕВЕР</div><h4>Видимость бренда</h4><div className="demo-chart"><div className="demo-chart-line" /></div><div className="demo-query"><span>Лучшие средства для сухой кожи</span><strong>Найдено</strong></div><div className="demo-query"><span>Уход за чувствительной кожей</span><strong>Найдено</strong></div><div className="demo-query"><span>Что выбрать на каждый день?</span><em>Не найдено</em></div></div></div>
+  return <div className="interface-demo"><div className="demo-sidebar"><b>AIR<br />vision.ru</b><span>Обзор</span><span>Запросы</span><span>Скан</span><span>Настройки</span></div><div className="demo-content"><div className="demo-breadcrumb">ПРОЕКТ / СЕВЕР</div><h4>Видимость бренда</h4><div className="demo-chart"><div className="demo-chart-line" /></div><div className="demo-query"><span>Лучшие средства для сухой кожи</span><strong>Найдено</strong></div><div className="demo-query"><span>Уход за чувствительной кожей</span><strong>Найдено</strong></div><div className="demo-query"><span>Что выбрать на каждый день?</span><em>Не найдено</em></div></div></div>
 }
 
 function ParsingDemo() {
@@ -95,11 +84,11 @@ function ReportPreview() {
             <div className="chart-grid" />
             <svg viewBox="0 0 260 90" preserveAspectRatio="none">
               <defs>
-                <linearGradient id="report-area" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#a879ff" stopOpacity=".24"/><stop offset="1" stopColor="#a879ff" stopOpacity="0"/></linearGradient>
+                <linearGradient id="report-area" x1="0" x2="0" y1="0" y2="1"><stop stopColor="var(--air-accent)" stopOpacity=".24"/><stop offset="1" stopColor="var(--air-accent)" stopOpacity="0"/></linearGradient>
               </defs>
               <path d="M0 76 C28 72 36 68 57 70 S92 48 113 53 S150 38 166 42 S202 20 225 26 S250 11 260 13 V90 H0Z" fill="url(#report-area)" />
-              <path d="M0 76 C28 72 36 68 57 70 S92 48 113 53 S150 38 166 42 S202 20 225 26 S250 11 260 13" fill="none" stroke="#a879ff" strokeWidth="3" strokeLinecap="round" />
-              <circle cx="260" cy="13" r="4.5" fill="#a879ff" stroke="white" strokeWidth="3" />
+              <path d="M0 76 C28 72 36 68 57 70 S92 48 113 53 S150 38 166 42 S202 20 225 26 S250 11 260 13" fill="none" stroke="var(--air-accent)" strokeWidth="3" strokeLinecap="round" />
+              <circle cx="260" cy="13" r="4.5" fill="var(--air-accent)" stroke="white" strokeWidth="3" />
             </svg>
           </div>
         </div>
@@ -135,10 +124,10 @@ export function LandingPage() {
     <div className="landing" id="top">
       <header className="site-header">
         <div className="site-container header-inner">
-          <Brand />
+          <Brand className="brand" href="#top" />
           <nav className="desktop-nav" aria-label="Навигация по странице">
             <a href="#how">Как работает</a>
-            <a href="#signals">Что видно в отчёте</a>
+            <a href="#approach">Наш подход</a>
             <a href="#faq">Вопросы</a>
             <a href={APP_URL}>Личный кабинет</a>
           </nav>
@@ -147,7 +136,7 @@ export function LandingPage() {
             <summary>Меню <ChevronDown size={16} aria-hidden="true" /></summary>
             <nav aria-label="Мобильная навигация">
               <a href="#how">Как работает</a>
-              <a href="#signals">Что видно в отчёте</a>
+              <a href="#approach">Наш подход</a>
               <a href="#faq">Вопросы</a>
               <a href={APP_URL}>Личный кабинет</a>
               {downloadUrl && <a href={downloadUrl}>Скачать агент</a>}
@@ -168,7 +157,7 @@ export function LandingPage() {
                 <a className="button button-primary" href={downloadUrl || APP_URL}>{downloadUrl ? "Скачать агент для Windows" : "Личный кабинет"} {downloadUrl ? <Download size={18} aria-hidden="true" /> : <ArrowUpRight size={18} aria-hidden="true" />}</a>
                 <a className="text-link" href={APP_URL}>Войти в кабинет <ArrowUpRight size={17} aria-hidden="true" /></a>
               </div>
-              <p className="hero-setup">Скачайте агент → войдите в кабинет через Яндекс ID → получите код в разделе «Аккаунт» и введите его в настройках агента.</p>
+              <p className="hero-setup">Установите агент, войдите в аккаунт и подтвердите подключение компьютера. Проектами и проверками управляйте в кабинете.</p>
               <div className="hero-services"><span>ПРОВЕРЯЕМ</span><div>{services.map((name) => <span key={name}>{name}</span>)}</div></div>
             </div>
           </div>
@@ -184,14 +173,16 @@ export function LandingPage() {
             <div className="steps-grid">
               <article className="step-card"><span className="step-number">01</span><div className="step-icon"><ListFilter size={23} strokeWidth={1.8} aria-hidden="true" /></div><h3>Добавьте запросы</h3><p>Укажите бренд, его варианты написания и список вопросов для проверки.</p></article>
               <article className="step-card"><span className="step-number">02</span><div className="step-icon"><ScanSearch size={23} strokeWidth={1.8} aria-hidden="true" /></div><h3>Запустите скан</h3><p>Парсер откроет ИИ-сервисы, задаст вопросы и сохранит ответы по каждой системе.</p></article>
-              <article className="step-card"><span className="step-number">03</span><div className="step-icon"><MessageSquareText size={23} strokeWidth={1.8} aria-hidden="true" /></div><h3>Проверьте контекст</h3><p>Смотрите, где найден бренд: в тексте ответа, ссылке, карточке или на сайте-источнике.</p></article>
+              <article className="step-card"><span className="step-number">03</span><div className="step-icon"><MessageSquareText size={23} strokeWidth={1.8} aria-hidden="true" /></div><h3>Проверьте контекст</h3><p>Смотрите, где найден бренд: в тексте ответа, ссылке или карточке товара. Открывайте сохранённые источники и скриншоты.</p></article>
             </div>
           </div>
         </section>
 
+        <ProductPrinciples />
+
         <section className="showcase-section" aria-labelledby="showcase-title"><div className="site-container"><div className="showcase-heading"><span className="section-index">ВНУТРИ ПРОДУКТА</span><h2 id="showcase-title">Весь путь проверки — перед глазами.</h2><p>Список запросов, ход скана и результаты по каждой ИИ-системе собраны в одном интерфейсе.</p></div><div className="showcase-grid">
-          <SpotlightCard className="media-card" spotlightColor="rgba(162, 108, 255, 0.17)"><div className="media-card-heading"><span>01 / ИНТЕРФЕЙС</span><h3>Все запросы и результаты в одном месте.</h3></div><GifWindow slot="interface" title="Обзор проекта"><InterfaceDemo /></GifWindow><p>Дашборд показывает видимость по запросам и датам. Каждый результат можно открыть и проверить.</p></SpotlightCard>
-          <SpotlightCard className="media-card" spotlightColor="rgba(162, 108, 255, 0.17)"><div className="media-card-heading"><span>02 / ПРОЦЕСС СКАНИРОВАНИЯ</span><h3>Видно, что происходит во время проверки.</h3></div><GifWindow slot="parsing" title="Ход проверки"><ParsingDemo /></GifWindow><p>Парсер показывает прогресс по сервисам и сохраняет ответы по мере выполнения скана.</p></SpotlightCard>
+          <SpotlightCard className="media-card" spotlightColor="rgba(202, 192, 160, 0.08)"><div className="media-card-heading"><span>01 / ИНТЕРФЕЙС</span><h3>Все запросы и результаты в одном месте.</h3></div><GifWindow slot="interface" title="Обзор проекта"><InterfaceDemo /></GifWindow><p>Дашборд показывает видимость по запросам и датам. Каждый результат можно открыть и проверить.</p></SpotlightCard>
+          <SpotlightCard className="media-card" spotlightColor="rgba(202, 192, 160, 0.08)"><div className="media-card-heading"><span>02 / ПРОЦЕСС СКАНИРОВАНИЯ</span><h3>Видно, что происходит во время проверки.</h3></div><GifWindow slot="parsing" title="Ход проверки"><ParsingDemo /></GifWindow><p>Парсер показывает прогресс по сервисам и сохраняет ответы по мере выполнения скана.</p></SpotlightCard>
         </div></div></section>
 
         <section className="signals-section" id="signals" aria-labelledby="signals-title">
@@ -200,14 +191,14 @@ export function LandingPage() {
             <div className="signals-list">
               <article><div className="signal-symbol"><MessageSquareText size={22} aria-hidden="true" /></div><div><span>01 / ПРЯМОЕ УПОМИНАНИЕ</span><h3>В словах ИИ</h3><p>Видно, назвал ли сервис бренд в собственном ответе.</p></div><ArrowUpRight className="signal-arrow" size={18} aria-hidden="true" /></article>
               <article><div className="signal-symbol"><Link2 size={22} aria-hidden="true" /></div><div><span>02 / ССЫЛКА</span><h3>На вашем сайте или вне его</h3><p>Отдельно учитываются ссылки на ваш домен и упоминания в адресах сторонних страниц.</p></div><ArrowUpRight className="signal-arrow" size={18} aria-hidden="true" /></article>
-              <article><div className="signal-symbol"><ListFilter size={22} aria-hidden="true" /></div><div><span>03 / СПОСОБ ПОДСЧЁТА</span><h3>Сравнимые цифры</h3><p>Считайте все упоминания, исключайте внешние площадки или оставляйте только ссылки на свой сайт.</p></div><ArrowUpRight className="signal-arrow" size={18} aria-hidden="true" /></article>
+              <article><div className="signal-symbol"><ListFilter size={22} aria-hidden="true" /></div><div><span>03 / СПОСОБ ПОДСЧЁТА</span><h3>Сравнимые цифры</h3><p>Выбирайте ИИ-системы и даты для сравнения. Карточки товаров можно включать в статистику упоминаемости или исключать из неё.</p></div><ArrowUpRight className="signal-arrow" size={18} aria-hidden="true" /></article>
             </div>
           </div>
         </section>
 
         <section className="history-section" aria-labelledby="history-title">
           <div className="site-container history-layout">
-            <div className="history-visual" aria-hidden="true"><div className="history-axis"><span>ВИДИМОСТЬ</span><span>100%</span><span>50%</span><span>0%</span></div><svg viewBox="0 0 620 270" preserveAspectRatio="none"><path d="M0 232 C72 207 96 210 142 191 S226 206 276 163 S351 168 407 102 S492 133 548 57 S586 47 620 27" fill="none" stroke="#bc91ff" strokeWidth="3"/><path d="M0 232 C72 207 96 210 142 191 S226 206 276 163 S351 168 407 102 S492 133 548 57 S586 47 620 27 V270 H0Z" fill="url(#history-fill)"/><defs><linearGradient id="history-fill" x1="0" x2="0" y1="0" y2="1"><stop stopColor="#9c64fb" stopOpacity=".31"/><stop offset="1" stopColor="#9c64fb" stopOpacity="0"/></linearGradient></defs></svg><div className="history-dates"><span>ПЕРВЫЙ СКАН</span><span>ПОСЛЕДНИЙ СКАН</span></div><div className="history-callout"><ArrowUpRight size={19} /> Изменение видно по датам</div></div>
+            <div className="history-visual" aria-hidden="true"><div className="history-axis"><span>ВИДИМОСТЬ</span><span>100%</span><span>50%</span><span>0%</span></div><svg viewBox="0 0 620 270" preserveAspectRatio="none"><path d="M0 232 C72 207 96 210 142 191 S226 206 276 163 S351 168 407 102 S492 133 548 57 S586 47 620 27" fill="none" stroke="var(--air-accent)" strokeWidth="3"/><path d="M0 232 C72 207 96 210 142 191 S226 206 276 163 S351 168 407 102 S492 133 548 57 S586 47 620 27 V270 H0Z" fill="url(#history-fill)"/><defs><linearGradient id="history-fill" x1="0" x2="0" y1="0" y2="1"><stop stopColor="var(--air-accent)" stopOpacity=".31"/><stop offset="1" stopColor="var(--air-accent)" stopOpacity="0"/></linearGradient></defs></svg><div className="history-dates"><span>ПЕРВЫЙ СКАН</span><span>ПОСЛЕДНИЙ СКАН</span></div><div className="history-callout"><ArrowUpRight size={19} /> Изменение видно по датам</div></div>
             <div className="history-copy"><span className="section-index">03 / ДИНАМИКА</span><h2 id="history-title">Сравнивайте ответы между сканами.</h2><p>Смотрите, в каких запросах бренд появился или пропал. При необходимости выгружайте таблицу упоминаний в Excel.</p><a className="button button-light" href={APP_URL}>Открыть отчёт <ArrowUpRight size={17} aria-hidden="true" /></a></div>
           </div>
         </section>
@@ -216,13 +207,13 @@ export function LandingPage() {
           <details><summary><span>Какие ИИ-системы доступны?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Сейчас работают ChatGPT, Perplexity, Алиса AI и Google AI Overview.</p></details>
           <details><summary><span>Что считается упоминанием?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Отчёт различает бренд в тексте ответа, ссылку на ваш сайт, карточку и упоминания в сторонних источниках. На дашборде можно выбрать, какие типы учитывать.</p></details>
           <details><summary><span>Нужен ли вход в ИИ-сервисы?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Некоторые сервисы могут запросить вход или показать капчу. Парсер работает через браузерные сессии на вашем компьютере.</p></details>
-          <details><summary><span>Где хранятся результаты?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Проекты, результаты и профили браузера хранятся на вашем компьютере. Снимки остаются локально; для проверок сохраняется и приватная копия в облачном хранилище, доступная в кабинете в течение 90 дней. Для распознавания упоминаний текст ответа и снимок передаются через сервер сервиса.</p></details>
+          <details><summary><span>Где хранятся результаты?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Проекты, настройки и отчёты синхронизируются с аккаунтом и доступны в кабинете. Профили браузера остаются на вашем ПК. Приватные копии скриншотов хранятся в облаке 90 дней. Для анализа упоминаний текст ответа и снимок передаются ИИ-моделям через сервер сервиса.</p></details>
         </div></div></section>
 
         <section className="bottom-cta" aria-labelledby="cta-title"><div className="site-container cta-inner"><div><span className="section-index">НАЧНИТЕ С ВАШИХ ЗАПРОСОВ</span><h2 id="cta-title">Проверьте, что ИИ уже говорит о вашем бренде.</h2></div><a className="button button-primary" href={downloadUrl || APP_URL}>{downloadUrl ? "Скачать агент" : "Личный кабинет"} {downloadUrl ? <Download size={18} aria-hidden="true" /> : <ArrowUpRight size={18} aria-hidden="true" />}</a><ArrowDownRight className="cta-decoration" size={210} strokeWidth={.5} aria-hidden="true" /></div></section>
       </main>
 
-      <footer className="site-footer"><div className="site-container footer-inner"><Brand /><span>Мониторинг упоминаний бренда в ответах ИИ.</span><a href="https://github.com/egotrippingh/aiparser" target="_blank" rel="noreferrer">GitHub <ExternalLink size={14} aria-hidden="true" /></a><a className="back-to-top" href="#top">Наверх ↑</a></div></footer>
+      <footer className="site-footer"><div className="site-container footer-inner"><Brand className="brand" href="#top" /><span>Мониторинг упоминаний бренда в ответах ИИ.</span><a href="https://github.com/egotrippingh/aiparser" target="_blank" rel="noreferrer">GitHub <ExternalLink size={14} aria-hidden="true" /></a><a className="back-to-top" href="#top">Наверх ↑</a></div></footer>
       <a className="floating-help" href="#faq" aria-label="Частые вопросы"><CircleHelp size={22} aria-hidden="true" /></a>
     </div>
   )
