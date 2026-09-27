@@ -73,8 +73,8 @@ jobs:
           key="$RUNNER_TEMP/airate-deploy-key"
           hosts="$RUNNER_TEMP/airate-known-hosts"
           trap 'rm -f "$key" "$hosts"' EXIT
-          printf '%s\n' "$DEPLOY_KEY" > "$key"
-          printf '%s\n' "$KNOWN_HOSTS" > "$hosts"
+          printf '%s\n' "$DEPLOY_KEY" | tr -d '\r' > "$key"
+          printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' > "$hosts"
           checksum=$(sha256sum "$RUNNER_TEMP/release.tar.gz" | cut -d ' ' -f 1)
           options=(-i "$key" -o "UserKnownHostsFile=$hosts" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=8)
           ssh "${options[@]}" airate-deploy@193.233.230.118 "upload $GITHUB_SHA $checksum" < "$RUNNER_TEMP/release.tar.gz"
