@@ -1,0 +1,73 @@
+# AIRate delivery
+
+Production: https://airate.tech, VPS 193.233.230.118, Ubuntu 24.04.
+
+## Release a website/API change
+
+1. Work in a feature branch and push it. `Verify and deploy` runs backend tests,
+   frontend tests, a production frontend build and shell syntax checks.
+2. Open a pull request **into `production`**. The `Tests and build` check must
+   pass with the branch up to date. Merge the reviewed change.
+3. The production push runs checks again, then builds a Docker image tagged with
+   the exact commit SHA on a GitHub-hosted runner. The VPS does not need GitHub
+   credentials or a repository checkout to receive releases.
+4. An environment restricted to the production branch supplies the dedicated
+   SSH key and pinned host key. The SSH account accepts only checksum-verified
+   image uploads and deployment commands; it cannot open a shell or forward ports.
+5. The server verifies the archive and image revision, compares migration heads,
+   backs up PostgreSQL and restores that backup into an isolated temporary DB.
+   The live database is never the restore target.
+6. Uvicorn receives SIGTERM and has 150 seconds to finish requests; Docker waits
+   180 seconds. There is a short availability gap during container replacement
+   on this single-server installation. This is not zero-downtime deployment.
+7. Readiness checks query the database, verify the release SHA and check HTTPS.
+   A failed activation restores the previous application image and configuration.
+   The database is never erased or automatically rolled back.
+
+Deployments are serialized (`cancel-in-progress: false` plus a VPS file lock).
+Changing the Alembic head blocks unattended deployment before stopping the app.
+Prepare a separately reviewed, backward-compatible migration for such releases.
+Changes to Compose, Caddy or root-owned delivery scripts also require explicit
+installation on the VPS; application-image delivery does not update these files.
+
+`main` is not the production deployment branch. Feature/main/PR runs receive no
+production environment secrets. Never use `pull_request_target` to build PR code.
+GitHub environment/branch-protection availability for private repositories
+depends on the account plan. Check those controls before changing visibility;
+do not move environment secrets into unrestricted PR jobs as a workaround.
+
+## VPS files and recovery
+
+- `/opt/airate/deploy/.env`: secrets, mode 0600; never in Git or the image.
+- `/usr/local/sbin/airate-ssh-gate`: restricted SSH entry point, root-owned.
+- `/usr/local/sbin/airate-release`: deployment and rollback, root-owned.
+- `/opt/airate/deploy/backups`: latest 30 verified database dumps + checksums.
+- `airate-backup.timer`: daily 03:30 UTC, randomized by up to 10 minutes.
+- `docker compose logs --tail=100 web`: application startup diagnosis.
+- `systemctl status airate-backup.service`: most recent scheduled backup result.
+
+Backups remain on this VPS until a **separate** private backup bucket and its
+credentials are configured. Screenshot storage is not a database backup.
+Application images retain the active and previous images plus recent releases.
+On failed deployments, inspect the Actions log before manually retrying.
+Transport failures after activation can make Actions red while the release is
+already live: compare `/api/v1/ready` with the commit SHA before acting.
+
+For manual rollback, select an existing `airate-web:<SHA>` image, preserve a fresh
+backup, set `AIRATE_IMAGE` and `AIRATE_RELEASE` in the server `.env`, then run
+`docker compose up -d --no-build --no-deps --wait web` and verify `/api/v1/ready`.
+Only do this when the selected image supports the current database schema.
+
+## Windows download
+
+Build on Windows with `scripts/build-exe.ps1 -AccountUrl https://airate.tech`.
+The script builds the frontend, bundles the AIRate icon, runs EXE self-tests,
+removes the self-test database and produces `dist/AI-Mentions-Windows-latest.zip`.
+Check the archive's `account-url.txt` and ensure no user data or `.env` is present.
+Upload to a temporary file in `/opt/airate/deploy/downloads`, compare SHA-256,
+then atomically rename it to `AI-Mentions-Windows-latest.zip`.
+Do not restart the application just to publish a new ZIP.
+
+Public download: https://airate.tech/downloads/AI-Mentions-Windows.zip.
+The homepage uses that stable URL; it never replaces download with account login.
+Windows signing is not configured; this build is unsigned.

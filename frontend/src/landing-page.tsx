@@ -6,7 +6,6 @@ import {
   ChevronDown,
   CircleHelp,
   Download,
-  ExternalLink,
   Link2,
   ListFilter,
   MessageSquareText,
@@ -50,7 +49,7 @@ function GifWindow({ slot, title, children }: { slot: keyof typeof GIF_SOURCES; 
 }
 
 function InterfaceDemo() {
-  return <div className="interface-demo"><div className="demo-sidebar"><b>AIR<br />vision.ru</b><span>Обзор</span><span>Запросы</span><span>Скан</span><span>Настройки</span></div><div className="demo-content"><div className="demo-breadcrumb">ПРОЕКТ / СЕВЕР</div><h4>Видимость бренда</h4><div className="demo-chart"><div className="demo-chart-line" /></div><div className="demo-query"><span>Лучшие средства для сухой кожи</span><strong>Найдено</strong></div><div className="demo-query"><span>Уход за чувствительной кожей</span><strong>Найдено</strong></div><div className="demo-query"><span>Что выбрать на каждый день?</span><em>Не найдено</em></div></div></div>
+  return <div className="interface-demo"><div className="demo-sidebar"><b>AIRate</b><span>Обзор</span><span>Запросы</span><span>Скан</span><span>Настройки</span></div><div className="demo-content"><div className="demo-breadcrumb">ПРОЕКТ / СЕВЕР</div><h4>Видимость бренда</h4><div className="demo-chart"><div className="demo-chart-line" /></div><div className="demo-query"><span>Лучшие средства для сухой кожи</span><strong>Найдено</strong></div><div className="demo-query"><span>Уход за чувствительной кожей</span><strong>Найдено</strong></div><div className="demo-query"><span>Что выбрать на каждый день?</span><em>Не найдено</em></div></div></div>
 }
 
 function ParsingDemo() {
@@ -112,14 +111,7 @@ function ReportPreview() {
 }
 
 export function LandingPage() {
-  const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
-  useEffect(() => {
-    fetch("/api/v1/agent-download")
-      .then((response) => response.ok ? response.json() : null)
-      .then((result: { available?: boolean; url?: string } | null) => {
-        if (result?.available && result.url) setDownloadUrl(result.url)
-      }).catch(() => undefined)
-  }, [])
+  const downloadUrl = "/downloads/AI-Mentions-Windows.zip"
   return (
     <div className="landing" id="top">
       <header className="site-header">
@@ -131,7 +123,7 @@ export function LandingPage() {
             <a href="#faq">Вопросы</a>
             <a href={APP_URL}>Личный кабинет</a>
           </nav>
-          <a className="header-cta" href={downloadUrl || APP_URL}>{downloadUrl ? "Скачать для Windows" : "Личный кабинет"} {downloadUrl ? <Download size={16} aria-hidden="true" /> : <ArrowUpRight size={16} aria-hidden="true" />}</a>
+          <a className="header-cta" href={downloadUrl}>Скачать для Windows <Download size={16} aria-hidden="true" /></a>
           <details className="mobile-nav">
             <summary>Меню <ChevronDown size={16} aria-hidden="true" /></summary>
             <nav aria-label="Мобильная навигация">
@@ -154,7 +146,7 @@ export function LandingPage() {
               <h1 id="hero-title">Смотрите, где ИИ упоминает <span>ваш бренд.</span></h1>
               <p>Проверяйте свои запросы в четырёх ИИ-системах. Сохраняйте ответы, смотрите источник каждого упоминания и сравнивайте видимость по датам.</p>
               <div className="hero-actions">
-                <a className="button button-primary" href={downloadUrl || APP_URL}>{downloadUrl ? "Скачать агент для Windows" : "Личный кабинет"} {downloadUrl ? <Download size={18} aria-hidden="true" /> : <ArrowUpRight size={18} aria-hidden="true" />}</a>
+                <a className="button button-primary" href={downloadUrl}>Скачать агент для Windows <Download size={18} aria-hidden="true" /></a>
                 <a className="text-link" href={APP_URL}>Войти в кабинет <ArrowUpRight size={17} aria-hidden="true" /></a>
               </div>
               <p className="hero-setup">Установите агент, войдите в аккаунт и подтвердите подключение компьютера. Проектами и проверками управляйте в кабинете.</p>
@@ -210,10 +202,10 @@ export function LandingPage() {
           <details><summary><span>Где хранятся результаты?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Проекты, настройки и отчёты синхронизируются с аккаунтом и доступны в кабинете. Профили браузера остаются на вашем ПК. Приватные копии скриншотов хранятся в облаке 90 дней. Для анализа упоминаний текст ответа и снимок передаются ИИ-моделям через сервер сервиса.</p></details>
         </div></div></section>
 
-        <section className="bottom-cta" aria-labelledby="cta-title"><div className="site-container cta-inner"><div><span className="section-index">НАЧНИТЕ С ВАШИХ ЗАПРОСОВ</span><h2 id="cta-title">Проверьте, что ИИ уже говорит о вашем бренде.</h2></div><a className="button button-primary" href={downloadUrl || APP_URL}>{downloadUrl ? "Скачать агент" : "Личный кабинет"} {downloadUrl ? <Download size={18} aria-hidden="true" /> : <ArrowUpRight size={18} aria-hidden="true" />}</a><ArrowDownRight className="cta-decoration" size={210} strokeWidth={.5} aria-hidden="true" /></div></section>
+        <section className="bottom-cta" aria-labelledby="cta-title"><div className="site-container cta-inner"><div><span className="section-index">НАЧНИТЕ С ВАШИХ ЗАПРОСОВ</span><h2 id="cta-title">Проверьте, что ИИ уже говорит о вашем бренде.</h2></div><a className="button button-primary" href={downloadUrl}>Скачать агент <Download size={18} aria-hidden="true" /></a><ArrowDownRight className="cta-decoration" size={210} strokeWidth={.5} aria-hidden="true" /></div></section>
       </main>
 
-      <footer className="site-footer"><div className="site-container footer-inner"><Brand className="brand" href="#top" /><span>Мониторинг упоминаний бренда в ответах ИИ.</span><a href="https://github.com/egotrippingh/aiparser" target="_blank" rel="noreferrer">GitHub <ExternalLink size={14} aria-hidden="true" /></a><a className="back-to-top" href="#top">Наверх ↑</a></div></footer>
+      <footer className="site-footer"><div className="site-container footer-inner"><Brand className="brand" href="#top" /><span>Мониторинг упоминаний бренда в ответах ИИ.</span><a className="back-to-top" href="#top">Наверх ↑</a></div></footer>
       <a className="floating-help" href="#faq" aria-label="Частые вопросы"><CircleHelp size={22} aria-hidden="true" /></a>
     </div>
   )

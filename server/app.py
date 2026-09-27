@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -318,6 +318,15 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
     @app.get("/api/v1/health")
     def health() -> dict:
         return {"ok": True}
+
+    @app.get("/api/v1/ready")
+    def ready() -> dict:
+        try:
+            with SessionLocal() as db:
+                db.execute(text("SELECT 1"))
+        except Exception:
+            raise HTTPException(503, "База данных временно недоступна") from None
+        return {"ok": True, "release": os.environ.get("AIRATE_RELEASE", "local")}
 
     @app.get("/api/v1/pricing")
     def pricing() -> dict:

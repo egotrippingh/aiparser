@@ -1,7 +1,15 @@
+x-logging: &bounded-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *bounded-logging
+    mem_limit: 512m
     environment:
       POSTGRES_DB: aiparser
       POSTGRES_USER: aiparser
@@ -15,15 +23,26 @@ services:
       retries: 10
 
   web:
+    image: ${AIRATE_IMAGE:-airate-web:local}
     build:
       context: ..
       dockerfile: server/Dockerfile
     restart: unless-stopped
+    stop_grace_period: 180s
+    logging: *bounded-logging
+    mem_limit: 896m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/ready', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
     depends_on:
       db:
         condition: service_healthy
     environment:
       APP_ENV: production
+      AIRATE_RELEASE: ${AIRATE_RELEASE:-local}
       DATABASE_URL: postgresql+psycopg://aiparser:${DB_PASSWORD:?Set DB_PASSWORD}@db:5432/aiparser
       PUBLIC_BASE_URL: https://${DOMAIN:?Set DOMAIN}
       COINSO_PROJECT_ID: ${COINSO_PROJECT_ID:-}
@@ -51,6 +70,8 @@ services:
       - ./downloads:/srv/downloads:ro
 
   backup-upload:
+    image: ${AIRATE_IMAGE:-airate-web:local}
+    logging: *bounded-logging
     profiles: ["ops"]
     build:
       context: ..
@@ -67,8 +88,11 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    logging: *bounded-logging
+    mem_limit: 128m
     depends_on:
-      - web
+      web:
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"

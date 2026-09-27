@@ -1,0 +1,12 @@
+[Unit]
+Description=AIRate PostgreSQL backup with restore verification
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/airate/deploy
+ExecStart=/bin/sh /opt/airate/deploy/backup.sh
+UMask=0077
+Nice=10
+IOSchedulingClass=idle

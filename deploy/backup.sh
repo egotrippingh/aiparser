@@ -3,6 +3,8 @@ set -eu
 
 cd "$(dirname "$0")"
 umask 077
+exec 8>/run/airate-backup.lock
+flock -w 300 8
 mkdir -p backups
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 temporary="backups/.aiparser-$stamp-$$.dump"
@@ -26,3 +28,12 @@ if docker compose --profile ops config --format json | grep -q '"BACKUP_S3_BUCKE
 else
   echo "BACKUP_S3_BUCKET is empty; backup exists only on this VPS."
 fi
+
+# Keep the newest 30 verified dumps; never prune before a successful backup.
+python3 - <<'PY'
+from pathlib import Path
+archives = sorted(Path('backups').glob('aiparser-*.dump'), key=lambda p: p.stat().st_mtime, reverse=True)
+for archive in archives[30:]:
+    archive.unlink()
+    archive.with_suffix('.dump.sha256').unlink(missing_ok=True)
+PY
