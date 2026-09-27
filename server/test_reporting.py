@@ -93,3 +93,47 @@ def test_exports_use_all_filtered_rows_and_safe_text(tmp_path):
     assert rows and all(row[1] == 'catalog.test' for row in rows)
     assert all(row[5] == 'Brand' for row in rows)
     assert wb['Внешние источники']['G2'].data_type == 's'
+
+def test_multiple_systems_filter_statistics_matrix_and_exports(tmp_path):
+    client, owner, _, _, project, _, url = seed_report(tmp_path)
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        p = db.get(ControlProject, project['id'])
+        config = json.loads(p.config_json)
+        config['services'] = ['google_aio', 'chatgpt', 'perplexity', 'alice']
+        p.config_json = json.dumps(config)
+        for i, service in enumerate(['perplexity', 'alice'], 20):
+            q = project['queries'][0]
+            db.add(CloudResult(user_id=p.user_id, device_id='a'*32, local_result_id=i, local_project_id=1,
+                project_id=p.id, query_id=q['id'], project_name=p.name, brand_name=p.brand_name,
+                query_text=q['text'], group_tag='Brand', service=service,
+                scan_date='2026-09-02' if service == 'perplexity' else '2026-09-01', status='found',
+                sources_json='["https://external.test/page"]'))
+        db.commit()
+    base = f"/api/v1/control/projects/{project['id']}/mentions"
+    args = {'date_from': '2026-09-01', 'date_to': '2026-09-03', 'services': 'google_aio,chatgpt,alice'}
+    res = client.get(base, headers=owner, params=args)
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data['services'] == ['google_aio', 'chatgpt', 'alice']
+    assert data['available_services'] == ['google_aio', 'chatgpt', 'perplexity', 'alice']
+    assert data['summary']['checked'] == 5 and data['summary']['found'] == 4
+    assert data['summary']['visibility_pct'] == 80
+    assert data['dates'] == ['2026-09-01', '2026-09-03']
+    assert data['timeline'][1]['visibility_pct'] is None
+    assert all('perplexity' not in day['services'] for day in data['timeline'])
+    assert all('perplexity' not in cells for q in data['rows'] for cells in q['cells'].values())
+    compared = client.get(base, headers=owner, params={**args, 'compare':'true'}).json()
+    assert compared['comparison']['from']['checked'] == 3
+    assert compared['comparison']['delta'] == -50
+    for kind in ('mentions', 'sources'):
+        res = client.get(base+'/export/'+kind, headers=owner, params=args)
+        assert res.status_code == 200, res.text
+        wb = load_workbook(io.BytesIO(res.content))
+        assert not any('Perplexity' in str(cell) for ws in wb for row in ws.values for cell in row)
+        assert any('Алиса AI' in str(cell) for ws in wb for row in ws.values for cell in row)
+    for selected in ('', 'invalid', 'google_aio,unknown', 'google_aio,'):
+        assert client.get(base, headers=owner, params={**args,'services':selected}).status_code == 422
+    assert client.get(base, headers=owner, params={**args,'service':'chatgpt'}).status_code == 422
+    single = client.get(base, headers=owner, params={**args,'services':'alice,alice'}).json()
+    assert single['services'] == ['alice'] and single['summary']['checked'] == 1

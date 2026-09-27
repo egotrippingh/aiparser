@@ -118,3 +118,12 @@
 .report-service-col{width:84px}
 @media(min-width:1800px){.report-matrix-scroll{--report-query-width:360px}}
 @media(max-width:760px){.report-matrix-scroll{--report-query-width:200px}}
+
+.report-service-picker{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 20px;font-size:12px;color:var(--cc-muted)}
+.report-service-picker>span{margin-right:4px}
+.report-service-picker .cc-button{color:var(--cc-muted);background:transparent}
+.report-service-picker .cc-button[aria-pressed=true]{color:#eedfff;border-color:#80629f;background:#30233e}
+.report-service-picker .cc-button[aria-pressed=true]:disabled{opacity:1;cursor:default}
+.service-toggle-mark{width:14px;height:14px;display:inline-flex;align-items:center;justify-content:center;border:1px solid currentColor;border-radius:4px;font-size:11px;line-height:1}
+.report-service-picker small{font-size:11px;margin-left:auto}
+@media(max-width:1100px){.report-service-picker small{width:100%;margin:4px 0 0}}

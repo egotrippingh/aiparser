@@ -26,6 +26,7 @@ class ReportOptions(BaseModel):
     compare: bool = False
     include_cards: bool = True
     service: str = Field(default="", max_length=40)
+    services: str | None = Field(default=None, max_length=200)
     group: str | None = Field(default=None, max_length=120)
     search: str = Field(default="", max_length=2000)
     offset: int = Field(default=0, ge=0)
@@ -71,6 +72,18 @@ def collect_report(db, project, options, *, with_sources=False):
         raise HTTPException(422, "Выберите период от 1 до 366 дней, начало не позже конца")
     if options.service and options.service not in SERVICES:
         raise HTTPException(422, "Неизвестная ИИ-система")
+    selected = None
+    if options.services is not None:
+        selected = list(dict.fromkeys(s.strip() for s in options.services.split(",")))
+        if not selected or any(s not in SERVICES for s in selected):
+            raise HTTPException(422, "Выберите хотя бы одну известную ИИ-систему")
+        if options.service:
+            raise HTTPException(422, "Используйте либо service, либо services")
+    elif options.service:
+        selected = [options.service]
+    configured = json.loads(project.config_json).get("services", [])
+    observed = set(db.scalars(select(CloudResult.service).where(*scope).distinct()))
+    available_services = [s for s in SERVICES if s in set(configured) | observed]
     queries = {q["id"]: {"id": q["id"], "text": q["text"], "group_tag": q.get("group_tag", ""), "cells": {}}
                for q in json.loads(project.queries_json)}
     by_text = {q["text"]: q["id"] for q in queries.values()}
@@ -82,7 +95,7 @@ def collect_report(db, project, options, *, with_sources=False):
         columns += [CloudResult.sources_json, CloudResult.evidence_quote]
     measurements = db.scalars(select(CloudResult).options(load_only(*columns)).where(
         *scope, CloudResult.scan_date >= start.isoformat(), CloudResult.scan_date <= end.isoformat(),
-        CloudResult.service.in_([options.service] if options.service else SERVICES))
+        CloudResult.service.in_(selected if selected is not None else SERVICES))
       .order_by(CloudResult.id.desc())).all()
     daily = {}
     for row in measurements:
@@ -93,12 +106,8 @@ def collect_report(db, project, options, *, with_sources=False):
     queries = {key: q for key, q in queries.items()
                if (options.group is None or q["group_tag"] == options.group)
                and options.search.casefold() in q["text"].casefold()}
-    daily = {key: row for key, row in daily.items() if key[0] in queries
-             and (not options.service or row.service == options.service)}
-    configured = json.loads(project.config_json).get("services", [])
-    service_ids = [s for s in SERVICES if s in set(configured) | {key[1] for key in daily}]
-    if options.service:
-        service_ids = [options.service]
+    daily = {key: row for key, row in daily.items() if key[0] in queries}
+    service_ids = [s for s in SERVICES if s in selected] if selected is not None else available_services
     dates = sorted({key[2] for key in daily})
     table_dates = sorted({start.isoformat(), end.isoformat()}) if options.compare else dates
     # Page dates from the most recent measurements, then present each window chronologically.
@@ -122,12 +131,14 @@ def collect_report(db, project, options, *, with_sources=False):
     left, right = comparison["from"]["visibility_pct"], comparison["to"]["visibility_pct"]
     comparison["delta"] = round(right - left, 1) if left is not None and right is not None else None
     return {"date_from": start.isoformat(), "date_to": end.isoformat(), "available_dates": available_dates,
-            "dates": table_dates, "visible_dates": window, "services": service_ids, "groups": group_names,
+            "dates": table_dates, "visible_dates": window, "services": service_ids,
+            "available_services": available_services, "groups": group_names,
             "summary": summary, "comparison": comparison,
             "timeline": [{"date": d, **stats} for d, stats in by_date.items()],
             "total": len(rows), "rows": rows, "measurements": selected_measurements,
             "filters": {"include_cards": options.include_cards, "group": options.group,
-                        "service": options.service, "search": options.search, "compare": options.compare}}
+                        "service": options.service, "services": service_ids,
+                        "search": options.search, "compare": options.compare}}
 
 
 def workbook(report, project, kind):
@@ -209,7 +220,7 @@ def workbook(report, project, kind):
     append(notes, ["Режим", "Сравнение двух дат" if filters["compare"] else "За период"])
     append(notes, ["Карточки товаров", "Учитываются" if filters["include_cards"] else "Исключены из упоминаний"])
     append(notes, ["Группа", "Все группы" if filters["group"] is None else filters["group"] or "Без группы"])
-    append(notes, ["ИИ-система", SERVICES.get(filters["service"], "Все системы")])
+    append(notes, ["ИИ-системы", ", ".join(SERVICES[s] for s in filters["services"])])
     append(notes, ["Поиск", filters["search"]])
     append(notes, ["Упоминаемость", "Доля ответов с упоминанием среди успешных проверок. Ошибки и отсутствие AI-блока не входят в знаменатель."])
     append(notes, ["Внешние источники", "Сохранённые ссылки из ответов ИИ, без доменов бренда. Контекст — фрагмент ответа ИИ, не цитата с внешнего сайта."])
