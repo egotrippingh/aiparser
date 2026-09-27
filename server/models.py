@@ -53,6 +53,7 @@ class OAuthAttempt(Base):
     code_verifier: Mapped[str] = mapped_column(String(128))
     purpose: Mapped[str] = mapped_column(String(12))
     user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    connect_id: Mapped[str | None] = mapped_column(String(32))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -69,6 +70,15 @@ class DeviceCode(Base):
 
     code_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class BrowserLoginTicket(Base):
+    __tablename__ = "browser_login_tickets"
+    ticket_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    parent_hash: Mapped[str] = mapped_column(String(64), index=True)
+    destination: Mapped[str] = mapped_column(String(16))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

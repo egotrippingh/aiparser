@@ -16,7 +16,8 @@ from server.models import Base
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "69338e58324c"
 NEW_TABLES = {"auth_failures", "password_resets", "scan_preferences", "agent_devices", "cloud_results",
-              "control_projects", "control_runs", "control_links", "device_grants", "device_connect"}
+              "control_projects", "control_runs", "control_links", "device_grants", "device_connect",
+              "browser_login_tickets"}
 
 
 def upgrade_database(database_url: str) -> None:
@@ -36,6 +37,8 @@ def upgrade_database(database_url: str) -> None:
                 for name in expected:
                     existing = {column["name"] for column in inspect(connection).get_columns(name)}
                     desired = {column.name for column in Base.metadata.tables[name].columns}
+                    if name == "oauth_attempts":
+                        desired.discard("connect_id")
                     if name == "checks" and existing == desired - {"analysis_json"}:
                         continue
                     if existing != desired:

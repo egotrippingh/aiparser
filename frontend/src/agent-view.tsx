@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { createRoot } from "react-dom/client"
 import { ArrowUpRight, CheckCircle2, LogIn, Monitor, Pause, Play, Settings2 } from "lucide-react"
 import "./agent-view.css"
@@ -20,16 +20,40 @@ function Agent(){
   const [error,setError]=useState("")
   const [busy,setBusy]=useState("")
   const [settings,setSettings]=useState(false)
+  const [passwordForm,setPasswordForm]=useState(false)
+  const [email,setEmail]=useState("")
+  const [password,setPassword]=useState("")
   const refresh=()=>api<State>("/api/desktop/state").then(setState)
   useEffect(()=>{refresh().catch(e=>setError(e.message));const timer=setInterval(()=>refresh().catch(e=>setError(e.message)),state?.browser.installing?1000:4000);return()=>clearInterval(timer)},[state?.browser.installing])
   async function act(path:string,body:unknown={},method?:string){setBusy(path);setError("");try{await api(path,body,method);await refresh()}catch(e){setError(e instanceof Error?e.message:"Ошибка")}finally{setBusy("")}}
+  async function signIn(event: FormEvent){
+    event.preventDefault()
+    const enteredPassword=password
+    setPassword("")
+    await act("/api/desktop/login/password",{email,password:enteredPassword})
+  }
   const problem=error||state?.error||state?.sync_error
   return <main className="agent-window"><header><a href="#" onClick={e=>e.preventDefault()} className="agent-brand"><span aria-hidden="true">a</span>AI Mentions</a><span>Агент</span></header>
     {!state?<div className="agent-loading" role="status">Подключаемся…</div>:<>
-      <section className="agent-identity"><div className={`agent-status-icon ${state.connected?"connected":""}`}><Monitor size={28}/></div><h1>{state.connected?state.name:"Подключите компьютер"}</h1><p>{state.connected?state.user?.email:"Войдите через сайт. Проекты, запросы и отчёты будут доступны в личном кабинете."}</p></section>
-      {!state.connected?<section className="agent-login"><button className="agent-primary" disabled={!!busy||state.login_pending||!state.configured} onClick={()=>act("/api/desktop/login")}><LogIn size={18}/>{state.login_pending?"Ожидаем подтверждение на сайте…":"Войти через браузер"}</button>{!state.configured&&<p>В этой сборке не указан адрес сайта. Скачайте агент из кабинета.</p>}<small>После входа агент свернётся в трей.</small></section>:<>
+      <section className="agent-identity"><div className={`agent-status-icon ${state.connected?"connected":""}`}><Monitor size={28}/></div><h1>{state.connected?state.name:"Подключите компьютер"}</h1><p>{state.connected?state.user?.email:"Войдите в аккаунт, чтобы подключить этот компьютер. Проекты и отчёты будут доступны на сайте."}</p></section>
+      {!state.connected?<section className="agent-login">
+        {state.has_token?<><p role="status">Проверяем подключение к аккаунту…</p><button className="agent-login-alternative" disabled={!!busy} onClick={()=>act("/api/account/logout")}>Войти в другой аккаунт</button></>:<>
+          {state.login_pending?<div className="agent-login-pending"><p role="status">Завершите вход в открывшемся браузере. Компьютер подключится автоматически.</p><button className="agent-login-alternative" disabled={!!busy} onClick={()=>act("/api/desktop/login/cancel")}>Отменить вход</button></div>:<>
+            <button className="agent-primary" disabled={!!busy||!state.configured} onClick={()=>act("/api/desktop/login",{provider:"yandex"})}><span className="agent-yandex-mark" aria-hidden="true">Я</span>Войти через Яндекс</button>
+            <button className="agent-login-browser" disabled={!!busy||!state.configured} onClick={()=>act("/api/desktop/login",{provider:"browser"})}><LogIn size={18}/>Войти через браузер</button>
+            <button className="agent-login-alternative" aria-expanded={passwordForm} disabled={!!busy} onClick={()=>setPasswordForm(!passwordForm)}>{passwordForm?"Скрыть форму":"Войти по email и паролю"}</button>
+            {passwordForm&&<form className="agent-password-form" onSubmit={signIn}>
+              <label>Email<input type="email" autoComplete="username" required maxLength={190} value={email} onChange={e=>setEmail(e.target.value)}/></label>
+              <label>Пароль<input type="password" autoComplete="current-password" required maxLength={256} value={password} onChange={e=>setPassword(e.target.value)}/></label>
+              <button className="agent-primary" disabled={!!busy||!state.configured} type="submit">{busy==="/api/desktop/login/password"?"Подключаем…":"Войти и подключить компьютер"}</button>
+            </form>}
+          </>}
+          {!state.configured&&<p>В этой сборке не указан адрес сайта. Скачайте агент из кабинета.</p>}
+          <small>После входа этот компьютер привяжется к аккаунту, а агент свернётся в трей. Код не нужен.</small>
+        </>}
+      </section>:<>
         <section className="agent-state"><div><span className={`agent-dot ${state.paused?"paused":""}`}/><strong>{state.paused?"Агент на паузе":state.scan?"Проверка выполняется":"Готов к заданиям сайта"}</strong></div><p>{state.scan?`${state.job?.project_name||"Проект"} · ${state.scan.done} / ${state.scan.total} проверок`:state.paused?"Новые задания будут ждать в очереди.":"Можно закрыть окно. Агент продолжит работать в трее."}</p>{state.scan&&<progress value={state.scan.done} max={state.scan.total||1} aria-label="Прогресс проверки"/>}</section>
-        <div className="agent-balance"><span>Баланс аккаунта</span><b>{state.user?.is_admin?"Безлимит":state.wallet?new Intl.NumberFormat("ru-RU",{style:"currency",currency:"RUB"}).format(state.wallet.available_kopeks/100):"Обновляется…"}</b></div>
+        <div className="agent-balance"><span>Баланс аккаунта</span><div><b>{state.user?.is_admin?"Безлимит":state.wallet?new Intl.NumberFormat("ru-RU",{style:"currency",currency:"RUB"}).format(state.wallet.available_kopeks/100):"Обновляется…"}</b><button disabled={!!busy} onClick={()=>act("/api/desktop/cabinet",{destination:"topup"})}>Пополнить</button></div></div>
         <button className="agent-primary" onClick={()=>act("/api/desktop/cabinet")} disabled={!!busy}>Открыть кабинет<ArrowUpRight size={18}/></button>
         <div className="agent-actions"><button onClick={()=>act("/api/desktop/pause",{paused:!state.paused})} disabled={!!busy}>{state.paused?<Play size={16}/>:<Pause size={16}/>} {state.paused?"Продолжить":"Приостановить проверки на этом ПК"}</button><button onClick={()=>act("/api/desktop/hide")} disabled={!!busy}>Свернуть в трей</button></div>
       </>}

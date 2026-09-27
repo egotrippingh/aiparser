@@ -80,11 +80,12 @@ def test_login_limit_persists_in_database(tmp_path, monkeypatch):
 def test_legacy_database_upgrade_preserves_account(tmp_path):
     url = f"sqlite:///{tmp_path / 'legacy.db'}"
     engine = create_engine(url)
+    from server.migrate import NEW_TABLES
     Base.metadata.create_all(engine, tables=[table for table in Base.metadata.tables.values()
-                                          if table.name not in {"auth_failures", "password_resets",
-                                                                "scan_preferences", "agent_devices", "cloud_results"}])
+                                          if table.name not in NEW_TABLES])
     with engine.begin() as connection:
         connection.execute(text("ALTER TABLE checks DROP COLUMN analysis_json"))
+        connection.execute(text("ALTER TABLE oauth_attempts DROP COLUMN connect_id"))
     with Session(engine) as db:
         db.add(User(id="legacy", email="legacy@example.test",
                     password_hash=hash_password("old-password-123")))

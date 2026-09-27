@@ -1,10 +1,14 @@
 export const ACCOUNT_API = (import.meta.env.VITE_ACCOUNT_API_URL || "").replace(/\/$/, "")
 
+export const COOKIE_SESSION = "cookie-session"
+
 export async function accountRequest<T>(path: string, token?: string, body?: unknown, method?: string): Promise<T> {
   const response = await fetch(`${ACCOUNT_API}/api/v1${path}`, {
     method: method || (body === undefined ? "GET" : "POST"),
+    credentials: "include",
     headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      "X-AI-Client": "browser",
+      ...(token && token !== COOKIE_SESSION ? { Authorization: `Bearer ${token}` } : {}),
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
     },
     body: body === undefined ? undefined : JSON.stringify(body),

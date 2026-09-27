@@ -12,7 +12,7 @@ from datetime import timedelta, timezone
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.concurrency import run_in_threadpool
@@ -36,11 +36,14 @@ from server.storage import ScreenshotStorage, StorageError
 from server.yandex import YandexError, YandexOAuth
 from server.models import ControlProject, ControlRun, ControlLink, DeviceGrant
 from server.control import register_control
+from server.device_login import pending_connect, approve_login_connect
+from server.browser_sessions import COOKIE_NAME, request_token, web_session_response, register_browser_login
 
 
 class Credentials(BaseModel):
     email: str = Field(min_length=3, max_length=190)
     password: str = Field(min_length=12, max_length=256)
+    connect_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
 
 
 class TopupIn(BaseModel):
@@ -227,12 +230,24 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         with SessionLocal() as db:
             yield db
 
+    @app.middleware("http")
+    async def browser_session_boundary(request: Request, call_next):
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            browser = request.headers.get("x-ai-client") == "browser"
+            cookie_auth = bool(request.cookies.get(COOKIE_NAME)) and not request.headers.get("authorization")
+            if browser or cookie_auth:
+                origin = request.headers.get("origin")
+                expected = public_base or f"{request.url.scheme}://{request.url.netloc}"
+                if not browser or (origin and origin != expected):
+                    return JSONResponse({"detail": "Недопустимый источник запроса"}, status_code=403)
+        return await call_next(request)
+
     def current_user(request: Request, authorization: Annotated[str | None, Header()] = None,
                      db: Session = Depends(db_session)) -> User:
-        if not authorization or not authorization.startswith("Bearer "):
+        token = request_token(request)
+        if not token:
             raise HTTPException(401, "Войдите в аккаунт")
-        token = authorization[7:]
-        if len(token) > 200:
+        if len(token) > 200 or not token.isascii():
             raise HTTPException(401, "Недействительная сессия")
         session = db.get(SessionToken, token_hash(token))
         if not session:
@@ -249,7 +264,8 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             if not device or device.revoked:
                 raise HTTPException(401, "Доступ компьютера отозван")
             allowed = request.url.path.startswith(("/api/v1/control/agent/", "/api/v1/checks/")) or request.url.path in (
-                "/api/v1/me", "/api/v1/wallet", "/api/v1/auth/logout", "/api/v1/agent/results")
+                "/api/v1/me", "/api/v1/wallet", "/api/v1/auth/logout", "/api/v1/agent/results",
+                "/api/v1/auth/browser-link")
             if not allowed:
                 raise HTTPException(403, "Это действие доступно только на сайте")
             check_id = request.path_params.get("check_id")
@@ -279,16 +295,23 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
                      or not until or until < utcnow()):
             raise HTTPException(409, "Задание остановлено или связь с агентом потеряна")
 
-    def issue_session(db: Session, user: User) -> dict:
+    def issue_session(db: Session, user: User, request: Request = None, response: Response = None) -> dict:
         token = new_token()
         db.add(SessionToken(
             token_hash=token_hash(token), user_id=user.id,
             expires_at=utcnow() + timedelta(days=30),
         ))
         db.commit()
-        return {"token": token, "user": {"id": user.id, "email": user.email}}
+        return web_session_response(request, response,
+            {"token": token, "user": {"id": user.id, "email": user.email}}, secure=cookie_secure)
 
     register_control(app, db_session, current_user, SessionLocal)
+    register_browser_login(app, db_session, current_user, issue_session)
+
+    @app.get("/api/v1/auth/connect/{identifier}")
+    def connect_login_info(identifier: str, response: Response, db: Session = Depends(db_session)):
+        response.headers["Cache-Control"] = "no-store"
+        return {"name": pending_connect(db, identifier).name}
 
     @app.get("/api/v1/health")
     def health() -> dict:
@@ -520,14 +543,14 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         return {"yandex": yandex_client is not None,
                 "password_reset": password_mailer is not None}
 
-    def start_yandex(db: Session, *, purpose: str, user_id: str | None = None) -> tuple[str, str]:
+    def start_yandex(db: Session, *, purpose: str, user_id: str | None = None, connect_id: str | None = None) -> tuple[str, str]:
         if not yandex_client:
             raise HTTPException(503, "Вход через Яндекс ещё не настроен")
         state, verifier = new_token(), new_token()
         db.execute(delete(OAuthAttempt).where(OAuthAttempt.expires_at < utcnow()))
         db.execute(delete(LoginTicket).where(LoginTicket.expires_at < utcnow()))
         db.add(OAuthAttempt(state_hash=token_hash(state), code_verifier=verifier,
-                            purpose=purpose, user_id=user_id,
+                            purpose=purpose, user_id=user_id, connect_id=connect_id,
                             expires_at=utcnow() + timedelta(minutes=10)))
         db.commit()
         return yandex_client.authorize_url(state, verifier), state
@@ -541,7 +564,10 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         source = source_key(request)
         guard_auth(db, "yandex_start", [(source, 30)])
         record_auth(db, "yandex_start", [source])
-        url, state = start_yandex(db, purpose="login")
+        connect_id = request.query_params.get("connect")
+        if connect_id:
+            pending_connect(db, connect_id)
+        url, state = start_yandex(db, purpose="login", connect_id=connect_id)
         response = RedirectResponse(url, status_code=303)
         set_yandex_cookie(response, state)
         return response
@@ -565,6 +591,7 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         if not attempt or expired(attempt.expires_at):
             raise HTTPException(400, "Время входа через Яндекс истекло")
         purpose, link_user_id, verifier = attempt.purpose, attempt.user_id, attempt.code_verifier
+        connect_id = attempt.connect_id
         db.delete(attempt)
         db.commit()  # состояние одноразовое, даже если Яндекс вернёт ошибку
         if error or not code:
@@ -616,6 +643,12 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             user = User(id=uuid.uuid4().hex, email=email, password_hash="external:yandex")
             db.add_all([user, Wallet(user_id=user.id, balance_kopeks=0),
                         OAuthIdentity(provider="yandex", subject=subject, user_id=user.id)])
+        if connect_id:
+            try:
+                approve_login_connect(db, connect_id, user.id)
+            except HTTPException:
+                db.rollback()
+                return oauth_redirect("?auth_error=connect_expired")
         ticket = new_token()
         db.add(LoginTicket(ticket_hash=token_hash(ticket), user_id=user.id,
                            expires_at=utcnow() + timedelta(minutes=1)))
@@ -624,10 +657,10 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         except IntegrityError:
             db.rollback()
             return oauth_redirect("?auth_error=retry")
-        return oauth_redirect(f"#auth_ticket={ticket}")
+        return oauth_redirect(("?agent_connected=1" if connect_id else "") + f"#auth_ticket={ticket}")
 
     @app.post("/api/v1/auth/yandex/exchange")
-    def yandex_exchange(body: TicketIn, request: Request,
+    def yandex_exchange(body: TicketIn, request: Request, response: Response,
                         db: Session = Depends(db_session)) -> dict:
         source = source_key(request)
         guard_auth(db, "ticket", [(source, 20)])
@@ -639,7 +672,7 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         user = db.get(User, ticket.user_id)
         db.delete(ticket)
         db.commit()
-        return issue_session(db, user)
+        return issue_session(db, user, request, response)
 
     @app.post("/api/v1/auth/device/code")
     def device_code(user: User = Depends(current_user), db: Session = Depends(db_session)) -> dict:
@@ -666,7 +699,7 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         return issue_session(db, user)
 
     @app.post("/api/v1/auth/register", status_code=201)
-    def register(body: Credentials, request: Request,
+    def register(body: Credentials, request: Request, response: Response,
                  db: Session = Depends(db_session)) -> dict:
         source = source_key(request)
         guard_auth(db, "register", [(source, 10)])
@@ -680,10 +713,11 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         except IntegrityError as exc:
             db.rollback()
             raise HTTPException(409, "Аккаунт с таким email уже есть") from exc
-        return issue_session(db, user)
+        approve_login_connect(db, body.connect_id, user.id)
+        return {**issue_session(db, user, request, response), "agent_connected": bool(body.connect_id)}
 
     @app.post("/api/v1/auth/login")
-    def login(body: Credentials, request: Request, db: Session = Depends(db_session)) -> dict:
+    def login(body: Credentials, request: Request, response: Response, db: Session = Depends(db_session)) -> dict:
         email = _email(body.email)
         source, account = source_key(request), email_key(email)
         guard_auth(db, "login", [(source, 30), (account, 5)])
@@ -692,7 +726,8 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             record_auth(db, "login", [source, account])
             raise HTTPException(401, "Неверный email или пароль")
         clear_auth_failures(db, "login", account)
-        return issue_session(db, user)
+        approve_login_connect(db, body.connect_id, user.id)
+        return {**issue_session(db, user, request, response), "agent_connected": bool(body.connect_id)}
 
     @app.post("/api/v1/auth/password/request")
     def request_password_reset(body: PasswordResetRequest, request: Request,
@@ -741,10 +776,11 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         return {"ok": True}
 
     @app.post("/api/v1/auth/logout")
-    def logout(user: User = Depends(current_user), db: Session = Depends(db_session),
-               authorization: Annotated[str, Header()] = "") -> dict:
-        db.query(SessionToken).filter_by(token_hash=token_hash(authorization[7:]), user_id=user.id).delete()
+    def logout(request: Request, response: Response, user: User = Depends(current_user),
+               db: Session = Depends(db_session)) -> dict:
+        db.query(SessionToken).filter_by(token_hash=token_hash(request_token(request)), user_id=user.id).delete()
         db.commit()
+        response.delete_cookie(COOKIE_NAME, path="/")
         return {"ok": True}
 
     @app.get("/api/v1/me")

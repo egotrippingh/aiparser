@@ -2,6 +2,7 @@
 import asyncio
 import platform
 import webbrowser
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -16,6 +17,12 @@ router = APIRouter(prefix="/api/desktop")
 login_task = None
 
 
+def connected(token: str, user: dict | None = None):
+    store_token(token)
+    STATE.update(error="", connected=True, user=user, wallet=None)
+    window_control.hide()
+
+
 @router.get("/state")
 def state():
     from app.api.browser import status
@@ -28,16 +35,27 @@ def state():
             "login_pending": bool(login_task and not login_task.done())}
 
 
+class LoginIn(BaseModel):
+    provider: Literal["browser", "yandex"] = "browser"
+
+
 @router.post("/login")
-async def login():
+async def login(body: LoginIn = LoginIn()):
     global login_task
     if not billing.enabled():
         raise HTTPException(503, "Адрес сайта не настроен в этой сборке")
     if login_task and not login_task.done():
         return {"pending": True}
-    response = await billing._request("POST", "/control/connect/start", auth=False,
-        body={"device_id": device_id(), "name": platform.node() or "Windows агент"})
-    webbrowser.open(f"{config.ACCOUNT_URL}{response['path']}")
+    try:
+        response = await billing._request("POST", "/control/connect/start", auth=False,
+            body={"device_id": device_id(), "name": platform.node() or "Windows агент"})
+    except billing.BillingError as exc:
+        raise HTTPException(exc.status_code or 503, str(exc)) from exc
+    target = f"{config.ACCOUNT_URL}{response['path']}"
+    if body.provider == "yandex":
+        target += "&provider=yandex"
+    if not webbrowser.open(target):
+        raise HTTPException(503, "Не удалось открыть браузер по умолчанию")
 
     async def wait_login():
         try:
@@ -45,9 +63,7 @@ async def login():
                 result = await billing._request("POST", "/control/connect/exchange", auth=False,
                     body={"id": response["id"], "secret": response["secret"]})
                 if not result["pending"]:
-                    store_token(result["token"])
-                    STATE["error"] = ""
-                    window_control.hide()
+                    connected(result["token"])
                     return
                 await asyncio.sleep(2)
             STATE["error"] = "Время входа истекло. Нажмите «Войти» ещё раз."
@@ -55,6 +71,47 @@ async def login():
             STATE["error"] = str(exc)
     login_task = asyncio.create_task(wait_login())
     return {"pending": True}
+
+
+class PasswordIn(BaseModel):
+    email: str
+    password: str
+
+
+@router.post("/login/password")
+async def password_login(body: PasswordIn):
+    if login_task and not login_task.done():
+        raise HTTPException(409, "Сначала отмените ожидающий вход через браузер")
+    temporary = None
+    try:
+        result = await billing._request("POST", "/auth/login", auth=False,
+                                        body={"email": body.email, "password": body.password})
+        temporary = result["token"]
+        device = await billing._request("POST", "/control/agent/enroll", bearer=temporary,
+            body={"device_id": device_id(), "name": platform.node() or "Windows агент"})
+        connected(device["token"], result["user"])
+        return {"ok": True}
+    except billing.BillingError as exc:
+        raise HTTPException(exc.status_code or 503, str(exc)) from exc
+    finally:
+        if temporary:
+            try:
+                await billing._request("POST", "/auth/logout", bearer=temporary)
+            except billing.BillingError:
+                pass
+
+
+@router.post("/login/cancel")
+async def cancel_login():
+    global login_task
+    if login_task and not login_task.done():
+        login_task.cancel()
+        try:
+            await login_task
+        except asyncio.CancelledError:
+            pass
+    login_task = None
+    return {"ok": True}
 
 
 class PauseIn(BaseModel):
@@ -75,9 +132,18 @@ def hide():
     return {"hidden": window_control.hide()}
 
 
+class CabinetIn(BaseModel):
+    destination: Literal["cabinet", "topup"] = "cabinet"
+
+
 @router.post("/cabinet")
-def cabinet():
+async def cabinet(body: CabinetIn = CabinetIn()):
     if not billing.enabled():
         raise HTTPException(503, "Адрес сайта не настроен")
-    webbrowser.open(f"{config.ACCOUNT_URL}/cabinet/")
+    try:
+        url = await billing.browser_url(body.destination)
+    except billing.BillingError as exc:
+        raise HTTPException(exc.status_code or 503, str(exc)) from exc
+    if not webbrowser.open(url):
+        raise HTTPException(503, "Не удалось открыть браузер по умолчанию")
     return {"ok": True}

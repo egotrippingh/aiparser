@@ -46,4 +46,6 @@ async def account_login_code(body: DeviceCode) -> dict:
 @router.post("/logout")
 async def account_logout() -> dict:
     await billing.logout()
+    from app.control_agent import STATE
+    STATE.update(connected=False, user=None, wallet=None, error="")
     return {"enabled": billing.enabled(), "connected": False}

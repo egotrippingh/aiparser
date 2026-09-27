@@ -16,7 +16,9 @@ _screenshot_retry_after = 0.0
 
 
 class BillingError(RuntimeError):
-    pass
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class ScreenshotError(RuntimeError):
@@ -36,10 +38,10 @@ def check_id(run_id: str, query_id: int, service: str) -> str:
 
 
 async def _request(method: str, path: str, *, body: dict | None = None,
-                   auth: bool = True, timeout: float = 20) -> dict:
+                   auth: bool = True, timeout: float = 20, bearer: str | None = None) -> dict:
     if not enabled():
         raise BillingError("Этот выпуск приложения не подключён к личному кабинету")
-    key = token() if auth else ""
+    key = (bearer if bearer is not None else token()) if auth else ""
     if auth and not key:
         raise BillingError("Войдите в аккаунт перед запуском скана")
     headers = {"Authorization": f"Bearer {key}"} if key else {}
@@ -54,8 +56,18 @@ async def _request(method: str, path: str, *, body: dict | None = None,
             detail = response.json().get("detail")
         except ValueError:
             detail = None
-        raise BillingError(str(detail or f"Ошибка сервера оплаты: HTTP {response.status_code}"))
+        raise BillingError(str(detail or f"Ошибка сервера оплаты: HTTP {response.status_code}"), response.status_code)
     return response.json()
+
+
+async def browser_url(destination: str = "cabinet") -> str:
+    if not token():
+        return f"{config.ACCOUNT_URL}/cabinet/" + ("#/topup" if destination == "topup" else "")
+    result = await _request("POST", "/auth/browser-link", body={"destination": destination})
+    path = result.get("path", "")
+    if not path.startswith("/cabinet/#browser_ticket="):
+        raise BillingError("Сервер вернул некорректную ссылку входа")
+    return f"{config.ACCOUNT_URL}{path}"
 
 
 async def login(email: str, password: str) -> dict:

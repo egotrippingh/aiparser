@@ -221,6 +221,15 @@ async def run_agent():
             except Exception as exc:
                 STATE["error"] = str(exc)
                 log.warning("Control sync failed: %s", exc)
+                if isinstance(exc, billing.BillingError) and exc.status_code == 401:
+                    repo.set_setting(billing.TOKEN_KEY, None, is_secret=True)
+                    repo.set_setting("control_token", None)
+                    STATE.update(connected=False, user=None, wallet=None,
+                                 error="Сессия истекла или доступ отозван. Войдите заново.")
+                    ctl = orchestrator.active_controller()
+                    if ctl:
+                        ctl.stop()
+                    window_control.focus()
                 if time.monotonic() - last_ok > 90:
                     STATE["connected"] = False
                     ctl = orchestrator.active_controller()

@@ -5,7 +5,7 @@
 показывается одним из двух способов:
 
 * Windows-сборка показывает окно WebView2, а при закрытии скрывает его в трее;
-* с ключом ``--background`` агент запускается со скрытым окном;
+* подключённый агент запускается в трее, без аккаунта всегда показывает вход;
 * с ключом ``--browser`` интерфейс открывается в обычном браузере.
 """
 
@@ -143,9 +143,9 @@ def main() -> None:
     from PIL import Image, ImageDraw
 
     browser_mode = "--browser" in sys.argv[1:]
-    background = "--background" in sys.argv[1:]
     from app import billing
-    background = background or bool(billing.token())
+    # First run always opens login, including Windows autostart with --background.
+    background = bool(billing.token())
     window = None
     exiting = False
     if not browser_mode:
@@ -165,6 +165,10 @@ def main() -> None:
         window.events.closing += on_closing
         window_control.set_focus(window.show)
         window_control.set_hide(window.hide)
+        def show_login_if_needed():
+            if not billing.token():
+                window.show()
+        window.events.loaded += show_login_if_needed
     elif not background:
         webbrowser.open(url)
 
@@ -181,7 +185,15 @@ def main() -> None:
 
     def open_account(icon, item) -> None:
         if config.ACCOUNT_URL:
-            webbrowser.open(f"{config.ACCOUNT_URL}/cabinet/")
+            def open_in_browser():
+                import asyncio
+                try:
+                    webbrowser.open(asyncio.run(billing.browser_url()))
+                except billing.BillingError as exc:
+                    from app.control_agent import STATE
+                    STATE["error"] = str(exc)
+                    open_agent(icon, item)
+            threading.Thread(target=open_in_browser, daemon=True).start()
 
     def quit_agent(icon, item) -> None:
         nonlocal exiting
