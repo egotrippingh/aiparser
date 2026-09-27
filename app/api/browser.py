@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime
 
 from camoufox.pkgman import camoufox_path
 
@@ -25,6 +26,8 @@ log = logging.getLogger("aiparser.api.browser")
 
 _install_state = {"running": False, "done": False, "error": None, "log": []}
 _login_running: set[str] = set()
+_login_status: dict[str, dict] = {}
+_login_tasks: set[asyncio.Task] = set()
 
 
 def _service_auth(service_id: str) -> dict:
@@ -52,6 +55,9 @@ def _service_auth(service_id: str) -> dict:
         "last_scan_state": last_state,
         "last_scan_at": last_at,
         "login_open": service_id in _login_running,
+        "login_state": _login_status.get(service_id, {}).get("state", "idle"),
+        "login_error": _login_status.get(service_id, {}).get("error"),
+        "last_login_at": repo.get_setting(f"login_completed:{service_id}"),
     }
 
 
@@ -98,24 +104,43 @@ def install_log() -> dict:
 @router.post("/services/{service_id}/login", status_code=202)
 async def login(service_id: str) -> dict:
     from app.scanner import orchestrator
-    if orchestrator.active_controller():
-        raise HTTPException(409, "Сначала остановите проверку на сайте, затем откройте вход")
     try:
         info = services.get(service_id)
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
 
-    if service_id in _login_running:
-        return {"ok": True, "already_open": True}
+    async with orchestrator.scan_start_lock():
+        if orchestrator.active_controller():
+            raise HTTPException(409, "Сначала остановите проверку на сайте, затем откройте вход")
+        if service_id in _login_running:
+            return {"ok": True, "already_open": True}
+        if not camoufox_installed():
+            raise HTTPException(409, "Сначала установите браузер агента")
+        # Reserve before responding: double clicks and the worker see it immediately.
+        _login_running.add(service_id)
+        _login_status[service_id] = {"state": "starting", "error": None}
 
     async def _run():
-        _login_running.add(service_id)
         try:
-            await open_login_window(service_id, info.login_url)
-        except Exception:
+            def opened():
+                _login_status[service_id]["state"] = "open"
+            def navigation_error(message):
+                _login_status[service_id]["error"] = message
+            await open_login_window(service_id, info.login_url, on_open=opened,
+                                    on_navigation_error=navigation_error)
+            _login_status[service_id] = {"state": "closed", "error": None}
+            # Cookies prove a saved session, not that the next scan will succeed.
+            if cookie_auth_state(service_id)["state"] == "ok":
+                repo.set_setting(f"login_completed:{service_id}", datetime.now().isoformat(timespec="seconds"))
+        except Exception as exc:
+            message = str(exc).split("\n", 1)[0][:250]
+            _login_status[service_id] = {"state": "error", "error":
+                f"Не удалось открыть браузер. {message or type(exc).__name__}. Попробуйте ещё раз."}
             log.exception("Окно логина для %s закрылось с ошибкой", service_id)
         finally:
             _login_running.discard(service_id)
 
-    asyncio.create_task(_run())
+    task = asyncio.create_task(_run())
+    _login_tasks.add(task)
+    task.add_done_callback(_login_tasks.discard)
     return {"ok": True}

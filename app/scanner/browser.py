@@ -113,6 +113,9 @@ async def service_context(service_id: str, *, window: tuple[int, int] = (1360, 9
         )
 
     profile = config.profile_dir(service_id)
+    lock = profile / "parent.lock"
+    if lock.exists() and not _lock_is_free(lock):
+        raise BrowserUnavailable("Профиль занят другим окном. Закройте браузер этого ИИ-сервиса и повторите вход")
     log.info("launching camoufox for %s (profile=%s)", service_id, profile)
 
     global _geoip_works
@@ -270,7 +273,8 @@ async def open_captcha_window(service_id: str, url: str, timeout: float = 900) -
         return False
 
 
-async def open_login_window(service_id: str, login_url: str) -> None:
+async def open_login_window(service_id: str, login_url: str, *, on_open=None,
+                            on_navigation_error=None) -> None:
     """Открывает окно на странице логина и ждёт, пока пользователь его не закроет.
 
     Закрытие окна — единственный сигнал готовности, который не зависит от
@@ -284,26 +288,26 @@ async def open_login_window(service_id: str, login_url: str) -> None:
     пережившие оба этих шага, — от них страхует `_ensure_profile_released`
     внутри `service_context`, который прибивает зависшее принудительно.
     """
-    entered = False
-    try:
-        async with service_context(service_id) as context:
-            entered = True
-            page = context.pages[0] if context.pages else await context.new_page()
-            await page.goto(login_url, wait_until="domcontentloaded")
-            try:
-                await page.wait_for_event("close", timeout=0)
-            except Exception:
-                pass
-            try:
-                await context.close()
-            except Exception:
-                pass
-    except Exception:
-        if not entered:
-            # Браузер не запустился вообще (не установлен, сбой Camoufox) —
-            # это настоящая ошибка, её нужно показать пользователю, а не
-            # проглатывать молча.
-            raise
-        # Штатный путь: закрытие контекста при выходе из `async with` уже
-        # само по себе закрыто явным вызовом выше — сюда попадает разве что
-        # повторная попытка закрыть уже закрытый контекст в __aexit__.
+    async with service_context(service_id) as context:
+        closed = asyncio.Event()
+        context.on("close", lambda *_: closed.set())
+        def watch(page):
+            def page_closed(*_):
+                if not any(not p.is_closed() for p in context.pages):
+                    closed.set()
+            page.on("close", page_closed)
+        context.on("page", watch)
+        for existing in context.pages:
+            watch(existing)
+        page = context.pages[0] if context.pages else await context.new_page()
+        if on_open:
+            on_open()
+        try:
+            await page.goto(login_url, wait_until="domcontentloaded", timeout=30000)
+        except Exception:
+            if not closed.is_set():
+                log.warning("%s: страница входа не загрузилась; оставляю окно открытым", service_id)
+                if on_navigation_error:
+                    on_navigation_error("Страница не загрузилась. Проверьте соединение или VPN и обновите её в открытом окне.")
+        # A network failure must not close the window underneath the user.
+        await closed.wait()

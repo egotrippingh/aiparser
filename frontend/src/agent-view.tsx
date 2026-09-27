@@ -2,12 +2,13 @@ import { useEffect, useState } from "react"
 import { createRoot } from "react-dom/client"
 import { ArrowUpRight, CheckCircle2, LogIn, Monitor, Pause, Play, Settings2 } from "lucide-react"
 import "./agent-view.css"
+import { sessionLabel, type ServiceSession } from "./lib/service-auth"
 
 type State = { configured: boolean; connected: boolean; has_token: boolean; name: string; error: string; sync_error?: string;
   login_pending: boolean; paused: boolean; last_sync: string | null; user?: {email:string;is_admin?:boolean};
   wallet?: {available_kopeks:number}; autostart: {available:boolean;enabled:boolean};
   scan: {done:number;total:number}|null; job?: {project_name:string}|null;
-  browser: {installed:boolean;installing:boolean;install_error:string|null;services:Record<string,{cookie_state:string;last_scan_state:string|null;login_open:boolean}>} }
+  browser: {installed:boolean;installing:boolean;install_error:string|null;services:Record<string,ServiceSession>} }
 const services: Record<string,string> = {google_aio:"Google AI Overview",chatgpt:"ChatGPT",perplexity:"Perplexity",alice:"Алиса AI"}
 async function api<T>(path:string,body?:unknown,method?:string):Promise<T>{
   const r=await fetch(path,{method:method||(body===undefined?"GET":"POST"),headers:body===undefined?{}:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)})
@@ -36,7 +37,8 @@ function Agent(){
         <label><input type="checkbox" disabled={!state.autostart.available||!!busy} checked={state.autostart.enabled} onChange={e=>act("/api/agent/autostart",{enabled:e.target.checked},"PUT")}/>Запускать вместе с Windows</label>
         {!state.browser.installed?<div><p>Для проверок нужен браузер агента.</p><button onClick={()=>act("/api/browser/install")} disabled={state.browser.installing||!!busy}>{state.browser.installing?"Устанавливается…":"Установить браузер"}</button>{state.browser.install_error&&<p role="alert">{state.browser.install_error}</p>}</div>:<>
           <h2>Сессии ИИ-сервисов</h2><p>Войдите в нужные сервисы на этом компьютере. После входа закройте окно браузера.</p>
-          {Object.entries(services).map(([id,name])=>{const s=state.browser.services[id];return <div className="agent-service" key={id}><div><b>{name}</b><small>{s?.login_open?"Открыто окно входа":s?.last_scan_state==="auth_required"?"Нужен вход":s?.last_scan_state==="ok"?"Вход проверен":"Состояние уточнится при проверке"}</small></div><button disabled={!!state.scan||!!busy||s?.login_open} onClick={()=>act(`/api/browser/services/${id}/login`)}>Войти</button></div>})}
+          {Object.entries(services).map(([id,name])=>{const s=state.browser.services[id];const starting=busy===`/api/browser/services/${id}/login`||s?.login_state==="starting";return <div className="agent-service" key={id}><div><b>{name}</b><small role="status">{starting?"Открываем браузер…":sessionLabel(s)}</small>{s?.login_error&&<p className="agent-error" role="alert">{s.login_error}</p>}</div><button aria-label={`Открыть вход: ${name}`} disabled={!!state.scan||!!busy||s?.login_open} onClick={()=>act(`/api/browser/services/${id}/login`)}>{starting?"Открываем…":s?.login_open?"Окно открыто":s?.login_state==="error"?"Повторить":"Войти"}</button></div>})}
+          <p>Сохранённая сессия проверяется сервисом при следующем скане. Если окно не видно, проверьте панель задач Windows.</p>
           {state.scan&&<p>Чтобы войти заново, сначала остановите проверку на сайте.</p>}
         </>}
         {state.has_token&&<button className="agent-signout" disabled={!!state.scan||!!busy} onClick={()=>act("/api/account/logout")}>Отключить аккаунт</button>}

@@ -75,6 +75,11 @@ def _free_local_port() -> int:
 
 
 def main() -> None:
+    from logging.handlers import RotatingFileHandler
+    handler = RotatingFileHandler(config.DATA_DIR / "agent.log", maxBytes=2_000_000,
+                                  backupCount=2, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logging.getLogger().addHandler(handler)
     log.info("Каталог данных: %s (portable=%s)", config.DATA_DIR, config.PORTABLE)
 
     # Use predictable fallback ports so a second launch can find the first
@@ -120,6 +125,13 @@ def main() -> None:
                     await page.goto("about:blank")
                     if page.url != "about:blank":
                         raise RuntimeError("Camoufox не открыл тестовую страницу")
+                # The login path uses a visible persistent profile and GeoIP;
+                # the disposable headless browser alone does not cover it.
+                from app.scanner.browser import service_context
+                async with service_context("self-test-login", headless=False) as context:
+                    page = context.pages[0] if context.pages else await context.new_page()
+                    await page.goto("about:blank")
+                    log.info("Проверка видимого окна входа прошла")
 
             asyncio.run(check_browser())
         log.info("Проверка настольного приложения прошла")

@@ -4,13 +4,14 @@ import { accountRequest as request } from "./account-api"
 import { SCAN_SERVICES, MONTH_DAYS } from "./lib/scan-preferences"
 import { ReportView } from "./report-view"
 import { parseQueryImport } from "./query-import"
+import { sessionLabel, type ServiceSession } from "./lib/service-auth"
 import "./control-center.css"
 
 type Query = { id: string; text: string; group_tag: string; active: boolean }
 type Config = { brand_aliases: string[]; brand_domains: string[]; region_code: string; services: string[]; browser_mode: string; speed_profile: string; parallel: boolean }
 type Schedule = { enabled: boolean; device_id: string | null; month_days: number[]; time: string; timezone: string }
 type Project = { id: string; revision: number; name: string; brand_name: string; device_id: string | null; config: Config; schedule: Schedule; queries: Query[]; query_count: number; active_queries: number }
-type Device = { device_id: string; name: string; online: boolean; revoked: boolean; last_seen_at: string; capabilities: { installed?: boolean; paused?: boolean; active_scan?: boolean; services?: Record<string, { cookie_state: string; last_scan_state: string | null }> } }
+type Device = { device_id: string; name: string; online: boolean; revoked: boolean; last_seen_at: string; capabilities: { installed?: boolean; paused?: boolean; active_scan?: boolean; services?: Record<string, ServiceSession> } }
 type Run = { id: string; project_id: string; project_name: string; device_id: string; device_name: string; state: string; desired_state: string; error: string | null; total: number; created_at: string; scheduled_for: string | null; progress: { done?: number; total?: number; services?: Record<string, {done:number; total:number; state?:string; error?:string}> } }
 const uuid = () => crypto.randomUUID().replaceAll("-", "")
 const names: Record<string, string> = { queued: "В очереди", waiting_device: "Ожидает компьютер", running: "Выполняется", paused: "На паузе", connection_lost: "Нет связи с компьютером", done: "Завершено", failed: "Нужно действие", cancelled: "Остановлено", missed: "Пропущено" }
@@ -103,7 +104,7 @@ export function ControlCenter({ token, downloadUrl }: { token: string; downloadU
           {!d.revoked && <div className="cc-actions"><button className="cc-button" onClick={() => setRename({id:d.device_id,name:d.name})}>Переименовать</button>{confirm === d.device_id ? <><button className="cc-button danger" disabled={!!busy} onClick={() => action(d.device_id, () => request(`/control/devices/${d.device_id}`, token, undefined, "DELETE"))}>Да, отозвать доступ</button><button className="cc-button" onClick={() => setConfirm("")}>Отмена</button></> : <button className="cc-button" onClick={() => setConfirm(d.device_id)}>Отключить</button>}</div>}</div>
           {!d.revoked && <div className="cc-device-details"><span>Проекты: {projects.filter(p => p.device_id === d.device_id || p.schedule.device_id === d.device_id).map(p => p.name).join(", ") || "пока не назначены"}</span>
             <span>{d.capabilities.installed === false ? "Откройте агент и установите браузер" : "Вход в ИИ-сервисы выполняется на этом компьютере"}</span>
-            <div className="cc-session-list">{Object.entries(d.capabilities.services || {}).filter(([id]) => id !== "yandex_neuro").map(([id,s]) => <span key={id}>{service(id)}<b>{s.last_scan_state === "auth_required" ? "Нужен вход" : s.last_scan_state === "ok" ? "Проверен" : s.cookie_state === "ok" || s.cookie_state === "present" ? "Сессия сохранена" : "Не проверен"}</b></span>)}</div></div>}</article>)}</div>
+            <div className="cc-session-list">{Object.entries(d.capabilities.services || {}).filter(([id]) => id !== "yandex_neuro").map(([id,s]) => <span key={id}>{service(id)}<b>{sessionLabel(s)}</b></span>)}</div></div>}</article>)}</div>
       </> : area === "runs" ? <><div className="cc-heading"><div><span className="cc-eyebrow">Очередь аккаунта</span><h1>Проверки</h1><p>Ручные запуски и расписания со всех компьютеров.</p></div><span className="cc-status">В работе и очереди: {activeRuns.length}</span></div>{runs.length ? runRows(runs) : <div className="cc-empty"><CalendarClock size={34}/><h2>Очередь пока пуста</h2><p>Запустите проект или включите расписание в его настройках.</p><a className="cc-button" href="#/projects">К проектам</a></div>}</> : <>
         <div className="cc-heading"><div><span className="cc-eyebrow">Общая история аккаунта</span><h1>Проекты</h1><p>Запросы, расписания и отчёты, доступные с любого компьютера.</p></div><a className="cc-button primary" href="#/project/new/settings"><Plus size={17}/>Новый проект</a></div>
         <label className="cc-search"><Search size={17}/><span className="sr-only">Поиск проекта</span><input placeholder="Найти проект или бренд" value={filter} onChange={e => setFilter(e.target.value)}/></label>

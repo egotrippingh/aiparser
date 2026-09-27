@@ -12,9 +12,7 @@
 from __future__ import annotations
 
 import logging
-import shutil
 import sqlite3
-import tempfile
 import time
 from pathlib import Path
 
@@ -74,12 +72,10 @@ def _read_cookies(profile: Path) -> list[tuple[str, str, int | None]]:
     if not db.exists():
         return []
 
-    # Копируем во временный файл: при идущем скане браузер держит БД
-    # заблокированной, и прямое чтение упало бы.
-    tmp = Path(tempfile.gettempdir()) / f"aiparser_cookies_{profile.name}.sqlite"
+    # Read the WAL too: copying cookies.sqlite alone misses recent logins.
+    # A read-only connection never edits the browser's profile or copies secrets.
     try:
-        shutil.copy2(db, tmp)
-        con = sqlite3.connect(tmp)
+        con = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True, timeout=1)
         try:
             rows = con.execute("SELECT host, name, expiry FROM moz_cookies").fetchall()
         finally:
@@ -88,11 +84,6 @@ def _read_cookies(profile: Path) -> list[tuple[str, str, int | None]]:
     except Exception:
         log.info("Не удалось прочитать cookies профиля %s", profile.name, exc_info=True)
         return []
-    finally:
-        try:
-            tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
 
 
 def cookie_auth_state(service_id: str) -> dict:
