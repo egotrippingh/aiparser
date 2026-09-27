@@ -243,7 +243,7 @@ function Cabinet() {
     }
   }
 
-  return <div className="cabinet">
+  return <div className={`cabinet ${user && section === "dashboard" ? "cab-workspace" : ""}`}>
     <header className="cab-header"><div className="cab-container cab-header-inner"><Brand /><span className="cab-header-label">Личный кабинет</span>{user && <nav className="cab-nav" aria-label="Разделы кабинета"><button className={section === "dashboard" ? "active" : ""} onClick={() => setSection("dashboard")}>Рабочее пространство</button><button className={section === "account" ? "active" : ""} onClick={() => setSection("account")}>{user.is_admin ? "Аккаунт" : "Аккаунт и оплата"}</button></nav>}{user && <button className="cab-logout" onClick={logout}><LogOut size={16} /> Выйти</button>}</div></header>
     <main className="cab-container cab-main">
       {checkingSession ? <p role="status">Открываем кабинет…</p> : !user ? <section className="cab-auth-wrap">

@@ -307,6 +307,8 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
 
     register_control(app, db_session, current_user, SessionLocal)
     register_browser_login(app, db_session, current_user, issue_session)
+    from server.reporting import register_reports
+    register_reports(app, db_session, current_user)
 
     @app.get("/api/v1/auth/connect/{identifier}")
     def connect_login_info(identifier: str, response: Response, db: Session = Depends(db_session)):
