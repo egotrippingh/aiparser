@@ -18,4 +18,21 @@
   --air-warning-bg: #3b3328;
   --air-chart-grid: #41443b;
   --air-chart-total: #e9ad7c;
+  --air-icon: var(--air-muted);
+  --air-icon-accent: var(--air-accent);
+  --air-icon-surface: #2b2c26;
+}
+
+/* Keep controls in the same outline family; chart and brand SVGs are unaffected. */
+:is(.landing, .cabinet) .lucide {
+  stroke-width: 1.75;
+  flex-shrink: 0;
+}
+.cabinet .cc-sidebar nav a .lucide,
+.cabinet .ql-groups button .lucide {
+  color: var(--air-icon);
+}
+.cabinet .cc-sidebar nav a[aria-current=page] .lucide,
+.cabinet .ql-groups button[aria-pressed=true] .lucide {
+  color: var(--air-icon-accent);
 }
