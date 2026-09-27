@@ -43,7 +43,7 @@ function GifWindow({ slot, title, children }: { slot: keyof typeof GIF_SOURCES; 
   const source = GIF_SOURCES[slot]
   return (
     <div className="gif-window" data-gif-slot={slot}>
-      <div className="gif-window-bar"><span className="window-dots"><i /><i /><i /></span><span>{title}</span><span className="window-bar-action">AIRvision.ru</span></div>
+      <div className="gif-window-bar"><span className="window-dots"><i /><i /><i /></span><span>{title}</span><span className="window-bar-action">AIRate</span></div>
       {source ? <img src={source} alt={title} loading="lazy" /> : <div className="gif-window-preview">{children}</div>}
     </div>
   )

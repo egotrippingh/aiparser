@@ -1,4 +1,6 @@
-# AIRvision.ru brand assets
+# AIRate brand assets
+
+Current public brand: **AIRate**. Deployment domain: **airate.tech**. The header wordmark is exactly `AIRate`, without the domain suffix. Existing icon filenames and historical generation prompts are retained.
 
 ## Website integration
 
