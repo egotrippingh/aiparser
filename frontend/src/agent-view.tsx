@@ -2,13 +2,14 @@ import { useEffect, useState } from "react"
 import { createRoot } from "react-dom/client"
 import { ArrowUpRight, CheckCircle2, LogIn, Monitor, Pause, Play, Settings2 } from "lucide-react"
 import "./agent-view.css"
+import { BrowserInstallProgress, type InstallProgress } from "./components/browser-install-progress"
 import { sessionLabel, type ServiceSession } from "./lib/service-auth"
 
 type State = { configured: boolean; connected: boolean; has_token: boolean; name: string; error: string; sync_error?: string;
   login_pending: boolean; paused: boolean; last_sync: string | null; user?: {email:string;is_admin?:boolean};
   wallet?: {available_kopeks:number}; autostart: {available:boolean;enabled:boolean};
   scan: {done:number;total:number}|null; job?: {project_name:string}|null;
-  browser: {installed:boolean;installing:boolean;install_error:string|null;services:Record<string,ServiceSession>} }
+  browser: {installed:boolean;installing:boolean;install_error:string|null;install_progress?:InstallProgress|null;services:Record<string,ServiceSession>} }
 const services: Record<string,string> = {google_aio:"Google AI Overview",chatgpt:"ChatGPT",perplexity:"Perplexity",alice:"Алиса AI"}
 async function api<T>(path:string,body?:unknown,method?:string):Promise<T>{
   const r=await fetch(path,{method:method||(body===undefined?"GET":"POST"),headers:body===undefined?{}:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)})
@@ -20,7 +21,7 @@ function Agent(){
   const [busy,setBusy]=useState("")
   const [settings,setSettings]=useState(false)
   const refresh=()=>api<State>("/api/desktop/state").then(setState)
-  useEffect(()=>{refresh().catch(e=>setError(e.message));const timer=setInterval(()=>refresh().catch(e=>setError(e.message)),4000);return()=>clearInterval(timer)},[])
+  useEffect(()=>{refresh().catch(e=>setError(e.message));const timer=setInterval(()=>refresh().catch(e=>setError(e.message)),state?.browser.installing?1000:4000);return()=>clearInterval(timer)},[state?.browser.installing])
   async function act(path:string,body:unknown={},method?:string){setBusy(path);setError("");try{await api(path,body,method);await refresh()}catch(e){setError(e instanceof Error?e.message:"Ошибка")}finally{setBusy("")}}
   const problem=error||state?.error||state?.sync_error
   return <main className="agent-window"><header><a href="#" onClick={e=>e.preventDefault()} className="agent-brand"><span aria-hidden="true">a</span>AI Mentions</a><span>Агент</span></header>
@@ -35,7 +36,8 @@ function Agent(){
       <button className="agent-details-toggle" aria-expanded={settings} onClick={()=>setSettings(!settings)}><Settings2 size={16}/>Подключения и автозапуск<span>{settings?"−":"+"}</span></button>
       {settings&&<section className="agent-settings">
         <label><input type="checkbox" disabled={!state.autostart.available||!!busy} checked={state.autostart.enabled} onChange={e=>act("/api/agent/autostart",{enabled:e.target.checked},"PUT")}/>Запускать вместе с Windows</label>
-        {!state.browser.installed?<div><p>Для проверок нужен браузер агента.</p><button onClick={()=>act("/api/browser/install")} disabled={state.browser.installing||!!busy}>{state.browser.installing?"Устанавливается…":"Установить браузер"}</button>{state.browser.install_error&&<p role="alert">{state.browser.install_error}</p>}</div>:<>
+        {state.browser.install_progress&&<BrowserInstallProgress progress={state.browser.install_progress}/>}
+        {!state.browser.installed||state.browser.installing?<div><p>Для проверок нужен браузер агента.</p><button onClick={()=>act("/api/browser/install")} disabled={state.browser.installing||!!busy}>{state.browser.installing?"Устанавливается…":state.browser.install_error?"Повторить установку":"Установить браузер"}</button>{state.browser.install_error&&<p role="alert">{state.browser.install_error}</p>}</div>:<>
           <h2>Сессии ИИ-сервисов</h2><p>Войдите в нужные сервисы на этом компьютере. После входа закройте окно браузера.</p>
           {Object.entries(services).map(([id,name])=>{const s=state.browser.services[id];const starting=busy===`/api/browser/services/${id}/login`||s?.login_state==="starting";return <div className="agent-service" key={id}><div><b>{name}</b><small role="status">{starting?"Открываем браузер…":sessionLabel(s)}</small>{s?.login_error&&<p className="agent-error" role="alert">{s.login_error}</p>}</div><button aria-label={`Открыть вход: ${name}`} disabled={!!state.scan||!!busy||s?.login_open} onClick={()=>act(`/api/browser/services/${id}/login`)}>{starting?"Открываем…":s?.login_open?"Окно открыто":s?.login_state==="error"?"Повторить":"Войти"}</button></div>})}
           <p>Сохранённая сессия проверяется сервисом при следующем скане. Если окно не видно, проверьте панель задач Windows.</p>

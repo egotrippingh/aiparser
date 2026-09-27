@@ -4,6 +4,8 @@ import json
 import logging
 from pathlib import Path
 from threading import RLock
+from time import monotonic
+from typing import Callable
 
 from camoufox import multiversion, pkgman
 
@@ -52,8 +54,34 @@ def browser_executable() -> str:
         return executable
 
 
-def install_browser() -> None:
+def install_browser(on_progress: Callable[[str, int, int], None] | None = None) -> None:
+    def report(stage: str, downloaded: int = 0, total: int = 0) -> None:
+        if on_progress:
+            on_progress(stage, downloaded, total)
+
+    report("preparing")
     if available_browser() is None:
+        fetcher = pkgman.CamoufoxFetcher()
+
+        def download(file, url):
+            report("downloading")
+            last_report = 0.0
+
+            def progress(downloaded, total):
+                nonlocal last_report
+                now = monotonic()
+                if now - last_report >= 0.2 or downloaded == total:
+                    report("downloading", downloaded, total)
+                    last_report = now
+
+            result = pkgman.webdl(url, buffer=file, progress_callback=progress)
+            report("extracting")
+            return result
+
+        # Override only this fetcher's download hook; keep upstream versioned extraction.
+        fetcher.download_file = download
         # A version.json alone makes upstream fetch skip a broken installation.
-        pkgman.CamoufoxFetcher().install(replace=True)
+        fetcher.install(replace=True)
+    report("verifying")
     browser_executable()
+    report("complete")

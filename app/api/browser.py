@@ -24,7 +24,7 @@ from app.scanner.profiles import cookie_auth_state
 router = APIRouter(prefix="/api/browser", tags=["browser"])
 log = logging.getLogger("aiparser.api.browser")
 
-_install_state = {"running": False, "done": False, "error": None, "log": []}
+_install_state = {"running": False, "done": False, "error": None, "log": [], "progress": None}
 _login_running: set[str] = set()
 _login_status: dict[str, dict] = {}
 _login_tasks: set[asyncio.Task] = set()
@@ -68,6 +68,7 @@ def status() -> dict:
         "installed": camoufox_installed(),
         "installing": _install_state["running"],
         "install_error": _install_state["error"],
+        "install_progress": _install_state["progress"],
         "logins_in_progress": sorted(_login_running),
         "services": {s.id: _service_auth(s.id) for s in services.SERVICES},
     }
@@ -77,14 +78,23 @@ async def _install() -> None:
     _install_state.update(running=True, done=False, error=None,
                           log=["Скачиваю Camoufox в пользовательский кэш. Это большой файл; подождите..."])
     try:
-        await asyncio.to_thread(install_browser)
+        loop = asyncio.get_running_loop()
+
+        def report(stage, downloaded, total):
+            progress = {"stage": stage, "downloaded_bytes": downloaded,
+                        "total_bytes": total if total > 0 else None,
+                        "percent": min(100, int(downloaded * 100 / total)) if total > 0 else None}
+            loop.call_soon_threadsafe(_install_state.update, {"progress": progress})
+
+        await asyncio.to_thread(install_browser, on_progress=report)
         _install_state["log"].append("Camoufox установлен")
     except Exception as exc:
         log.exception("Не удалось скачать Camoufox")
         _install_state["error"] = str(exc)
+        _install_state["progress"] = None
     finally:
         _install_state["running"] = False
-        _install_state["done"] = True
+        _install_state["done"] = _install_state["error"] is None
 
 
 @router.post("/install", status_code=202)
@@ -94,14 +104,17 @@ async def install() -> dict:
         return {"ok": True, "already_running": True}
     if camoufox_installed():
         return {"ok": True, "already_installed": True}
-    _install_state.update(running=True, done=False, error=None)
+    _install_state.update(running=True, done=False, error=None,
+                          progress={"stage": "preparing", "downloaded_bytes": 0,
+                                    "total_bytes": None, "percent": None})
     _install_task = asyncio.create_task(_install())
     return {"ok": True}
 
 
 @router.get("/install/log")
 def install_log() -> dict:
-    return {"lines": _install_state["log"], "running": _install_state["running"], "error": _install_state["error"]}
+    return {"lines": _install_state["log"], "running": _install_state["running"],
+            "error": _install_state["error"], "progress": _install_state["progress"]}
 
 
 @router.post("/services/{service_id}/login", status_code=202)
