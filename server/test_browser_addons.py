@@ -1,6 +1,7 @@
 """A fresh PC or interrupted optional addon download must not block AI login."""
 
 import asyncio
+import json
 
 import pytest
 from camoufox import addons
@@ -54,3 +55,23 @@ def test_login_and_scan_ignore_missing_or_partial_optional_addon(tmp_path, monke
     asyncio.run(run())
     assert modes == [False, True]
     assert broken.exists() == partial  # Existing caches were not deleted/replaced.
+
+
+def test_bundled_browser_launch_needs_no_existing_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(browser_install.config, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(browser_install.pkgman, "OS_NAME", "win")
+    bundled = tmp_path / "browser"
+    bundled.mkdir()
+    (bundled / "camoufox.exe").write_bytes(b"exe")
+    (bundled / "version.json").write_text(json.dumps({"version": "152.0.4", "build": "beta.30"}))
+    (bundled / "properties.json").write_text('[{"property":"locale","type":"str"}]')
+
+    def unexpected_cache(*args):
+        pytest.fail("Bundled browser must not look up or change the shared active browser")
+
+    monkeypatch.setattr(browser_install.multiversion, "get_active_path", unexpected_cache)
+    monkeypatch.setattr(browser_install.multiversion, "set_active", unexpected_cache)
+    assert browser_install.available_browser() == bundled
+    launch = browser_install.launch_resources()
+    assert launch["executable_path"] == str(bundled / "camoufox.exe")
+    assert launch["ff_version"] == 152
