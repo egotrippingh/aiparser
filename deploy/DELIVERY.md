@@ -1,6 +1,33 @@
 # AIRate delivery
 
-Production: https://airate.tech, VPS 193.233.230.118, Ubuntu 24.04.
+Production: https://airate.tech, VPS 45.146.90.88, Ubuntu 26.04 LTS.
+
+The production environment variable `AIRATE_DEPLOY_HOST` selects the SSH host.
+Its host key must match the pinned `AIRATE_KNOWN_HOSTS` environment secret.
+`AIRATE_DEPLOY_KEY` belongs to the restricted `airate-deploy` user.
+Never disable host verification during a move to another VPS.
+
+Bootstrap uses `deploy/provision-ubuntu.sh` (Ubuntu 24.04 or 26.04 LTS).
+Once the reviewed delivery files are installed in `/opt/airate/deploy`, run
+`bash setup-delivery.sh /path/to/deploy-key.pub` as root. Start
+`airate-backup.timer` after restoring the database and verifying a backup.
+
+## Recovery on 28 September 2026
+
+The old VPS was deleted by the owner before transfer. Recovery used a consistent
+SQLite backup of the local account database, imported into a fresh PostgreSQL
+database with `server.import_sqlite`. That importer verifies every table's row
+count and canonical content in one transaction before committing. The snapshot
+contained 1 admin account, 2 projects, 597 results, 1733 checks and 248 screenshot
+records. The owner confirmed no newer scans or secrets existed on the old VPS.
+Local Yandex, S3 and OpenRouter settings and the verified Windows downloads were
+restored. Existing Yandex Cloud screenshot objects remain in their original
+bucket. No secret or account snapshot belongs in Git or an application image.
+
+Old VPS backups, TLS keys and server-only sessions could not be recovered from
+the deleted machine. HTTPS certificates are issued anew. A session/device token
+created only on the old VPS may require signing in or connecting the agent again.
+The domain and OAuth callback remain unchanged.
 
 ## Release a website/API change
 
