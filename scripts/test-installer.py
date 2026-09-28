@@ -58,6 +58,7 @@ try:
     run([str(target / 'AI-Mentions.exe'), '--self-test', '--self-test-browser'], env=env)
     data = user / 'AIParser'
     assert (data / 'aiparser.db').is_file()
+    assert str(target / 'browser' / 'camoufox.exe') in (data / 'agent.log').read_text(encoding='utf-8')
     sentinel = data / 'profile-preservation-probe.txt'
     sentinel.write_text('keep on upgrade and uninstall')
     run([str(setup), *flags, f'/LOG={temp / "upgrade.log"}'])
