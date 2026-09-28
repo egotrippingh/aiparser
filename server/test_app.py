@@ -15,6 +15,12 @@ class FakeCoinso:
         self.orders = {}
         self.paid = set()
 
+    def payment_methods(self):
+        return {"success": True, "currency": "RUB", "methods": [
+            {"method": "sbp", "min_amount": 100, "max_amount": 100000, "available": True},
+            {"method": "crypto", "min_amount": 100, "max_amount": None, "available": True},
+        ]}
+
     def create_invoice(self, *, order_id, amount_kopeks, method, email, return_url):
         invoice_id = f"invoice-{len(self.orders) + 1}"
         self.orders[invoice_id] = (order_id, amount_kopeks, method)
