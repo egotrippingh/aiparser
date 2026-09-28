@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react"
 import { createRoot } from "react-dom/client"
-import { ArrowUpRight, CheckCircle2, LogIn, Monitor, Pause, Play, Settings2 } from "lucide-react"
+import { ArrowUpRight, Check, CheckCircle2, LogIn, Monitor, Pause, Play, Settings2 } from "lucide-react"
 import "./agent-view.css"
 import { BrowserInstallProgress, type InstallProgress } from "./components/browser-install-progress"
-import { sessionLabel, type ServiceSession } from "./lib/service-auth"
+import { sessionLabel, sessionReady, type ServiceSession } from "./lib/service-auth"
 
 type State = { configured: boolean; connected: boolean; has_token: boolean; name: string; error: string; sync_error?: string;
   login_pending: boolean; paused: boolean; last_sync: string | null; user?: {email:string;is_admin?:boolean};
@@ -63,7 +63,7 @@ function Agent(){
         {state.browser.install_progress&&<BrowserInstallProgress progress={state.browser.install_progress}/>}
         {!state.browser.installed||state.browser.installing?<div><p>Для проверок нужен браузер агента.</p><button onClick={()=>act("/api/browser/install")} disabled={state.browser.installing||!!busy}>{state.browser.installing?"Устанавливается…":state.browser.install_error?"Повторить установку":"Установить браузер"}</button>{state.browser.install_error&&<p role="alert">{state.browser.install_error}</p>}</div>:<>
           <h2>Сессии ИИ-сервисов</h2><p>Войдите в нужные сервисы на этом компьютере. После входа закройте окно браузера.</p>
-          {Object.entries(services).map(([id,name])=>{const s=state.browser.services[id];const starting=busy===`/api/browser/services/${id}/login`||s?.login_state==="starting";return <div className="agent-service" key={id}><div><b>{name}</b><small role="status">{starting?"Открываем браузер…":sessionLabel(s)}</small>{s?.login_error&&<p className="agent-error" role="alert">{s.login_error}</p>}</div><button aria-label={`Открыть вход: ${name}`} disabled={!!state.scan||!!busy||s?.login_open} onClick={()=>act(`/api/browser/services/${id}/login`)}>{starting?"Открываем…":s?.login_open?"Окно открыто":s?.login_state==="error"?"Повторить":"Войти"}</button></div>})}
+          {Object.entries(services).map(([id,name])=>{const s=state.browser.services[id];const starting=busy===`/api/browser/services/${id}/login`||s?.login_state==="starting";const ready=!starting&&sessionReady(s);return <div className="agent-service" key={id}><div><b>{name}</b><small role="status">{starting?"Открываем браузер…":sessionLabel(s)}</small>{s?.login_error&&<p className="agent-error" role="alert">{s.login_error}</p>}</div><button className={`agent-service-login${ready?" is-ready":""}`} aria-label={ready?`${name}: сессия сохранена. Открыть вход заново`:`Открыть вход: ${name}`} title={ready?"Сессия сохранена. Нажмите, чтобы войти заново":undefined} disabled={!!state.scan||!!busy||s?.login_open} onClick={()=>act(`/api/browser/services/${id}/login`)}><span aria-hidden={ready}>{starting?"Открываем…":s?.login_open?"Окно открыто":s?.login_state==="error"?"Повторить":"Войти"}</span>{ready&&<Check className="agent-service-check" size={18} aria-hidden="true"/>}</button></div>})}
           <p>Сохранённая сессия проверяется сервисом при следующем скане. Если окно не видно, проверьте панель задач Windows.</p>
           {state.scan&&<p>Чтобы войти заново, сначала остановите проверку на сайте.</p>}
         </>}

@@ -1,6 +1,10 @@
 export const ACCOUNT_API = (import.meta.env.VITE_ACCOUNT_API_URL || "").replace(/\/$/, "")
 
 export const COOKIE_SESSION = "cookie-session"
+export class AccountError extends Error {
+  status: number
+  constructor(message: string, status: number) { super(message); this.status = status }
+}
 
 export async function accountDownload(path: string, token: string, filename: string) {
   const response = await fetch(`${ACCOUNT_API}/api/v1${path}`, { credentials: "include", headers: {
@@ -26,7 +30,7 @@ export async function accountRequest<T>(path: string, token?: string, body?: unk
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {
     const detail = data.detail
-    throw new Error(Array.isArray(detail) ? detail.map((item: {msg?: string}) => item.msg || "Проверьте поля формы").join(". ") : typeof detail === "string" ? detail : `Ошибка ${response.status}`)
+    throw new AccountError(Array.isArray(detail) ? detail.map((item: {msg?: string}) => item.msg || "Проверьте поля формы").join(". ") : typeof detail === "string" ? detail : `Ошибка ${response.status}`, response.status)
   }
   return data as T
 }

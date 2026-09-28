@@ -1,11 +1,13 @@
 import { useEffect, useState, type FormEvent } from "react"
 import { createRoot } from "react-dom/client"
-import { ArrowDownLeft, ArrowUpRight, CreditCard, Download, Image as ImageIcon, LogOut, ShieldCheck } from "lucide-react"
-import { ACCOUNT_API as API, COOKIE_SESSION, accountRequest as request } from "./account-api"
+import { ArrowDownLeft, ArrowUpRight, Download, Image as ImageIcon, LogOut, ShieldCheck } from "lucide-react"
+import { ACCOUNT_API as API, COOKIE_SESSION, accountRequest as request, AccountError } from "./account-api"
 import { ControlCenter } from "./control-center"
 import "./cabinet.css"
 import { SiteFooter } from "./site-footer"
 import { Brand } from "./brand"
+import { TopupForm } from "./components/topup-form"
+import { paymentLabel, type Payment } from "./lib/payment"
 
 const TOKEN_KEY = "aimt.account.token"
 const money = (kopeks: number) => new Intl.NumberFormat("ru-RU", {
@@ -15,7 +17,6 @@ const money = (kopeks: number) => new Intl.NumberFormat("ru-RU", {
 type User = { id: string; email: string; yandex_linked?: boolean; is_admin?: boolean }
 type Entry = { amount_kopeks: number; kind: string; reference: string; created_at: string }
 type Wallet = { balance_kopeks: number; reserved_kopeks: number; available_kopeks: number; entries: Entry[] }
-type Payment = { id: string; amount_kopeks: number; method: string; status: string; payment_url: string | null; created_at: string }
 type Screenshot = { check_id: string; size_bytes: number; created_at: string }
 
 function Cabinet() {
@@ -38,8 +39,6 @@ function Cabinet() {
     new URLSearchParams(location.hash.slice(1)).has("reset_token") ? "reset" : "login")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [amount, setAmount] = useState("300")
-  const [method, setMethod] = useState<"sbp" | "card">("sbp")
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
   const [yandexEnabled, setYandexEnabled] = useState(false)
@@ -56,9 +55,7 @@ function Cabinet() {
 
   async function refresh(activeToken: string) {
     const p = await request<Payment[]>("/payments", activeToken)
-    const reconciled = await Promise.all(p.map((payment) => payment.status === "pending"
-      ? request<Payment>(`/payments/${encodeURIComponent(payment.id)}`, activeToken).catch(() => payment)
-      : payment))
+    const reconciled = p
     const [u, w, shots] = await Promise.all([
       request<User>("/me", activeToken),
       request<Wallet>("/wallet", activeToken),
@@ -145,19 +142,38 @@ function Cabinet() {
 
   useEffect(() => {
     request<{ check_price_kopeks: number; min_topup_kopeks: number }>("/pricing")
-      .then((p) => { setPrice(p.check_price_kopeks); setMinimum(p.min_topup_kopeks); setAmount(String(p.min_topup_kopeks / 100)) })
+      .then((p) => { setPrice(p.check_price_kopeks); setMinimum(p.min_topup_kopeks) })
       .catch(() => setMessage("Сервер кабинета пока недоступен"))
     if (token) {
       refresh(token).then(async () => {
-        const order = new URLSearchParams(location.search).get("order")
+        const params = new URLSearchParams(location.search)
+        const order = params.get("order") || params.get("custom")
         if (order) {
-          const payment = await request<Payment>(`/payments/${encodeURIComponent(order)}`, token)
-          setMessage(payment.status === "paid" ? "Пополнение зачислено" : "Платёж обрабатывается. Обновите страницу через минуту.")
-          await refresh(token)
+          setSection("account")
+          try {
+            const payment = await request<Payment>(`/payments/${encodeURIComponent(order)}`, token)
+            setMessage(paymentLabel(payment.status))
+            await refresh(token)
+          } catch (e) { setMessage(e instanceof Error ? e.message : "Не удалось проверить платёж") }
         }
-      }).catch(() => { sessionStorage.removeItem(TOKEN_KEY); setToken(""); setUser(null) }).finally(() => setCheckingSession(false))
+      }).catch(e => { if (e instanceof AccountError && e.status === 401) {sessionStorage.removeItem(TOKEN_KEY); setToken(""); setUser(null)} else setMessage(e.message || "Сервер недоступен") }).finally(() => setCheckingSession(false))
     }
   }, [token])
+
+  useEffect(() => {
+    if (!token || !user || !payments.some(p => p.status === "pending")) return
+    let stopped = false, running = false
+    const timer = window.setInterval(async () => {
+      if (document.hidden || running) return
+      running = true
+      try {
+        await Promise.all(payments.filter(p => p.status === "pending").slice(0, 5).map(p => request(`/payments/${p.id}`, token).catch(() => null)))
+        if (!stopped) await refresh(token)
+      } catch (e) { if (!stopped) setMessage(e instanceof Error ? e.message : "Не удалось обновить платёж") }
+      finally { running = false }
+    }, 15000)
+    return () => { stopped = true; clearInterval(timer) }
+  }, [token, user?.id, payments.map(p => `${p.id}:${p.status}`).join(",")])
 
   async function authenticate(event: FormEvent) {
     event.preventDefault()
@@ -189,25 +205,6 @@ function Cabinet() {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Не удалось войти")
     } finally { setBusy(false) }
-  }
-
-  async function topup(event: FormEvent) {
-    event.preventDefault()
-    const kopeks = Math.round(Number(amount.replace(",", ".")) * 100)
-    if (!Number.isSafeInteger(kopeks) || kopeks < minimum) {
-      setMessage(`Минимальное пополнение — ${money(minimum)}`)
-      return
-    }
-    setBusy(true)
-    setMessage("")
-    try {
-      const order = await request<Payment>("/payments", token, { amount_kopeks: kopeks, method })
-      if (!order.payment_url) throw new Error("Платёжная ссылка не получена")
-      location.assign(order.payment_url)
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Не удалось создать платёж")
-      setBusy(false)
-    }
   }
 
   async function logout() {
@@ -266,10 +263,11 @@ function Cabinet() {
         </form>
       </section> : section === "dashboard" ? <ControlCenter token={token} downloadUrl={downloadUrl} /> : <>
         <div className="cab-title-row"><div><span className="cab-kicker">ВАШ АККАУНТ</span><h1>Баланс и проверки</h1><p>{user.email}</p>{yandexEnabled && <button className="cab-link-yandex" disabled={busy || user.yandex_linked} onClick={linkYandex}>{user.yandex_linked ? "Яндекс ID подключён" : "Привязать Яндекс ID"}</button>}</div><span className="cab-rate">{user.is_admin ? "Администратор · проверки бесплатно" : `Одна проверка · ${money(price)}`}</span></div>
-        <div className={`cab-grid${user.is_admin && location.hash !== "#/topup" ? " cab-grid-admin" : ""}`}>
-          <section className="cab-panel cab-balance"><span className="cab-kicker">ДОСТУПНО ДЛЯ ПРОВЕРОК</span><strong>{user.is_admin ? "Безлимитно" : money(wallet?.available_kopeks || 0)}</strong><p>{user.is_admin ? "Проверки вашего аккаунта не списывают баланс." : `На балансе ${money(wallet?.balance_kopeks || 0)}${wallet?.reserved_kopeks ? ` · Зарезервировано ${money(wallet.reserved_kopeks)}` : ""}`}</p><div className="cab-balance-foot">{user.is_admin ? "Каждый запрос в каждом ИИ-сервисе · 0 ₽" : `Примерно ${Math.floor((wallet?.available_kopeks || 0) / price)} проверок по текущей цене`}</div></section>
-          {(!user.is_admin || location.hash === "#/topup") && <form className="cab-panel cab-topup" onSubmit={topup}><span className="cab-kicker">ПОПОЛНЕНИЕ</span><h2>Добавить средства</h2><label>Сумма, ₽<input type="number" min={minimum / 100} max="100000" step="1" value={amount} onChange={(e) => setAmount(e.target.value)} /></label><fieldset><legend>Способ оплаты</legend><label><input type="radio" name="method" checked={method === "sbp"} onChange={() => setMethod("sbp")} /> СБП</label><label><input type="radio" name="method" checked={method === "card"} onChange={() => setMethod("card")} /> Карта</label></fieldset><button className="cab-primary" disabled={busy}><CreditCard size={17} /> Перейти к оплате</button><small>Минимальная сумма — {money(minimum)}. После оплаты средства появятся на балансе.</small></form>}
+        <div className="cab-grid">
+          <section className="cab-panel cab-balance"><span className="cab-kicker">ДОСТУПНО ДЛЯ ПРОВЕРОК</span><strong>{user.is_admin ? "Безлимитно" : money(wallet?.available_kopeks || 0)}</strong><p>{user.is_admin ? "Проверки вашего аккаунта не списывают баланс." : `На балансе ${money(wallet?.balance_kopeks || 0)}${wallet?.reserved_kopeks ? ` · Зарезервировано ${money(wallet.reserved_kopeks)}` : ""}`}</p><div className="cab-balance-foot">{user.is_admin ? "Каждый запрос в каждом ИИ-сервисе · 0 ₽" : `Примерно ${Math.floor((wallet?.available_kopeks || 0) / price)} проверок по текущей цене`}</div><button className="cab-primary" type="button" onClick={() => document.getElementById("topup-amount")?.focus()}>Пополнить баланс</button></section>
+          <TopupForm token={token} minimum={minimum} />
         </div>
+        {payments.length > 0 && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ПОПОЛНЕНИЯ</span><h2>История платежей</h2></div><button className="cab-refresh" onClick={() => refresh(token).catch(e => setMessage(e.message))}>Обновить</button></div><div className="cab-list">{payments.map(payment => <div className="cab-entry cab-payment-row" key={payment.id}><span><b>{money(payment.amount_kopeks)} · {payment.method === "crypto" ? "Криптовалюта" : payment.method === "sbp" ? "СБП" : "Банковская оплата"}</b><small>{new Date(payment.created_at).toLocaleString("ru-RU")}</small></span><span className={`cab-payment-status ${payment.status}`} role="status">{paymentLabel(payment.status)}</span>{payment.status === "pending" && payment.payment_url && <a className="cab-download" href={payment.payment_url}>Продолжить оплату</a>}</div>)}</div></section>}
         <section className="cab-panel cab-device"><div><span className="cab-kicker">НАСТОЛЬНЫЙ АГЕНТ</span><h2>Подключите компьютер</h2><p>Запустите агент и войдите через Яндекс, браузер или по email и паролю. Компьютер привяжется к аккаунту без кода, а агент будет выполнять назначенные ему проверки из трея.</p></div><div className="cab-device-actions">{downloadUrl && <a className="cab-download" href={downloadUrl}><Download size={17} /> Скачать для Windows</a>}</div></section>
         {(wallet?.entries.length || !user.is_admin) && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ИСТОРИЯ</span><h2>Операции по балансу</h2></div><button onClick={() => refresh(token)} className="cab-refresh">Обновить</button></div>{wallet?.entries.length ? <div className="cab-list">{wallet.entries.map((entry) => <div className="cab-entry" key={entry.reference}><span className={entry.amount_kopeks > 0 ? "cab-entry-icon in" : "cab-entry-icon out"}>{entry.amount_kopeks > 0 ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}</span><span><b>{entry.kind === "topup" ? "Пополнение" : "Проверка запроса"}</b><small>{new Date(entry.created_at).toLocaleString("ru-RU")}</small></span><strong className={entry.amount_kopeks > 0 ? "positive" : ""}>{entry.amount_kopeks > 0 ? "+" : ""}{money(entry.amount_kopeks)}</strong></div>)}</div> : <p className="cab-empty">Пока нет операций. Пополните баланс, чтобы начать проверки.</p>}</section>}
         <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">СКРИНШОТЫ · 90 ДНЕЙ</span><h2>Снимки проверок</h2></div><button onClick={() => refresh(token)} className="cab-refresh">Обновить</button></div>{screenshots.length ? <><div className="cab-list">{screenshots.slice(0, visibleScreenshots).map((shot) => { const parts = shot.check_id.split(":"); return <div className="cab-entry" key={shot.check_id}><span className="cab-entry-icon out" aria-hidden="true"><ImageIcon size={18} /></span><span><b>Запрос №{parts.at(-2)} · {parts.at(-1)}</b><small>{new Date(shot.created_at).toLocaleString("ru-RU")}</small></span><button className="cab-shot-button" onClick={() => openScreenshot(shot.check_id)}>Открыть</button></div> })}</div>{screenshots.length > visibleScreenshots && <button className="cab-refresh" onClick={() => setVisibleScreenshots((count) => count + 12)}>Показать ещё</button>}</> : <p className="cab-empty">Загруженных снимков пока нет. Снимки остаются в настольном приложении.</p>}{openedScreenshot && <div className="cab-shot-preview"><div className="cab-section-head"><b>Снимок проверки</b><button className="cab-refresh" onClick={() => setOpenedScreenshot(null)}>Закрыть</button></div><img src={openedScreenshot.url} alt="Скриншот ответа ИИ по выбранной проверке" /></div>}</section>

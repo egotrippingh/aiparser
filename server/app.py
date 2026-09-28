@@ -12,7 +12,7 @@ from datetime import timedelta, timezone
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.concurrency import run_in_threadpool
@@ -25,7 +25,7 @@ from server.agent_schemas import AgentHeartbeatIn, CloudResultsIn, ScanPreferenc
 from server.ai import AIError, AIResult, OpenRouterAI
 from server.auth_limit import clear as clear_auth_failures
 from server.auth_limit import email_key, guard as guard_auth, record as record_auth, source_key
-from server.coinso import CoinsoClient, CoinsoError, kopeks, verify_webhook
+from server.coinso import CoinsoClient, CoinsoError, kopeks, payment_options, valid_payment_currency, verify_webhook
 from server.mailer import PasswordMailer
 from server.migrate import upgrade_database
 from server.models import (AgentDevice, Check, CloudResult, ScanPreferences, Screenshot, DeviceCode,
@@ -48,7 +48,7 @@ class Credentials(BaseModel):
 
 class TopupIn(BaseModel):
     amount_kopeks: int = Field(ge=30000, le=10_000_000)
-    method: str = Field(pattern="^(sbp|card)$")
+    method: str = Field(pattern="^(sbp|crypto)$")
 
 
 class ReserveIn(BaseModel):
@@ -143,6 +143,7 @@ def _order_payload(order: PaymentOrder) -> dict:
         "status": order.status,
         "payment_url": order.payment_url,
         "created_at": order.created_at.isoformat(),
+        "test_mode": order.test_mode,
     }
 
 
@@ -820,32 +821,50 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         return _wallet_payload(db, user.id)
 
     def confirm_payment(db: Session, order: PaymentOrder, invoice_id: str) -> None:
+        # Creation must persist the provider's test_mode before any credit.
+        # An early callback is recovered by the background reconciler.
+        if not order.invoice_id:
+            return
         if not coinso_client:
             raise HTTPException(503, "Оплата пока не настроена")
-        if not order.invoice_id:
-            return  # создание счёта ещё не завершилось; клиент позже сверит статус
-        if order.invoice_id != invoice_id:
+        if order.invoice_id and order.invoice_id != invoice_id:
             raise HTTPException(409, "Номер счёта не совпадает")
         try:
             status = coinso_client.invoice_status(invoice_id)
             amount = kopeks(status.get("amount", ""))
         except CoinsoError as exc:
             raise HTTPException(502, str(exc)) from exc
-        if (status.get("status") != "paid" or status.get("invoice_id") != invoice_id
-                or status.get("custom") != order.id or amount != order.amount_kopeks
-                or status.get("currency") != "RUB" or status.get("payment_method") != order.method):
+        if (status.get("invoice_id") != invoice_id or status.get("custom") != order.id
+                or amount != order.amount_kopeks):
             return
-        if order.test_mode and not allow_test:
+        state = status.get("status")
+        if state not in {"paid", "failed", "expired"}:
+            return
+        if state == "paid" and not valid_payment_currency(status.get("payment_method"), status.get("currency")):
             return
         _locked_wallet(db, order.user_id)
         locked = db.execute(
             select(PaymentOrder).where(PaymentOrder.id == order.id).with_for_update()
+            .execution_options(populate_existing=True)
         ).scalar_one()
-        if locked.status == "paid":
+        if locked.status in {"paid", "test_paid"}:
             return
         if locked.invoice_id and locked.invoice_id != invoice_id:
             raise HTTPException(409, "Номер счёта не совпадает")
         locked.invoice_id = invoice_id
+        if state != "paid":
+            locked.status = state
+            db.commit()
+            return
+        if locked.test_mode or status.get("test_mode") is True:
+            # Simulations never create spendable money in the production wallet.
+            locked.test_mode = True
+            locked.status = "test_paid"
+            db.commit()
+            return
+        # Standard checkout lets the payer switch methods. The verified invoice
+        # identity, RUB total and provider-paid status determine the credit.
+        locked.method = status["payment_method"]
         locked.status = "paid"
         wallet_row = db.get(Wallet, order.user_id)
         wallet_row.balance_kopeks += order.amount_kopeks
@@ -862,12 +881,31 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             raise HTTPException(503, "Оплата пока не настроена")
         if body.amount_kopeks < min_topup:
             raise HTTPException(422, f"Минимальное пополнение {min_topup / 100:g} ₽")
+        try:
+            option = next((o for o in payment_options(coinso_client, min_topup, body.amount_kopeks)
+                           if o["method"] == body.method), None)
+        except CoinsoError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        if not option or not option["available"]:
+            raise HTTPException(422, "Этот способ оплаты недоступен для выбранной суммы")
         public_base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
         if not public_base.startswith("https://"):
             raise HTTPException(503, "PUBLIC_BASE_URL должен быть HTTPS-адресом сайта")
+        _locked_wallet(db, user.id)
+        recent = db.scalars(select(PaymentOrder).where(
+            PaymentOrder.user_id == user.id, PaymentOrder.status == "pending",
+            PaymentOrder.created_at > utcnow() - timedelta(minutes=5),
+        )).all()
+        same = next((o for o in recent if o.amount_kopeks == body.amount_kopeks
+                     and o.method == body.method and o.payment_url
+                     and o.test_mode == allow_test), None)
+        if same:
+            return _order_payload(same)
+        if len(recent) >= 5:
+            raise HTTPException(429, "У вас уже есть неоплаченные счета. Завершите оплату или повторите позже.")
         order = PaymentOrder(
             id=uuid.uuid4().hex, user_id=user.id,
-            amount_kopeks=body.amount_kopeks, method=body.method,
+            amount_kopeks=body.amount_kopeks, method=body.method, test_mode=allow_test,
         )
         db.add(order)
         db.commit()
@@ -875,7 +913,7 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             invoice = coinso_client.create_invoice(
                 order_id=order.id, amount_kopeks=order.amount_kopeks,
                 method=order.method, email=user.email,
-                return_url=f"{public_base}/cabinet/?order={order.id}",
+                return_url=f"{public_base}/cabinet/?order={order.id}#/topup",
             )
         except CoinsoError as exc:
             order.status = "failed"
@@ -883,8 +921,8 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             raise HTTPException(502, str(exc)) from exc
         order.invoice_id = invoice["invoice_id"]
         order.payment_url = invoice["payment_url"]
-        order.test_mode = bool(invoice.get("test_mode"))
-        if order.test_mode and not allow_test:
+        order.test_mode = allow_test or bool(invoice.get("test_mode"))
+        if order.test_mode and (not allow_test or not user.is_admin):
             order.status = "test_rejected"
             db.commit()
             raise HTTPException(503, "Coinso работает в тестовом режиме; реальные пополнения выключены")
@@ -899,6 +937,19 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         ).all()
         return [_order_payload(o) for o in orders]
 
+    @app.get("/api/v1/payments/options")
+    def available_payments(amount_kopeks: int | None = Query(default=None, ge=1, le=10_000_000),
+                           user: User = Depends(current_user)) -> dict:
+        if not coinso_client or not secret_key:
+            return {"configured": False, "testing": False, "methods": []}
+        try:
+            options = payment_options(coinso_client, min_topup, amount_kopeks)
+        except CoinsoError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        if allow_test and not user.is_admin:
+            options = [{**option, "available": False} for option in options]
+        return {"configured": True, "testing": allow_test, "methods": options}
+
     @app.get("/api/v1/payments/{order_id}")
     def get_payment(order_id: str, user: User = Depends(current_user),
                     db: Session = Depends(db_session)) -> dict:
@@ -912,6 +963,8 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
     @app.post("/api/v1/webhooks/coinso")
     async def coinso_webhook(request: Request, db: Session = Depends(db_session)) -> dict:
         raw = await request.body()
+        if len(raw) > 65_536:
+            raise HTTPException(413, "Слишком большое уведомление")
         signature = request.headers.get("X-Signature", "")
         if not secret_key or not verify_webhook(raw, signature, secret_key):
             raise HTTPException(401, "Неверная подпись")
@@ -919,12 +972,18 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             payload = json.loads(raw)
         except ValueError as exc:
             raise HTTPException(400, "Неверный JSON") from exc
-        if payload.get("event") != "payment.success":
+        if not isinstance(payload, dict):
+            raise HTTPException(400, "Неверное уведомление")
+        if payload.get("event") not in {"payment.success", "payment.failed"}:
             return {"ok": True}
+        if (not isinstance(payload.get("custom"), str) or not re.fullmatch(r"[a-f0-9]{32}", payload["custom"])
+                or not isinstance(payload.get("invoice_id"), str)
+                or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", payload["invoice_id"])):
+            raise HTTPException(400, "Неверные данные счёта")
         order = db.get(PaymentOrder, payload.get("custom"))
         if not order or not payload.get("invoice_id"):
             raise HTTPException(404, "Заказ не найден")
-        confirm_payment(db, order, payload["invoice_id"])
+        await run_in_threadpool(confirm_payment, db, order, payload["invoice_id"])
         return {"ok": True}
 
     @app.post("/api/v1/checks/reserve")
@@ -1181,6 +1240,24 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         def cabinet() -> FileResponse:
             return FileResponse(web_dir / "cabinet" / "index.html", headers={"Cache-Control": "no-cache"})
 
+    if coinso_client and os.environ.get("APP_ENV") == "production":
+        from contextlib import asynccontextmanager
+        from .payment_reconcile import PaymentReconciler
+        existing_lifespan = app.router.lifespan_context
+
+        @asynccontextmanager
+        async def payment_lifespan(_app):
+            async with existing_lifespan(_app):
+                reconciler = PaymentReconciler(SessionLocal, confirm_payment)
+                reconciler.thread.start()
+                try:
+                    yield
+                finally:
+                    await run_in_threadpool(reconciler.close)
+
+        app.router.lifespan_context = payment_lifespan
+    app.state.reconcile_payment = confirm_payment
+    app.state.payment_sessions = SessionLocal
     return app
 
 

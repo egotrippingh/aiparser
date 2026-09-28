@@ -8,6 +8,12 @@ export type ServiceSession = {
   login_error?: string | null
 }
 
+export function sessionReady(s?: ServiceSession): boolean {
+  if (!s || s.cookie_state !== "ok" || s.login_open || ["starting", "error"].includes(s.login_state || "")) return false
+  const freshLogin = !!s.last_login_at && (!s.last_scan_at || Date.parse(s.last_login_at) > Date.parse(s.last_scan_at))
+  return s.last_scan_state !== "auth_required" || freshLogin
+}
+
 export function sessionLabel(s?: ServiceSession): string {
   if (!s) return "Состояние ещё не получено"
   if (s.login_state === "starting") return "Открываем браузер…"
