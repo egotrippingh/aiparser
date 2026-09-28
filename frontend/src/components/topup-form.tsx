@@ -48,6 +48,7 @@ export function TopupForm({ token, minimum }: { token: string; minimum: number }
       <small id="topup-hint">{selected ? `От ${rubles(selected.min_kopeks)} до ${rubles(selected.max_kopeks)}. На баланс зачисляется указанная сумма.` : options ? "Для этого проекта пока нет доступных способов оплаты." : "Получаем доступные способы оплаты…"}</small>
       {selected && !valid && <p className="cab-payment-error" role="status">Введите сумму в указанном диапазоне, не более двух знаков после запятой.</p>}
       <button className="cab-primary" disabled={!valid || busy}>{busy ? <LoaderCircle size={17} className="cab-payment-spinner" /> : <CreditCard size={17} />}{busy ? "Создаём счёт…" : "Перейти к оплате"}</button>
+      <small>Coinso может добавить комиссию к оплате. Итоговая сумма показывается на его странице до подтверждения платежа; на баланс AIRate поступит выбранная вами сумма.</small>
       <small>{method === "crypto" ? "Валюту и сеть выберите на защищённой странице Coinso. Сумма счёта указана в рублях." : "Оплатите через приложение своего банка на странице Coinso."} Баланс обновится после подтверждения платежа.</small>
     </>}
     {error && <div className="cab-payment-error" role="alert">{error}{!options && <button type="button" className="cab-refresh" onClick={() => setRetry(value => value + 1)}>Повторить</button>}</div>}
