@@ -42,7 +42,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Создать ярлык на рабочем столе"; GroupDescription: "Ярлыки:"
 
 [Files]
-Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "data\*,.env,.env.*,*.log"
+; build-installer.ps1 rejects top-level user data before compilation. Never
+; exclude nested data folders: browser fingerprint libraries require them.
+Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "installed-mode.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
