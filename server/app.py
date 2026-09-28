@@ -339,12 +339,26 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         return Path(os.environ.get("AGENT_DOWNLOAD_FILE") or
                     Path(__file__).resolve().parent.parent / "dist" / "AI-Mentions-Windows-latest.zip")
 
+    def agent_installer() -> Path:
+        return Path(os.environ.get("AGENT_INSTALLER_FILE") or
+                    agent_archive().with_name("AIRate-Setup-latest.exe"))
+
     @app.get("/api/v1/agent-download")
     def agent_download_status() -> dict:
-        archive = agent_archive()
+        installer = agent_installer()
+        archive = installer if installer.is_file() else agent_archive()
         return {"available": archive.is_file(),
-                "url": "/downloads/AI-Mentions-Windows.zip" if archive.is_file() else None,
+                "url": ("/downloads/AIRate-Setup.exe" if installer.is_file() else
+                        "/downloads/AI-Mentions-Windows.zip") if archive.is_file() else None,
                 "size_bytes": archive.stat().st_size if archive.is_file() else None}
+
+    @app.get("/downloads/AIRate-Setup.exe", include_in_schema=False)
+    def download_agent_installer() -> FileResponse:
+        installer = agent_installer()
+        if not installer.is_file():
+            raise HTTPException(404, "Установщик пока не опубликован")
+        return FileResponse(installer, media_type="application/octet-stream",
+                            filename="AIRate-Setup.exe")
 
     @app.get("/downloads/AI-Mentions-Windows.zip", include_in_schema=False)
     def download_agent() -> FileResponse:

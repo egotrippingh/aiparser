@@ -124,11 +124,11 @@ def main() -> None:
             import asyncio
 
             from camoufox.async_api import AsyncCamoufox
-            from app.scanner.browser_install import browser_executable
+            from app.scanner.browser_install import launch_resources
 
             async def check_browser() -> None:
                 async with AsyncCamoufox(headless=True, os="windows", geoip=False,
-                                        executable_path=browser_executable()) as browser:
+                                        **launch_resources()) as browser:
                     page = await browser.new_page()
                     await page.goto("about:blank")
                     if page.url != "about:blank":
@@ -141,7 +141,19 @@ def main() -> None:
                     await page.goto("about:blank")
                     log.info("Проверка видимого окна входа прошла")
 
-            asyncio.run(check_browser())
+            # Reproduce a partial addon installation without touching the user's
+            # cache. Both frozen launch paths must work with no manifest present.
+            import tempfile
+            from pathlib import Path
+            from camoufox import addons
+            original_addons_dir = addons.ADDONS_DIR
+            try:
+                with tempfile.TemporaryDirectory(prefix="airate-addon-probe-") as temporary:
+                    addons.ADDONS_DIR = Path(temporary)
+                    (addons.ADDONS_DIR / "UBO").mkdir()
+                    asyncio.run(check_browser())
+            finally:
+                addons.ADDONS_DIR = original_addons_dir
         log.info("Проверка настольного приложения прошла")
         return
 

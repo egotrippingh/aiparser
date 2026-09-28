@@ -40,7 +40,9 @@ BASE_DIR = _base_dir()
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", BASE_DIR))
 
 _portable_data = BASE_DIR / "data"
-PORTABLE = _is_writable(_portable_data)
+# Installer marker keeps profiles/account tokens outside the replaceable files.
+# Existing portable ZIP builds retain their original data directory.
+PORTABLE = not (BASE_DIR / "installed-mode.txt").is_file() and _is_writable(_portable_data)
 
 if PORTABLE:
     DATA_DIR = _portable_data

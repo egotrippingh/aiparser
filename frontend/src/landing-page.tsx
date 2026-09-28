@@ -112,7 +112,7 @@ function ReportPreview() {
 }
 
 export function LandingPage() {
-  const downloadUrl = "/downloads/AI-Mentions-Windows.zip"
+  const downloadUrl = "/downloads/AIRate-Setup.exe"
   return (
     <div className="landing" id="top">
       <header className="site-header">

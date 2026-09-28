@@ -8,9 +8,21 @@ from time import monotonic
 from typing import Callable
 
 from camoufox import multiversion, pkgman
+from camoufox.addons import DefaultAddons
 
 log = logging.getLogger("aiparser.browser.install")
 _lock = RLock()
+
+
+def launch_resources() -> dict:
+    """Launch without optional downloaded extensions, including cached partial ones.
+
+    Camoufox treats an existing addon directory as installed even without its
+    manifest. AIRate needs the unmodified service page, not an ad blocker, so
+    neither login nor scanning should depend on this extra network download.
+    """
+    return {"executable_path": browser_executable(),
+            "exclude_addons": list(DefaultAddons)}
 
 
 def complete_install(path: Path) -> bool:
