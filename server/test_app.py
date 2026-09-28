@@ -295,3 +295,13 @@ def test_agent_download_availability(tmp_path, monkeypatch):
     assert status.json() == {"available": True, "url": "/downloads/AI-Mentions-Windows.zip", "size_bytes": 12}
     response = client.get("/downloads/AI-Mentions-Windows.zip")
     assert response.status_code == 200 and response.content == b"test archive"
+    assert client.get("/downloads/AIRate-Setup.exe").status_code == 404
+    installer = tmp_path / "AIRate-Setup-latest.exe"
+    installer.write_bytes(b"MZinstaller")
+    status = client.get("/api/v1/agent-download").json()
+    assert status == {"available": True, "url": "/downloads/AIRate-Setup.exe", "size_bytes": 11}
+    response = client.get(status["url"])
+    assert response.content == b"MZinstaller"
+    assert 'filename="AIRate-Setup.exe"' in response.headers["content-disposition"]
+    # Previously downloaded agents/links can still retrieve the portable ZIP.
+    assert client.get("/downloads/AI-Mentions-Windows.zip").content == b"test archive"

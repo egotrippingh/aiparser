@@ -21,7 +21,7 @@ from camoufox.async_api import AsyncCamoufox
 from camoufox.exceptions import InvalidIP, InvalidProxy, NotInstalledGeoIPExtra, UnknownIPLocation
 
 from app import config
-from app.scanner.browser_install import available_browser, browser_executable
+from app.scanner.browser_install import available_browser, launch_resources
 
 log = logging.getLogger("aiparser.browser")
 
@@ -120,7 +120,7 @@ async def service_context(service_id: str, *, window: tuple[int, int] = (1360, 9
 
     # Копия настроек на каждый запуск: Camoufox дописывает в этот словарь свои ключи.
     launch = dict(persistent_context=True, user_data_dir=str(profile), window=window,
-                  executable_path=browser_executable(),
+                  **launch_resources(),
                   firefox_user_prefs=dict(_FIREFOX_PREFS), **_DEFAULT_LAUNCH)
     if headless:
         launch["headless"] = True

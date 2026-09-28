@@ -1,0 +1,1 @@
+AIRate installer: keep account data and browser profiles in LOCALAPPDATA/AIParser.

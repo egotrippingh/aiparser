@@ -8,9 +8,27 @@ from time import monotonic
 from typing import Callable
 
 from camoufox import multiversion, pkgman
+from camoufox.addons import DefaultAddons
+from app import config
 
 log = logging.getLogger("aiparser.browser.install")
 _lock = RLock()
+
+
+def launch_resources() -> dict:
+    """Launch without optional downloaded extensions, including cached partial ones.
+
+    Camoufox treats an existing addon directory as installed even without its
+    manifest. AIRate needs the unmodified service page, not an ad blocker, so
+    neither login nor scanning should depend on this extra network download.
+    """
+    executable = browser_executable()
+    options = {"executable_path": executable, "exclude_addons": list(DefaultAddons)}
+    if Path(executable).parent == config.BASE_DIR / "browser":
+        # On a clean PC there is no active Camoufox cache. The explicit bundled
+        # executable also needs an explicit version for fingerprint generation.
+        options["ff_version"] = int(pkgman.Version.from_path(Path(executable).parent).version.split('.')[0])
+    return options
 
 
 def complete_install(path: Path) -> bool:
@@ -32,6 +50,9 @@ def complete_install(path: Path) -> bool:
 def available_browser() -> Path | None:
     """Prefer the selected version; incomplete newer downloads are never usable."""
     with _lock:
+        bundled = config.BASE_DIR / "browser"
+        if complete_install(bundled):
+            return bundled
         active = multiversion.get_active_path()
         if active is not None and complete_install(active):
             return active
@@ -46,7 +67,7 @@ def browser_executable() -> str:
         path = available_browser()
         if path is None:
             raise RuntimeError("Браузер не установлен или повреждён. Нажмите «Установить браузер» в агенте.")
-        if multiversion.get_active_path() != path:
+        if path != config.BASE_DIR / "browser" and multiversion.get_active_path() != path:
             multiversion.set_active(path.relative_to(pkgman.INSTALL_DIR).as_posix())
             log.warning("Switched incomplete browser installation to %s", path)
         executable = pkgman.launch_path(path)
