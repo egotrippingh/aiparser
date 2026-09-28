@@ -32,7 +32,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: pip install -r scripts/requirements-ci.txt
       - run: python -m pytest server -q
-      - run: bash -n deploy/release.sh deploy/ssh-gate.sh deploy/provision-ubuntu.sh
+      - run: bash -n deploy/release.sh deploy/ssh-gate.sh deploy/provision-ubuntu.sh deploy/setup-delivery.sh
       - run: npm ci && npm test && npm run build
         working-directory: frontend
 
@@ -66,9 +66,11 @@ jobs:
         env:
           DEPLOY_KEY: ${{ secrets.AIRATE_DEPLOY_KEY }}
           KNOWN_HOSTS: ${{ secrets.AIRATE_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ vars.AIRATE_DEPLOY_HOST }}
         shell: bash
         run: |
           set -euo pipefail
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || { echo 'Set AIRATE_DEPLOY_HOST in the production environment'; exit 64; }
           umask 077
           key="$RUNNER_TEMP/airate-deploy-key"
           hosts="$RUNNER_TEMP/airate-known-hosts"
@@ -77,8 +79,8 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' > "$hosts"
           checksum=$(sha256sum "$RUNNER_TEMP/release.tar.gz" | cut -d ' ' -f 1)
           options=(-i "$key" -o "UserKnownHostsFile=$hosts" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=8)
-          ssh "${options[@]}" airate-deploy@193.233.230.118 "upload $GITHUB_SHA $checksum" < "$RUNNER_TEMP/release.tar.gz"
-          ssh "${options[@]}" airate-deploy@193.233.230.118 "deploy $GITHUB_SHA $checksum"
+          ssh "${options[@]}" "airate-deploy@$DEPLOY_HOST" "upload $GITHUB_SHA $checksum" < "$RUNNER_TEMP/release.tar.gz"
+          ssh "${options[@]}" "airate-deploy@$DEPLOY_HOST" "deploy $GITHUB_SHA $checksum"
       - name: Verify public release
         env:
           EXPECTED_RELEASE: ${{ github.sha }}

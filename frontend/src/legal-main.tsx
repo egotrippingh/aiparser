@@ -11,7 +11,7 @@ function LegalPage() {
   return <>
     <header className="legal-header"><Brand /><a href="/cabinet/">Личный кабинет ↗</a></header>
     <main className="legal-page">
-      <span className="legal-meta">Документы AIRate · Редакция от 27 сентября 2026 года</span>
+      <span className="legal-meta">Документы AIRate · Редакция от 28 сентября 2026 года</span>
       <h1>{documentContent.title}</h1>
       <p className="legal-lead">{documentContent.lead}</p>
       <nav className="legal-nav" aria-label="Содержание документа"><ol>{documentContent.sections.map(section =>
