@@ -2,6 +2,12 @@
 
 Updated 2026-09-29. Repository: egotrippingh/aiparser; deployment branch: production.
 
+## Managed check identifiers — release 2026.9.29.4
+
+- Managed runs use control-plane query UUIDs consistently for reservation, server analysis, arbitration, settlement, screenshots, recovery, recheck, and result export. Local integer IDs remain for unmanaged runs.
+- Before flushing, a transactional local repair remaps only proven legacy local-ID outbox rows owned by the connected account. Billing and screenshot senders retain and exclude known foreign, missing-map and conflicting managed work. Interrupted recovery respects ownership and existing conclusive statuses. A paused remote run is shown as paused even without a local controller, without resuming it locally.
+- Evidence: 52 server tests, 37 selected agent checks, 28 frontend checks, lint/build passed in build/qa/managed-checks-20260929-02/report.json. The first broad local run timed out at 180 seconds; the final server suite completed at 219 seconds under a 360-second bound. Real TestClient/disposable databases verified one charge after old local-ID repair, retry/new-assignment flow, rollback and the actual scanner model/arbiter/result IDs. Sol and Astra independent reviews found conflict/owner/UI defects; repaired and final reviews passed. Browser fixtures verified remote pause with/without controller, waiting for sync and resumed status; screenshot build/agent-pause-final.png is synthetic. No real provider scan or remote WEB-PM queue test was run. The release PR records final packaging, CI and live download evidence. Procedure: docs/managed-check-identifiers.md.
+
 ## Session preservation — release 2026.9.29.3
 
 - Branch `fix/agent-session-recovery` keeps an installed build on its established `%LOCALAPPDATA%/AIParser` data directory. On the first installed launch only, it reuses a writable legacy `BASE_DIR/data` when that folder contains user state and the installed location does not. It never merges or overwrites locations.

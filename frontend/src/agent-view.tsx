@@ -4,13 +4,14 @@ import { ArrowUpRight, Check, CheckCircle2, LogIn, Monitor, Pause, Play } from "
 import "./agent-view.css"
 import { BrowserInstallProgress, type InstallProgress } from "./components/browser-install-progress"
 import { sessionLabel, sessionReady, type ServiceSession } from "./lib/service-auth"
+import { agentStatus } from "./lib/agent-status"
 
 type Release = {version:string;installer:{size_bytes:number;sha256:string};portable:{size_bytes:number;sha256:string}}
 type UpdateStatus = {current:string;portable:boolean;checking:boolean;error:string;release:Release|null}
 type State = { configured: boolean; connected: boolean; has_token: boolean; name: string; error: string; sync_error?: string;
   login_pending: boolean; paused: boolean; last_sync: string | null; user?: {email:string;is_admin?:boolean};
   wallet?: {available_kopeks:number}; autostart: {available:boolean;enabled:boolean};
-  scan: {done:number;total:number}|null; job?: {project_name:string}|null;
+  scan: {done:number;total:number;state?:string}|null; job?: {project_name:string;desired_state?:string}|null;
   browser: {installed:boolean;installing:boolean;install_error:string|null;install_progress?:InstallProgress|null;services:Record<string,ServiceSession>}; update:UpdateStatus }
 const services: Record<string,string> = {google_aio:"Google AI Overview",chatgpt:"ChatGPT",perplexity:"Perplexity",alice:"Алиса AI"}
 async function api<T>(path:string,body?:unknown,method?:string):Promise<T>{
@@ -28,6 +29,7 @@ function Agent(){
   const [suppressedUpdate,setSuppressedUpdate]=useState("")
   const [checkingUpdate,setCheckingUpdate]=useState(false)
   const [updateError,setUpdateError]=useState("")
+  const status=agentStatus(state?.paused||false,state?.scan,state?.job)
   const dialog=useRef<HTMLDialogElement>(null)
   const focusedVersion=useRef("")
   const refresh=()=>api<State>("/api/desktop/state").then(next=>{setState(next);setPollError("")})
@@ -66,7 +68,7 @@ function Agent(){
           <small>После входа этот компьютер привяжется к аккаунту. Подключите нужные ИИ-сервисы ниже. Код не нужен.</small>
         </>}
       </section>:<>
-        <section className="agent-state"><div><span className={`agent-dot ${state.paused?"paused":""}`}/><strong>{state.paused?"Агент на паузе":state.scan?"Проверка выполняется":"Готов к заданиям сайта"}</strong></div><p>{state.scan?`${state.job?.project_name||"Проект"} · ${state.scan.done} / ${state.scan.total} проверок`:state.paused?"Новые задания будут ждать в очереди.":"Можно закрыть окно. Агент продолжит работать в трее."}</p>{state.scan&&<progress value={state.scan.done} max={state.scan.total||1} aria-label="Прогресс проверки"/>}</section>
+        <section className="agent-state"><div><span className={`agent-dot ${state.paused||state.scan?.state==="paused"||state.job?.desired_state==="paused"?"paused":""}`}/><strong>{status[0]}</strong></div><p>{state.scan?`${state.job?.project_name||"Проект"} · ${state.scan.done} / ${state.scan.total} проверок${status[1]?` · ${status[1]}`:""}`:status[1]}</p>{state.scan&&<progress value={state.scan.done} max={state.scan.total||1} aria-label="Прогресс проверки"/>}</section>
         <div className="agent-balance"><span>Баланс аккаунта</span><div><b>{state.user?.is_admin?"Безлимит":state.wallet?new Intl.NumberFormat("ru-RU",{style:"currency",currency:"RUB"}).format(state.wallet.available_kopeks/100):"Обновляется…"}</b><button disabled={!!busy} onClick={()=>act("/api/desktop/cabinet",{destination:"topup"})}>Пополнить</button></div></div>
         <button className="agent-primary" onClick={()=>act("/api/desktop/cabinet")} disabled={!!busy}>Открыть кабинет<ArrowUpRight size={18}/></button>
         <div className="agent-actions"><button onClick={()=>act("/api/desktop/pause",{paused:!state.paused})} disabled={!!busy}>{state.paused?<Play size={16}/>:<Pause size={16}/>} {state.paused?"Продолжить":"Приостановить проверки на этом ПК"}</button><button onClick={()=>act("/api/desktop/hide")} disabled={!!busy}>Свернуть в трей</button></div>

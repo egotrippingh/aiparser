@@ -94,12 +94,11 @@ def materialize(job, user_id):
 async def maintenance(user_id):
     async with orchestrator.scan_start_lock():
         if orchestrator.active_controller() is None:
-            await billing.recover_interrupted_scans()
-            await billing.flush_outbox()
+            await billing.recover_interrupted_scans(user_id)
     # Images and results are retried while other service tasks continue.
     await _sync_results(user_id, device_id())
     try:
-        await billing.flush_screenshot_outbox()
+        await billing.flush_screenshot_outbox(user_id)
     except billing.ScreenshotError as exc:
         log.warning("Screenshot upload pending: %s", exc)
 
