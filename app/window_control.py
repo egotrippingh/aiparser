@@ -7,6 +7,7 @@ from collections.abc import Callable
 _focus: Callable[[], None] | None = None
 _hide: Callable[[], None] | None = None
 _device_name: Callable[[str], None] | None = None
+_shutdown: Callable[[], None] | None = None
 
 
 def set_device_name_callback(callback: Callable[[str], None] | None) -> None:
@@ -47,6 +48,25 @@ def focus() -> bool:
         return False
     try:
         _focus()
+    except Exception:
+        return False
+    return True
+
+
+def set_shutdown(callback: Callable[[], None] | None) -> None:
+    global _shutdown
+    _shutdown = callback
+
+
+def shutdown_ready() -> bool:
+    return _shutdown is not None
+
+
+def shutdown() -> bool:
+    if _shutdown is None:
+        return False
+    try:
+        _shutdown()
     except Exception:
         return False
     return True

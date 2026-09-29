@@ -15,6 +15,8 @@ def clean_updater_state(monkeypatch):
     monkeypatch.setattr(updates, '_release', None)
     monkeypatch.setattr(updates, '_error', '')
     monkeypatch.setattr(updates, '_checking', False)
+    monkeypatch.setattr(updates, '_applying', False)
+    monkeypatch.setattr(updates, '_progress', None)
 
 
 def test_release_validation_and_numeric_version_ordering():
@@ -55,22 +57,16 @@ def test_http_check_handles_new_equal_redirect_and_oversized_metadata(monkeypatc
     assert run(httpx.Response(200, content=b"x" * (updates.MAX_BODY + 1)))["error"]
 
 
-def test_dismisses_only_after_successful_download_open(monkeypatch):
-    saved = {}
-    updates._release = {"version": "2026.9.29.3", "installer": {"size_bytes": 1, "sha256": "a" * 64},
-                        "portable": {"size_bytes": 2, "sha256": "b" * 64}}
-    monkeypatch.setattr(updates.repo, "get_setting", lambda key: saved.get(key))
-    monkeypatch.setattr(updates.repo, "set_setting", lambda key, value, **_: saved.__setitem__(key, value))
-    monkeypatch.setattr(desktop.webbrowser, "open", lambda _: False)
-    import pytest
-    from fastapi import HTTPException
-    with pytest.raises(HTTPException):
-        desktop.download_update(desktop.UpdateIn(version="2026.9.29.3", portable=True))
-    assert not saved
-    opened = []
-    monkeypatch.setattr(desktop.webbrowser, "open", lambda url: opened.append(url) or True)
-    desktop.download_update(desktop.UpdateIn(version="2026.9.29.3", portable=True))
-    assert opened == [updates.PORTABLE_URL] and saved["dismissed_update_version"] == "2026.9.29.3"
+def test_apply_uses_server_version_only_and_does_not_dismiss(monkeypatch):
+    seen = []
+    async def apply(version, shutdown, *, reserved=False):
+        seen.append((version, shutdown, reserved))
+        return {"ok": True}
+    monkeypatch.setattr(desktop.updates, "reserve", lambda: True)
+    monkeypatch.setattr(desktop.window_control, "shutdown_ready", lambda: True)
+    monkeypatch.setattr(desktop.updates, "apply", apply)
+    assert asyncio.run(desktop.download_update(desktop.UpdateIn(version="2026.9.29.3", portable=True))) == {"ok": True}
+    assert seen[0][0] == "2026.9.29.3" and seen[0][2] is True
 
 
 def test_manual_check_waits_for_an_in_flight_check(monkeypatch):
@@ -105,16 +101,135 @@ def test_manual_success_rearms_only_the_checked_dismissed_release(monkeypatch):
     assert updates.snapshot()["release"]["version"] == "2026.9.29.4"
 
 
-def test_download_uses_local_portable_mode_not_request_body(monkeypatch):
-    saved, opened = {}, []
-    updates._release = {"version": "2026.9.29.3", "installer": {"size_bytes": 1, "sha256": "a" * 64},
-                        "portable": {"size_bytes": 2, "sha256": "b" * 64}}
+def test_apply_failure_is_returned_as_conflict(monkeypatch):
+    async def apply(*_, **__):
+        raise ValueError("проверка не прошла")
+    monkeypatch.setattr(desktop.updates, "reserve", lambda: True)
+    monkeypatch.setattr(desktop.window_control, "shutdown_ready", lambda: True)
+    monkeypatch.setattr(desktop.updates, "apply", apply)
+    import pytest
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException):
+        asyncio.run(desktop.download_update(desktop.UpdateIn(version="2026.9.29.3")))
+
+
+
+@pytest.mark.parametrize("response, expected", [
+    (httpx.Response(302), "Не удалось скачать обновление"),
+    (httpx.Response(200, content=b"ab"), "Контрольная сумма обновления не совпадает"),
+    (httpx.Response(200, content=b"abc"), "Контрольная сумма обновления не совпадает"),
+])
+def test_installer_download_rejects_redirect_truncation_and_hash(tmp_path, monkeypatch, response, expected):
+    original = updates.httpx.AsyncClient
+    monkeypatch.setattr(updates.httpx, "AsyncClient", lambda **kwargs: original(
+        transport=httpx.MockTransport(lambda _: response), **kwargs))
+    release = {"installer": {"size_bytes": 3, "sha256": "a" * 64}}
+    with pytest.raises(ValueError, match=expected):
+        asyncio.run(updates._download(release, tmp_path / "setup.exe"))
+
+
+def test_installer_download_uses_identity_encoding_and_exact_digest(tmp_path, monkeypatch):
+    body = b"abc"
+    seen = []
+    original = updates.httpx.AsyncClient
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, content=body)
+    monkeypatch.setattr(updates.httpx, "AsyncClient", lambda **kwargs: original(
+        transport=httpx.MockTransport(handler), **kwargs))
+    release = {"installer": {"size_bytes": len(body), "sha256": __import__("hashlib").sha256(body).hexdigest()}}
+    asyncio.run(updates._download(release, tmp_path / "setup.exe"))
+    assert (tmp_path / "setup.exe").read_bytes() == body
+    assert seen[0].headers["accept-encoding"] == "identity"
+
+
+def test_reserve_is_single_operation_and_requires_frozen_writable_target(tmp_path, monkeypatch):
+    monkeypatch.setattr(updates.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(updates.config, "BASE_DIR", tmp_path)
+    assert updates.reserve() is True
+    assert updates.reserve() is False
+
+
+
+def test_stop_server_requests_exit_and_joins(monkeypatch):
+    from app import main
+    server = type("Server", (), {"should_exit": False})()
+    class Thread:
+        alive = True
+        def join(self, timeout):
+            self.timeout = timeout
+            self.alive = False
+        def is_alive(self): return self.alive
+    thread = Thread()
+    monkeypatch.setattr(main, "_server", server)
+    assert main._stop_server(thread, .1)
+    assert server.should_exit and thread.timeout == .1
+
+def test_activity_blocks_update_reservation(monkeypatch):
+    async def scenario():
+        async with updates.activity():
+            assert updates.working()
+            with pytest.raises(ValueError, match="дождитесь"):
+                updates.reserve()
+        assert not updates.working()
+    asyncio.run(scenario())
+
+
+def test_stage_creation_failure_releases_update_gate(tmp_path, monkeypatch):
+    monkeypatch.setattr(updates.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(updates.config, "BASE_DIR", tmp_path)
+    assert updates.reserve() and updates.busy()
+    monkeypatch.setattr(updates.tempfile, "mkdtemp", lambda **_: (_ for _ in ()).throw(OSError("disk")))
+    with pytest.raises(OSError):
+        asyncio.run(updates.apply("2026.9.29.3", lambda: True, reserved=True))
+    assert not updates.busy()
+
+def test_apply_waits_for_installer_ack_before_requesting_shutdown(tmp_path, monkeypatch):
+    release = {"version": "2026.9.29.6", "installer": {"size_bytes": 1, "sha256": "a" * 64},
+               "portable": {"size_bytes": 1, "sha256": "b" * 64}}
+    calls = []
+    async def latest(): return release
+    async def download(_release, path): path.write_bytes(b"x")
+    def spawn(argv, **kwargs):
+        calls.append((argv, kwargs))
+        next(value for value in argv if value.startswith("/UPDATEACK=")).split("=", 1)[1]
+        from pathlib import Path
+        Path(next(value for value in argv if value.startswith("/UPDATEACK=")).split("=", 1)[1]).write_text("READY")
+        return type("Process", (), {"poll": lambda self: None})()
+    monkeypatch.setattr(updates, "_latest", latest)
+    monkeypatch.setattr(updates, "_download", download)
+    monkeypatch.setattr(updates.subprocess, "Popen", spawn)
+    monkeypatch.setattr(updates.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(updates.config, "BASE_DIR", tmp_path)
+    (tmp_path / "installed-mode.txt").touch()
+    shutdown = lambda: calls.append(("shutdown", {})) or True
+    updates._applying = False
+    asyncio.run(updates.apply("2026.9.29.6", shutdown))
+    assert calls[-1][0] == "shutdown"
+    argv = calls[0][0]
+    assert any(x == f"/DIR={tmp_path}" for x in argv) and any(x == "/UPDATEMODE=installed" for x in argv)
+
+
+def test_consumed_success_result_removes_only_our_temp_stage(tmp_path, monkeypatch):
+    stage = tmp_path / "airate-update-test"
+    stage.mkdir()
+    (stage / "result.json").write_text("ready:2026.9.29.2", encoding="utf-8")
+    saved = {"update_stage": str(stage)}
+    monkeypatch.setattr(updates.tempfile, "gettempdir", lambda: str(tmp_path))
     monkeypatch.setattr(updates.repo, "get_setting", lambda key: saved.get(key))
     monkeypatch.setattr(updates.repo, "set_setting", lambda key, value, **_: saved.__setitem__(key, value))
-    monkeypatch.setattr(desktop.config, "PORTABLE", False)
-    monkeypatch.setattr(desktop.webbrowser, "open", lambda url: opened.append(url) or True)
-    desktop.download_update(desktop.UpdateIn(version="2026.9.29.3", portable=True))
-    assert opened == [updates.INSTALLER_URL]
+    updates.consume_previous_result()
+    assert not stage.exists() and saved["update_stage"] is None and saved["update_stage_ready"] is None
+
+
+def test_unrecognized_stage_path_is_never_deleted(tmp_path, monkeypatch):
+    stage = tmp_path / "unrelated"
+    stage.mkdir()
+    (stage / "result.json").write_text("ready:2026.9.29.2", encoding="utf-8")
+    monkeypatch.setattr(updates.repo, "get_setting", lambda _: str(stage))
+    monkeypatch.setattr(updates.tempfile, "gettempdir", lambda: str(tmp_path))
+    updates.consume_previous_result()
+    assert stage.exists()
 
 
 @pytest.mark.parametrize('response', [httpx.Response(302), httpx.Response(200, json={'release': None}),

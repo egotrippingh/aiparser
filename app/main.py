@@ -25,13 +25,24 @@ from app import config, window_control
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("aiparser.main")
+_server: uvicorn.Server | None = None
 
 
 def _run_server() -> None:
+    global _server
     from app.api import create_app
 
     app = create_app()
-    uvicorn.run(app, host=config.HOST, port=config.PORT, log_level="warning")
+    _server = uvicorn.Server(uvicorn.Config(app, host=config.HOST, port=config.PORT, log_level="warning", timeout_graceful_shutdown=5))
+    _server.run()
+
+
+def _stop_server(server_thread: threading.Thread, timeout: float = 10.0) -> bool:
+    """Request Uvicorn exit and boundedly join it from a non-server thread."""
+    if _server is not None:
+        _server.should_exit = True
+    server_thread.join(timeout=timeout)
+    return not server_thread.is_alive()
 
 
 def _wait_for_server(url: str, timeout: float = 15.0) -> bool:
@@ -112,10 +123,11 @@ def main() -> None:
     except Exception:
         log.exception("Не удалось проверить сохранённые cookies")
 
-    server_thread = threading.Thread(target=_run_server, daemon=True)
+    server_thread = threading.Thread(target=_run_server, daemon=True, name="agent-server")
     server_thread.start()
 
     if not _wait_for_server(url):
+        _stop_server(server_thread, timeout=2)
         raise RuntimeError("Локальный сервер не поднялся за отведённое время")
 
     if "--self-test" in args:
@@ -169,6 +181,7 @@ def main() -> None:
             finally:
                 addons.ADDONS_DIR = original_addons_dir
         log.info("Проверка настольного приложения прошла")
+        _stop_server(server_thread)
         return
 
     import pystray
@@ -225,12 +238,42 @@ def main() -> None:
                     open_agent(icon, item)
             threading.Thread(target=open_in_browser, daemon=True).start()
 
-    def quit_agent(icon, item) -> None:
-        nonlocal exiting
+    tray_icon = None
+
+    def quit_agent(_item_icon=None, _item=None) -> None:
+        nonlocal exiting, tray_icon
+        from app import updates
+        updates.wait_failed_cancellation()
         exiting = True
-        icon.stop()
+        _stop_server(server_thread)
+        if tray_icon is not None:
+            tray_icon.stop()
         if window is not None:
             window.destroy()
+
+    def graceful_shutdown() -> None:
+        """Run after the HTTP response; never join Uvicorn from its own handler."""
+        def finish() -> None:
+            nonlocal server_thread
+            # Let the update response complete before Uvicorn stops accepting work.
+            time.sleep(.1)
+            if _stop_server(server_thread):
+                quit_agent()
+                return
+            log.error("Сервер не завершился вовремя; обновление отменено")
+            from app import updates
+            updates.shutdown_failed("Не удалось безопасно завершить агент; перезапустите его вручную")
+
+            def restore_api() -> None:
+                nonlocal server_thread
+                # Never reset a closing Uvicorn instance or overlap listeners.
+                server_thread.join()
+                if exiting:
+                    return
+                server_thread = threading.Thread(target=_run_server, daemon=True, name="agent-server-restarted")
+                server_thread.start()
+            threading.Thread(target=restore_api, daemon=True, name="agent-update-api-restore").start()
+        threading.Thread(target=finish, daemon=True, name="agent-update-shutdown").start()
 
     import platform
     from app.db import repo
@@ -245,7 +288,9 @@ def main() -> None:
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Выйти", quit_agent),
     )
-    icon = pystray.Icon("AIRate", image, f"AIRate · {device_label[0]}"[:127], menu)
+    tray_icon = pystray.Icon("AIRate", image, f"AIRate · {device_label[0]}"[:127], menu)
+    icon = tray_icon
+    window_control.set_shutdown(graceful_shutdown)
     def update_label(name: str) -> None:
         device_label[0] = name
         icon.title = f"AIRate · {name}"[:127]

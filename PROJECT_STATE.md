@@ -2,6 +2,12 @@
 
 Updated 2026-09-29. Repository: egotrippingh/aiparser; deployment branch: production.
 
+## In-app updater — release 2026.9.29.5
+
+- The agent verifies a freshly fetched official installer before handoff, blocks new work while updating, and uses an installer process handle to wait for graceful exit; a matching next-launch result removes only its own temporary stage. Installer and portable modes share the same file update path. Failed cancellation keeps the parent alive until the installer exits; retries clear the cancellation latch and stale errors. The installer writes its version marker last and attempts fallback relaunch after replacement failure.
+
+- Evidence: 31 updater/admission checks cover real endpoint/poll/login concurrency and disk/handoff failures; 75 selected agent checks and 28 frontend checks, lint/build passed in build/qa/internal-update-20260929-03/report.json on the reviewed working tree; final commit checks are recorded in the release PR. Independent Sol/Astra reviews found and confirmed repairs for server/tray shutdown, admission races, late failure watcher, denied cancellation and version-marker ordering. Native fixture report build/native-update-fixture/native-run-lw4kbfk3/report.json passed five scenarios without changing production installation registration. Disposable browser fixture covers download progress, ESC blocking, error/retry and restart. Final release PR records final source checks, packaging and publication. No existing-user native update, provider scan or power-loss rollback test was performed.
+
 ## Managed check identifiers — release 2026.9.29.4
 
 - Managed runs use control-plane query UUIDs consistently for reservation, server analysis, arbitration, settlement, screenshots, recovery, recheck, and result export. Local integer IDs remain for unmanaged runs.
@@ -38,6 +44,6 @@ Release PR: https://github.com/egotrippingh/aiparser/pull/6 . Its final delivery
 
 Native WebView2 window-close/tray/Windows logon interaction and 430x600 rendering; real native confirm dialog appearance; mobile viewport (IAB override stayed at measured 1280px). These are not claimed as verified. No new payment, real AI scan or real service-login tests were run for this frontend work.
 
-Updater native tray focus and actual installer/portable replacement on an existing user profile remain unverified. Publication retains version folders; prune older directories manually when storage requires it, keeping current and previous intact.
+Updater native WebView2 click-to-relaunch on an existing user profile remains unverified; disposable installed/portable replacement passed five native fixture cases. Publication retains version folders; prune older directories manually when storage requires it, keeping current and previous intact.
 
 Use feature branches and reviewed, tested PRs into production; GitHub Actions handles backup, serialized deployment, graceful shutdown and readiness. Do not commit .env, data, browser profiles, build or dist. Secrets remain in existing local/server storage; this file contains no credentials.

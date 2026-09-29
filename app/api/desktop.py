@@ -43,13 +43,16 @@ class LoginIn(BaseModel):
 @router.post("/login")
 async def login(body: LoginIn = LoginIn()):
     global login_task
+    if updates.busy():
+        raise HTTPException(409, "Идёт обновление приложения")
     if not billing.enabled():
         raise HTTPException(503, "Адрес сайта не настроен в этой сборке")
     if login_task and not login_task.done():
         return {"pending": True}
     try:
-        response = await billing._request("POST", "/control/connect/start", auth=False,
-            body={"device_id": device_id(), "name": platform.node() or "Windows агент"})
+        async with updates.activity():
+            response = await billing._request("POST", "/control/connect/start", auth=False,
+                body={"device_id": device_id(), "name": platform.node() or "Windows агент"})
     except billing.BillingError as exc:
         raise HTTPException(exc.status_code or 503, str(exc)) from exc
     target = f"{config.ACCOUNT_URL}{response['path']}"
@@ -81,25 +84,28 @@ class PasswordIn(BaseModel):
 
 @router.post("/login/password")
 async def password_login(body: PasswordIn):
+    if updates.busy():
+        raise HTTPException(409, "Идёт обновление приложения")
     if login_task and not login_task.done():
         raise HTTPException(409, "Сначала отмените ожидающий вход через браузер")
-    temporary = None
-    try:
-        result = await billing._request("POST", "/auth/login", auth=False,
-                                        body={"email": body.email, "password": body.password})
-        temporary = result["token"]
-        device = await billing._request("POST", "/control/agent/enroll", bearer=temporary,
-            body={"device_id": device_id(), "name": platform.node() or "Windows агент"})
-        connected(device["token"], result["user"])
-        return {"ok": True}
-    except billing.BillingError as exc:
-        raise HTTPException(exc.status_code or 503, str(exc)) from exc
-    finally:
-        if temporary:
-            try:
-                await billing._request("POST", "/auth/logout", bearer=temporary)
-            except billing.BillingError:
-                pass
+    async with updates.activity():
+        temporary = None
+        try:
+            result = await billing._request("POST", "/auth/login", auth=False,
+                                            body={"email": body.email, "password": body.password})
+            temporary = result["token"]
+            device = await billing._request("POST", "/control/agent/enroll", bearer=temporary,
+                body={"device_id": device_id(), "name": platform.node() or "Windows агент"})
+            connected(device["token"], result["user"])
+            return {"ok": True}
+        except billing.BillingError as exc:
+            raise HTTPException(exc.status_code or 503, str(exc)) from exc
+        finally:
+            if temporary:
+                try:
+                    await billing._request("POST", "/auth/logout", bearer=temporary)
+                except billing.BillingError:
+                    pass
 
 
 @router.post("/login/cancel")
@@ -149,12 +155,26 @@ def dismiss_update(body: UpdateIn):
     return updates.snapshot()
 
 
+@router.post("/update/apply")
 @router.post("/update/download")
-def download_update(body: UpdateIn):
-    if not webbrowser.open(updates.PORTABLE_URL if config.PORTABLE else updates.INSTALLER_URL):
-        raise HTTPException(503, "Не удалось открыть браузер по умолчанию")
-    updates.dismiss(body.version)
-    return updates.snapshot()
+async def download_update(body: UpdateIn):
+    # Reserve under the same lock as all scan/browser starts, then release it
+    # before the network download. The process-wide update gate rejects later starts.
+    from app.api.browser import status as browser_status
+    from app.control_agent import work_in_progress
+    try:
+        async with orchestrator.scan_start_lock():
+            browser = browser_status()
+            if (orchestrator.active_controller() or login_task and not login_task.done()
+                    or browser["installing"] or browser["logins_in_progress"] or work_in_progress()):
+                raise ValueError("Сначала дождитесь завершения текущей работы агента")
+            if not window_control.shutdown_ready():
+                raise ValueError("Перезапуск агента пока недоступен")
+            if not updates.reserve():
+                return updates.snapshot()
+        return await updates.apply(body.version, window_control.shutdown, reserved=True)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 class CabinetIn(BaseModel):
@@ -166,7 +186,8 @@ async def cabinet(body: CabinetIn = CabinetIn()):
     if not billing.enabled():
         raise HTTPException(503, "Адрес сайта не настроен")
     try:
-        url = await billing.browser_url(body.destination)
+        async with updates.activity():
+            url = await billing.browser_url(body.destination)
     except billing.BillingError as exc:
         raise HTTPException(exc.status_code or 503, str(exc)) from exc
     if not webbrowser.open(url):

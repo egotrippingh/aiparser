@@ -262,7 +262,10 @@ def _record_auth_state(service_id: str, state: str) -> None:
 
 async def start_scan(project_id: int, service_ids: list[str], *, resume: bool = True,
                      headless: bool = False, managed_job: dict | None = None) -> int:
+    from app import updates
     async with _scan_start_lock:
+        if updates.busy():
+            raise ScanAlreadyRunning("Идёт обновление приложения")
         return await _start_scan_unlocked(project_id, service_ids, resume=resume,
                                           headless=headless, managed_job=managed_job)
 
