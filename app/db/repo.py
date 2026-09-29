@@ -623,8 +623,56 @@ def cloud_results_after(result_id: int, limit: int = 100) -> list[dict]:
     )
 
 
-def pending_billing() -> list[dict]:
-    return _rows("SELECT check_id, status FROM billing_outbox ORDER BY created_at, check_id")
+def pending_billing(user_id: str | None = None) -> list[dict]:
+    pending = _rows("SELECT check_id, status FROM billing_outbox ORDER BY created_at, check_id")
+    return _owned_outbox(pending, user_id)
+
+
+def _owned_outbox(pending: list[dict], user_id: str | None) -> list[dict]:
+    if user_id is None or not pending:
+        return pending
+    # Retained foreign/incomplete/conflicting work must not be sent as this account.
+    # ponytail: inspect saved snapshots while work exists; index run IDs if history becomes large.
+    snapshots = {}
+    for row in _rows("SELECT id, settings_snapshot_json FROM scans WHERE settings_snapshot_json LIKE '%billing_run_id%'"):
+        try:
+            snapshot = json.loads(row["settings_snapshot_json"])
+        except ValueError:
+            continue
+        snapshots.setdefault(snapshot.get("billing_run_id"), []).append((row["id"], snapshot))
+    safe = []
+    queued = {item["check_id"] for item in _rows("SELECT check_id FROM billing_outbox")}
+    shots = {item["check_id"]: item["local_path"] for item in _rows("SELECT check_id, local_path FROM screenshot_outbox")}
+    for item in pending:
+        run = item["check_id"].split(":", 1)[0]
+        scans = snapshots.get(run, [])
+        if any((snap.get("billing_user_id") and snap["billing_user_id"] != user_id)
+               or (("cloud_job_id" in snap or "cloud_query_map" in snap) and snap.get("billing_user_id") != user_id)
+               for _, snap in scans):
+            continue
+        blocked = False
+        for scan_id, snap in scans:
+            if "cloud_job_id" not in snap and "cloud_query_map" not in snap:
+                continue
+            mapping = snap.get("cloud_query_map") or {}
+            if (not isinstance(mapping, dict) or not mapping
+                    or item["check_id"] not in snap.get("billing_reserved_ids", [])):
+                blocked = True
+                break
+            for result in results_for_scan(scan_id):
+                canonical = f"{run}:{mapping.get(str(result['query_id']))}:{result['service']}"
+                if canonical != item["check_id"]:
+                    continue
+                old = f"{run}:{result['query_id']}:{result['service']}"
+                if ((old != canonical and old in queued)
+                        or (old in shots and canonical in shots and shots[old] != shots[canonical])
+                        or (item.get("status") in ("found", "not_found") and result["status"] in ("found", "not_found")
+                            and item["status"] != result["status"])):
+                    blocked = True
+                    break
+        if not blocked:
+            safe.append(item)
+    return safe
 
 
 def billing_sent(check_ids: list[str]) -> None:
@@ -638,9 +686,70 @@ def queue_screenshot(check_id: str, local_path: str) -> None:
           (check_id, local_path))
 
 
-def pending_screenshots() -> list[dict]:
-    return _rows("SELECT check_id, local_path FROM screenshot_outbox ORDER BY created_at, check_id")
+def pending_screenshots(user_id: str | None = None) -> list[dict]:
+    return _owned_outbox(_rows("SELECT check_id, local_path FROM screenshot_outbox ORDER BY created_at, check_id"), user_id)
 
 
 def screenshot_sent(check_id: str) -> None:
     _exec("DELETE FROM screenshot_outbox WHERE check_id = ?", (check_id,))
+
+
+def repair_managed_outbox(user_id: str) -> int:
+    """Replace only proven old local IDs for this owner's managed checks."""
+    c = conn()
+    repaired = 0
+    if not pending_billing() and not pending_screenshots():
+        return 0
+    c.execute("BEGIN")
+    try:
+        scans = c.execute("SELECT id, settings_snapshot_json FROM scans WHERE settings_snapshot_json LIKE '%cloud_query_map%'").fetchall()
+        for scan in scans:
+            try:
+                snapshot = json.loads(scan["settings_snapshot_json"] or "{}")
+            except ValueError:
+                continue
+            if snapshot.get("billing_user_id") != user_id:
+                continue
+            run_id = snapshot.get("billing_run_id")
+            query_map = snapshot.get("cloud_query_map")
+            reserved = set(snapshot.get("billing_reserved_ids") or [])
+            if not run_id or not isinstance(query_map, dict):
+                continue
+            results = c.execute("SELECT query_id, service, status FROM results WHERE scan_id = ?", (scan["id"],)).fetchall()
+            for result in results:
+                if result["status"] not in ("found", "not_found"):
+                    continue
+                canonical_query = query_map.get(str(result["query_id"]))
+                if not canonical_query:
+                    continue
+                old = f"{run_id}:{result['query_id']}:{result['service']}"
+                new = f"{run_id}:{canonical_query}:{result['service']}"
+                if old == new or new not in reserved:
+                    continue
+                old_row = c.execute("SELECT status FROM billing_outbox WHERE check_id = ?", (old,)).fetchone()
+                desired = result["status"]
+                new_row = c.execute("SELECT status FROM billing_outbox WHERE check_id = ?", (new,)).fetchone()
+                shot = c.execute("SELECT local_path FROM screenshot_outbox WHERE check_id = ?", (old,)).fetchone()
+                new_shot = c.execute("SELECT local_path FROM screenshot_outbox WHERE check_id = ?", (new,)).fetchone()
+                if any(row and row["status"] in ("found", "not_found") and row["status"] != desired
+                       for row in (old_row, new_row)) or (shot and new_shot and shot["local_path"] != new_shot["local_path"]):
+                    continue
+                changed = False
+                if old_row:
+                    if not new_row:
+                        c.execute("INSERT INTO billing_outbox (check_id, status) VALUES (?, ?)", (new, desired))
+                    elif new_row["status"] == "release":
+                        c.execute("UPDATE billing_outbox SET status = ? WHERE check_id = ?", (desired, new))
+                    c.execute("DELETE FROM billing_outbox WHERE check_id = ?", (old,))
+                    changed = True
+                if shot:
+                    if not new_shot:
+                        c.execute("INSERT INTO screenshot_outbox (check_id, local_path) VALUES (?, ?)", (new, shot["local_path"]))
+                    c.execute("DELETE FROM screenshot_outbox WHERE check_id = ?", (old,))
+                    changed = True
+                repaired += int(changed)
+        c.execute("COMMIT")
+    except Exception:
+        c.execute("ROLLBACK")
+        raise
+    return repaired

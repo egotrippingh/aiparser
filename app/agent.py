@@ -37,7 +37,7 @@ def _payload(row: dict) -> dict:
     run_id = snapshot.get("billing_run_id")
     query_id = snapshot.get("cloud_query_map", {}).get(str(row["query_id"]), row["query_id"])
     query = next((q for q in snapshot.get("cloud_queries", []) if q["id"] == query_id), {})
-    check_id = (billing.check_id(run_id, query_id, row["service"])
+    check_id = (billing.canonical_check_id(snapshot, row["query_id"], row["service"])
                 if run_id and row["status"] in ("found", "not_found") else None)
     sources = [url for url in json.loads(row["sources_json"] or "[]")
                if isinstance(url, str) and len(url) <= 2000
@@ -118,18 +118,17 @@ async def run_agent() -> None:
                 preferences = response["preferences"]
                 if repo.get_setting("speed_profile") != preferences["speed_profile"]:
                     repo.set_setting("speed_profile", preferences["speed_profile"])
+                user = await billing.identity()
                 # A scan can begin while heartbeat is in flight. Hold the same
                 # lock as start_scan and recheck before touching provisional
                 # release entries in the billing outbox.
                 async with orchestrator.scan_start_lock():
                     if orchestrator.active_controller() is None:
-                        await billing.recover_interrupted_scans()
-                        await billing.flush_outbox()
+                        await billing.recover_interrupted_scans(user["id"])
                         try:
-                            await billing.flush_screenshot_outbox()
+                            await billing.flush_screenshot_outbox(user["id"])
                         except billing.ScreenshotError as exc:
                             log.warning("Отложенная отправка снимков: %s", exc)
-                user = await billing.identity()
                 try:
                     await _sync_results(user["id"], current_device_id)
                 except billing.BillingError as exc:

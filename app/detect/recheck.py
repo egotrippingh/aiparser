@@ -95,7 +95,7 @@ async def recheck_project(project_id: int, *, limit: int | None = None) -> dict:
                 model=model,
                 first_quote=row.get("evidence_quote") or "",
                 query=row.get("query_text"),
-                managed_check_id=billing.check_id(run_id, row["query_id"], row["service"]),
+                managed_check_id=billing.canonical_check_id(snapshot, row["query_id"], row["service"]),
             )
         if verdict.error:
             out["failed"] += 1

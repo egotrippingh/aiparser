@@ -314,9 +314,9 @@ async def _start_scan_unlocked(project_id: int, service_ids: list[str], *, resum
     billing_run_id = ""
     reserved: dict[tuple[int, str], str] = {}
     if billing.enabled():
-        await billing.recover_interrupted_scans()
+        await billing.recover_interrupted_scans(billing_user["id"])
         try:
-            await billing.flush_screenshot_outbox()
+            await billing.flush_screenshot_outbox(billing_user["id"])
         except billing.ScreenshotError as exc:
             log.warning("Скриншоты ожидают повторной отправки: %s", exc)
         if plan["continue_scan_id"]:
@@ -328,8 +328,8 @@ async def _start_scan_unlocked(project_id: int, service_ids: list[str], *, resum
         if managed_job:
             billing_run_id = managed_job["id"]
         reserved = {
-            (q["id"], svc): billing.check_id(billing_run_id,
-                managed_job["query_map"][str(q["id"])] if managed_job else q["id"], svc)
+            (q["id"], svc): billing.canonical_check_id(
+                {**snapshot, "billing_run_id": billing_run_id}, q["id"], svc)
             for svc, q in work
         }
         # Если сеть оборвётся после резервирования, эти записи позволят
@@ -340,7 +340,7 @@ async def _start_scan_unlocked(project_id: int, service_ids: list[str], *, resum
             reservation = await billing.reserve(list(reserved.values()))
         except billing.BillingError:
             try:
-                await billing.flush_outbox()
+                await billing.flush_outbox(billing_user["id"])
             except billing.BillingError:
                 pass  # очередь сохранена для следующего запуска
             raise
@@ -534,7 +534,7 @@ async def _run_scan(
                 if completed.get(pair) not in ("found", "not_found"):
                     repo.queue_billing(check_key, "release")
             try:
-                await billing.flush_outbox()
+                await billing.flush_outbox(settings.get("billing_user_id"))
             except billing.BillingError as exc:
                 ctl.emit("billing_error", error=str(exc))
                 log.warning("Биллинг скана %s ожидает повторной отправки: %s", ctl.scan_id, exc)
@@ -744,7 +744,7 @@ async def _run_one(
         llm_verdict = None
         llm_error_text = None
         if should_call_llm(rule_verdict, llm_mode):
-            managed_check_id = (billing.check_id(ctl.billing_run_id, query["id"], service_id)
+            managed_check_id = (billing.canonical_check_id(settings, query["id"], service_id)
                                 if settings.get("managed_llm") else None)
             llm_verdict = await llm_mod.evaluate(
                 query=query["text"],
@@ -792,7 +792,7 @@ async def _run_one(
         # Спорная строка (правила молчат, а модель нашла) — второй, более
         # сильный арбитр решает окончательно, вместо ручной проверки.
         if result.needs_review and settings.get("arbiter") and settings.get("managed_llm"):
-            arbiter_check_id = billing.check_id(ctl.billing_run_id, query["id"], service_id)
+            arbiter_check_id = billing.canonical_check_id(settings, query["id"], service_id)
             verdict = await llm_mod.arbitrate(
                 brand_name=project["brand_name"],
                 aliases=project["brand_aliases"],
@@ -830,13 +830,13 @@ async def _run_one(
             error_message=llm_error_text if result.status == "error" else None,
         )
         if ctl.billing_run_id and result.status in ("found", "not_found"):
-            check_key = billing.check_id(ctl.billing_run_id, query["id"], service_id)
+            check_key = billing.canonical_check_id(settings, query["id"], service_id)
             repo.queue_billing(check_key, result.status)
             repo.queue_screenshot(check_key, rel_path)
             try:
-                await billing.flush_outbox()
+                await billing.flush_outbox(settings.get("billing_user_id"))
                 try:
-                    await billing.flush_screenshot_outbox()
+                    await billing.flush_screenshot_outbox(settings.get("billing_user_id"))
                 except billing.ScreenshotError as exc:
                     log.warning("Скриншот ожидает повторной отправки: %s", exc)
             except billing.BillingError as exc:

@@ -33,8 +33,23 @@ def token() -> str:
     return secrets_store.unprotect(repo.get_setting(TOKEN_KEY))
 
 
-def check_id(run_id: str, query_id: int, service: str) -> str:
+def check_id(run_id: str, query_id: int | str, service: str) -> str:
     return f"{run_id}:{query_id}:{service}"
+
+
+def canonical_check_id(snapshot: dict, query_id: int, service: str) -> str | None:
+    """Return the server's check ID, never a local ID for a managed run."""
+    run_id = snapshot.get("billing_run_id")
+    if not run_id:
+        return None
+    managed = "cloud_job_id" in snapshot or "cloud_query_map" in snapshot
+    query_map = snapshot.get("cloud_query_map", {})
+    if managed:
+        canonical = query_map.get(str(query_id)) if isinstance(query_map, dict) else None
+        if not canonical:
+            raise BillingError("В управляемой проверке отсутствует сопоставление запроса")
+        return check_id(run_id, canonical, service)
+    return check_id(run_id, query_id, service)
 
 
 async def _request(method: str, path: str, *, body: dict | None = None,
@@ -164,8 +179,8 @@ async def release(check_ids: list[str]) -> dict:
     return {"released": released}
 
 
-async def flush_outbox() -> None:
-    pending = repo.pending_billing()
+async def flush_outbox(user_id: str | None = None) -> None:
+    pending = repo.pending_billing(user_id) if user_id else repo.pending_billing()
     for item in pending:
         if item["status"] == "release":
             continue
@@ -185,7 +200,7 @@ async def flush_outbox() -> None:
         repo.billing_sent(chunk)
 
 
-async def flush_screenshot_outbox() -> None:
+async def flush_screenshot_outbox(user_id: str | None = None) -> None:
     """Best-effort upload; billing and the local result remain independent."""
     global _screenshot_retry_after
     if not enabled() or not token():
@@ -193,7 +208,7 @@ async def flush_screenshot_outbox() -> None:
     if time.monotonic() < _screenshot_retry_after:
         return
     root = Path(config.SCREENSHOTS_DIR).resolve()
-    for item in repo.pending_screenshots():
+    for item in (repo.pending_screenshots(user_id) if user_id else repo.pending_screenshots()):
         path = (root / item["local_path"]).resolve()
         if not path.is_relative_to(root) or not path.is_file():
             repo.screenshot_sent(item["check_id"])
@@ -222,20 +237,38 @@ async def flush_screenshot_outbox() -> None:
         repo.screenshot_sent(item["check_id"])
 
 
-async def recover_interrupted_scans() -> None:
+async def recover_interrupted_scans(user_id: str | None = None) -> None:
     """Освободить незавершённые резервы после аварийного закрытия приложения."""
+    if user_id:
+        repo.repair_managed_outbox(user_id)
     scans = repo.interrupted_billing_scans()
+    reconciled = []
+    pending = {item["check_id"]: item["status"] for item in repo.pending_billing()}
+    shots = {item["check_id"] for item in repo.pending_screenshots()}
     # До отправки очереди заменяем страховочные release на фактические
     # результаты. Иначе сбой сразу после сохранения результата освободит
     # резерв, а повторное списание сервер уже не примет.
     for scan in scans:
         snapshot = json.loads(scan["settings_snapshot_json"] or "{}")
+        if user_id and snapshot.get("billing_user_id") != user_id:
+            continue
         run_id = snapshot.get("billing_run_id")
-        results = {check_id(run_id, r["query_id"], r["service"]): r["status"]
-                   for r in repo.results_for_scan(scan["id"])}
+        results, blocked = {}, set()
+        try:
+            for row in repo.results_for_scan(scan["id"]):
+                key = canonical_check_id(snapshot, row["query_id"], row["service"])
+                old = check_id(run_id, row["query_id"], row["service"])
+                if key != old and (old in pending or old in shots):
+                    blocked.add(key)
+                results[key] = row["status"]
+        except BillingError:
+            continue
         for key in snapshot.get("billing_reserved_ids", []):
+            if key in blocked or pending.get(key) in ("found", "not_found"):
+                continue
             status_value = results.get(key)
             repo.queue_billing(key, status_value if status_value in ("found", "not_found") else "release")
-    await flush_outbox()
-    for scan in scans:
+        reconciled.append(scan)
+    await flush_outbox(user_id)
+    for scan in reconciled:
         repo.finish_scan(scan["id"], status="stopped")
