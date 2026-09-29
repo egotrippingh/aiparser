@@ -66,11 +66,11 @@ def _name_matches(actual: str, wanted: str) -> bool:
     return actual == wanted or actual.startswith(wanted + ".")
 
 
-def _read_cookies(profile: Path) -> list[tuple[str, str, int | None]]:
+def _read_cookies_result(profile: Path) -> tuple[list[tuple[str, str, int | None]], bool]:
     """(host, name, expiry_sec) из cookies.sqlite. Пусто, если профиля/файла нет."""
     db = profile / "cookies.sqlite"
     if not db.exists():
-        return []
+        return [], True
 
     # Read the WAL too: copying cookies.sqlite alone misses recent logins.
     # A read-only connection never edits the browser's profile or copies secrets.
@@ -80,13 +80,24 @@ def _read_cookies(profile: Path) -> list[tuple[str, str, int | None]]:
             rows = con.execute("SELECT host, name, expiry FROM moz_cookies").fetchall()
         finally:
             con.close()
-        return [(h, n, normalize_expiry(e)) for h, n, e in rows]
+        return [(h, n, normalize_expiry(e)) for h, n, e in rows], True
     except Exception:
         log.info("Не удалось прочитать cookies профиля %s", profile.name, exc_info=True)
-        return []
+        return [], False
 
 
-def cookie_auth_state(service_id: str) -> dict:
+def _read_cookies(profile: Path) -> list[tuple[str, str, int | None]]:
+    """Совместимый помощник для диагностических вызовов без статуса ошибки."""
+    return _read_cookies_result(profile)[0]
+
+
+def _host_matches(actual: str, wanted: str) -> bool:
+    host = actual.lstrip(".").lower()
+    wanted = wanted.lower()
+    return host == wanted or host.endswith("." + wanted)
+
+
+def cookie_auth_state(service_id: str, profile: Path | None = None) -> dict:
     """Состояние сессии по cookies: ok | expired | none.
 
     `expires_at` — ближайшее истечение среди найденных сигнальных кук: именно
@@ -96,11 +107,13 @@ def cookie_auth_state(service_id: str) -> dict:
     if not wanted:
         return {"state": "unknown", "expires_at": None}
 
-    profile = config.PROFILES_DIR / service_id
+    profile = profile or config.PROFILES_DIR / service_id
     if not profile.exists():
         return {"state": "none", "expires_at": None}
 
-    cookies = _read_cookies(profile)
+    cookies, readable = _read_cookies_result(profile)
+    if not readable:
+        return {"state": "unknown", "expires_at": None}
     if not cookies:
         return {"state": "none", "expires_at": None}
 
@@ -110,7 +123,7 @@ def cookie_auth_state(service_id: str) -> dict:
 
     for host, name, expiry in cookies:
         for want_host, want_name in wanted:
-            if _name_matches(name, want_name) and want_host in host:
+            if _name_matches(name, want_name) and _host_matches(host, want_host):
                 seen_any = True
                 # Сессионная кука (expiry пустой) живёт до закрытия браузера —
                 # для персистентного профиля считаем её действующей.

@@ -32,7 +32,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: pip install -r scripts/requirements-ci.txt
       - run: python -m pytest server -q
-      - run: python -m pytest tests/test_updates.py tests/test_agent_publication.py tests/test_desktop_login.py -q
+      - run: python -m pytest tests/test_updates.py tests/test_agent_publication.py tests/test_desktop_login.py tests/test_profiles.py tests/test_login_feedback.py tests/test_data_paths.py tests/test_main_session_check.py -q
       - run: bash -n deploy/release.sh deploy/ssh-gate.sh deploy/provision-ubuntu.sh deploy/setup-delivery.sh
       - run: npm ci && npm test && npm run build
         working-directory: frontend

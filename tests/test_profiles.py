@@ -142,6 +142,19 @@ def test_unknown_service_is_unknown_not_crash():
     assert cookie_auth_state("нет такого сервиса")["state"] == "unknown"
 
 
+def test_unreadable_cookie_database_is_unknown_not_logged_out():
+    root = _make_profile("chatgpt", [])
+    (root / "chatgpt/cookies.sqlite").write_bytes(b"unreadable sqlite")
+    _with_profiles_dir(root)
+    assert cookie_auth_state("chatgpt")["state"] == "unknown"
+
+
+def test_foreign_domain_containing_provider_name_is_not_a_session():
+    root = _make_profile("chatgpt", [(".chatgpt.com.example.org", "__Secure-next-auth.session-token", NOW + 86400)])
+    _with_profiles_dir(root)
+    assert cookie_auth_state("chatgpt")["state"] == "none"
+
+
 # --------------------------------------------------------------------------
 # профили скорости
 # --------------------------------------------------------------------------
