@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { CalendarClock, ChevronRight, CircleHelp, Download, FolderOpen, Monitor, Pause, Play, Plus, Search, Settings2, ShieldCheck, Square, X } from "lucide-react"
 import { accountRequest as request } from "./account-api"
 import { SCAN_SERVICES, MONTH_DAYS } from "./lib/scan-preferences"
@@ -22,13 +22,23 @@ const blank = (): Project => ({ id: "new", revision: 0, name: "", brand_name: ""
   config: { brand_aliases: [], brand_domains: [], region_code: "213", services: ["google_aio"], browser_mode: "headless", speed_profile: "balanced", parallel: true },
   schedule: { enabled: false, device_id: null, month_days: [1], time: "09:00", timezone: "Europe/Moscow" } })
 const routeNow = () => location.hash.startsWith("#/") ? location.hash.slice(2) : "projects"
+const HISTORY_POSITION = "aimt.hashPosition"
+const historyPosition = () => {
+  const value = history.state && typeof history.state === "object" ? history.state[HISTORY_POSITION] : undefined
+  return typeof value === "number" ? value : null
+}
+const stampHistoryPosition = (position: number) => history.replaceState({ ...(history.state && typeof history.state === "object" ? history.state : {}), [HISTORY_POSITION]: position }, "", location.href)
+export const historyRecovery = (previousHash: string, previousPosition: number, targetPosition: number | null, nextPosition: number) => targetPosition === null
+  ? { hash: previousHash, position: nextPosition + 1 }
+  : { delta: previousPosition - targetPosition }
 
 function ComputerSelect({ label, value, devices, change, required = false }: { label: string; value: string | null; devices: Device[]; change: (id: string | null) => void; required?: boolean }) {
   return <label>{label}<select required={required} value={value || ""} onChange={e => change(e.target.value || null)}><option value="">Выберите компьютер</option>{devices.map(d => <option key={d.device_id} value={d.device_id} disabled={d.revoked}>{d.name} · {d.revoked ? "отключён" : d.online ? "на связи" : "не в сети"}</option>)}</select></label>
 }
 
-export function ControlCenter({ token, downloadUrl }: { token: string; downloadUrl: string | null }) {
+export function ControlCenter({ token, downloadUrl, onDirtyChange }: { token: string; downloadUrl: string | null; onDirtyChange: (dirty: boolean) => void }) {
   const [route, setRoute] = useState(routeNow)
+  const editorDirty = useRef(false), editorProject = useRef(""), previousHash = useRef(location.hash), previousPosition = useRef(0), restoringHistory = useRef(false)
   const [projects, setProjects] = useState<Project[]>([])
   const [devices, setDevices] = useState<Device[]>([])
   const [runs, setRuns] = useState<Run[]>([])
@@ -45,9 +55,59 @@ export function ControlCenter({ token, downloadUrl }: { token: string; downloadU
     const [p, d, r] = await Promise.all([request<Project[]>("/control/projects", token), request<Device[]>("/control/devices", token), request<Run[]>("/control/runs", token)])
     setProjects(p); setDevices(d); setRuns(r); setLoading(false)
   }, [token])
+  const noteEditorDirty = useCallback((dirty: boolean, projectId: string) => {
+    editorDirty.current = dirty
+    if (dirty) editorProject.current = projectId
+    onDirtyChange(dirty)
+  }, [onDirtyChange])
   useEffect(() => {
-    const change = () => setRoute(routeNow()); window.addEventListener("hashchange", change)
-    return () => window.removeEventListener("hashchange", change)
+    const currentPosition = historyPosition()
+    previousPosition.current = currentPosition ?? 0
+    if (currentPosition === null) stampHistoryPosition(previousPosition.current)
+    const change = () => {
+      const next = location.hash
+      if (next === previousHash.current) {
+        restoringHistory.current = false
+        return
+      }
+      if (restoringHistory.current) {
+        restoringHistory.current = false
+        previousHash.current = next
+        if (historyPosition() === null) stampHistoryPosition(previousPosition.current)
+        return
+      }
+      let nextPosition = historyPosition()
+      const hasPosition = nextPosition !== null
+      if (nextPosition === null || nextPosition === previousPosition.current) {
+        nextPosition = previousPosition.current + 1
+        stampHistoryPosition(nextPosition)
+      }
+      const staysInEditor = [`#/project/${editorProject.current}/queries`, `#/project/${editorProject.current}/settings`].includes(next)
+      if (editorDirty.current && !staysInEditor && !window.confirm("Изменения не сохранены. Уйти со страницы?")) {
+        const recovery = historyRecovery(previousHash.current, previousPosition.current, hasPosition ? nextPosition : null, nextPosition)
+        if ("delta" in recovery) {
+          restoringHistory.current = true
+          history.go(recovery.delta)
+        } else {
+          history.pushState({ ...(history.state && typeof history.state === "object" ? history.state : {}), [HISTORY_POSITION]: recovery.position }, "", location.pathname + location.search + recovery.hash)
+          previousHash.current = recovery.hash
+          previousPosition.current = recovery.position
+        }
+        return
+      }
+      previousHash.current = next
+      previousPosition.current = nextPosition
+      setRoute(routeNow())
+    }
+    const clearRestore = () => {
+      if (location.hash === previousHash.current) {
+        previousPosition.current = historyPosition() ?? previousPosition.current
+        restoringHistory.current = false
+      }
+    }
+    window.addEventListener("hashchange", change)
+    window.addEventListener("popstate", clearRestore)
+    return () => { window.removeEventListener("hashchange", change); window.removeEventListener("popstate", clearRestore) }
   }, [])
   useEffect(() => {
     refresh().catch(e => { setError(e.message); setLoading(false) })
@@ -87,7 +147,7 @@ export function ControlCenter({ token, downloadUrl }: { token: string; downloadU
       <div className="cc-sidebar-foot"><span className="cc-dot" />{devices.filter(d => d.online).length} на связи{downloadUrl && <a href={downloadUrl}><Download size={15} />Скачать агент</a>}<p>Управляйте здесь.<br />Агент выполнит проверку.</p></div></aside>
     <div className="cc-content">
       {connectId && <section className="cc-connect"><ShieldCheck size={26} /><div><h2>Подключить {connectName || "компьютер"}?</h2><p>Он сможет выполнять назначенные ему проверки этого аккаунта. Доступ можно отозвать в разделе «Компьютеры».</p></div><button className="cc-button primary" disabled={!!busy || !connectName} onClick={() => action("connect", approve)}>Подключить</button></section>}
-      {connected && <p className="cc-notice" role="status">Компьютер подключён. Агент свернётся в трей и будет ждать заданий.</p>}
+      {connected && <p className="cc-notice" role="status">Компьютер подключён. Агент готов к заданиям.</p>}
       {error && <div className="cc-alert" role="alert"><span>{error}</span><button aria-label="Закрыть сообщение" onClick={() => setError("")}><X size={18}/></button></div>}
       {area === "project" && projectId ? <>
         <a href="#/projects" className="cc-back">Все проекты</a>
@@ -96,7 +156,7 @@ export function ControlCenter({ token, downloadUrl }: { token: string; downloadU
         {selected && <p className="cc-subline">{selected.active_queries} запросов · {selected.config.services.length} системы · {selected.active_queries * selected.config.services.length} проверок за запуск · {devices.find(d => d.device_id === selected.device_id)?.name || "Компьютер не выбран"}</p>}
         <nav className="cc-tabs" aria-label="Разделы проекта">{[ ["queries", "Промптовая база"], ["report", "Упоминаемость"], ["settings", "Настройки и расписание"] ].map(([tab, label]) => <a key={tab} aria-current={(projectTab || "report") === tab ? "page" : undefined} href={`#/project/${projectId}/${tab}`}>{label}</a>)}</nav>
         {projectId !== "new" && (projectTab || "report") === "report" ? <>{shownRuns.some(r => !terminal(r)) && runRows(shownRuns.filter(r => !terminal(r)))}<ReportView key={projectId} token={token} projectId={projectId}/></>
-          : <ProjectEditor key={projectId} token={token} projectId={projectId} tab={projectId === "new" ? "settings" : projectTab || "settings"} devices={devices} saved={refresh} />}
+          : <ProjectEditor key={projectId} token={token} projectId={projectId} tab={projectId === "new" ? "settings" : projectTab || "settings"} devices={devices} saved={refresh} onDirtyChange={noteEditorDirty} />}
       </> : area === "devices" ? <>
         <div className="cc-heading"><div><span className="cc-eyebrow">Исполнители</span><h1>Компьютеры</h1><p>Назначайте проекты и расписания конкретному агенту.</p></div>{downloadUrl && <a className="cc-button primary" href={downloadUrl}><Download size={16} />Скачать агент</a>}</div>
         {!devices.length && <div className="cc-empty"><Monitor size={34}/><h2>Подключите первый компьютер</h2><p>Скачайте агент, запустите его и нажмите «Войти через браузер». Подтвердите подключение на сайте.</p></div>}
@@ -119,44 +179,49 @@ export function ControlCenter({ token, downloadUrl }: { token: string; downloadU
   </div>
 }
 
-function ProjectEditor({token,projectId,tab,devices,saved}:{token:string;projectId:string;tab:string;devices:Device[];saved:()=>Promise<void>}) {
+function ProjectEditor({token,projectId,tab,devices,saved,onDirtyChange}:{token:string;projectId:string;tab:string;devices:Device[];saved:()=>Promise<void>;onDirtyChange:(dirty:boolean,projectId:string)=>void}) {
   const [project,setProject] = useState<Project|null>(projectId === "new" ? blank() : null)
   const [dirty,setDirty] = useState(false)
   const [busy,setBusy] = useState(false)
   const [message,setMessage] = useState("")
   const [error,setError] = useState("")
-  useEffect(() => {if(projectId !== "new") request<Project>(`/control/projects/${projectId}`,token).then(setProject).catch(e => setError(e.message))},[projectId,token])
+  const dirtyRef = useRef(false), busyRef = useRef(false), mounted = useRef(true)
+  useEffect(() => () => { mounted.current = false }, [])
+  useEffect(() => { onDirtyChange(dirty, projectId); return () => onDirtyChange(false, projectId) }, [dirty, onDirtyChange, projectId])
+  useEffect(() => {if(projectId !== "new"){let alive=true;request<Project>(`/control/projects/${projectId}`,token).then(p=>{if(alive)setProject(p)}).catch(e=>{if(alive)setError(e.message)});return()=>{alive=false}}},[projectId,token])
   useEffect(() => {const prevent=(e:BeforeUnloadEvent)=>{if(dirty){e.preventDefault();e.returnValue=""}};window.addEventListener("beforeunload",prevent);return()=>window.removeEventListener("beforeunload",prevent)},[dirty])
   useEffect(() => {
-    if (!dirty) return
     const guard = (event: MouseEvent) => {
+      if (!dirtyRef.current) return
       const link = (event.target as Element).closest<HTMLAnchorElement>("a[href]")
       if (!link || link.target === "_blank" || link.hasAttribute("download")) return
       const target = new URL(link.href, location.href)
-      const staysInEditor = target.pathname === location.pathname &&
-        [`#/project/${projectId}/queries`, `#/project/${projectId}/settings`].includes(target.hash)
-      if (!staysInEditor && !window.confirm("Изменения не сохранены. Уйти со страницы?")) {
+      if (target.pathname === location.pathname && target.hash.startsWith("#/")) return
+      if (!window.confirm("Изменения не сохранены. Уйти со страницы?")) {
         event.preventDefault(); event.stopPropagation()
       }
     }
     document.addEventListener("click", guard, true)
     return () => document.removeEventListener("click", guard, true)
-  }, [dirty, projectId])
-  function change(next:Project){setProject(next);setDirty(true);setMessage("")}
-  async function save(){if(!project)return;setBusy(true);setError("");try{
+  }, [projectId])
+  function change(next:Project){if(busyRef.current)return;dirtyRef.current=true;onDirtyChange(true,projectId);setProject(next);setDirty(true);setMessage("")}
+  async function save(){if(!project)return;busyRef.current=true;setBusy(true);setError("");try{
     const {revision,name,brand_name,device_id,config,schedule,queries}=project
     const next=await request<Project>(projectId==="new"?"/control/projects":`/control/projects/${projectId}`,token,{revision,name,brand_name,device_id,config,schedule,queries},projectId==="new"?"POST":"PUT")
-    setProject(next);setDirty(false);setMessage("Сохранено. Текущая проверка использует настройки на момент запуска.");await saved()
-    if(projectId==="new")location.hash=`/project/${next.id}/queries`
-  }catch(e){setError(e instanceof Error?e.message:"Не удалось сохранить проект")}finally{setBusy(false)}}
+    if(!mounted.current)return
+    dirtyRef.current=false;onDirtyChange(false,projectId);setProject(next);setDirty(false);setMessage("Сохранено. Текущая проверка использует настройки на момент запуска.");await saved()
+    if(mounted.current&&projectId==="new")location.hash=`/project/${next.id}/queries`
+  }catch(e){if(mounted.current)setError(e instanceof Error?e.message:"Не удалось сохранить проект")}finally{busyRef.current=false;if(mounted.current)setBusy(false)}}
   if(!project)return error?<p className="cc-alert" role="alert">{error}</p>:<div className="cc-skeleton"/>
   return <div className="cc-editor">
     {error&&<p className="cc-alert" role="alert">{error}</p>}
-    {tab==="queries"?<QueryLibrary queries={project.queries} onChange={queries=>change({...project,queries})}/>:<>
+    <fieldset disabled={busy}>
+    {tab==="queries"?<QueryLibrary queries={project.queries} saving={busy} onChange={queries=>change({...project,queries})}/>:<>
       <div className="cc-form-section"><div><h2>Проект и бренд</h2><p>По этим названиям и доменам ищем упоминания в ответах ИИ.</p></div><div className="cc-fields"><div className="cc-two"><label>Название проекта<input required maxLength={120} value={project.name} onChange={e=>change({...project,name:e.target.value})}/></label><label>Бренд<input required maxLength={120} value={project.brand_name} onChange={e=>change({...project,brand_name:e.target.value})}/></label></div><label>Другие написания бренда<textarea rows={3} value={project.config.brand_aliases.join("\n")} onChange={e=>change({...project,config:{...project.config,brand_aliases:e.target.value.split("\n")}})}/></label><label>Домены бренда<textarea rows={2} placeholder="example.ru" value={project.config.brand_domains.join("\n")} onChange={e=>change({...project,config:{...project.config,brand_domains:e.target.value.split("\n")}})}/></label></div></div>
       <div className="cc-form-section"><div><h2>Выполнение проверок</h2><p>Этот компьютер получает ручные запуски. Если он не в сети, проверка останется в очереди.</p></div><div className="cc-fields"><ComputerSelect label="Компьютер для запуска" value={project.device_id} devices={devices} change={id=>change({...project,device_id:id})}/><fieldset><legend>ИИ-системы</legend><div className="cc-checkboxes">{SCAN_SERVICES.filter(s=>s.id!=="yandex_neuro").map(s=><label className="cc-check" key={s.id}><input type="checkbox" checked={project.config.services.includes(s.id)} onChange={e=>change({...project,config:{...project.config,services:e.target.checked?[...project.config.services,s.id]:project.config.services.filter(id=>id!==s.id)}})}/>{s.label}</label>)}</div></fieldset><div className="cc-two"><label>Режим браузера<select value={project.config.browser_mode} onChange={e=>change({...project,config:{...project.config,browser_mode:e.target.value}})}><option value="headless">Без окон (headless)</option><option value="headful">С окнами (headful)</option></select></label><label>Скорость<select value={project.config.speed_profile} onChange={e=>change({...project,config:{...project.config,speed_profile:e.target.value}})}><option value="careful">Осторожная</option><option value="balanced">Сбалансированная</option><option value="fast">Быстрая</option></select></label></div><label className="cc-check"><input type="checkbox" checked={project.config.parallel} onChange={e=>change({...project,config:{...project.config,parallel:e.target.checked}})}/>Проверять системы параллельно</label><label>Регион Яндекса<input value={project.config.region_code} onChange={e=>change({...project,config:{...project.config,region_code:e.target.value}})}/><small>213 — Москва. Вход в ИИ-сервисы и капча выполняются на выбранном ПК.</small></label></div></div>
       <div className="cc-form-section"><div><h2><CalendarClock size={21}/>Расписание</h2><p>Выберите дни месяца, точное время и компьютер. Часовой пояс задаётся здесь и не зависит от настроек Windows.</p></div><div className="cc-fields"><label className="cc-check"><input type="checkbox" checked={project.schedule.enabled} onChange={e=>change({...project,schedule:{...project.schedule,enabled:e.target.checked,device_id:project.schedule.device_id||project.device_id}})}/>Проверять по расписанию</label><ComputerSelect label="Компьютер для расписания" value={project.schedule.device_id} devices={devices} required={project.schedule.enabled} change={id=>change({...project,schedule:{...project.schedule,device_id:id}})}/><div className="cc-two"><label>Время запуска<input type="time" value={project.schedule.time} onChange={e=>change({...project,schedule:{...project.schedule,time:e.target.value}})}/></label><label>Часовой пояс<input list="timezones" value={project.schedule.timezone} onChange={e=>change({...project,schedule:{...project.schedule,timezone:e.target.value}})}/><datalist id="timezones">{["Europe/Moscow","Europe/Kaliningrad","Europe/Samara","Asia/Yekaterinburg","Asia/Novosibirsk","Asia/Vladivostok","UTC"].map(z=><option key={z} value={z}/>)}</datalist></label></div><fieldset><legend>Числа месяца</legend><div className="cc-days">{MONTH_DAYS.map(day=><button type="button" key={day} aria-pressed={project.schedule.month_days.includes(day)} onClick={()=>change({...project,schedule:{...project.schedule,month_days:project.schedule.month_days.includes(day)?project.schedule.month_days.filter(d=>d!==day):[...project.schedule.month_days,day].sort((a,b)=>a-b)}})}>{day}</button>)}</div></fieldset><p className="cc-hint">Если выбранного числа нет в месяце, запуск пропускается. Выключенный ПК может забрать задание в течение 24 часов. Позже запуск отмечается как пропущенный.</p></div></div>
     </>}
+    </fieldset>
     <div className="cc-savebar"><span role="status">{message || (dirty?"Есть несохранённые изменения":"Все изменения сохранены")}</span><button className="cc-button primary" disabled={busy||(!dirty&&projectId!=="new")||!project.name.trim()||!project.brand_name.trim()||!project.config.services.length||!project.schedule.month_days.length||(project.schedule.enabled&&!project.schedule.device_id)} onClick={save}><Settings2 size={16}/>{busy?"Сохраняем…":"Сохранить"}</button></div>
   </div>
 }

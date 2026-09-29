@@ -1,14 +1,13 @@
 .principles-section{padding:112px 0;border-block:1px solid var(--air-line);background:var(--air-bg)}
 .principles-heading{max-width:770px;margin-bottom:50px}
-.principles-heading h2{font-size:clamp(38px,4.8vw,66px);font-weight:600;line-height:1.06;letter-spacing:-.055em;margin:18px 0 20px;color:var(--air-text)}
+.principles-heading h2{font-size:clamp(38px,4.8vw,66px);font-weight:600;line-height:1.06;letter-spacing:-.055em;margin:0 0 20px;color:var(--air-text)}
 .principles-heading>p{max-width:580px;color:var(--air-muted);font-size:17px;line-height:1.65;margin:0}
 .principles-layout{display:grid;grid-template-columns:minmax(300px,.85fr) minmax(0,1.45fr);gap:64px;align-items:start}
 .principles-tabs{display:grid;gap:8px}
-.principles-tabs button{display:flex;align-items:baseline;gap:16px;border:1px solid transparent;background:transparent;color:var(--air-muted);text-align:left;padding:20px;border-radius:11px;font:inherit;cursor:pointer;transition:background .16s ease,border-color .16s ease}
+.principles-tabs button{display:flex;border:1px solid transparent;background:transparent;color:var(--air-muted);text-align:left;padding:20px;border-radius:11px;font:inherit;cursor:pointer;transition:background .16s ease,border-color .16s ease}
 .principles-tabs button[aria-selected=true]{background:var(--air-raised);border-color:var(--air-line);color:var(--air-text)}
 .principles-tabs button:hover{background:var(--air-panel)}
 .principles-tabs button:focus-visible,.principles-stage [role=tabpanel]:focus-visible{outline:2px solid var(--air-accent);outline-offset:4px}
-.principle-tab-number{font-size:11px;color:var(--air-quiet);font-variant-numeric:tabular-nums}
 .principles-tabs strong{display:block;font-size:21px;line-height:1.3;letter-spacing:-.035em;font-weight:600}
 .principle-tab-text{display:block;font-size:14px;line-height:1.65;margin-top:9px}
 .principles-stage{position:sticky;top:110px;border:1px solid var(--air-line);border-radius:18px;background:var(--air-panel);min-width:0;overflow:hidden}

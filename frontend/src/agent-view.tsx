@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react"
 import { createRoot } from "react-dom/client"
-import { ArrowUpRight, Check, CheckCircle2, LogIn, Monitor, Pause, Play, Settings2 } from "lucide-react"
+import { ArrowUpRight, Check, CheckCircle2, LogIn, Monitor, Pause, Play } from "lucide-react"
 import "./agent-view.css"
 import { BrowserInstallProgress, type InstallProgress } from "./components/browser-install-progress"
 import { sessionLabel, sessionReady, type ServiceSession } from "./lib/service-auth"
@@ -18,13 +18,13 @@ async function api<T>(path:string,body?:unknown,method?:string):Promise<T>{
 function Agent(){
   const [state,setState]=useState<State|null>(null)
   const [error,setError]=useState("")
+  const [pollError,setPollError]=useState("")
   const [busy,setBusy]=useState("")
-  const [settings,setSettings]=useState(false)
   const [passwordForm,setPasswordForm]=useState(false)
   const [email,setEmail]=useState("")
   const [password,setPassword]=useState("")
-  const refresh=()=>api<State>("/api/desktop/state").then(setState)
-  useEffect(()=>{refresh().catch(e=>setError(e.message));const timer=setInterval(()=>refresh().catch(e=>setError(e.message)),state?.browser.installing?1000:4000);return()=>clearInterval(timer)},[state?.browser.installing])
+  const refresh=()=>api<State>("/api/desktop/state").then(next=>{setState(next);setPollError("")})
+  useEffect(()=>{refresh().catch(e=>setPollError(e.message));const timer=setInterval(()=>refresh().catch(e=>setPollError(e.message)),state?.browser.installing?1000:4000);return()=>clearInterval(timer)},[state?.browser.installing])
   async function act(path:string,body:unknown={},method?:string){setBusy(path);setError("");try{await api(path,body,method);await refresh()}catch(e){setError(e instanceof Error?e.message:"Ошибка")}finally{setBusy("")}}
   async function signIn(event: FormEvent){
     event.preventDefault()
@@ -34,6 +34,7 @@ function Agent(){
   }
   const problem=error||state?.error||state?.sync_error
   return <main className="agent-window"><header><a href="#" onClick={e=>e.preventDefault()} className="agent-brand"><img src="/assets/brand/airvision-icon-graphite.png" alt="" width={36} height={36}/><strong>AIRate</strong></a><span>Агент</span></header>
+    {pollError&&<p className="agent-error" role="alert">{pollError}</p>}
     {!state?<div className="agent-loading" role="status">Подключаемся…</div>:<>
       <section className="agent-identity"><div className={`agent-status-icon ${state.connected?"connected":""}`}><Monitor size={28}/></div><h1>{state.connected?state.name:"Подключите компьютер"}</h1><p>{state.connected?state.user?.email:"Войдите в аккаунт, чтобы подключить этот компьютер. Проекты и отчёты будут доступны на сайте."}</p></section>
       {!state.connected?<section className="agent-login">
@@ -49,7 +50,7 @@ function Agent(){
             </form>}
           </>}
           {!state.configured&&<p>В этой сборке не указан адрес сайта. Скачайте агент из кабинета.</p>}
-          <small>После входа этот компьютер привяжется к аккаунту, а агент свернётся в трей. Код не нужен.</small>
+          <small>После входа этот компьютер привяжется к аккаунту. Подключите нужные ИИ-сервисы ниже. Код не нужен.</small>
         </>}
       </section>:<>
         <section className="agent-state"><div><span className={`agent-dot ${state.paused?"paused":""}`}/><strong>{state.paused?"Агент на паузе":state.scan?"Проверка выполняется":"Готов к заданиям сайта"}</strong></div><p>{state.scan?`${state.job?.project_name||"Проект"} · ${state.scan.done} / ${state.scan.total} проверок`:state.paused?"Новые задания будут ждать в очереди.":"Можно закрыть окно. Агент продолжит работать в трее."}</p>{state.scan&&<progress value={state.scan.done} max={state.scan.total||1} aria-label="Прогресс проверки"/>}</section>
@@ -57,8 +58,8 @@ function Agent(){
         <button className="agent-primary" onClick={()=>act("/api/desktop/cabinet")} disabled={!!busy}>Открыть кабинет<ArrowUpRight size={18}/></button>
         <div className="agent-actions"><button onClick={()=>act("/api/desktop/pause",{paused:!state.paused})} disabled={!!busy}>{state.paused?<Play size={16}/>:<Pause size={16}/>} {state.paused?"Продолжить":"Приостановить проверки на этом ПК"}</button><button onClick={()=>act("/api/desktop/hide")} disabled={!!busy}>Свернуть в трей</button></div>
       </>}
-      <button className="agent-details-toggle" aria-expanded={settings} onClick={()=>setSettings(!settings)}><Settings2 size={16}/>Подключения и автозапуск<span>{settings?"−":"+"}</span></button>
-      {settings&&<section className="agent-settings">
+      <section className="agent-settings">
+        <h2>Подключения и автозапуск</h2>
         <label><input type="checkbox" disabled={!state.autostart.available||!!busy} checked={state.autostart.enabled} onChange={e=>act("/api/agent/autostart",{enabled:e.target.checked},"PUT")}/>Запускать вместе с Windows</label>
         {state.browser.install_progress&&<BrowserInstallProgress progress={state.browser.install_progress}/>}
         {!state.browser.installed||state.browser.installing?<div><p>Для проверок нужен браузер агента.</p><button onClick={()=>act("/api/browser/install")} disabled={state.browser.installing||!!busy}>{state.browser.installing?"Устанавливается…":state.browser.install_error?"Повторить установку":"Установить браузер"}</button>{state.browser.install_error&&<p role="alert">{state.browser.install_error}</p>}</div>:<>
@@ -68,7 +69,7 @@ function Agent(){
           {state.scan&&<p>Чтобы войти заново, сначала остановите проверку на сайте.</p>}
         </>}
         {state.has_token&&<button className="agent-signout" disabled={!!state.scan||!!busy} onClick={()=>act("/api/account/logout")}>Отключить аккаунт</button>}
-      </section>}
+      </section>
       {problem&&<p className="agent-error" role="alert">{problem}</p>}
       <footer><CheckCircle2 size={13}/>{state.last_sync?`Последняя связь: ${new Date(state.last_sync).toLocaleTimeString("ru-RU")}`:"Ожидаем подключение"}</footer>
     </>}
