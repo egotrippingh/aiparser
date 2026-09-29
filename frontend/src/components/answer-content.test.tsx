@@ -98,3 +98,42 @@ it.each(['chatgpt', 'perplexity', 'alice', 'google_aio'])("hides standalone sour
   expect(html).toContain('+12')
   expect(html).toContain('class="answer-sources"')
 })
+
+it.each(['chatgpt', 'perplexity', 'alice', 'google_aio'])("formats tables and bold nested lists for %s", service => {
+  const text = 'Intro\n| Service | Price | Site |\n| :--- | ---: | :---: |\n| **Company** | +2 | [Source](<https://example.test/?q=a\\|b>) |\n| Other | | `a|b` |\nAfter\n\n- **Main option**\n  3. Nested\n  8. Another\n\n-\n  | A | B |\n  | --- | --- |\n  | x | y |'
+  const html = renderToStaticMarkup(<AnswerContent text={text} service={service}/>)
+  expect(html).toContain('aria-label="Таблица ответа" tabindex="0"')
+  expect(html).toContain('<thead><tr><th scope="col" style="text-align:left">Service</th>')
+  expect(html).toContain('<td style="text-align:right">+2</td>')
+  expect(html).toContain('<strong>Company</strong>')
+  expect(html).toContain('<td style="text-align:right"></td>')
+  expect(html).toContain('href="https://example.test/?q=a|b"')
+  expect(html).toContain('<code>a|b</code>')
+  expect(html).toContain('<p>After</p>')
+  expect(html).toContain('<strong>Main option</strong><ol start="3">')
+  expect(html).toContain('<li value="8">Another</li>')
+  expect(html).toContain('<li><div class="answer-table-scroll"')
+})
+
+it("keeps malformed tables and code literal; displays TSV and headerless tables safely", () => {
+  const html = renderToStaticMarkup(<AnswerContent text={'Name\tPrice\nCompany\t100\n\n| | |\n| --- | --- |\n| x | y |\n\n| A | B |\n| --- | --- |\n| mismatched | row | keep |\n\n```\n| A | B |\n| --- | --- |\n| x | y |\n```\n\n| HTML | URL |\n| --- | --- |\n| <img src=x> | [bad](<javascript:alert(1)>) |'}/>)
+  expect(html).toContain('>Company</td>')
+  expect(html).toContain('<tbody><tr><td style="text-align:left">x</td>')
+  expect(html).toContain('mismatched | row | keep')
+  expect(html).toContain('<pre><code>| A | B |')
+  expect(html).not.toContain('<img')
+  expect(html).not.toContain('href="javascript:')
+})
+
+it("preserves one-column tables and escaped backticks, code spaces and bold-code boundaries", () => {
+  const html = renderToStaticMarkup(<AnswerContent text={'| Code |\n| --- |\n| `a  b` |\n| `a\\`\\|b` |\n\n**`a**https://code.test/path`**\n\n```\nfirst\n```\n\nOther\nAfter'}/>)
+  expect(html).toContain('<th scope="col" style="text-align:left">Code</th>')
+  expect(html).toContain('<code>a  b</code>')
+  expect(html).toContain('<code>a`|b</code>')
+  expect(html).not.toContain('href="https://code.test')
+  expect(html).toContain('<code>a**https://code.test/path</code>')
+  expect(html).toContain('<p>Other<br/>After</p>')
+  const single = renderToStaticMarkup(<AnswerContent text={'| Header |\n| --- |\n| Keep |\nAfter table'}/>)
+  expect(single).toContain('</table></div><p>After table</p>')
+  expect(single).not.toContain('>After table</td>')
+})

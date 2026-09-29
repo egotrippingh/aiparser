@@ -2,6 +2,11 @@
 
 Updated 2026-09-29. Repository: egotrippingh/aiparser; deployment branch: production.
 
+## Lists and tables — prepared 2026.9.29.8
+
+- Shared capture preserves rectangular native tables across all four providers, empty cells, captions, safe links and inline code; merged/nested/block-code tables retain readable fallback text. Plain analysis is unchanged. Shared frontend displays Markdown/TSV tables, including list continuations, bold labels and nested/numbered lists with local horizontal scrolling and accessible table regions. No new dependency/schema change. Old lost cell boundaries cannot be reconstructed.
+- Independent Sol review PASS after repairs for empty first rows, one-column tables, code whitespace/escaping, fallback fences and bold-code boundaries; final prose guard rechecked. Final frontend: 45 passed, lint/build PASS at build/qa/answer-tables-front-20260929-04. Broad Python final-source rerun: 113 passed, 2 skipped (Linux publication) at build/qa/answer-tables-python-20260929-02. Actual browser DOM: 29 assertions passed, raw Alice/Google splitter identity preserved; serializer output rendered in disposable report at desktop/360px. Table scrollWidth 420 versus region clientWidth 254/226; screenshots in build/qa/answer-tables-browser. No real provider login/scan or existing-user native update tested. Packaging and authorized publication pending.
+
 ## Source counter cleanup — delivered
 
 - All answer views hide standalone +N source-count lines across all four providers, including NBSP and list continuations. Inline numbers/arithmetic, C++, code and source links stay intact. Stored answers and analysis are unchanged; the original disclosure covers ambiguous standalone signed numbers. Real read-only corpus confirmed markers in all four providers; Google/Perplexity can have no saved URLs, so no source-list guard is used.
