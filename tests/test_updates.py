@@ -10,6 +10,12 @@ from app.api import desktop
 
 @pytest.fixture(autouse=True)
 def clean_updater_state(monkeypatch):
+    saved = {}
+    monkeypatch.setattr(updates.repo, 'get_setting', lambda key, default=None: saved.get(key, default))
+    monkeypatch.setattr(updates.repo, 'set_setting', lambda key, value, **_: saved.__setitem__(key, value))
+    for name, value in {'_activity': 0, '_handoff_error': '', '_abort_path': None,
+                        '_installer': None, '_watcher': None, '_abort_failed': False}.items():
+        monkeypatch.setattr(updates, name, value)
     monkeypatch.setattr(updates, '__version__', '2026.9.29.2')
     monkeypatch.setattr(updates.config, 'PORTABLE', True)
     monkeypatch.setattr(updates, '_release', None)
