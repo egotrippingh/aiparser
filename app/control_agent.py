@@ -11,13 +11,25 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from app import billing, secrets_store, window_control
+from app import billing, secrets_store, updates, window_control
 from app.db import repo
 from app.scanner import orchestrator
 from app.agent import device_id, _sync_results
 
 log = logging.getLogger(__name__)
 STATE = {"connected": False, "error": "", "name": platform.node(), "last_sync": None}
+_work_tasks: set[asyncio.Task] = set()
+
+
+def work_in_progress() -> bool:
+    """Tasks that can still reserve, settle, or report a managed run."""
+    return any(not task.done() for task in _work_tasks)
+
+
+def _track_work(task: asyncio.Task) -> asyncio.Task:
+    _work_tasks.add(task)
+    task.add_done_callback(_work_tasks.discard)
+    return task
 
 
 def store_token(token):
@@ -139,82 +151,89 @@ async def run_agent():
                         ctl.stop()
                     await asyncio.sleep(3)
                     continue
-                await enroll()
-                user = await billing.identity()
-                if known_user != user["id"]:
-                    ctl = orchestrator.active_controller()
-                    if ctl:
-                        ctl.stop()
-                        await asyncio.sleep(3)
-                        continue
-                    await import_projects(user["id"])
-                    known_user = user["id"]
-                ctl = orchestrator.active_controller()
-                browser = browser_status()
-                capabilities = {"services": browser["services"], "installed": browser["installed"],
-                                "paused": paused(), "active_scan": bool(ctl or starting and not starting.done()
-                                                                         or browser["logins_in_progress"])}
-                reply = await billing._request("POST", "/control/agent/poll", body={"capabilities": capabilities})
-                last_ok = time.monotonic()
-                STATE.update(connected=True, user=user, name=reply.get("name", platform.node()),
-                             last_sync=datetime.now().astimezone().isoformat(), error="")
-                if repo.get_setting("agent_display_name") != STATE["name"]:
-                    repo.set_setting("agent_display_name", STATE["name"])
-                    window_control.update_device_name(STATE["name"])
-                if time.monotonic() - wallet_at > 60:
-                    STATE["wallet"] = await billing._request("GET", "/wallet")
-                    wallet_at = time.monotonic()
-                if (finishing is None or finishing.done()) and (syncing is None or syncing.done()):
-                    if syncing and not syncing.cancelled():
-                        error = syncing.exception()
-                        if error:
-                            log.warning("Sync pending: %s", error)
-                            STATE["sync_error"] = str(error)
-                        else:
-                            STATE["sync_error"] = ""
-                    syncing = asyncio.create_task(maintenance(user["id"]))
-                job = reply["run"]
-                STATE["job"] = job
-                if job:
-                    ctl = orchestrator.active_controller()
-                    scan_id = int(repo.get_setting(f"managed_scan:{job['id']}", "0") or 0)
-                    if ctl and ctl.scan_id == scan_id:
-                        desired = job["desired_state"]
-                        if desired == "cancelled":
+                if updates.busy():
+                    await asyncio.sleep(3)
+                    continue
+                await updates.admit()
+                try:
+                    await enroll()
+                    user = await billing.identity()
+                    if known_user != user["id"]:
+                        ctl = orchestrator.active_controller()
+                        if ctl:
                             ctl.stop()
-                        elif desired == "paused" or paused():
-                            if ctl.state == "running": ctl.pause()
-                        elif ctl.state == "paused":
-                            ctl.resume()
-                        progress = ctl.snapshot()
-                        baseline = job["total"] - progress["total"]
-                        progress["done"] += max(0, baseline)
-                        progress["total"] = job["total"]
-                        await update_job(job, "paused" if ctl.state == "paused" else "running", progress)
+                            await asyncio.sleep(3)
+                            continue
+                        await import_projects(user["id"])
+                        known_user = user["id"]
+                    ctl = orchestrator.active_controller()
+                    browser = browser_status()
+                    capabilities = {"services": browser["services"], "installed": browser["installed"],
+                                    "paused": paused(), "active_scan": bool(ctl or starting and not starting.done()
+                                                                             or browser["logins_in_progress"])}
+                    reply = await billing._request("POST", "/control/agent/poll", body={"capabilities": capabilities})
+                    last_ok = time.monotonic()
+                    STATE.update(connected=True, user=user, name=reply.get("name", platform.node()),
+                                 last_sync=datetime.now().astimezone().isoformat(), error="")
+                    if repo.get_setting("agent_display_name") != STATE["name"]:
+                        repo.set_setting("agent_display_name", STATE["name"])
+                        window_control.update_device_name(STATE["name"])
+                    if time.monotonic() - wallet_at > 60:
+                        STATE["wallet"] = await billing._request("GET", "/wallet")
+                        wallet_at = time.monotonic()
+                    if (finishing is None or finishing.done()) and (syncing is None or syncing.done()):
+                        if syncing and not syncing.cancelled():
+                            error = syncing.exception()
+                            if error:
+                                log.warning("Sync pending: %s", error)
+                                STATE["sync_error"] = str(error)
+                            else:
+                                STATE["sync_error"] = ""
+                        syncing = _track_work(asyncio.create_task(maintenance(user["id"])))
+                    job = reply["run"]
+                    STATE["job"] = job
+                    if job:
+                        ctl = orchestrator.active_controller()
+                        scan_id = int(repo.get_setting(f"managed_scan:{job['id']}", "0") or 0)
+                        if ctl and ctl.scan_id == scan_id:
+                            desired = job["desired_state"]
+                            if desired == "cancelled":
+                                ctl.stop()
+                            elif desired == "paused" or paused():
+                                if ctl.state == "running": ctl.pause()
+                            elif ctl.state == "paused":
+                                ctl.resume()
+                            progress = ctl.snapshot()
+                            baseline = job["total"] - progress["total"]
+                            progress["done"] += max(0, baseline)
+                            progress["total"] = job["total"]
+                            await update_job(job, "paused" if ctl.state == "paused" else "running", progress)
+                        elif ctl:
+                            ctl.stop()
+                        elif starting is None or starting.done():
+                            if starting and not starting.cancelled() and starting.exception():
+                                raise starting.exception()
+                            scan = repo.get_scan(scan_id) if scan_id else None
+                            if scan and scan["status"] in ("done", "failed") or job["desired_state"] == "cancelled":
+                                if finishing is None or finishing.done():
+                                    if finishing and not finishing.cancelled() and finishing.exception():
+                                        STATE["sync_error"] = str(finishing.exception())
+                                    # Keep heartbeats alive throughout potentially large uploads.
+                                    async def finish(current, local_scan, terminal_state, owner, pending_sync):
+                                        if pending_sync:
+                                            await pending_sync
+                                        await maintenance(owner)
+                                        count = len(repo.results_for_scan(local_scan)) if local_scan else 0
+                                        await update_job(current, terminal_state, {"done": count, "total": current["total"]})
+                                    state = "cancelled" if job["desired_state"] == "cancelled" else scan["status"]
+                                    finishing = _track_work(asyncio.create_task(finish(job, scan_id, state, user["id"], syncing)))
+                            elif job["desired_state"] == "running" and not paused() and not updates.busy():
+                                starting = _track_work(asyncio.create_task(start_job(job, user["id"])))
                     elif ctl:
+                        # Revoked/cancelled lease: stop before accepting any new work.
                         ctl.stop()
-                    elif starting is None or starting.done():
-                        if starting and not starting.cancelled() and starting.exception():
-                            raise starting.exception()
-                        scan = repo.get_scan(scan_id) if scan_id else None
-                        if scan and scan["status"] in ("done", "failed") or job["desired_state"] == "cancelled":
-                            if finishing is None or finishing.done():
-                                if finishing and not finishing.cancelled() and finishing.exception():
-                                    STATE["sync_error"] = str(finishing.exception())
-                                # Keep heartbeats alive throughout potentially large uploads.
-                                async def finish(current, local_scan, terminal_state, owner, pending_sync):
-                                    if pending_sync:
-                                        await pending_sync
-                                    await maintenance(owner)
-                                    count = len(repo.results_for_scan(local_scan)) if local_scan else 0
-                                    await update_job(current, terminal_state, {"done": count, "total": current["total"]})
-                                state = "cancelled" if job["desired_state"] == "cancelled" else scan["status"]
-                                finishing = asyncio.create_task(finish(job, scan_id, state, user["id"], syncing))
-                        elif job["desired_state"] == "running" and not paused():
-                            starting = asyncio.create_task(start_job(job, user["id"]))
-                elif ctl:
-                    # Revoked/cancelled lease: stop before accepting any new work.
-                    ctl.stop()
+                finally:
+                    updates.release_activity()
             except asyncio.CancelledError:
                 raise
             except Exception as exc:

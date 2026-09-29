@@ -57,6 +57,9 @@ def apply_verdict(row: dict, verdict: llm_mod.LLMVerdict) -> dict:
 
 async def recheck_project(project_id: int, *, limit: int | None = None) -> dict:
     """Перерешает все спорные строки проекта. Возвращает сводку по изменениям."""
+    from app import updates
+    if updates.busy():
+        raise ValueError("Идёт обновление приложения")
     project = repo.get_project(project_id)
     if not project:
         raise ValueError("Проект не найден")

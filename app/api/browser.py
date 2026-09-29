@@ -100,14 +100,20 @@ async def _install() -> None:
 @router.post("/install", status_code=202)
 async def install() -> dict:
     global _install_task
-    if _install_state["running"]:
-        return {"ok": True, "already_running": True}
-    if camoufox_installed():
-        return {"ok": True, "already_installed": True}
-    _install_state.update(running=True, done=False, error=None,
-                          progress={"stage": "preparing", "downloaded_bytes": 0,
-                                    "total_bytes": None, "percent": None})
-    _install_task = asyncio.create_task(_install())
+    from app import updates
+    from app.scanner import orchestrator
+    async with orchestrator.scan_start_lock():
+        if updates.busy():
+            raise HTTPException(409, "Идёт обновление приложения")
+        if _install_state["running"]:
+            return {"ok": True, "already_running": True}
+        if camoufox_installed():
+            return {"ok": True, "already_installed": True}
+        # Reserve before returning, so update_apply sees an in-flight install.
+        _install_state.update(running=True, done=False, error=None,
+                              progress={"stage": "preparing", "downloaded_bytes": 0,
+                                        "total_bytes": None, "percent": None})
+        _install_task = asyncio.create_task(_install())
     return {"ok": True}
 
 
@@ -120,12 +126,15 @@ def install_log() -> dict:
 @router.post("/services/{service_id}/login", status_code=202)
 async def login(service_id: str) -> dict:
     from app.scanner import orchestrator
+    from app import updates
     try:
         info = services.get(service_id)
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
 
     async with orchestrator.scan_start_lock():
+        if updates.busy():
+            raise HTTPException(409, "Идёт обновление приложения")
         if orchestrator.active_controller():
             raise HTTPException(409, "Сначала остановите проверку на сайте, затем откройте вход")
         if service_id in _login_running:

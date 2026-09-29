@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app import billing
+from app import billing, updates
 
 router = APIRouter(prefix="/api/account", tags=["account"])
 
@@ -20,32 +20,42 @@ class DeviceCode(BaseModel):
 @router.get("/status")
 async def account_status() -> dict:
     try:
-        return await billing.status()
+        async with updates.activity():
+            return await billing.status()
     except billing.BillingError as exc:
         raise HTTPException(503, str(exc)) from exc
 
 
 @router.post("/login")
 async def account_login(body: Credentials) -> dict:
+    if updates.busy():
+        raise HTTPException(409, "Идёт обновление приложения")
     try:
-        await billing.login(body.email, body.password)
-        return await billing.status()
+        async with updates.activity():
+            await billing.login(body.email, body.password)
+            return await billing.status()
     except billing.BillingError as exc:
         raise HTTPException(401, str(exc)) from exc
 
 
 @router.post("/login-code")
 async def account_login_code(body: DeviceCode) -> dict:
+    if updates.busy():
+        raise HTTPException(409, "Идёт обновление приложения")
     try:
-        await billing.login_with_code(body.code)
-        return await billing.status()
+        async with updates.activity():
+            await billing.login_with_code(body.code)
+            return await billing.status()
     except billing.BillingError as exc:
         raise HTTPException(401, str(exc)) from exc
 
 
 @router.post("/logout")
 async def account_logout() -> dict:
-    await billing.logout()
+    if updates.busy():
+        raise HTTPException(409, "Идёт обновление приложения")
+    async with updates.activity():
+        await billing.logout()
     from app.control_agent import STATE
     STATE.update(connected=False, user=None, wallet=None, error="")
     return {"enabled": billing.enabled(), "connected": False}
