@@ -2,6 +2,13 @@
 
 Updated 2026-09-29. Repository: egotrippingh/aiparser; deployment branch: production.
 
+## Readable provider answers — release 2026.9.29.7 prepared
+
+- Shared read-only DOM capture preserves headings, paragraphs, list structure, code whitespace and actual safe HTTP(S) anchor targets across ChatGPT, Perplexity, Alice and Google AI Overview. Plain capture remains the rules/primary/arbiter input; Alice/Google main-versus-card boundaries retain prior semantics. No new schema migration.
+- All answer views use the shared renderer. Legacy ChatGPT map clutter is hidden only for the confirmed text signature; original saved text remains accessible. Standalone decorative bullets are omitted, meaningful numbers and code are retained. Old lost label-to-href associations cannot be reconstructed; saved source lists remain available and only unique matching domain/path text reuses a source.
+- Final independent Sol review PASS after confirmed fixes for empty Alice footnotes, native headings/lists/code, exact/absent href, path matching, multiline labels/code and nested/sole code blocks. Earlier Astra review findings were repaired; another Astra diagnosis could not start because the agent thread limit was reached, disclosed to the user.
+- Checks: agent regression 113 passed, 2 skipped (Linux publication); frontend 35 passed, lint/build passed. Logged runs build/qa/readability-python-20260929-02 and build/qa/readability-front-20260929-03. Actual browser DOM fixture: 17 assertions passed, including prior Alice/Google plain splitter identity. Disposable cabinet shows the actual saved cluttered answer cleaned with original disclosure and working saved-domain link; desktop and 360px iframe screenshots in build/qa/readability-browser. Live provider login/scan and existing-user native update are unverified. Packaging/publication and server deployment are pending; production remains 0e99644/.6 until delivery evidence is added.
+
 ## Report response diagnostics — delivered 2026.9.29.6
 
 - Agent 2026.9.29.6 sends nullable error_message, including one historical page per heartbeat via separate account/device cursor and server ACK. Server enrichment atomically fills only NULL reasons for matching failed results; status, answer, billing and sources stay unchanged.

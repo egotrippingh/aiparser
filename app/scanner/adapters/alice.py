@@ -24,6 +24,7 @@ import time
 
 from app.scanner import humanize
 from app.scanner.adapters import shot
+from app.scanner.adapters.readable import readable
 from app.scanner.adapters.base import (
     AdapterError,
     Capture,
@@ -67,25 +68,6 @@ CARDS_MARK = "— Карточки в ответе —"
 # (товары и т.п.). Текстом считаем только markdown без чипов, всё остальное —
 # карточками: чип «neighbors-expert.ru» — ссылка на источник, а не слова ИИ.
 # Нет ни одного markdown-блока (вёрстка сменилась) — всё текст, как раньше.
-_SPLIT_JS = r"""(el) => {
-  const full = el.innerText || '';
-  const md = [...el.querySelectorAll('.FuturisMarkdown')].filter(e => !e.parentElement.closest('.FuturisMarkdown'));
-  if (!md.length) return { main: full, cards: '' };
-  const foot = [...el.querySelectorAll('.FuturisFootnote, .FuturisFootnoteGroup')]
-    .filter(e => !e.parentElement.closest('.FuturisFootnote, .FuturisFootnoteGroup'))
-    .map(e => (e.innerText || '').trim()).filter(Boolean);
-  let rest = full;
-  const texts = [];
-  for (const e of md) {
-    let t = (e.innerText || '').trim();
-    const i = rest.indexOf(t);
-    if (i >= 0) rest = rest.slice(0, i) + '\n' + rest.slice(i + t.length);
-    for (const f of foot) t = t.split(f).join(' ');
-    texts.push(t.replace(/[ \t]+/g, ' ').trim());
-  }
-  const cards = [rest.replace(/\n{2,}/g, '\n').trim(), ...foot].filter(Boolean).join('\n');
-  return { main: texts.join('\n\n'), cards };
-}"""
 
 
 def _is_chrome_link(url: str) -> bool:
@@ -206,20 +188,23 @@ class AliceAdapter:
         # колонку ответа. Снимаем сам ответ целиком, а не видимую часть окна:
         # после прокрутки в окне оставался только хвост ответа (11.09.2026).
         try:
-            parts = await answer.evaluate(_SPLIT_JS)
+            parts = await readable(answer, "alice")
             main, cards = parts["main"].strip(), parts["cards"].strip()
         except Exception as exc:
             log.info("Не удалось отделить карточки в ответе Алисы (%s) — считаю всё текстом", exc)
             main, cards = answer_text, ""
+            parts = {"display_main": main, "display_cards": cards}
 
         screenshot = await self._screenshot(page, answer)
         sources = await self._extract_sources(page)
 
         # В базу — всё, что видел пользователь; карточки отделены пометкой.
         stored = f"{main}\n\n{CARDS_MARK}\n{cards}" if cards else main
+        display_main, display_cards = parts["display_main"].strip(), parts["display_cards"].strip()
+        displayed = f"{display_main}\n\n{CARDS_MARK}\n{display_cards}" if display_cards else display_main
         return Capture(
-            screenshot_bytes=screenshot, answer_text=stored, sources=sources,
-            extra={"main_text": main, "cards_text": cards},
+            screenshot_bytes=screenshot, answer_text=displayed or stored, sources=sources,
+            extra={"main_text": main, "cards_text": cards, "plain_text": stored},
         )
 
     async def _screenshot(self, page, answer) -> bytes:
