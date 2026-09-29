@@ -17,6 +17,7 @@ import re
 
 from app.scanner import humanize
 from app.scanner.adapters import shot
+from app.scanner.adapters.readable import readable
 from app.scanner.adapters.base import (
     AdapterError,
     Capture,
@@ -198,6 +199,7 @@ class ChatGPTAdapter:
             raise AdapterError(f"ChatGPT: ответ не дописан ({len(answer_text.strip())} симв.: "
                                f"{answer_text.strip()[:60]!r})")
 
+        display = await readable(page.locator(_S["answer_container"]).last)
         sources = await self._extract_sources(page)
         # Снимок только самого ответа. На снимке всего экрана модель OpenRouter
         # видела и вопрос, и соседние сообщения — 10.09.2026 она «нашла» бренд
@@ -206,7 +208,9 @@ class ChatGPTAdapter:
         # снимаем кусками с прокруткой и склеиваем (app/scanner/adapters/shot.py).
         screenshot = await shot.full_shot(page, page.locator(_S["answer_container"]).last)
 
-        return Capture(screenshot_bytes=screenshot, answer_text=answer_text.strip(), sources=sources)
+        raw = answer_text.strip()
+        return Capture(screenshot_bytes=screenshot, answer_text=display["display"] or raw, sources=sources,
+                       extra={"main_text": raw, "plain_text": raw})
 
     async def _extract_sources(self, page) -> list[str]:
         try:

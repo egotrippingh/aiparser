@@ -738,6 +738,7 @@ async def _run_one(
         # отдаёт текст ответа и текст карточек порознь: бренд только в
         # карточке — упоминание своего типа «card», а не «text».
         extra = cap.extra or {}
+        analysis_text = extra.get("plain_text", cap.answer_text)
         rule_verdict = rules.evaluate(
             extra.get("main_text", cap.answer_text), cap.sources, project["brand_name"],
             project["brand_aliases"], project["brand_domains"],
@@ -753,7 +754,7 @@ async def _run_one(
                 query=query["text"],
                 brand_name=project["brand_name"],
                 aliases=project["brand_aliases"],
-                answer_text=cap.answer_text,
+                answer_text=analysis_text,
                 sources=cap.sources,
                 screenshot_bytes=webp_bytes,
                 api_key=api_key,
@@ -800,7 +801,7 @@ async def _run_one(
                 brand_name=project["brand_name"],
                 aliases=project["brand_aliases"],
                 domains=project["brand_domains"],
-                answer_text=cap.answer_text,
+                answer_text=analysis_text,
                 sources=cap.sources,
                 screenshot_bytes=webp_bytes,
                 api_key=api_key,

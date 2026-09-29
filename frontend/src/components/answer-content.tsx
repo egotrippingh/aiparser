@@ -1,9 +1,11 @@
-import { Fragment } from "react"
+import { Fragment, type ReactNode } from "react"
 import "./answer-content.css"
 
 function safeUrl(value: string) {
-  try { const url = new URL(value); return /^https?:$/.test(url.protocol) && !url.username && !url.password ? url : null }
-  catch { return null }
+  try {
+    const url = new URL(value)
+    return /^https?:$/.test(url.protocol) && !url.username && !url.password ? url : null
+  } catch { return null }
 }
 
 export function sourcesOf(values: string[]) {
@@ -16,26 +18,150 @@ export function sourcesOf(values: string[]) {
   })
 }
 
-function linkedText(text: string) {
-  return text.split(/(https?:\/\/[^\s<>]+)/gi).map((part, i) => {
-    let value = part.replace(/[.,;:!?]*$/, "")
-    while (value.endsWith(")") && (value.match(/\)/g)?.length || 0) > (value.match(/\(/g)?.length || 0)) value = value.slice(0, -1)
-    return safeUrl(value) ? <Fragment key={i}><a href={value} target="_blank" rel="noopener noreferrer">{value}</a>{part.slice(value.length)}</Fragment> : part
-  })
+function cleanChatGPTMap(text: string) {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n")
+  const move = lines.findIndex(line => line.trim() === "Use two fingers to move the map")
+  const reviews = lines.flatMap((line, i) => line.trim() === "Оставить отзыв" ? [i] : [])
+  const end = reviews[0]
+  if (!/^[0-5][.,]\d$/.test(lines[0]?.trim()) || move < 1 || reviews.length !== 1 || end <= move) return { text, changed: false }
+  const prose = lines.slice(end + 1).join("\n").trim()
+  return prose ? { text: prose, changed: true } : { text, changed: false }
 }
 
-export function AnswerContent({ text }: { text: string }) {
-  // Plain captured text has no reliable heading/citation metadata.
-  return <div className="answer-content">{text.replace(/\r\n?/g, "\n").split(/\n\s*\n/).map((part, i) => {
-    const lines = part.split("\n")
-    const bullets = lines.every(line => /^[-*•]\s+/.test(line))
-    const numbered = lines.every((line, j) => /^\d+[.)]\s+/.test(line) && parseInt(line) === parseInt(lines[0]) + j)
-    if (bullets || numbered) {
-      const items = lines.map((line, j) => <li key={j}>{linkedText(line.replace(bullets ? /^[-*•]\s+/ : /^\d+[.)]\s+/, ""))}</li>)
-      return bullets ? <ul key={i}>{items}</ul> : <ol key={i} start={parseInt(lines[0])}>{items}</ol>
+function trimUrlPunctuation(value: string) {
+  value = value.replace(/[.,;:!?]+$/, "")
+  while (value.endsWith(")") && (value.match(/\)/g)?.length || 0) > (value.match(/\(/g)?.length || 0)) value = value.slice(0, -1)
+  return value
+}
+
+function linkedText(text: string, sources: string[]) {
+  const saved = sourcesOf(sources).map(value => new URL(value)), output: ReactNode[] = []
+  let index = 0, plain = ""
+  const flush = () => { if (plain) { output.push(plain); plain = "" } }
+  const link = (label: string, url: URL) => {
+    flush()
+    output.push(<a key={output.length} href={url.href} target="_blank" rel="noopener noreferrer">{label}</a>)
+  }
+  while (index < text.length) {
+    const rest = text.slice(index)
+    if (rest[0] === "`") {
+      const ticks = rest.match(/^`+/)![0], start = index + ticks.length
+      let end = text.indexOf(ticks, start)
+      while (end >= 0 && /(?:^|[^\\])(?:\\\\)*\\$/.test(text.slice(start, end))) end = text.indexOf(ticks, end + ticks.length)
+      if (end >= 0) {
+        flush()
+        output.push(<code key={output.length}>{text.slice(start, end).replace(/\\([\\`])/g, "$1")}</code>)
+        index = end + ticks.length; continue
+      }
     }
-    return <p key={i}>{lines.map((line, j) => <Fragment key={j}>{j > 0 && <br />}{linkedText(line)}</Fragment>)}</p>
-  })}</div>
+    const label = rest.match(/^\[((?:\\.|[^\]\\])*)\]\(/)
+    if (label) {
+      const start = index + label[0].length
+      let end = start, href = ""
+      if (text[start] === "<") {
+        end = text.indexOf(">)", start + 1)
+        if (end >= 0) { href = text.slice(start + 1, end); end += 2 }
+      } else {
+        let depth = 1
+        for (; end < text.length && depth; end++) {
+          if (text[end] === "(") depth++
+          if (text[end] === ")") depth--
+        }
+        if (!depth) href = text.slice(start, end - 1)
+      }
+      if (href) {
+        const url = safeUrl(href)
+        if (url) link(label[1].replace(/\\([\\\[\]])/g, "$1"), url)
+        else plain += text.slice(index, end)
+        index = end; continue
+      }
+    }
+    const email = rest.match(/^[\w.+-]+@[\w.-]+/)
+    if (email) { plain += email[0]; index += email[0].length; continue }
+    const direct = rest.match(/^https?:\/\/[^\s<>]+/i)
+    if (direct) {
+      const value = trimUrlPunctuation(direct[0]), url = safeUrl(value)
+      if (url) { link(value, url); index += value.length; continue }
+      plain += direct[0]; index += direct[0].length; continue
+    }
+    const domain = !/[\w@]/.test(text[index - 1] || "") && rest.match(/^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:[/?#][^\s<>]*)?/i)
+    if (domain) {
+      const value = trimUrlPunctuation(domain[0]), url = safeUrl(`https://${value}`)
+      const hasPath = /[/?#]/.test(value)
+      const matches = url ? saved.filter(source => source.hostname.replace(/^www\./, "") === url.hostname.replace(/^www\./, "") && (!hasPath || source.pathname + source.search + source.hash === url.pathname + url.search + url.hash)) : []
+      if (matches.length === 1) { link(value, matches[0]); index += value.length; continue }
+      plain += domain[0]; index += domain[0].length; continue
+    }
+    plain += text[index++]
+  }
+  flush()
+  return output
+}
+
+function blocks(text: string, sources: string[]) {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n"), output: ReactNode[] = []
+  let index = 0, key = 0
+  const listItem = (line: string) => line.match(/^( *)([-*•]|\d+[.)])(?:\s+(.*)|$)/)
+  const list = (indent: number, ordered: boolean): ReactNode => {
+    const items: ReactNode[] = [], first = parseInt(listItem(lines[index])![2])
+    while (index < lines.length) {
+      const item = listItem(lines[index])
+      if (!item || item[1].length !== indent || /^\d/.test(item[2]) !== ordered) break
+      index++
+      const content: ReactNode[] = [<Fragment key="text">{linkedText(item[3] || "", sources)}</Fragment>]
+      while (index < lines.length) {
+        if (!lines[index].trim()) {
+          let next = index + 1
+          while (next < lines.length && !lines[next].trim()) next++
+          if (next < lines.length && listItem(lines[next])) { index = next; continue }
+          break
+        }
+        const child = listItem(lines[index])
+        if (child && child[1].length > indent) { content.push(list(child[1].length, /^\d/.test(child[2]))); continue }
+        const fence = lines[index].match(/^( +)(`{3,})(?:[^`]*)$/)
+        if (fence && fence[1].length > indent) {
+          const start = ++index, closing = fence[1] + fence[2]
+          while (index < lines.length && lines[index] !== closing) index++
+          content.push(<pre key={content.length}><code>{lines.slice(start, index).map(line => line.slice(fence[1].length)).join("\n")}</code></pre>)
+          if (index < lines.length) index++
+          continue
+        }
+        if (!child && lines[index].startsWith(" ".repeat(indent + 2))) {
+          content.push(<Fragment key={content.length}><br/>{linkedText(lines[index++].slice(indent + 2), sources)}</Fragment>); continue
+        }
+        break
+      }
+      items.push(<li key={items.length} value={ordered ? parseInt(item[2]) : undefined}>{content}</li>)
+    }
+    return ordered ? <ol key={key++} start={first}>{items}</ol> : <ul key={key++}>{items}</ul>
+  }
+  while (index < lines.length) {
+    if (!lines[index].trim() || lines[index].trim() === "•") { index++; continue }
+    const fence = lines[index].match(/^(`{3,})(?:[^`]*)$/)
+    if (fence) {
+      const start = ++index
+      while (index < lines.length && lines[index] !== fence[1]) index++
+      output.push(<pre key={key++}><code>{lines.slice(start, index).join("\n")}</code></pre>)
+      if (index < lines.length) index++
+      continue
+    }
+    const heading = lines[index].match(/^(#{1,6})\s+(.*)$/)
+    if (heading) {
+      const Tag = `h${heading[1].length}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
+      output.push(<Tag key={key++}>{linkedText(heading[2], sources)}</Tag>); index++; continue
+    }
+    const item = listItem(lines[index])
+    if (item) { output.push(list(item[1].length, /^\d/.test(item[2]))); continue }
+    const paragraph: string[] = []
+    while (index < lines.length && lines[index].trim() && lines[index].trim() !== "•" && !/^#{1,6}\s+/.test(lines[index]) && !/^(`{3,})(?:[^`]*)$/.test(lines[index]) && !listItem(lines[index])) paragraph.push(lines[index++])
+    output.push(<p key={key++}>{paragraph.map((line, i) => <Fragment key={i}>{i > 0 && <br/>}{linkedText(line, sources)}</Fragment>)}</p>)
+  }
+  return output
+}
+
+export function AnswerContent({ text, service, sources = [] }: { text: string; service?: string; sources?: string[] }) {
+  const fixed = service === "chatgpt" ? cleanChatGPTMap(text) : { text, changed: false }
+  return <div className="answer-content">{blocks(fixed.text, sources)}{fixed.changed && <details className="answer-original"><summary>Исходный текст</summary><pre>{text}</pre></details>}</div>
 }
 
 export function SourceList({ sources }: { sources: string[] }) {

@@ -184,7 +184,7 @@ export function QuerySheet({
 
                     {info.answer_text ? (
                       <Section title="Текст ответа">
-                        <div className="bg-muted/60 max-h-72 overflow-y-auto rounded-lg p-3 text-sm"><AnswerContent text={info.answer_text} /></div>
+                        <div className="bg-muted/60 max-h-72 overflow-y-auto rounded-lg p-3 text-sm"><AnswerContent text={info.answer_text} service={s.id} sources={info.sources || []} /></div>
                       </Section>
                     ) : null}
 

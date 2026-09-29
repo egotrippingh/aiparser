@@ -251,6 +251,42 @@ def test_llm_error_is_saved_with_result(monkeypatch, tmp_path):
     assert result["answer_text"] == capture.answer_text
 
 
+def test_display_links_do_not_change_rules_primary_or_arbiter_input(monkeypatch, tmp_path):
+    pid, _ = _project(1)
+    sid = repo.create_scan(pid, ["chatgpt"], {})
+    controller = orchestrator.ScanController(sid, pid, 1, TODAY)
+    plain = "Компания предлагает услуги"
+    display = "[Компания](<https://example.test/Бренд>)"
+    capture = SimpleNamespace(shown=True, screenshot_bytes=b"raw", answer_text=display,
+                              sources=[], extra={"main_text": plain, "plain_text": plain})
+
+    class Adapter:
+        async def ask(self, *_args, **_kwargs): pass
+        async def capture(self, _page): return capture
+
+    seen = []
+    async def primary(**kwargs):
+        seen.append(kwargs["answer_text"])
+        return orchestrator.llm_mod.LLMVerdict(found=True, confidence=0.9, quote="Компания", model="primary")
+
+    async def arbiter(**kwargs):
+        seen.append(kwargs["answer_text"])
+        return orchestrator.llm_mod.LLMVerdict(found=False, confidence=0.9, model="arbiter")
+
+    monkeypatch.setattr(orchestrator.imaging, "to_webp", lambda _: b"webp")
+    monkeypatch.setattr(orchestrator.config, "screenshot_dir", lambda *_: tmp_path)
+    monkeypatch.setattr(orchestrator.llm_mod, "evaluate", primary)
+    monkeypatch.setattr(orchestrator.llm_mod, "arbitrate", arbiter)
+    status = asyncio.run(orchestrator._run_one(
+        repo.get_project(pid), repo.list_queries(pid)[0], "chatgpt", Adapter(), object(),
+        {"managed_llm": True, "llm_confidence_threshold": 0.6, "arbiter": True,
+         "arbiter_model": "test-arbiter"}, 0.5, "", "test-model", "always", controller,
+    ))
+    assert seen == [plain, plain]
+    assert status == "not_found"
+    assert repo.results_for_scan(sid)[0]["answer_text"] == display
+
+
 def test_closed_browser_is_retried_without_error_result():
     pid, _ = _project(1)
     sid = repo.create_scan(pid, ["perplexity"], {})

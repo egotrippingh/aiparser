@@ -20,6 +20,7 @@ import re
 
 from app.scanner import humanize
 from app.scanner.adapters import shot
+from app.scanner.adapters.readable import readable
 from app.scanner.adapters.base import (
     AdapterError,
     AuthRequiredError,
@@ -193,13 +194,17 @@ class PerplexityAdapter:
         # попадал кусок списка источников вместо ответа. Теперь сначала ответ
         # целиком (с прокруткой и склейкой), потом вкладка источников, и обе
         # части склеиваются в один снимок — видно и ответ, и источники.
-        answer_shot = await shot.full_shot(page, page.locator(_S["answer_container"]).first,
+        answer = page.locator(_S["answer_container"]).first
+        display = await readable(answer)
+        answer_shot = await shot.full_shot(page, answer,
                                            bottom_selector=_S["input"])
         sources = await self._extract_sources(page)
         sources_shot = await self._sources_shot(page)
         screenshot = shot.glue([answer_shot, sources_shot]) if sources_shot else answer_shot
 
-        return Capture(screenshot_bytes=screenshot, answer_text=answer_text.strip(), sources=sources)
+        raw = answer_text.strip()
+        return Capture(screenshot_bytes=screenshot, answer_text=display["display"] or raw, sources=sources,
+                       extra={"main_text": raw, "plain_text": raw})
 
     async def _sources_shot(self, page) -> bytes | None:
         """Снимок вкладки «Ссылки» — её открыл _extract_sources."""

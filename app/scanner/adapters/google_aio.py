@@ -34,6 +34,7 @@ import time
 
 from app.scanner import humanize
 from app.scanner.adapters import shot
+from app.scanner.adapters.readable import readable
 from app.scanner.adapters.base import (
     AdapterError,
     Capture,
@@ -71,30 +72,6 @@ CARDS_MARK = "— Карточки источников —"
 # слова ИИ, оформленные ссылкой («…на официальном сайте Neighbors»). Лучше
 # засчитать редкую подпись предпросмотра как текст, чем выбросить из текста
 # слова ИИ. Кусок, не найденный в тексте дословно, не трогаем.
-_SPLIT_JS = r"""(box) => {
-  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 };
-  const ext = e => [...e.querySelectorAll('a[href^="http"]')].filter(a => !/(^|\.)google\./.test(a.hostname));
-  const b = box.getBoundingClientRect();
-  const right = [...box.querySelectorAll('div, ul, section')].filter(vis).filter(e => {
-    const r = e.getBoundingClientRect();
-    return r.left > b.left + b.width * 0.45 && ext(e).length >= 2;
-  });
-  const marked = [...box.querySelectorAll('[data-xid^="aim-aside"]')].filter(vis);
-  const all = [...marked, ...right];
-  const outer = all.filter((e, i) => all.indexOf(e) === i && !all.some(o => o !== e && o.contains(e)));
-  const full = box.innerText || '';
-  let main = full;
-  const cards = [];
-  for (const e of outer) {
-    const t = (e.innerText || '').trim();
-    if (!t) continue;
-    const i = main.indexOf(t);
-    if (i < 0) continue;          // не нашли кусок дословно — не трогаем, пусть будет текстом
-    cards.push(t);
-    main = main.slice(0, i) + main.slice(i + t.length);
-  }
-  return { full, main, cards: cards.join('\n\n') };
-}"""
 
 
 def _strip_heading(text: str) -> str:
@@ -192,7 +169,7 @@ class GoogleAIOAdapter:
         await page.mouse.move(5, 5)
         await asyncio.sleep(0.5)
         try:
-            parts = await box.first.evaluate(_SPLIT_JS)
+            parts = await readable(box.first, "google")
         except Exception as exc:
             await dump_debug_html(page, "google_aio_read_failed")
             raise AdapterError(f"Блок AI Overview есть, но не читается: {exc}") from exc
@@ -210,11 +187,14 @@ class GoogleAIOAdapter:
         # В базу — всё, что видел пользователь, но карточки отделены пометкой:
         # в карточке запроса видно, где слова ИИ, а где чужие заголовки.
         answer_text = f"{main}\n\n{CARDS_MARK}\n{cards}" if cards else main
+        display_main = _strip_heading(parts["display_main"].strip())
+        display_cards = parts["display_cards"].strip()
+        displayed = f"{display_main}\n\n{CARDS_MARK}\n{display_cards}" if display_cards else display_main
         sources = await self._extract_sources(page)
         screenshot = await self._screenshot(page, box.first)
         return Capture(
-            screenshot_bytes=screenshot, answer_text=answer_text, sources=sources,
-            extra={"main_text": main, "cards_text": cards},
+            screenshot_bytes=screenshot, answer_text=displayed or answer_text, sources=sources,
+            extra={"main_text": main, "cards_text": cards, "plain_text": answer_text},
         )
 
     async def _screenshot(self, page, box) -> bytes:
