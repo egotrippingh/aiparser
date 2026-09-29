@@ -147,7 +147,7 @@ export function ControlCenter({ token, downloadUrl, onDirtyChange }: { token: st
       <div className="cc-sidebar-foot"><span className="cc-dot" />{devices.filter(d => d.online).length} на связи{downloadUrl && <a href={downloadUrl}><Download size={15} />Скачать агент</a>}<p>Управляйте здесь.<br />Агент выполнит проверку.</p></div></aside>
     <div className="cc-content">
       {connectId && <section className="cc-connect"><ShieldCheck size={26} /><div><h2>Подключить {connectName || "компьютер"}?</h2><p>Он сможет выполнять назначенные ему проверки этого аккаунта. Доступ можно отозвать в разделе «Компьютеры».</p></div><button className="cc-button primary" disabled={!!busy || !connectName} onClick={() => action("connect", approve)}>Подключить</button></section>}
-      {connected && <p className="cc-notice" role="status">Компьютер подключён. Агент свернётся в трей и будет ждать заданий.</p>}
+      {connected && <p className="cc-notice" role="status">Компьютер подключён. Агент готов к заданиям.</p>}
       {error && <div className="cc-alert" role="alert"><span>{error}</span><button aria-label="Закрыть сообщение" onClick={() => setError("")}><X size={18}/></button></div>}
       {area === "project" && projectId ? <>
         <a href="#/projects" className="cc-back">Все проекты</a>

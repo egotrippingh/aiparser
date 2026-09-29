@@ -26,7 +26,14 @@ with sessions() as db:
     db.get(CloudResult, ids[1]).check_id = 'qa-a'
     db.get(CloudResult, ids[-1]).check_id = 'qa-b'
     db.commit()
-state = {'save': 'pass', 'shot': 'pass', 'seen': []}
+state = {'save': 'pass', 'shot': 'pass', 'seen': [], 'agent_error': False,
+         'agent': {'configured': True, 'connected': True, 'has_token': True,
+                   'name': 'QA компьютер', 'error': '', 'login_pending': False,
+                   'paused': False, 'last_sync': None, 'user': {'email': 'qa@example.test'},
+                   'wallet': {'available_kopeks': 10000},
+                   'autostart': {'available': True, 'enabled': False}, 'scan': None,
+                   'browser': {'installed': True, 'installing': False,
+                               'install_error': None, 'services': {}}}}
 app = client.app
 
 async def qa(request, call_next):
@@ -35,6 +42,12 @@ async def qa(request, call_next):
         if request.method == 'POST':
             state.update(await request.json())
         return JSONResponse(state)
+    if path == '/app/':
+        return Response((Path(__file__).resolve().parents[1] / 'web/app/index.html').read_text(encoding='utf-8'), media_type='text/html')
+    if path == '/api/desktop/state':
+        return JSONResponse({'detail': 'QA: агент временно недоступен'} if state['agent_error'] else state['agent'], status_code=503 if state['agent_error'] else 200)
+    if path.startswith(('/api/desktop/', '/api/browser/', '/api/agent/', '/api/account/')):
+        return JSONResponse({'ok': True})
     if path == '/cabinet/' and request.query_params.get('native_dialogs') != '1':
         html = (Path(__file__).resolve().parents[1] / 'web/cabinet/index.html').read_text(encoding='utf-8')
         controls = '''<aside style="position:fixed;bottom:0;left:0;z-index:9999;background:#fff;color:#111;padding:8px;font:12px sans-serif">

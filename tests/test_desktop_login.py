@@ -26,7 +26,7 @@ def test_password_login_enrolls_and_keeps_only_device_token(monkeypatch):
     assert calls[1][1]["bearer"] == "temporary-web-token"
     assert calls[2] == ("/auth/logout", {"bearer": "temporary-web-token"})
     assert desktop.STATE["connected"]
-    desktop.window_control.hide.assert_called_once()
+    desktop.window_control.hide.assert_not_called()
 
 
 def test_topup_opens_one_use_browser_link(monkeypatch):

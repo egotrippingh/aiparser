@@ -20,7 +20,6 @@ login_task = None
 def connected(token: str, user: dict | None = None):
     store_token(token)
     STATE.update(error="", connected=True, user=user, wallet=None)
-    window_control.hide()
 
 
 @router.get("/state")

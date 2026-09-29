@@ -5,7 +5,7 @@
 показывается одним из двух способов:
 
 * Windows-сборка показывает окно WebView2, а при закрытии скрывает его в трее;
-* подключённый агент запускается в трее, без аккаунта всегда показывает вход;
+* автозапуск подключённого агента идёт в трей, ручной запуск показывает окно;
 * с ключом ``--browser`` интерфейс открывается в обычном браузере.
 """
 
@@ -162,8 +162,8 @@ def main() -> None:
 
     browser_mode = "--browser" in sys.argv[1:]
     from app import billing
-    # First run always opens login, including Windows autostart with --background.
-    background = bool(billing.token())
+    # Autostart stays in the tray only after this device has an account token.
+    background = "--background" in sys.argv[1:] and bool(billing.token())
     window = None
     exiting = False
     if not browser_mode:
