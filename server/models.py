@@ -213,6 +213,7 @@ class CloudResult(Base):
     mention_types_json: Mapped[str] = mapped_column(Text, default="[]")
     evidence_quote: Mapped[str | None] = mapped_column(Text)
     answer_text: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
     sources_json: Mapped[str] = mapped_column(Text, default="[]")
     check_id: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

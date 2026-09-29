@@ -52,3 +52,44 @@ def test_cloud_payload_keeps_local_answer_but_limits_upload_fields():
     assert len(payload["sources"]) == 50
     assert len(payload["answer_text"]) == 60000
     assert len(payload["evidence_quote"]) == 12000
+    assert payload["error_message"] is None
+    assert agent._payload({**row, "error_message": None})["error_message"] is None
+    assert agent._payload({**row, "error_message": "x" * 1200})["error_message"] == "x" * 1000
+
+
+def test_historical_diagnostics_are_bounded_acknowledged_and_account_scoped(monkeypatch):
+    settings = {"cloud_result_cursor:owner": "105"}
+    def row(i, owner="owner", error="reason"):
+        return {"id": i, "status": "error", "error_message": error,
+                "settings_snapshot_json": json.dumps({"billing_user_id": owner})}
+    rows = [row(i, "other" if i == 2 else "owner", None if i == 3 else "reason") for i in range(1, 107)]
+    sent = []
+    response = {}
+    async def upload(device, payload):
+        sent.append((device, payload))
+        if response.get("fail"):
+            raise agent.billing.BillingError("offline")
+        return response
+    monkeypatch.setattr(agent.repo, "get_setting", lambda key, default="": settings.get(key, default))
+    monkeypatch.setattr(agent.repo, "set_setting", lambda key, value: settings.__setitem__(key, value))
+    monkeypatch.setattr(agent.repo, "cloud_results_after", lambda cursor: [r for r in rows if r["id"] > cursor][:100])
+    monkeypatch.setattr(agent, "_payload", lambda row: {"local_result_id": row["id"]})
+    monkeypatch.setattr(agent.billing, "upload_cloud_results", upload)
+    key = "cloud_diagnostic_cursor:v1:owner:desktop"
+    # Normal new rows sync first, but an old server cannot acknowledge backfill.
+    asyncio.run(agent._sync_results("owner", "desktop"))
+    assert settings["cloud_result_cursor:owner"] == "106" and key not in settings
+    assert sent[-1][1][0] == {"local_result_id": 1}
+    assert len(sent[-1][1]) == 98
+    response["fail"] = True
+    with pytest.raises(agent.billing.BillingError):
+        asyncio.run(agent._sync_results("owner", "desktop"))
+    assert key not in settings
+    response.clear(); response["diagnostics_version"] = 1
+    asyncio.run(agent._sync_results("owner", "desktop"))
+    assert settings[key] == "100"
+    asyncio.run(agent._sync_results("owner", "desktop"))
+    assert settings[key] == "106" and settings["cloud_result_cursor:owner"] == "106"
+    count = len(sent)
+    asyncio.run(agent._sync_results("owner", "desktop"))
+    assert len(sent) == count

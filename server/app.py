@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -476,13 +476,28 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
                 Check.status == "settled")).all())
             if owned != check_ids:
                 raise HTTPException(409, "Часть результатов ещё не оплачена или относится к другому аккаунту")
-        existing = set(db.scalars(select(CloudResult.local_result_id).where(
+        existing = {row.local_result_id: row for row in db.scalars(select(CloudResult).where(
             CloudResult.user_id == user.id, CloudResult.device_id == body.device_id,
-            CloudResult.local_result_id.in_([item.local_result_id for item in body.results]))).all())
+            CloudResult.local_result_id.in_([item.local_result_id for item in body.results]))).all()}
         for item in body.results:
-            if item.local_result_id in existing:
-                continue
             project_id = item.project_id
+            if not project_id and not item.run_id:
+                link = db.scalar(select(ControlLink).where(ControlLink.user_id == user.id,
+                    ControlLink.device_id == body.device_id, ControlLink.local_project_id == item.local_project_id))
+                project_id = link.project_id if link else None
+            prior = existing.get(item.local_result_id)
+            if prior:
+                if item.error_message and item.status in ("error", "captcha", "auth_required", "limit_reached"):
+                    db.execute(update(CloudResult).where(
+                        CloudResult.id == prior.id, CloudResult.user_id == user.id,
+                        CloudResult.device_id == body.device_id, CloudResult.local_result_id == item.local_result_id,
+                        CloudResult.local_project_id == item.local_project_id,
+                        CloudResult.query_text == item.query_text, CloudResult.scan_date == item.scan_date,
+                        CloudResult.project_id == project_id, CloudResult.query_id == item.query_id,
+                        CloudResult.run_id == item.run_id, CloudResult.service == item.service,
+                        CloudResult.status == item.status, CloudResult.error_message.is_(None)
+                    ).values(error_message=item.error_message))
+                continue
             if item.run_id:
                 run = db.get(ControlRun, item.run_id)
                 if not run or run.user_id != user.id or run.device_id != body.device_id or run.project_id != project_id:
@@ -512,12 +527,12 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
                 query_text=item.query_text, group_tag=item.group_tag, service=item.service,
                 scan_date=item.scan_date, status=item.status,
                 mention_types_json=json.dumps(item.mention_types, ensure_ascii=False),
-                evidence_quote=item.evidence_quote, answer_text=item.answer_text,
+                evidence_quote=item.evidence_quote, answer_text=item.answer_text, error_message=item.error_message,
                 sources_json=json.dumps(item.sources, ensure_ascii=False), check_id=item.check_id,
                 project_id=project_id, query_id=item.query_id, run_id=item.run_id,
             ))
         db.commit()
-        return {"accepted": len(body.results)}
+        return {"accepted": len(body.results), "diagnostics_version": 1}
 
     @app.get("/api/v1/reports/projects")
     def report_projects(user: User = Depends(current_user),
@@ -583,6 +598,7 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
                     "status": row.status, "counts_as_found": _counts_as_found(row, include_cards=include_cards),
                     "mention_types": json.loads(row.mention_types_json or "[]"),
                     "evidence_quote": row.evidence_quote, "answer_text": row.answer_text,
+                    "error_message": row.error_message,
                     "sources": json.loads(row.sources_json or "[]"),
                     "check_id": row.check_id,
                 } for row in page]}

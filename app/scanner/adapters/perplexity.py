@@ -16,12 +16,14 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from app.scanner import humanize
 from app.scanner.adapters import shot
 from app.scanner.adapters.base import (
     AdapterError,
     AuthRequiredError,
+    ServiceUnavailableError,
     Capture,
     ReadyState,
     dump_debug_html,
@@ -35,12 +37,19 @@ from app.scanner.adapters.base import (
 log = logging.getLogger("aiparser.adapters.perplexity")
 
 _S = load_selectors()["perplexity"]
+_LIMIT_HEADING = re.compile(r"^(?:Вы достигли лимита бесплатных поисков|You've reached your free search limit)$", re.I)
 
 
 class PerplexityAdapter:
     service_id = "perplexity"
     display_name = "Perplexity"
     requires_auth = True  # см. app/services.py — это лишь подсказка для UI
+
+    async def _raise_if_blocked(self, page) -> None:
+        if await page.get_by_role("heading", name=_LIMIT_HEADING).first.is_visible():
+            raise ServiceUnavailableError("Perplexity: достигнут лимит бесплатных поисков. Дождитесь восстановления доступа в сервисе, затем запустите новую проверку проекта.")
+        if await page.get_by_text(_S["signin_wall_dialog_text"]).first.is_visible():
+            raise AuthRequiredError("Perplexity потребовал вход после отправки запроса")
 
     async def ensure_ready(self, page) -> ReadyState:
         await page.goto(_S["home_url"], wait_until="domcontentloaded")
@@ -87,7 +96,7 @@ class PerplexityAdapter:
             # запросе ради редкой стены дорого, а если модалка появится
             # позже, её выдаст отсутствие контейнера ответа ниже.
             if await wall.first.is_visible():
-                raise AdapterError("Perplexity потребовал вход после отправки запроса")
+                raise AuthRequiredError("Perplexity потребовал вход после отправки запроса")
         except AdapterError:
             raise
         except Exception:
@@ -97,9 +106,11 @@ class PerplexityAdapter:
         # контейнера ответа, прежде чем следить за стабилизацией его текста
         # — иначе можно словить ложную «тишину» на промежуточном статусе.
         try:
-            await page.locator(_S["answer_container"]).first.wait_for(state="attached", timeout=90000)
+            await page.locator(_S["answer_container"]).or_(page.get_by_role("heading", name=_LIMIT_HEADING)).first.wait_for(state="attached", timeout=90000)
         except Exception:
             pass  # capture() сам обработает отсутствие контейнера как ошибку
+
+        await self._raise_if_blocked(page)
 
         await humanize.wait_until_settled(page, _S["answer_container"], quiet_for=3.0, timeout=60.0)
         await humanize.scroll_through(page, speed=speed)
@@ -161,9 +172,11 @@ class PerplexityAdapter:
                         type(exc).__name__)
 
     async def capture(self, page) -> Capture:
+        await self._raise_if_blocked(page)
         try:
             answer_text = await page.inner_text(_S["answer_container"], timeout=5000)
         except Exception as exc:
+            await self._raise_if_blocked(page)
             await dump_debug_html(page, "perplexity_no_answer")
             raise AdapterError(f"Не найден контейнер ответа: {exc}") from exc
 

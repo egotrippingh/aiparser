@@ -59,6 +59,7 @@ class CloudResultIn(BaseModel):
     mention_types: list[str] = Field(default_factory=list, max_length=8)
     evidence_quote: str | None = Field(default=None, max_length=12000)
     answer_text: str | None = Field(default=None, max_length=60000)
+    error_message: str | None = Field(default=None, max_length=1000)
     sources: list[str] = Field(default_factory=list, max_length=50)
     check_id: str | None = Field(default=None, max_length=100)
 
