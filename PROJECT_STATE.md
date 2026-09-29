@@ -2,6 +2,11 @@
 
 Updated 2026-09-29. Repository: egotrippingh/aiparser; deployment branch: production.
 
+## Source counter cleanup — prepared
+
+- All answer views hide standalone +N source-count lines across all four providers, including NBSP and list continuations. Inline numbers/arithmetic, C++, code and source links stay intact. Stored answers and analysis are unchanged; the original disclosure covers ambiguous standalone signed numbers. Real read-only corpus confirmed markers in all four providers; Google/Perplexity can have no saved URLs, so no source-list guard is used.
+- 39 frontend tests, lint/build and independent Sol review passed; browser fixture verified Perplexity cleanup, original, link and literal code. Evidence: build/qa/citation-markers-front-20260929-01 and build/qa/citation-markers-browser/perplexity-clean.png. No live scan/login performed. Site delivery pending; Windows agent remains .7.
+
 ## Readable provider answers — delivered 2026.9.29.7
 
 - Shared read-only DOM capture preserves headings, paragraphs, list structure, code whitespace and actual safe HTTP(S) anchor targets across ChatGPT, Perplexity, Alice and Google AI Overview. Plain capture remains the rules/primary/arbiter input; Alice/Google main-versus-card boundaries retain prior semantics. No new schema migration.

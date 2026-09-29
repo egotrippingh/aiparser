@@ -31,3 +31,12 @@ remains available in `Исходный текст`.
 Old captures lost anchor-to-label relationships: only an unambiguous domain/path
 can reuse a saved source; other source URLs remain in the source list. Live
 provider sessions and Windows interactive update are not exercised by these checks.
+
+## Source counters
+
+The shared answer renderer hides standalone `+N` lines for every provider,
+including NBSP-padded markers and list continuations. This display-only heuristic
+also hides ambiguous standalone signed integers; the unchanged original is
+available in the disclosure. Inline arithmetic/prose and literal code remain.
+No source list prerequisite: actual Google and Perplexity captures can contain
+these counters without saved URLs. Storage, analysis and source links are unchanged.
