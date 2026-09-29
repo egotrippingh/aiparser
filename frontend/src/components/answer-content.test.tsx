@@ -79,3 +79,22 @@ it("never guesses a source path, lowercases its path or links an email", () => {
   expect(html).not.toContain('>example.org</a>')
   expect(html).not.toContain('href="https://user:secret')
 })
+
+it.each(['chatgpt', 'perplexity', 'alice', 'google_aio'])("hides standalone source counters for %s without changing prose, code or sources", service => {
+  const sources = ['https://example.test/source']
+  const text = 'Answer\nexample.test/source\n+1\n\nMore prose\n\u00a0+12\n\n- Item\n  +2\n  Continuation\n\nC++ and 2 + 1; temperature +2 °C.\n\n`+3`\n\n```\n+4\n```\n\n- Code\n  ```\n  +5\n  ```'
+  const html = renderToStaticMarkup(<><AnswerContent text={text} service={service} sources={sources}/><SourceList sources={sources}/></>)
+  const display = html.split('<details')[0]
+  expect(display).not.toContain('<p>+1')
+  expect(display).not.toContain('+12')
+  expect(display).not.toContain('<br/>  +2')
+  expect(display).toContain('C++ and 2 + 1; temperature +2 °C.')
+  expect(display).toContain('<code>+3</code>')
+  expect(display).toContain('<pre><code>+4</code></pre>')
+  expect(display).toContain('<pre><code>+5</code></pre>')
+  expect(display).toContain('href="https://example.test/source"')
+  expect(display).toContain('Continuation')
+  expect(html).toContain('Исходный текст')
+  expect(html).toContain('+12')
+  expect(html).toContain('class="answer-sources"')
+})

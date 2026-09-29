@@ -100,7 +100,9 @@ function linkedText(text: string, sources: string[]) {
 
 function blocks(text: string, sources: string[]) {
   const lines = text.replace(/\r\n?/g, "\n").split("\n"), output: ReactNode[] = []
-  let index = 0, key = 0
+  let index = 0, key = 0, cleaned = false
+  // ponytail: only standalone source counters; ambiguous inline +N stays literal.
+  const sourceCounter = (line: string) => /^\+\d+$/.test(line.trim())
   const listItem = (line: string) => line.match(/^( *)([-*•]|\d+[.)])(?:\s+(.*)|$)/)
   const list = (indent: number, ordered: boolean): ReactNode => {
     const items: ReactNode[] = [], first = parseInt(listItem(lines[index])![2])
@@ -110,6 +112,7 @@ function blocks(text: string, sources: string[]) {
       index++
       const content: ReactNode[] = [<Fragment key="text">{linkedText(item[3] || "", sources)}</Fragment>]
       while (index < lines.length) {
+        if (sourceCounter(lines[index])) { cleaned = true; index++; continue }
         if (!lines[index].trim()) {
           let next = index + 1
           while (next < lines.length && !lines[next].trim()) next++
@@ -136,6 +139,7 @@ function blocks(text: string, sources: string[]) {
     return ordered ? <ol key={key++} start={first}>{items}</ol> : <ul key={key++}>{items}</ul>
   }
   while (index < lines.length) {
+    if (sourceCounter(lines[index])) { cleaned = true; index++; continue }
     if (!lines[index].trim() || lines[index].trim() === "•") { index++; continue }
     const fence = lines[index].match(/^(`{3,})(?:[^`]*)$/)
     if (fence) {
@@ -153,15 +157,16 @@ function blocks(text: string, sources: string[]) {
     const item = listItem(lines[index])
     if (item) { output.push(list(item[1].length, /^\d/.test(item[2]))); continue }
     const paragraph: string[] = []
-    while (index < lines.length && lines[index].trim() && lines[index].trim() !== "•" && !/^#{1,6}\s+/.test(lines[index]) && !/^(`{3,})(?:[^`]*)$/.test(lines[index]) && !listItem(lines[index])) paragraph.push(lines[index++])
+    while (index < lines.length && lines[index].trim() && lines[index].trim() !== "•" && !sourceCounter(lines[index]) && !/^#{1,6}\s+/.test(lines[index]) && !/^(`{3,})(?:[^`]*)$/.test(lines[index]) && !listItem(lines[index])) paragraph.push(lines[index++])
     output.push(<p key={key++}>{paragraph.map((line, i) => <Fragment key={i}>{i > 0 && <br/>}{linkedText(line, sources)}</Fragment>)}</p>)
   }
-  return output
+  return { output, cleaned }
 }
 
 export function AnswerContent({ text, service, sources = [] }: { text: string; service?: string; sources?: string[] }) {
   const fixed = service === "chatgpt" ? cleanChatGPTMap(text) : { text, changed: false }
-  return <div className="answer-content">{blocks(fixed.text, sources)}{fixed.changed && <details className="answer-original"><summary>Исходный текст</summary><pre>{text}</pre></details>}</div>
+  const rendered = blocks(fixed.text, sources)
+  return <div className="answer-content">{rendered.output}{(fixed.changed || rendered.cleaned) && <details className="answer-original"><summary>Исходный текст</summary><pre>{text}</pre></details>}</div>
 }
 
 export function SourceList({ sources }: { sources: string[] }) {
