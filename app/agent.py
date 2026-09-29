@@ -53,6 +53,7 @@ def _payload(row: dict) -> dict:
         "status": row["status"], "mention_types": json.loads(row["mention_types_json"] or "[]"),
         "evidence_quote": row["evidence_quote"][:12000] if row["evidence_quote"] else None,
         "answer_text": row["answer_text"][:60000] if row["answer_text"] else None,
+        "error_message": (row.get("error_message") or "")[:1000] or None,
         "sources": sources, "check_id": check_id,
     }
 
@@ -63,14 +64,29 @@ async def _sync_results(user_id: str, current_device_id: str) -> None:
         cursor = int(repo.get_setting(cursor_key, "0") or "0")
         rows = repo.cloud_results_after(cursor)
         if not rows:
-            return
+            break
         owned = [row for row in rows if json.loads(row["settings_snapshot_json"] or "{}")
                  .get("billing_user_id") == user_id]
         if owned:
             await billing.upload_cloud_results(current_device_id, [_payload(row) for row in owned])
         repo.set_setting(cursor_key, str(rows[-1]["id"]))
         if len(rows) < 100:
+            break
+    # One historical page per heartbeat; never rewind the ordinary result cursor.
+    diagnostic_key = f"cloud_diagnostic_cursor:v1:{user_id}:{current_device_id}"
+    cursor = int(repo.get_setting(diagnostic_key, "0") or "0")
+    uploaded = int(repo.get_setting(cursor_key, "0") or "0")
+    rows = [row for row in repo.cloud_results_after(cursor) if row["id"] <= uploaded]
+    if not rows:
+        return
+    errors = [row for row in rows if row["status"] in ("error", "captcha", "auth_required", "limit_reached")
+              and row.get("error_message") and json.loads(row["settings_snapshot_json"] or "{}")
+              .get("billing_user_id") == user_id]
+    if errors:
+        response = await billing.upload_cloud_results(current_device_id, [_payload(row) for row in errors])
+        if response.get("diagnostics_version") != 1:
             return
+    repo.set_setting(diagnostic_key, str(rows[-1]["id"]))
 
 
 async def _scheduled_scan(preferences: dict, retry_after: dict[int, float]) -> None:

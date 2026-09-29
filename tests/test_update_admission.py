@@ -7,10 +7,12 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-from app import billing, control_agent, updates
+from app import billing, control_agent, updates, __version__
 from app.api import browser, desktop
 from app.scanner import orchestrator
 
+
+FUTURE_VERSION = __version__.rsplit(".",1)[0]+"."+str(int(__version__.rsplit(".",1)[1])+1)
 
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch, tmp_path):
@@ -43,7 +45,7 @@ def isolated(monkeypatch, tmp_path):
 
 async def rejected_update():
     with pytest.raises(HTTPException) as error:
-        await desktop.download_update(desktop.UpdateIn(version='2026.9.29.6'))
+        await desktop.download_update(desktop.UpdateIn(version=FUTURE_VERSION))
     assert error.value.status_code == 409
     assert not updates.busy()
 
@@ -164,7 +166,7 @@ def test_password_enrollment_keeps_admission_through_temporary_token_revocation(
 
 @pytest.mark.parametrize('failure', ['timeout', 'abort_denied', 'handoff_denied'])
 def test_shutdown_timeout_after_successful_apply_waits_for_installer_before_retry(monkeypatch, tmp_path, failure):
-    release = {'version': '2026.9.29.6', 'installer': {'size_bytes': 1, 'sha256': 'a' * 64},
+    release = {'version': FUTURE_VERSION, 'installer': {'size_bytes': 1, 'sha256': 'a' * 64},
                'portable': {'size_bytes': 1, 'sha256': 'b' * 64}}
     wait_started, exited = threading.Event(), threading.Event()
     async def latest(): return release
@@ -193,9 +195,9 @@ def test_shutdown_timeout_after_successful_apply_waits_for_installer_before_retr
     try:
         if failure == 'handoff_denied':
             with pytest.raises(ValueError, match='завершение'):
-                asyncio.run(updates.apply('2026.9.29.6', lambda: False))
+                asyncio.run(updates.apply(FUTURE_VERSION, lambda: False))
         else:
-            asyncio.run(updates.apply('2026.9.29.6', lambda: True))
+            asyncio.run(updates.apply(FUTURE_VERSION, lambda: True))
             assert updates.busy() and not wait_started.is_set()
             updates.shutdown_failed('fixture shutdown timed out')
         assert (stage / 'abort').exists() is (failure == 'timeout')
@@ -227,7 +229,7 @@ def test_partial_download_is_removed_without_launching_installer(monkeypatch, tm
     stage.mkdir()
     monkeypatch.setattr(updates.tempfile, 'mkdtemp', lambda **_: str(stage))
     monkeypatch.setattr(updates.tempfile, 'gettempdir', lambda: str(tmp_path))
-    async def latest(): return {'version': '2026.9.29.6'}
+    async def latest(): return {'version': FUTURE_VERSION}
     async def failed_download(_, target):
         target.write_bytes(b'partial untrusted payload')
         raise ValueError('download interrupted')
@@ -236,5 +238,5 @@ def test_partial_download_is_removed_without_launching_installer(monkeypatch, tm
     monkeypatch.setattr(updates, '_download', failed_download)
     monkeypatch.setattr(updates.subprocess, 'Popen', lambda *args, **kwargs: launched.append(args))
     with pytest.raises(ValueError, match='interrupted'):
-        asyncio.run(updates.apply('2026.9.29.6', lambda: True))
+        asyncio.run(updates.apply(FUTURE_VERSION, lambda: True))
     assert not stage.exists() and not launched and not updates.busy()

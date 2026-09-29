@@ -137,6 +137,8 @@ export function ControlCenter({ token, downloadUrl, onDirtyChange }: { token: st
       <div className="cc-run-progress"><span>{r.progress.done || 0} / {r.total} проверок</span><progress max={r.total || 1} value={r.progress.done || 0} aria-label={`Прогресс ${r.project_name}`} />
         {r.error && <p className="cc-error-text">{r.error}</p>}
         {r.progress.services && <small>{Object.entries(r.progress.services).map(([id, s]) => `${service(id)} ${s.done}/${s.total}${s.state === "failed" ? ": ошибка" : ""}`).join(" · ")}</small>}
+        {r.progress.services && Object.entries(r.progress.services).filter(([, s])=>s.error).map(([id,s])=><p className="cc-error-text" key={id}>{service(id)}: {s.error}</p>)}
+        <small>Счётчик включает попытки с ошибками. Причины — в отчёте по запросу. Обычные ошибки не повторяются автоматически; новый запуск проекта проверяет все запросы заново.</small>
       </div><div className="cc-actions">{!terminal(r) && <><button className="cc-button" disabled={!!busy} onClick={() => action(r.id, () => request(`/control/runs/${r.id}/command`, token, { action: r.desired_state === "paused" ? "resume" : "pause" }))}>{r.desired_state === "paused" ? <Play size={15} /> : <Pause size={15} />}{r.desired_state === "paused" ? "Продолжить" : "Пауза"}</button><button className="cc-button" disabled={!!busy} onClick={() => action(r.id, () => request(`/control/runs/${r.id}/command`, token, {action:"stop"}))}><Square size={14} />Стоп</button></>}<a className="cc-button" href={`#/project/${r.project_id}/report`}>Отчёт</a></div></article>)}</div>
   }
   return <div className="cc-shell">

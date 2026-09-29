@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useRef, useState } from "react"
+import { AnswerContent, SourceList, ResultIssue } from "./components/answer-content"
+import { useEffect, useRef, useState } from "react"
 import { Download, FileSearch, RefreshCw, Search, X } from "lucide-react"
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { accountDownload, accountRequest } from "./account-api"
@@ -8,14 +9,13 @@ import { ReportCalendar, shortDate } from "./report-calendar"
 type Stats = { found: number; checked: number; issues: number; skipped: number; visibility_pct: number | null }
 type Cell = { id: number; status: string; found: boolean }
 type Report = { date_from: string; date_to: string; available_dates: string[]; dates: string[]; visible_dates: string[]; services: string[]; available_services?: string[]; groups: string[]; summary: Stats; comparison: { from: Stats; to: Stats; delta: number | null }; timeline: (Stats & {date: string; services: Record<string, Stats>})[]; total: number; rows: {id:string;text:string;group_tag:string;cells:Record<string,Record<string,Cell>>}[] }
-type Detail = { query_text: string; service: string; scan_date: string; status: string; answer_text: string | null; evidence_quote: string | null; sources: string[]; check_id: string | null }
+type Detail = { query_text: string; service: string; scan_date: string; status: string; answer_text: string | null; error_message?: string | null; evidence_quote: string | null; sources: string[]; check_id: string | null }
 const name = (id: string) => SCAN_SERVICES.find(s => s.id === id)?.label || id
 const shortNames: Record<string,string> = {google_aio:"Google",chatgpt:"ChatGPT",perplexity:"Perplexity",alice:"Алиса",yandex_neuro:"Нейро"}
 const colors: Record<string,string> = {google_aio:"#9eafbd",chatgpt:"#a8c2ad",perplexity:"#d5ba85",alice:"#b8b7a2",yandex_neuro:"#c79e91"}
 const statuses: Record<string,string> = {found:"Упоминание",not_found:"Нет упоминания",skipped:"Нет AI-блока",error:"Ошибка",captcha:"Капча",auth_required:"Нужен вход",limit_reached:"Лимит сервиса"}
 const pct = (value: number | null) => value == null ? "—" : `${value}%`
 const cellLabel = (cell: Cell) => cell.status === "found" && !cell.found ? "Карточки исключены" : statuses[cell.status] || cell.status
-const safeUrl = (url: string) => { try { return ["https:","http:"].includes(new URL(url).protocol) } catch { return false } }
 
 export function ReportView({token,projectId}:{token:string;projectId:string}) {
   const [range,setRange] = useState<{from:string;to:string}|null>(null)
@@ -80,6 +80,6 @@ export function ReportView({token,projectId}:{token:string;projectId:string}) {
       <div className="report-legend"><span><b className="found">✓</b> Упоминание</span><span>× Нет упоминания</span><span>— Нет AI-блока</span><span><b className="issue">!</b> Требует внимания</span><span>· Не проверялся</span></div>
       <div className="report-pagination"><span>{report.total?`${Math.min(offset+1,report.total)}–${Math.min(offset+50,report.total)} из ${report.total} запросов`:"0 запросов"}</span><div className="cc-actions"><button className="cc-button" disabled={!offset||loading} onClick={()=>setOffset(n=>Math.max(0,n-50))}>Назад</button><button className="cc-button" disabled={offset+50>=report.total||loading} onClick={()=>setOffset(n=>n+50)}>Далее</button></div></div><p className="ws-note">XLSX содержит все запросы по выбранным фильтрам и все даты периода, независимо от страницы таблицы. Внешние источники — сохранённые ссылки из ответов ИИ, без доменов бренда.</p>
     </>}
-    <dialog className="ws-dialog report-detail" ref={dialog} aria-labelledby="result-title" onClose={()=>{detailRequest.current++}}><div className="ws-dialog-head"><h2 id="result-title">Ответ ИИ</h2><button className="cc-button icon" aria-label="Закрыть ответ" onClick={()=>dialog.current?.close()}><X size={18}/></button></div>{detailError&&<p className="cc-alert" role="alert">{detailError}</p>}{detail?<><p className="ws-note">{name(detail.service)} · {shortDate(detail.scan_date)}.{detail.scan_date.slice(0,4)} · {statuses[detail.status]||detail.status}</p><h3>{detail.query_text}</h3>{detail.evidence_quote&&<blockquote>{detail.evidence_quote}</blockquote>}<div className="report-answer">{detail.answer_text||"Текст ответа не сохранён."}</div>{detail.sources.length>0&&<><h3>Источники</h3><ul>{detail.sources.filter(safeUrl).map((url,i)=><Fragment key={`${url}-${i}`}><li><a href={url} target="_blank" rel="noreferrer">{url}</a></li></Fragment>)}</ul></>}{detail.check_id&&<button className="cc-button" onClick={()=>openShot(detail.check_id!)}>Открыть скриншот</button>}{shot&&<img className="report-shot" src={shot} alt="Скриншот ответа ИИ"/>}</>:!detailError&&<p role="status">Загружаем ответ…</p>}</dialog>
+    <dialog className="ws-dialog report-detail" ref={dialog} aria-labelledby="result-title" onClose={()=>{detailRequest.current++}}><div className="ws-dialog-head"><h2 id="result-title">Ответ ИИ</h2><button className="cc-button icon" aria-label="Закрыть ответ" onClick={()=>dialog.current?.close()}><X size={18}/></button></div>{detailError&&<p className="cc-alert" role="alert">{detailError}</p>}{detail?<><p className="ws-note">{name(detail.service)} · {shortDate(detail.scan_date)}.{detail.scan_date.slice(0,4)} · {statuses[detail.status]||detail.status}</p><h3>{detail.query_text}</h3>{detail.evidence_quote&&<blockquote>{detail.evidence_quote}</blockquote>}<div className="report-answer">{detail.answer_text&&<AnswerContent text={detail.answer_text}/>}<ResultIssue status={detail.status} error={detail.error_message} answer={detail.answer_text}/></div><h3>Источники</h3><SourceList sources={detail.sources}/>{detail.check_id&&<button className="cc-button" onClick={()=>openShot(detail.check_id!)}>Открыть скриншот</button>}{shot&&<img className="report-shot" src={shot} alt="Скриншот ответа ИИ"/>}</>:!detailError&&<p role="status">Загружаем ответ…</p>}</dialog>
   </section>
 }

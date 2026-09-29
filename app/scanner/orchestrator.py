@@ -863,6 +863,8 @@ async def _run_one(
         ctl.emit("query_result", query_id=query["id"], service=service_id, status="captcha")
         return "captcha"
     except AdapterError as exc:
+        # The detailed exception can contain answer excerpts; it belongs in the private result only.
+        log.warning("Сервис %s, запрос %s: %s (причина сохранена в результате)", service_id, query["id"], type(exc).__name__)
         repo.save_result(ctl.scan_id, query["id"], service_id, "error", error_message=str(exc))
         ctl.emit("query_result", query_id=query["id"], service=service_id, status="error")
         return "error"

@@ -2,6 +2,13 @@
 
 Updated 2026-09-29. Repository: egotrippingh/aiparser; deployment branch: production.
 
+## Report response diagnostics — in verification
+
+- Agent candidate 2026.9.29.6 sends nullable error_message, including one historical page per heartbeat via separate account/device cursor and server ACK. Server enrichment atomically fills only NULL reasons for matching failed results; status, answer, billing and sources stay unchanged.
+- All answer views share safe paragraphs/lists/HTTP(S) links and a visible source block. Error reasons and honest guidance explain that ordinary errors do not retry automatically and a new project run checks all queries.
+- User's WEB-PM HTML confirmed Perplexity free-search quota. Adapter now recognizes the limit heading; existing three-strike service stop remains. Exact provider recovery timing and live login/scan are not tested; current user's scan remains untouched.
+- Scope excludes selective retry and restoring missing answer text. Source fixes passed independent Sol + Astra reviews. Server suite 54 passed before the owned-link repair; final affected server checks 7 passed, frontend 31 passed plus lint/build and browser desktop/360px proof. Full agent regression rerun pending. Schema deployment requires compatible rollback image and PostgreSQL clone proof; live scan is active, production restart pending.
+
 ## In-app updater — release 2026.9.29.5
 
 - The agent verifies a freshly fetched official installer before handoff, blocks new work while updating, and uses an installer process handle to wait for graceful exit; a matching next-launch result removes only its own temporary stage. Installer and portable modes share the same file update path. Failed cancellation keeps the parent alive until the installer exits; retries clear the cancellation latch and stale errors. The installer writes its version marker last and attempts fallback relaunch after replacement failure.
