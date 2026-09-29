@@ -344,6 +344,28 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         return Path(os.environ.get("AGENT_INSTALLER_FILE") or
                     agent_archive().with_name("AIRate-Setup-latest.exe"))
 
+    def agent_release() -> dict | None:
+        manifest = Path(os.environ.get("AGENT_RELEASE_FILE") or agent_archive().with_name("agent-release.json"))
+        try:
+            manifest = manifest.resolve(strict=True)
+            value = json.loads(manifest.read_text(encoding="utf-8"))
+            if not isinstance(value, dict) or not isinstance(value.get("version"), str) or not re.fullmatch(r"[0-9]{1,5}\.[0-9]{1,5}\.[0-9]{1,5}\.[0-9]{1,5}", value["version"]):
+                return None
+            artifacts = {"installer": manifest.parent / agent_installer().name,
+                         "portable": manifest.parent / agent_archive().name}
+            release = {"version": value["version"]}
+            for name, path in artifacts.items():
+                item = value.get(name)
+                if (not isinstance(item, dict) or type(item.get("size_bytes")) is not int
+                        or item["size_bytes"] <= 0 or not isinstance(item.get("sha256"), str)
+                        or not re.fullmatch(r"[0-9a-f]{64}", item["sha256"])
+                        or not path.is_file() or path.stat().st_size != item["size_bytes"]):
+                    return None
+                release[name] = {"size_bytes": item["size_bytes"], "sha256": item["sha256"]}
+            return release
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError):
+            return None
+
     @app.get("/api/v1/agent-download")
     def agent_download_status() -> dict:
         installer = agent_installer()
@@ -351,11 +373,12 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         return {"available": archive.is_file(),
                 "url": ("/downloads/AIRate-Setup.exe" if installer.is_file() else
                         "/downloads/AI-Mentions-Windows.zip") if archive.is_file() else None,
-                "size_bytes": archive.stat().st_size if archive.is_file() else None}
+                "size_bytes": archive.stat().st_size if archive.is_file() else None,
+                "release": agent_release()}
 
     @app.get("/downloads/AIRate-Setup.exe", include_in_schema=False)
     def download_agent_installer() -> FileResponse:
-        installer = agent_installer()
+        installer = agent_installer().resolve()
         if not installer.is_file():
             raise HTTPException(404, "Установщик пока не опубликован")
         return FileResponse(installer, media_type="application/octet-stream",
@@ -363,7 +386,7 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
 
     @app.get("/downloads/AI-Mentions-Windows.zip", include_in_schema=False)
     def download_agent() -> FileResponse:
-        archive = agent_archive()
+        archive = agent_archive().resolve()
         if not archive.is_file():
             raise HTTPException(404, "Агент пока не опубликован")
         return FileResponse(archive, media_type="application/zip",

@@ -12,6 +12,7 @@ from app.agent import device_id
 from app.control_agent import STATE, paused, store_token
 from app.db import repo
 from app.scanner import orchestrator
+from app import updates
 
 router = APIRouter(prefix="/api/desktop")
 login_task = None
@@ -30,6 +31,7 @@ def state():
     return {**STATE, "configured": billing.enabled(), "has_token": bool(billing.token()),
             "paused": paused(), "browser": status(), "autostart": get_autostart(),
             "scan": ctl.snapshot() if ctl else None,
+            "update": updates.snapshot(),
             "cabinet_url": f"{config.ACCOUNT_URL}/cabinet/" if billing.enabled() else None,
             "login_pending": bool(login_task and not login_task.done())}
 
@@ -129,6 +131,30 @@ def pause(body: PauseIn):
 @router.post("/hide")
 def hide():
     return {"hidden": window_control.hide()}
+
+
+@router.post("/update/check")
+async def check_update():
+    return await updates.check(manual=True)
+
+
+class UpdateIn(BaseModel):
+    version: str
+    portable: bool = False
+
+
+@router.post("/update/dismiss")
+def dismiss_update(body: UpdateIn):
+    updates.dismiss(body.version)
+    return updates.snapshot()
+
+
+@router.post("/update/download")
+def download_update(body: UpdateIn):
+    if not webbrowser.open(updates.PORTABLE_URL if config.PORTABLE else updates.INSTALLER_URL):
+        raise HTTPException(503, "Не удалось открыть браузер по умолчанию")
+    updates.dismiss(body.version)
+    return updates.snapshot()
 
 
 class CabinetIn(BaseModel):

@@ -59,13 +59,16 @@ def create_app() -> FastAPI:
 
     import asyncio
     from app.control_agent import run_agent
+    from app import updates
 
     agent_task: asyncio.Task | None = None
+    update_task: asyncio.Task | None = None
 
     @app.on_event("startup")
     async def start_agent() -> None:
-        nonlocal agent_task
+        nonlocal agent_task, update_task
         agent_task = asyncio.create_task(run_agent())
+        update_task = asyncio.create_task(updates.run())
 
     @app.on_event("shutdown")
     async def stop_agent() -> None:
@@ -75,6 +78,9 @@ def create_app() -> FastAPI:
                 await agent_task
             except asyncio.CancelledError:
                 pass
+        if update_task:
+            update_task.cancel()
+            await asyncio.gather(update_task, return_exceptions=True)
 
     @app.get("/api/meta")
     def meta() -> dict:

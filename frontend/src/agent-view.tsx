@@ -1,15 +1,17 @@
-import { useEffect, useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
 import { createRoot } from "react-dom/client"
 import { ArrowUpRight, Check, CheckCircle2, LogIn, Monitor, Pause, Play } from "lucide-react"
 import "./agent-view.css"
 import { BrowserInstallProgress, type InstallProgress } from "./components/browser-install-progress"
 import { sessionLabel, sessionReady, type ServiceSession } from "./lib/service-auth"
 
+type Release = {version:string;installer:{size_bytes:number;sha256:string};portable:{size_bytes:number;sha256:string}}
+type UpdateStatus = {current:string;portable:boolean;checking:boolean;error:string;release:Release|null}
 type State = { configured: boolean; connected: boolean; has_token: boolean; name: string; error: string; sync_error?: string;
   login_pending: boolean; paused: boolean; last_sync: string | null; user?: {email:string;is_admin?:boolean};
   wallet?: {available_kopeks:number}; autostart: {available:boolean;enabled:boolean};
   scan: {done:number;total:number}|null; job?: {project_name:string}|null;
-  browser: {installed:boolean;installing:boolean;install_error:string|null;install_progress?:InstallProgress|null;services:Record<string,ServiceSession>} }
+  browser: {installed:boolean;installing:boolean;install_error:string|null;install_progress?:InstallProgress|null;services:Record<string,ServiceSession>}; update:UpdateStatus }
 const services: Record<string,string> = {google_aio:"Google AI Overview",chatgpt:"ChatGPT",perplexity:"Perplexity",alice:"Алиса AI"}
 async function api<T>(path:string,body?:unknown,method?:string):Promise<T>{
   const r=await fetch(path,{method:method||(body===undefined?"GET":"POST"),headers:body===undefined?{}:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)})
@@ -23,6 +25,11 @@ function Agent(){
   const [passwordForm,setPasswordForm]=useState(false)
   const [email,setEmail]=useState("")
   const [password,setPassword]=useState("")
+  const [suppressedUpdate,setSuppressedUpdate]=useState("")
+  const [checkingUpdate,setCheckingUpdate]=useState(false)
+  const [updateError,setUpdateError]=useState("")
+  const dialog=useRef<HTMLDialogElement>(null)
+  const focusedVersion=useRef("")
   const refresh=()=>api<State>("/api/desktop/state").then(next=>{setState(next);setPollError("")})
   useEffect(()=>{refresh().catch(e=>setPollError(e.message));const timer=setInterval(()=>refresh().catch(e=>setPollError(e.message)),state?.browser.installing?1000:4000);return()=>clearInterval(timer)},[state?.browser.installing])
   async function act(path:string,body:unknown={},method?:string){setBusy(path);setError("");try{await api(path,body,method);await refresh()}catch(e){setError(e instanceof Error?e.message:"Ошибка")}finally{setBusy("")}}
@@ -33,8 +40,14 @@ function Agent(){
     await act("/api/desktop/login/password",{email,password:enteredPassword})
   }
   const problem=error||state?.error||state?.sync_error
+  const shownUpdate=state?.update?.release?.version===suppressedUpdate?{...state.update,release:null}:state?.update
+  useEffect(()=>{if(shownUpdate?.release)setUpdateError("")},[shownUpdate?.release?.version])
+  useEffect(()=>{const release=shownUpdate?.release;if(!release){dialog.current?.close();return}if(focusedVersion.current!==release.version)api<{focused:boolean}>("/api/agent/focus",{}).then(result=>{if(result.focused)focusedVersion.current=release.version}).catch(()=>{});if(!dialog.current?.open)dialog.current?.showModal()},[shownUpdate])
+  async function updateAction(path:string,release:Release){try{const next=await api<UpdateStatus>(path,{version:release.version});setSuppressedUpdate(release.version);setState(current=>current?{...current,update:next}:current);setUpdateError("");dialog.current?.close();refresh().catch(e=>setPollError(e instanceof Error?e.message:"Не удалось обновить состояние"))}catch(e){setUpdateError(e instanceof Error?e.message:"Ошибка")}}
+  async function manualUpdate(){setCheckingUpdate(true);setUpdateError("");try{const next=await api<UpdateStatus>("/api/desktop/update/check",{});setSuppressedUpdate("");setState(current=>current?{...current,update:next}:current);if(!next.release)setUpdateError(next.error||"Установлена актуальная версия")}catch(e){setUpdateError(e instanceof Error?e.message:"Не удалось проверить обновления")}finally{setCheckingUpdate(false)}}
   return <main className="agent-window"><header><a href="#" onClick={e=>e.preventDefault()} className="agent-brand"><img src="/assets/brand/airvision-icon-graphite.png" alt="" width={36} height={36}/><strong>AIRate</strong></a><span>Агент</span></header>
     {pollError&&<p className="agent-error" role="alert">{pollError}</p>}
+    <dialog className="agent-update" ref={dialog} onCancel={e=>{e.preventDefault();if(shownUpdate?.release)updateAction("/api/desktop/update/dismiss",shownUpdate.release);else dialog.current?.close()}}><h2>Доступно обновление {shownUpdate?.release?.version}</h2><p>Текущая версия: {shownUpdate?.current}.</p><p>Перед обновлением завершите проверку, затем выйдите из агента через пункт трея «Выйти».</p>{state?.scan&&<p>Текущая проверка ещё выполняется.</p>}{shownUpdate?.portable&&<p>Скачайте ZIP, распакуйте поверх программы и сохраните папку <code>data</code>.</p>}{updateError&&<p className="agent-error" role="alert">{updateError}</p>}<div>{shownUpdate?.release&&<button className="agent-primary" onClick={()=>shownUpdate.release&&updateAction("/api/desktop/update/download",shownUpdate.release)}>Скачать</button>}<button onClick={()=>shownUpdate?.release&&updateAction("/api/desktop/update/dismiss",shownUpdate.release)}>Позже</button></div></dialog>
     {!state?<div className="agent-loading" role="status">Подключаемся…</div>:<>
       <section className="agent-identity"><div className={`agent-status-icon ${state.connected?"connected":""}`}><Monitor size={28}/></div><h1>{state.connected?state.name:"Подключите компьютер"}</h1><p>{state.connected?state.user?.email:"Войдите в аккаунт, чтобы подключить этот компьютер. Проекты и отчёты будут доступны на сайте."}</p></section>
       {!state.connected?<section className="agent-login">
@@ -60,6 +73,7 @@ function Agent(){
       </>}
       <section className="agent-settings">
         <h2>Подключения и автозапуск</h2>
+        <div className="agent-update-check"><button disabled={checkingUpdate||shownUpdate?.checking} onClick={manualUpdate}>{checkingUpdate||shownUpdate?.checking?"Проверяем обновления…":"Проверить обновления"}</button><small>{updateError||shownUpdate?.error||""}</small></div>
         <label><input type="checkbox" disabled={!state.autostart.available||!!busy} checked={state.autostart.enabled} onChange={e=>act("/api/agent/autostart",{enabled:e.target.checked},"PUT")}/>Запускать вместе с Windows</label>
         {state.browser.install_progress&&<BrowserInstallProgress progress={state.browser.install_progress}/>}
         {!state.browser.installed||state.browser.installing?<div><p>Для проверок нужен браузер агента.</p><button onClick={()=>act("/api/browser/install")} disabled={state.browser.installing||!!busy}>{state.browser.installing?"Устанавливается…":state.browser.install_error?"Повторить установку":"Установить браузер"}</button>{state.browser.install_error&&<p role="alert">{state.browser.install_error}</p>}</div>:<>
