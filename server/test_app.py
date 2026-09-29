@@ -294,20 +294,29 @@ def test_agent_download_availability(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_DOWNLOAD_FILE", str(archive))
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'server.db'}"))
     status = client.get("/api/v1/agent-download")
-    assert status.json() == {"available": False, "url": None, "size_bytes": None}
+    assert status.json() == {"available": False, "url": None, "size_bytes": None, "release": None}
     assert client.get("/downloads/AI-Mentions-Windows.zip").status_code == 404
     archive.write_bytes(b"test archive")
     status = client.get("/api/v1/agent-download")
-    assert status.json() == {"available": True, "url": "/downloads/AI-Mentions-Windows.zip", "size_bytes": 12}
+    assert status.json() == {"available": True, "url": "/downloads/AI-Mentions-Windows.zip", "size_bytes": 12, "release": None}
     response = client.get("/downloads/AI-Mentions-Windows.zip")
     assert response.status_code == 200 and response.content == b"test archive"
     assert client.get("/downloads/AIRate-Setup.exe").status_code == 404
     installer = tmp_path / "AIRate-Setup-latest.exe"
     installer.write_bytes(b"MZinstaller")
     status = client.get("/api/v1/agent-download").json()
-    assert status == {"available": True, "url": "/downloads/AIRate-Setup.exe", "size_bytes": 11}
+    assert status == {"available": True, "url": "/downloads/AIRate-Setup.exe", "size_bytes": 11, "release": None}
     response = client.get(status["url"])
     assert response.content == b"MZinstaller"
     assert 'filename="AIRate-Setup.exe"' in response.headers["content-disposition"]
+    manifest = archive.with_name("agent-release.json")
+    manifest.write_text(json.dumps({"version": "2026.9.29.3", "installer": {"size_bytes": 11, "sha256": "a" * 64},
+                                    "portable": {"size_bytes": 12, "sha256": "b" * 64}}), encoding="utf-8")
+    assert client.get("/api/v1/agent-download").json()["release"]["version"] == "2026.9.29.3"
+    for invalid_hash in (None, 1, []):
+        manifest.write_text(json.dumps({"version": "2026.9.29.3", "installer": {"size_bytes": 11, "sha256": invalid_hash},
+                                        "portable": {"size_bytes": 12, "sha256": "b" * 64}}), encoding="utf-8")
+        payload = client.get("/api/v1/agent-download").json()
+        assert payload["available"] is True and payload["release"] is None
     # Previously downloaded agents/links can still retrieve the portable ZIP.
     assert client.get("/downloads/AI-Mentions-Windows.zip").content == b"test archive"

@@ -26,8 +26,14 @@ with sessions() as db:
     db.get(CloudResult, ids[1]).check_id = 'qa-a'
     db.get(CloudResult, ids[-1]).check_id = 'qa-b'
     db.commit()
+qa_release = {'version': '2026.9.29.3', 'installer': {'size_bytes': 100, 'sha256': 'a' * 64},
+              'portable': {'size_bytes': 50, 'sha256': 'b' * 64}}
 state = {'save': 'pass', 'shot': 'pass', 'seen': [], 'agent_error': False,
+         'update_release': qa_release, 'update_error': '',
          'agent': {'configured': True, 'connected': True, 'has_token': True,
+                   'version': '2026.9.29.2', 'portable': False,
+                   'update': {'current': '2026.9.29.2', 'portable': False,
+                              'checking': False, 'error': '', 'release': None},
                    'name': 'QA компьютер', 'error': '', 'login_pending': False,
                    'paused': False, 'last_sync': None, 'user': {'email': 'qa@example.test'},
                    'wallet': {'available_kopeks': 10000},
@@ -46,6 +52,25 @@ async def qa(request, call_next):
         return Response((Path(__file__).resolve().parents[1] / 'web/app/index.html').read_text(encoding='utf-8'), media_type='text/html')
     if path == '/api/desktop/state':
         return JSONResponse({'detail': 'QA: агент временно недоступен'} if state['agent_error'] else state['agent'], status_code=503 if state['agent_error'] else 200)
+    if path == '/api/desktop/update/check':
+        if request.method != 'POST':
+            return JSONResponse({'detail': 'Method Not Allowed'}, status_code=405)
+        state['seen'].append('update-check')
+        if not state['update_error']:
+            state['agent']['update']['release'] = state['update_release']
+        return JSONResponse({**state['agent']['update'], 'checking': False, 'error': state['update_error'],
+                             'release': None if state['update_error'] else state['update_release']})
+    if path in ('/api/desktop/update/dismiss', '/api/desktop/update/download'):
+        if request.method != 'POST':
+            return JSONResponse({'detail': 'Method Not Allowed'}, status_code=405)
+        state['seen'].append(path.rsplit('/', 1)[-1])
+        state['agent']['update']['release'] = None
+        return JSONResponse(state['agent']['update'])
+    if path == '/api/agent/focus':
+        if request.method != 'POST':
+            return JSONResponse({'detail': 'Method Not Allowed'}, status_code=405)
+        state['seen'].append('focus')
+        return JSONResponse({'focused': True})
     if path.startswith(('/api/desktop/', '/api/browser/', '/api/agent/', '/api/account/')):
         return JSONResponse({'ok': True})
     if path == '/cabinet/' and request.query_params.get('native_dialogs') != '1':

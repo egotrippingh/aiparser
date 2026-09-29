@@ -26,6 +26,8 @@ if ($accountUrl -notmatch '^https://[^/]+$' -and
     $accountUrl -notmatch '^http://(127\.0\.0\.1|localhost):[0-9]+$') {
     throw 'AccountUrl must be an HTTPS origin or a local test origin'
 }
+$version = (& $python -c "from app import __version__; print(__version__)").Trim()
+if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') { throw 'app.__version__ must have four numeric parts' }
 
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 New-Item -ItemType Directory -Path $distRoot -Force | Out-Null
@@ -54,6 +56,8 @@ try {
     }
     [System.IO.File]::WriteAllText((Join-Path $bundle 'account-url.txt'),
         $accountUrl, [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText((Join-Path $bundle 'agent-version.txt'),
+        $version, [System.Text.UTF8Encoding]::new($false))
 
     $exePath = Join-Path $bundle 'AI-Mentions.exe'
     $probeArgs = @('--self-test')
