@@ -74,6 +74,14 @@ def _free_local_port() -> int:
         return listener.getsockname()[1]
 
 
+def _check_saved_sessions() -> dict[str, str]:
+    """Read local cookies only; provider verification happens in a later scan."""
+    from app.scanner.profiles import AUTH_COOKIES, cookie_auth_state
+    states = {service: cookie_auth_state(service)["state"] for service in AUTH_COOKIES}
+    log.info("Проверка сохранённых cookies: %s", ", ".join(f"{service}:{state}" for service, state in states.items()))
+    return states
+
+
 def main() -> None:
     from logging.handlers import RotatingFileHandler
     handler = RotatingFileHandler(config.DATA_DIR / "agent.log", maxBytes=2_000_000,
@@ -82,12 +90,13 @@ def main() -> None:
     logging.getLogger().addHandler(handler)
     log.info("Каталог данных: %s (portable=%s)", config.DATA_DIR, config.PORTABLE)
 
+    args = sys.argv[1:]
     # Use predictable fallback ports so a second launch can find the first
     # native window even when the development server owns 8756.
     for port in (8756, *range(8758, 8776)):
         candidate = f"http://{config.HOST}:{port}/app/"
         if not _port_available(port):
-            if "--self-test" not in sys.argv[1:] and _focus_existing(candidate):
+            if "--self-test" not in args and _focus_existing(candidate):
                 return
             continue
         config.PORT = port
@@ -98,13 +107,18 @@ def main() -> None:
     if config.PORT != 8756:
         log.info("Порт 8756 занят; агент откроется на %s", url)
 
+    try:
+        _check_saved_sessions()
+    except Exception:
+        log.exception("Не удалось проверить сохранённые cookies")
+
     server_thread = threading.Thread(target=_run_server, daemon=True)
     server_thread.start()
 
     if not _wait_for_server(url):
         raise RuntimeError("Локальный сервер не поднялся за отведённое время")
 
-    if "--self-test" in sys.argv[1:]:
+    if "--self-test" in args:
         import urllib.request
         import webview.platforms.winforms
 
@@ -120,7 +134,7 @@ def main() -> None:
                     raise RuntimeError(f"Проверка {path} завершилась с HTTP {response.status}")
         from zoneinfo import ZoneInfo
         ZoneInfo("Europe/Moscow")
-        if "--self-test-browser" in sys.argv[1:]:
+        if "--self-test-browser" in args:
             import asyncio
 
             from camoufox.async_api import AsyncCamoufox
@@ -160,10 +174,10 @@ def main() -> None:
     import pystray
     from PIL import Image
 
-    browser_mode = "--browser" in sys.argv[1:]
+    browser_mode = "--browser" in args
     from app import billing
     # Autostart stays in the tray only after this device has an account token.
-    background = "--background" in sys.argv[1:] and bool(billing.token())
+    background = "--background" in args and bool(billing.token())
     window = None
     exiting = False
     if not browser_mode:

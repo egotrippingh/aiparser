@@ -19,11 +19,12 @@ export function sessionLabel(s?: ServiceSession): string {
   if (s.login_state === "starting") return "Открываем браузер…"
   if (s.login_open) return "Окно входа открыто"
   if (s.login_state === "error") return "Не удалось открыть окно"
+  if (s.cookie_state === "unknown") return "Не удалось проверить сохранённую сессию"
   if (s.cookie_state === "expired") return "Сессия истекла — войдите снова"
+  if (s.cookie_state !== "ok") return "Сессия не найдена — повторите вход"
   const freshLogin = !!s.last_login_at && (!s.last_scan_at || Date.parse(s.last_login_at) > Date.parse(s.last_scan_at))
-  if (s.cookie_state === "ok" && freshLogin) return "Сессия сохранена — готово к проверке"
+  if (s.cookie_state === "ok" && freshLogin) return "Сохранённые cookies проверены — готово к проверке"
   if (s.last_scan_state === "auth_required") return s.cookie_state === "ok" ? "Сессия есть, но сервис запрашивал вход" : "Нужен вход"
   if (s.last_scan_state === "ok") return "Последняя проверка прошла"
-  if (s.cookie_state === "ok") return "Сессия сохранена"
-  return s.login_state === "closed" ? "Сессия не найдена — повторите вход" : "Вход ещё не выполнен"
+  return "Сессия сохранена"
 }

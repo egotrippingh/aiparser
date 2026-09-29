@@ -46,6 +46,9 @@ try:
     assert (target / 'installed-mode.txt').is_file()
     assert (target / 'account-url.txt').read_text().strip() == 'https://airate.tech'
     assert not (target / 'data').exists()
+    legacy_sentinel = target / 'data' / 'legacy-preservation-probe.txt'
+    legacy_sentinel.parent.mkdir()
+    legacy_sentinel.write_text('keep old portable data on upgrade and uninstall')
     source_files = []
     for origin, destination in ((bundle, target), (browser, target / 'browser')):
         files = [p for p in origin.rglob('*') if p.is_file()]
@@ -64,6 +67,7 @@ try:
     run([str(setup), *flags, f'/LOG={temp / "upgrade.log"}'])
     run([str(target / 'AI-Mentions.exe'), '--self-test'], env=env)
     assert sentinel.read_text() == 'keep on upgrade and uninstall'
+    assert legacy_sentinel.read_text() == 'keep old portable data on upgrade and uninstall'
 finally:
     uninstaller = target / 'unins000.exe'
     if uninstaller.exists():
@@ -72,6 +76,8 @@ finally:
 assert not (target / 'AI-Mentions.exe').exists()
 assert sentinel.read_text() == 'keep on upgrade and uninstall'
 assert (data / 'aiparser.db').is_file()
+assert legacy_sentinel.read_text() == 'keep old portable data on upgrade and uninstall'
 print(json.dumps({'install': True, 'installed_exe_self_test': True, 'upgrade': True,
                   'verified_files': len(source_files),
-                  'uninstall_preserves_data': True, 'logs': str(temp)}, ensure_ascii=False))
+                  'uninstall_preserves_data': True, 'uninstall_preserves_legacy_data': True,
+                  'logs': str(temp)}, ensure_ascii=False))

@@ -2,6 +2,13 @@
 
 Updated 2026-09-29. Repository: egotrippingh/aiparser; deployment branch: production.
 
+## Session preservation — release 2026.9.29.3
+
+- Branch `fix/agent-session-recovery` keeps an installed build on its established `%LOCALAPPDATA%/AIParser` data directory. On the first installed launch only, it reuses a writable legacy `BASE_DIR/data` when that folder contains user state and the installed location does not. It never merges or overwrites locations.
+- Startup checks saved cookies for every supported service before the local API starts, without opening a browser or contacting a provider. Unreadable state does not select a different data folder; the UI distinguishes saved, missing, expired and unreadable sessions. Actual provider acceptance remains the next scan. Unknown former locations require explicit profile transfer.
+- Local recovery restored five profiles after browser shutdown, retaining the source and a complete destination backup. The installed agent API confirmed all five saved sessions. A requested ZIP export was written only to the user's desktop and passed ZIP integrity verification.
+- Evidence: 50 focused Python checks passed (two Linux publication skips); 27 frontend checks, lint/build and fixture session states passed. Independent Sol/Astra reviews found access-error fallback defects; both repaired and rechecked. Logged runs: build/qa/sessions-final-20260929-02/report.json and build/qa/sessions-final-20260929-03/report.json. Procedure/limitations: docs/session-preservation.md. The release PR records final packaging, CI/deployment identity and live download evidence. Installer target: 2026.9.29.3.
+
 ## Delivered source
 
 - Agent release 2026.9.29.2 adds account-independent startup/hourly release checks, an update dialog, manual check, dismissal persistence and fixed official download targets. Older distributed EXEs require one manual upgrade to acquire this feature.

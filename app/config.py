@@ -44,10 +44,27 @@ _portable_data = BASE_DIR / "data"
 # Existing portable ZIP builds retain their original data directory.
 PORTABLE = not (BASE_DIR / "installed-mode.txt").is_file() and _is_writable(_portable_data)
 
+
+def _has_user_data(path: Path) -> bool:
+    """A pre-marker portable folder is reused only when it contains real state."""
+    if (path / "aiparser.db").is_file():
+        return True
+    profiles = path / "profiles"
+    # Profiles are one directory per service. iterdir preserves access errors;
+    # rglob would silently treat an unreadable directory as empty.
+    return profiles.is_dir() and any((profile / "cookies.sqlite").is_file()
+                                    for profile in profiles.iterdir())
+
+
 if PORTABLE:
     DATA_DIR = _portable_data
 else:
-    DATA_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / APP_NAME
+    _installed_data = Path(os.environ.get("LOCALAPPDATA", Path.home())) / APP_NAME
+    # An installer added after a portable release must not strand its profiles.
+    # Once the installed location has state, it is the sole source of truth.
+    DATA_DIR = (_portable_data if not _has_user_data(_installed_data)
+                and _has_user_data(_portable_data) and _is_writable(_portable_data)
+                else _installed_data)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_PATH = DATA_DIR / "aiparser.db"
