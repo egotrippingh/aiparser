@@ -2,10 +2,10 @@
 
 Updated 2026-09-29. Repository: egotrippingh/aiparser; deployment branch: production.
 
-## Source counter cleanup — prepared
+## Source counter cleanup — delivered
 
 - All answer views hide standalone +N source-count lines across all four providers, including NBSP and list continuations. Inline numbers/arithmetic, C++, code and source links stay intact. Stored answers and analysis are unchanged; the original disclosure covers ambiguous standalone signed numbers. Real read-only corpus confirmed markers in all four providers; Google/Perplexity can have no saved URLs, so no source-list guard is used.
-- 39 frontend tests, lint/build and independent Sol review passed; browser fixture verified Perplexity cleanup, original, link and literal code. Evidence: build/qa/citation-markers-front-20260929-01 and build/qa/citation-markers-browser/perplexity-clean.png. No live scan/login performed. Site delivery pending; Windows agent remains .7.
+- 39 frontend tests, lint/build and independent Sol review passed; browser fixture verified Perplexity cleanup, original, link and literal code. Evidence: build/qa/citation-markers-front-20260929-01 and build/qa/citation-markers-browser/perplexity-clean.png. No live scan/login performed. PR #13 merged/live 7de9f1a1618edf930d8be53e9a5c1bc977c79511. Production workflow 36579249099 passed 55 server checks, 106 agent checks, frontend tests/build and deployment. Backup: backups/aiparser-20260929T140158Z-270843.dump. Nonterminal runs/schedules empty before merge. Local PC and VPS strict HTTPS checks passed: exact ready SHA, exact cabinet-CT3pBhwO.js bytes equal locally tested bundle, .7 download metadata/ranges; VPS full artifact SHA256/size also passed. Windows agent remains .7; no EXE/capture logic change. Temporary QA tab/server closed.
 
 ## Readable provider answers — delivered 2026.9.29.7
 
