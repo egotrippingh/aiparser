@@ -49,6 +49,20 @@ SERIALIZE_JS = r"""(el, mode) => {
       if (hidden(node) || skipped.has(node)) { if (boundary && node.contains(boundary)) afterMap = true; return ''; }
       const tag = node.tagName;
       const code = inCode || tag === 'CODE' || tag === 'PRE';
+      if (tag === 'TABLE' && !code && afterMap) {
+        const rows = [...node.rows].filter(row => !hidden(row) && !hidden(row.parentElement));
+        const cells = rows.map(row => [...row.cells].filter(cell => !hidden(cell) && !skipped.has(cell))).filter(row => row.length);
+        if (!cells.length) return '';
+        const rectangular = cells.every(row => row.length === cells[0].length && row.every(cell => cell.colSpan === 1 && cell.rowSpan === 1 && !cell.querySelector('table, pre') && ![...cell.querySelectorAll('code')].some(code => /[\r\n]/.test(code.textContent || ''))));
+        const caption = node.caption && !hidden(node.caption) ? clean(walk(node.caption)) + '\n\n' : '';
+        // ponytail: merged/nested cells retain row text; never guess their grid.
+        if (!rectangular) return '\n' + caption + cells.map(row => row.map(cell => clean(walk(cell))).join('\n\n')).join('\n\n') + '\n';
+        const values = cells.map(row => row.map(cell => clean(walk(cell)).replace(/[\r\n]+/g, ' ').replace(/\\/g, '\\\\').replace(/\|/g, '\\|')));
+        const hasHeader = cells[0].every(cell => cell.tagName === 'TH');
+        const header = hasHeader ? values.shift() : cells[0].map(() => '');
+        const line = row => '| ' + row.join(' | ') + ' |';
+        return '\n' + caption + [line(header), line(header.map(() => '---')), ...values.map(line)].join('\n') + '\n';
+      }
       let body = [...node.childNodes].map(child => walk(child, code)).join('');
       if (tag === 'BR') return afterMap ? '\n' : '';
       if (!body.trim()) return '';
@@ -61,6 +75,7 @@ SERIALIZE_JS = r"""(el, mode) => {
         return '\n' + fence + '\n' + body + '\n' + fence + '\n';
       }
       if (tag === 'CODE' && node.parentElement?.tagName !== 'PRE') return '`' + body.replace(/\\/g, '\\\\').replace(/`/g, '\\`') + '`';
+      if ((tag === 'STRONG' || tag === 'B') && !code) return '**' + clean(body) + '**';
       if (/^H[1-6]$/.test(tag)) return '\n' + '#'.repeat(+tag[1]) + ' ' + clean(body) + '\n';
       if (tag === 'LI') {
         const parent = node.parentElement;
@@ -75,7 +90,7 @@ SERIALIZE_JS = r"""(el, mode) => {
           }
         }
         const content = clean(body);
-        const leadingBlock = /^(?:`{3,}(?:\n|$)|(?:[-*]|\d+\.) )/.test(content);
+        const leadingBlock = /^(?:`{3,}(?:\n|$)|\| |(?:[-*]|\d+\.) )/.test(content);
         return (ordered ? number + '. ' : '- ') + (leadingBlock ? '\n  ' : '') + content.replace(/\n/g, '\n  ') + '\n';
       }
       if (tag === 'UL' || tag === 'OL') return '\n' + clean(body) + '\n';

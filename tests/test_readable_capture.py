@@ -13,7 +13,7 @@ from app.scanner.adapters import alice, chatgpt, google_aio, perplexity
 ])
 def test_capture_saves_display_but_keeps_plain_analysis(monkeypatch, module, kind):
     raw = 'A useful company recommendation without the URL brand. ' * 2
-    display = '[Company](<https://source.test/UrlBrand>)'
+    display = '**Company**\n\n| Site | Price |\n| --- | --- |\n| [Company](<https://source.test/UrlBrand>) | 100 |'
     parts = dict(raw=raw.strip(), display=display, main=raw.strip(), cards='Card company',
                  display_main=display, display_cards='Card company')
     page = MagicMock()

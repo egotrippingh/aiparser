@@ -34,7 +34,16 @@ function trimUrlPunctuation(value: string) {
   return value
 }
 
-function linkedText(text: string, sources: string[]) {
+function inlineCode(text: string, index: number) {
+  const ticks = text.slice(index).match(/^`+/)?.[0]
+  if (!ticks) return null
+  const start = index + ticks.length
+  let end = text.indexOf(ticks, start)
+  while (end >= 0 && /(?:^|[^\\])(?:\\\\)*\\$/.test(text.slice(start, end))) end = text.indexOf(ticks, end + ticks.length)
+  return end < 0 ? null : { value: text.slice(start, end).replace(/\\([\\`])/g, "$1"), end: end + ticks.length }
+}
+
+function linkedText(text: string, sources: string[], bold = true) {
   const saved = sourcesOf(sources).map(value => new URL(value)), output: ReactNode[] = []
   let index = 0, plain = ""
   const flush = () => { if (plain) { output.push(plain); plain = "" } }
@@ -44,14 +53,23 @@ function linkedText(text: string, sources: string[]) {
   }
   while (index < text.length) {
     const rest = text.slice(index)
-    if (rest[0] === "`") {
-      const ticks = rest.match(/^`+/)![0], start = index + ticks.length
-      let end = text.indexOf(ticks, start)
-      while (end >= 0 && /(?:^|[^\\])(?:\\\\)*\\$/.test(text.slice(start, end))) end = text.indexOf(ticks, end + ticks.length)
-      if (end >= 0) {
+    if (bold && rest.startsWith("**")) {
+      let end = index + 2
+      while (end < text.length && text[end] !== "\n" && !text.startsWith("**", end)) {
+        end = inlineCode(text, end)?.end || end + 1
+      }
+      if (end > index + 2 && text.startsWith("**", end)) {
         flush()
-        output.push(<code key={output.length}>{text.slice(start, end).replace(/\\([\\`])/g, "$1")}</code>)
-        index = end + ticks.length; continue
+        output.push(<strong key={output.length}>{linkedText(text.slice(index + 2, end), sources, false)}</strong>)
+        index = end + 2; continue
+      }
+    }
+    if (rest[0] === "`") {
+      const code = inlineCode(text, index)
+      if (code) {
+        flush()
+        output.push(<code key={output.length}>{code.value}</code>)
+        index = code.end; continue
       }
     }
     const label = rest.match(/^\[((?:\\.|[^\]\\])*)\]\(/)
@@ -98,12 +116,54 @@ function linkedText(text: string, sources: string[]) {
   return output
 }
 
+function tableCells(line: string) {
+  const cells: string[] = []
+  let cell = "", code = "", index = 0
+  while (index < line.length) {
+    const char = line[index]
+    if (char === "\\" && /[\\|]/.test(line[index + 1] || "")) { cell += line[index + 1]; index += 2; continue }
+    if (char === "`") {
+      if (/(?:^|[^\\])(?:\\\\)*\\$/.test(cell)) { cell += char; index++; continue }
+      const ticks = line.slice(index).match(/^`+/)![0]
+      code = code === ticks ? "" : code || ticks
+      cell += ticks; index += ticks.length; continue
+    }
+    if (char === "|" && !code) { cells.push(cell.trim()); cell = "" }
+    else cell += char
+    index++
+  }
+  cells.push(cell.trim())
+  if (line.trim().startsWith("|") && !cells[0]) cells.shift()
+  if (line.trim().endsWith("|") && !cells.at(-1)) cells.pop()
+  return cells
+}
+
 function blocks(text: string, sources: string[]) {
   const lines = text.replace(/\r\n?/g, "\n").split("\n"), output: ReactNode[] = []
   let index = 0, key = 0, cleaned = false
   // ponytail: only standalone source counters; ambiguous inline +N stays literal.
   const sourceCounter = (line: string) => /^\+\d+$/.test(line.trim())
   const listItem = (line: string) => line.match(/^( *)([-*•]|\d+[.)])(?:\s+(.*)|$)/)
+  const tableAt = (start: number) => {
+    const header = tableCells(lines[start]), separator = tableCells(lines[start + 1] || "")
+    const markdown = header.length > 0 && (header.length > 1 || lines[start].trim().startsWith("|")) && separator.length === header.length && separator.every(cell => /^:?-{3,}:?$/.test(cell))
+    const tab = lines[start].includes("\t") && lines[start + 1]?.includes("\t") && lines[start].split("\t").length === lines[start + 1].split("\t").length
+    if (!markdown && !tab) return null
+    const headers = markdown ? header : lines[start].split("\t").map(cell => cell.trim())
+    const rows: string[][] = [], indent = lines[start].match(/^ */)![0].length
+    let end = start + (markdown ? 2 : 1)
+    while (end < lines.length && lines[end].match(/^ */)![0].length === indent) {
+      if (markdown && headers.length === 1 && !lines[end].trim().startsWith("|")) break
+      const values = markdown ? tableCells(lines[end]) : lines[end].split("\t").map(cell => cell.trim())
+      if (!lines[end].trim() || values.length !== headers.length) break
+      rows.push(values); end++
+    }
+    return { headers, rows, end, alignment: markdown ? separator.map(cell => cell.startsWith(":") && cell.endsWith(":") ? "center" as const : cell.endsWith(":") ? "right" as const : "left" as const) : headers.map(() => "left" as const) }
+  }
+  const table = (data: NonNullable<ReturnType<typeof tableAt>>) => {
+    index = data.end
+    return <div key={key++} className="answer-table-scroll" role="region" aria-label="Таблица ответа" tabIndex={0}><table className="answer-table">{data.headers.some(Boolean) && <thead><tr>{data.headers.map((cell, i) => <th key={i} scope="col" style={{textAlign:data.alignment[i]}}>{linkedText(cell, sources)}</th>)}</tr></thead>}<tbody>{data.rows.map((row, r) => <tr key={r}>{row.map((cell, i) => <td key={i} style={{textAlign:data.alignment[i]}}>{linkedText(cell, sources)}</td>)}</tr>)}</tbody></table></div>
+  }
   const list = (indent: number, ordered: boolean): ReactNode => {
     const items: ReactNode[] = [], first = parseInt(listItem(lines[index])![2])
     while (index < lines.length) {
@@ -129,6 +189,8 @@ function blocks(text: string, sources: string[]) {
           if (index < lines.length) index++
           continue
         }
+        const nestedTable = lines[index].startsWith(" ".repeat(indent + 2)) && tableAt(index)
+        if (nestedTable) { content.push(table(nestedTable)); continue }
         if (!child && lines[index].startsWith(" ".repeat(indent + 2))) {
           content.push(<Fragment key={content.length}><br/>{linkedText(lines[index++].slice(indent + 2), sources)}</Fragment>); continue
         }
@@ -149,6 +211,8 @@ function blocks(text: string, sources: string[]) {
       if (index < lines.length) index++
       continue
     }
+    const grid = tableAt(index)
+    if (grid) { output.push(table(grid)); continue }
     const heading = lines[index].match(/^(#{1,6})\s+(.*)$/)
     if (heading) {
       const Tag = `h${heading[1].length}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
@@ -157,7 +221,7 @@ function blocks(text: string, sources: string[]) {
     const item = listItem(lines[index])
     if (item) { output.push(list(item[1].length, /^\d/.test(item[2]))); continue }
     const paragraph: string[] = []
-    while (index < lines.length && lines[index].trim() && lines[index].trim() !== "•" && !sourceCounter(lines[index]) && !/^#{1,6}\s+/.test(lines[index]) && !/^(`{3,})(?:[^`]*)$/.test(lines[index]) && !listItem(lines[index])) paragraph.push(lines[index++])
+    while (index < lines.length && lines[index].trim() && lines[index].trim() !== "•" && !sourceCounter(lines[index]) && !/^#{1,6}\s+/.test(lines[index]) && !/^(`{3,})(?:[^`]*)$/.test(lines[index]) && !listItem(lines[index]) && !tableAt(index)) paragraph.push(lines[index++])
     output.push(<p key={key++}>{paragraph.map((line, i) => <Fragment key={i}>{i > 0 && <br/>}{linkedText(line, sources)}</Fragment>)}</p>)
   }
   return { output, cleaned }

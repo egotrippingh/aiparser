@@ -40,3 +40,24 @@ also hides ambiguous standalone signed integers; the unchanged original is
 available in the disclosure. Inline arithmetic/prose and literal code remain.
 No source list prerequisite: actual Google and Perplexity captures can contain
 these counters without saved URLs. Storage, analysis and source links are unchanged.
+
+## Lists and tables — agent 2026.9.29.8
+
+All four provider capture paths preserve rectangular native tables as escaped
+Markdown rows, actual HTTP(S) anchors, empty cells, inline code and bold labels.
+Tables without headers keep all rows and receive an empty structural header.
+Merged cells, nested tables and block/multiline code fall back to readable text;
+their layout is not guessed. Empty DOM rows are ignored before grid detection.
+
+The shared answer renderer displays Markdown and legacy tab-separated tables,
+including tables in list continuations. Native lists keep nesting and numbering;
+code whitespace and escaped pipes remain literal. One-column tables require
+explicit leading pipes so following prose cannot become a table row. Tables
+scroll within a labelled, keyboard-focusable region on narrow screens. No HTML
+execution or extra dependency is introduced. Plain analysis input is unchanged.
+
+Regression checks cover escaped backticks/pipes, empty first rows, single-column
+tables, malformed row widths, unsafe links, code/bold boundaries and all four
+capture paths. The browser fixture also proves raw Alice/Google splitter identity
+and actual serializer-to-renderer output. Old captures without cell boundaries
+cannot be reconstructed into an accurate table; update the agent for new captures.
