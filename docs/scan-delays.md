@@ -27,7 +27,7 @@ Previously fast used 0.40 and 2–5 s, with the same ChatGPT floor. The multipli
 controls typing and the adapter's existing preparation/scroll pauses. Character
 delay changes from 22–70 ms to 11–35 ms; punctuation, corrected typos and scroll
 steps remain. This halves artificial input delays, not provider generation or
-network time. Select **Быстро** in agent settings for new scans after installing
+network time. Select the **fast / Быстрая** speed profile for new scans after installing
 the updated agent. Existing unfinished scans retain their recorded settings.
 
 ## Evidence and limits
@@ -47,12 +47,13 @@ in its copied test profile; authenticated trials used that copy.
 | Google selected, initial four short queries | 4/4 raw/source comparisons stable; typing 1.141 / 1.781 / 1.110 / 1.703 s. Extracted source lists were empty. |
 | Google subsequent long query, old completion logic | Failed: 4159 raw characters became 4616 after capture. |
 | Google final conservative settle, short and long queries | 2/2 raw/source comparisons stable: 1506/4272 raw characters; typing 1.094/6.953 s; ask + capture 20.125/24.234 s. Extracted source lists were empty. |
+| Google final source e9ae7c2, long query | Stable 4281 raw characters; typing 7.031 s, ask + capture 25.265 s. Extracted source list remained empty. |
 
 Relevant folders: `scan-baseline-20260930-alice-01`,
 `scan-baseline-20260930-google_aio-01`, `scan-baseline-20260930-chatgpt-03`,
 `scan-typing-20261001-chatgpt-04`, `scan-fixed-20261001-alice-03`,
 `scan-typing-20260930-google-02`, `scan-final-20261001-google-04`,
-`scan-fixed-20261001-google-06`.
+`scan-fixed-20261001-google-06`, `scan-fixed-20261001-google-07`.
 
 Rejected experiments: multiplier 0.10 with 0.5–1 s pauses had incomplete/error
 trials; replacing Google's networkidle wait also had failed trials. These do
