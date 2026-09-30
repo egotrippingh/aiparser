@@ -22,9 +22,20 @@ PROFILES: dict[str, dict[str, float]] = {
 }
 DEFAULT_PROFILE = "balanced"
 
+_FAST_SERVICE_OVERRIDES = {
+    "chatgpt": {"typing": 0.20},
+    "alice": {"typing": 0.20, "delay_min_sec": 1, "delay_max_sec": 2},
+    "google_aio": {"typing": 0.20, "delay_min_sec": 1, "delay_max_sec": 2},
+}
 
-def profile(name: str | None) -> dict[str, float]:
-    return PROFILES.get(name or DEFAULT_PROFILE, PROFILES[DEFAULT_PROFILE])
+
+def profile(name: str | None, service_id: str | None = None) -> dict[str, float]:
+    """Resolve a copy so one scan cannot mutate another profile's timings."""
+    selected = name or DEFAULT_PROFILE
+    values = dict(PROFILES.get(selected, PROFILES[DEFAULT_PROFILE]))
+    if selected == "fast" and service_id in _FAST_SERVICE_OVERRIDES:
+        values.update(_FAST_SERVICE_OVERRIDES[service_id])
+    return values
 
 
 # Паузы после знаков препинания — человек тут думает, а не печатает ровно.

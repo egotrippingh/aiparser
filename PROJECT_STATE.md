@@ -1,6 +1,14 @@
 # AIRate current project state
 
-Updated 2026-09-29. Repository: egotrippingh/aiparser; deployment branch: production.
+Updated 2026-10-01. Repository: egotrippingh/aiparser; deployment branch: production.
+
+## Scanner delays — candidate 2026.10.1.1
+
+- Scope: empirically tune the existing fast mode for ChatGPT, Alice and Google. Perplexity excluded (no paid account), balanced/careful/default selection unchanged. Fast typing/preparation multiplier 0.20; Alice/Google inter-query 1–2 s, ChatGPT's 10–15 s floor retained. Effective provider timing is saved and reused on continuation, including legacy snapshots. No schema/dependency change.
+- Live isolated profile trials: ChatGPT 3/3 stable raw answers and extracted source lists, Alice after completion repair 3/3 including 7208 characters/40 sources. Google four short trials passed, but a subsequent long trial exposed late paragraphs; final conservative wait passed short/long 1506/4272-character answers. Google extracted sources were empty, so nonempty list preservation remains unverified. Queries checked for exact input, then captured text/source hashes compared five seconds after capture. No real app scan/result/billing writes; originals not overwritten. Details, limitations and reproduction: docs/scan-delays.md. Private artifacts remain ignored under build/qa.
+- Alice now respects its observed generation marker and errors on timeout. Google expands before settling, compares full text, uses five seconds unchanged text, checks for a late expansion control and errors at deadline instead of saving a partial answer. Google has no universal completion marker in observed DOM variants; quiet time remains a heuristic. Original networkidle remains because user's VPN affects its timing. No global optimum or sustained rate-limit safety claimed.
+- Independent Sol/Astra review repaired continuation traceability and benchmark no-overview/source-verification defects. Review of current runtime found no verified defect; late expansion question covered by a targeted regression. Logged broad checks: build/qa/scan-timing-final-20261001-02 (105 agent checks passed, two Linux publication skips; parallel/CAPTCHA 11 passed; benchmark self-check/diff check passed). Latest Google completion changes require final affected checks and package rebuild.
+- Delivery in preparation on codex/scanner-delay-tuning. Public production and installed user agent remain unchanged. Candidate packaging and final check evidence will be recorded below before delivery.
 
 ## Lists and tables — delivered 2026.9.29.8
 

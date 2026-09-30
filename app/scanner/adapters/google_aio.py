@@ -56,9 +56,11 @@ _S = load_selectors()["google_aio"]
 _MIN_CHARS = 60
 # Сколько ждать появления блока после загрузки выдачи.
 _APPEAR_MS = 8000
-# Текст считается готовым, когда не меняется столько секунд подряд.
-_QUIET_SEC = 1.5
-_SETTLE_TIMEOUT = 20.0
+# Live long answers paused past 1.5 s. No completion marker exists in every
+# Google DOM variant, so retain a conservative quiet interval after expansion.
+# ponytail: quiet-time heuristic; use a completion flag when verified across variants.
+_QUIET_SEC = 5.0
+_SETTLE_TIMEOUT = 60.0
 
 CARDS_MARK = "— Карточки источников —"
 
@@ -116,8 +118,7 @@ class GoogleAIOAdapter:
             await dump_debug_html(page, "google_captcha")
             raise CaptchaError(f"Google показал антибот-страницу: {page.url[:120]}")
 
-        if await self._wait_overview(page):
-            await self._expand(page)
+        await self._wait_overview(page)
 
     async def _wait_overview(self, page) -> bool:
         """Ждёт блок AI Overview и стабилизации его текста. False — блока нет."""
@@ -125,34 +126,43 @@ class GoogleAIOAdapter:
         if not await visible(box, _APPEAR_MS):
             return False
 
+        await self._expand(page)
+        await page.mouse.move(5, 5)
         deadline = time.monotonic() + _SETTLE_TIMEOUT
-        last, since = -1, time.monotonic()
+        last, since = None, time.monotonic()
         while time.monotonic() < deadline:
             try:
-                n = len(await box.inner_text(timeout=2000))
+                text = await box.inner_text(timeout=2000)
             except Exception:
-                n = 0
-            if n != last:
-                last, since = n, time.monotonic()
-            elif n >= _MIN_CHARS and time.monotonic() - since >= _QUIET_SEC:
+                text = ""
+            if text != last:
+                last, since = text, time.monotonic()
+            elif len(text) >= _MIN_CHARS and time.monotonic() - since >= _QUIET_SEC:
+                # The expand control can arrive after the initial heading.
+                if await self._expand(page):
+                    await page.mouse.move(5, 5)
+                    last, since = None, time.monotonic()
+                    continue
                 return True
             await asyncio.sleep(0.3)
-        log.info("AI Overview не успокоился за %.0f с — читаю как есть (%s символов)", _SETTLE_TIMEOUT, last)
-        return True
+        await dump_debug_html(page, "google_aio_incomplete")
+        raise AdapterError("AI Overview не стабилизировался — частичный ответ не сохранён")
 
-    async def _expand(self, page) -> None:
+    async def _expand(self, page) -> bool:
         """Жмёт «Развернуть» под блоком, если он свёрнут."""
         btn = page.locator(_S["expand_button"])
         try:
             if not await btn.count():
-                return
+                return False
             await btn.first.scroll_into_view_if_needed(timeout=3000)
             await safe_click(btn.first)
             await humanize.sleep(0.8, 1.4)
+            return True
         except Exception as exc:
             # Не раскрылся — текст всё равно в DOM, теряем только хвост
             # карточек источников и полноту скриншота. Не повод ронять запрос.
             log.info("Не удалось раскрыть AI Overview: %s", exc)
+            return False
 
     async def capture(self, page) -> Capture:
         box = page.locator(_S["answer_container"])

@@ -222,7 +222,7 @@ def active_controller() -> ScanController | None:
     return next(iter(_active.values()), None)
 
 
-def _settings_snapshot() -> dict:
+def _settings_snapshot(services: list[str] | None = None) -> dict:
     """Разворачивает выбранный профиль скорости в конкретные значения.
 
     Профиль — единственная ручка скорости: держать рядом ещё и отдельные
@@ -233,6 +233,18 @@ def _settings_snapshot() -> dict:
     s = repo.all_settings()
     name = s.get("speed_profile", humanize.DEFAULT_PROFILE)
     prof = humanize.profile(name)
+    service_ids = services or list(ADAPTERS)
+    per_service_timing = {}
+    for service_id in service_ids:
+        resolved = humanize.profile(name, service_id)
+        own_lo, own_hi = getattr(get_adapter(service_id), "min_delay_sec", (0.0, 0.0))
+        delay_lo = max(float(resolved["delay_min_sec"]), own_lo)
+        per_service_timing[service_id] = {
+            "delay_min_sec": delay_lo,
+            "delay_max_sec": max(float(resolved["delay_max_sec"]), own_hi, delay_lo),
+            "break_every_n": int(resolved["break_every_n"]),
+            "typing_speed": float(resolved["typing"]),
+        }
     return {
         "llm_mode": "smart",
         "llm_confidence_threshold": 0.6,
@@ -245,6 +257,7 @@ def _settings_snapshot() -> dict:
         "delay_max_sec": float(prof["delay_max_sec"]),
         "break_every_n": int(prof["break_every_n"]),
         "typing_speed": float(prof["typing"]),
+        "per_service_timing": per_service_timing,
     }
 
 
@@ -307,7 +320,17 @@ async def _start_scan_unlocked(project_id: int, service_ids: list[str], *, resum
             return plan["continue_scan_id"]
         raise ValueError(f"За {plan['date']} по выбранным сервисам всё уже проверено — нечего досканировать")
 
-    snapshot = _settings_snapshot()
+    snapshot = _settings_snapshot(known)
+    if plan["continue_scan_id"]:
+        old_scan = repo.get_scan(plan["continue_scan_id"])
+        old_settings = json.loads(old_scan["settings_snapshot_json"] or "{}")
+        for key in ("speed_profile", "delay_min_sec", "delay_max_sec", "break_every_n", "typing_speed"):
+            if key in old_settings:
+                snapshot[key] = old_settings[key]
+        if "per_service_timing" in old_settings:
+            snapshot["per_service_timing"] = old_settings["per_service_timing"]
+        else:
+            snapshot.pop("per_service_timing", None)
     # В снимок настроек скана, а не в отдельный аргумент: так задним числом
     # видно, в каком режиме собирались данные — это важно при разборе капч.
     snapshot["headless"] = headless
@@ -323,8 +346,6 @@ async def _start_scan_unlocked(project_id: int, service_ids: list[str], *, resum
         except billing.ScreenshotError as exc:
             log.warning("Скриншоты ожидают повторной отправки: %s", exc)
         if plan["continue_scan_id"]:
-            old_scan = repo.get_scan(plan["continue_scan_id"])
-            old_settings = json.loads(old_scan["settings_snapshot_json"] or "{}")
             billing_run_id = old_settings.get("billing_run_id") or f"legacy-{old_scan['id']}"
         else:
             billing_run_id = uuid.uuid4().hex
@@ -456,8 +477,6 @@ async def _run_scan(
     api_key = ""
     llm_model = settings.get("managed_model", llm_mod.DEFAULT_MODEL)
     llm_mode = settings["llm_mode"] if settings.get("managed_llm") else "never"
-    speed = settings["typing_speed"]
-
     parallel = bool(project.get("parallel_scan"))
     ctl.parallel = parallel
     for s in service_ids:
@@ -485,7 +504,7 @@ async def _run_scan(
             for attempt in range(2):
                 try:
                     await _run_service(
-                        project, service_id, pending, settings, speed,
+                        project, service_id, pending, settings,
                         api_key, llm_model, llm_mode, ctl,
                     )
                     break
@@ -561,7 +580,6 @@ async def _run_service(
     service_id: str,
     pending: list[dict],
     settings: dict,
-    speed: float,
     api_key: str,
     llm_model: str,
     llm_mode: str,
@@ -579,14 +597,20 @@ async def _run_service(
     queue = list(pending)
     done = 0
 
-    # У сервиса может быть своя нижняя граница паузы: ChatGPT считает частые
-    # запросы спамом раньше остальных и перекрывает поле ввода. Берём большее
-    # из профиля скорости и требования адаптера — ускорить сервис профилем
-    # «Быстро» нельзя, а замедлить «Осторожным» можно.
-    own_lo, own_hi = getattr(adapter, "min_delay_sec", (0.0, 0.0))
-    delay_lo = max(settings["delay_min_sec"], own_lo)
-    delay_hi = max(settings["delay_max_sec"], own_hi, delay_lo)
-    if own_lo:
+    recorded = settings.get("per_service_timing", {}).get(service_id)
+    if recorded:
+        speed = float(recorded["typing_speed"])
+        delay_lo = float(recorded["delay_min_sec"])
+        delay_hi = float(recorded["delay_max_sec"])
+        break_every = int(recorded["break_every_n"])
+    else:
+        # Legacy snapshots predate per-service timings; retain their old floor behavior.
+        own_lo, own_hi = getattr(adapter, "min_delay_sec", (0.0, 0.0))
+        speed = float(settings["typing_speed"])
+        delay_lo = max(settings["delay_min_sec"], own_lo)
+        delay_hi = max(settings["delay_max_sec"], own_hi, delay_lo)
+        break_every = settings["break_every_n"]
+    if delay_lo:
         log.info("%s: пауза между запросами %.0f–%.0f с", service_id, delay_lo, delay_hi)
 
     async def session() -> str | None:
@@ -658,7 +682,7 @@ async def _run_service(
                         done,
                         lo=delay_lo,
                         hi=delay_hi,
-                        break_every=settings["break_every_n"],
+                        break_every=break_every,
                     )
         return None
 

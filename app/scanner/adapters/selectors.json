@@ -21,6 +21,7 @@
     "new_chat_button": "[data-testid=\"new-chat-button\"]",
     "chat_container": "[data-testid=\"alice-chat\"]",
     "answer_container": "[data-testid=\"message-bubble-container\"]",
+    "generating_marker": "[data-testid=\"oknyx\"][aria-label=\"Алиса, стоп\"], [data-testid=\"oknyx-lottie-thinking\"]",
     "logged_in_marker": "[data-testid=\"b2b-profile-trigger\"], [data-testid=\"user-display\"], [data-testid^=\"chatlist-item-\"]",
     "sources_button": "[data-testid=\"message-sources-button\"]",
     "_note": "Всё подтверждено живым прогоном 28.08.2026 на реальном залогиненном аккаунте — включая источники (30 живых ссылок с реального ответа). У сообщения пользователя и ответа Алисы testid message-bubble ОДИНАКОВЫЙ (не различить), а вот у контейнера — разный: у пользователя message-bubble-container-from-user, у Алисы message-bubble-container (без суффикса). Поэтому answer_container ищет именно контейнер, а не сам пузырь, и это работает только пока перед каждым запросом жмём new_chat_button — иначе на странице накопится несколько ответных контейнеров и селектор перестанет быть однозначным. 31.08.2026: ensure_ready один раз на сервис; сброс — клик new-chat-button (SPA). 11.09.2026: testid user-display из вёрстки пропал — все 10 проверок скана 23 ложно ушли в auth_required при живом входе (аватар и история чатов на месте). Блок профиля теперь b2b-profile-trigger. Вход определяется по любому из признаков: блок профиля, старый маркер, пункты истории чатов — одно переименование больше не валит весь сервис."
