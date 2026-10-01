@@ -87,12 +87,14 @@ Only do this when the selected image supports the current database schema.
 
 ## Windows download
 
+Use the manually dispatched **Build and publish Windows agent** workflow for a release. It builds fixed artifacts on Windows and only publishes when the site readiness revision equals the workflow source SHA. Operations must first create the dedicated non-root publisher account with ownership of `/opt/airate/deploy/downloads`, its lock, `agent-releases`, and the current/previous aliases; it must have no sudo access. Configure a pinned host key plus `AIRATE_AGENT_PUBLISH_KEY`, `AIRATE_AGENT_KNOWN_HOSTS`, and `AIRATE_AGENT_PUBLISH_HOST` in the production environment. Do not reuse `AIRATE_DEPLOY_KEY`. Current cloud credentials are not configured, so this automation is prepared but not verified live.
+
 Build on Windows with `scripts/build-exe.ps1 -AccountUrl https://airate.tech`.
 The script builds the frontend, bundles the AIRate icon, runs EXE self-tests,
 removes the self-test database and produces `dist/AI-Mentions-Windows-latest.zip`.
 Check the archive's `account-url.txt` and ensure no user data or `.env` is present.
-Upload to a temporary file in `/opt/airate/deploy/downloads`, compare SHA-256,
-then atomically rename it to `AI-Mentions-Windows-latest.zip`.
+Publish the installer, ZIP and manifest together through `scripts/publish-agent.py`,
+as the workflow does. It verifies uploads and switches the complete release atomically.
 Do not restart the application just to publish a new ZIP.
 
 ### Single-file installer (primary download)
@@ -114,10 +116,9 @@ version, even when the user's Camoufox cache is empty. No separate browser insta
 button is needed on a healthy installation. The existing download/repair path
 remains available for portable builds or a damaged browser installation.
 
-This produces `dist/AIRate-Setup-latest.exe` and a versioned installer. Upload
-using a temporary filename, verify SHA-256, then atomically rename to
-`/opt/airate/deploy/downloads/AIRate-Setup-latest.exe` **before** deploying a
-homepage that links to it. The API discovers it beside `AGENT_DOWNLOAD_FILE`,
+This produces `dist/AIRate-Setup-latest.exe` and a versioned installer. Publish
+the complete release through the same publisher **before** deploying a homepage
+that links to it. The API discovers it beside `AGENT_DOWNLOAD_FILE`,
 or at the optional `AGENT_INSTALLER_FILE` path. No restart is needed for later
 installer updates. Keep the previous installer for rollback.
 

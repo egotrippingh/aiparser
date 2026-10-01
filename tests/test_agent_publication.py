@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import sys
 import zipfile
 
 import pytest
@@ -31,6 +32,54 @@ def test_publication_rejects_changed_artifact(tmp_path):
     (tmp_path / publisher.FILES['installer']).write_bytes(b'other contents')
     with pytest.raises(ValueError, match='does not match'):
         publisher.validate_release(tmp_path)
+
+
+def test_public_verification_rejects_wrong_metadata_and_download(tmp_path, monkeypatch):
+    release = release_files(tmp_path)
+
+    class Response:
+        def __init__(self, body): self.body = body
+        def __enter__(self): return self
+        def __exit__(self, *_): pass
+        def read(self, size=-1):
+            if size < 0: return self.body
+            result, self.body = self.body[:size], self.body[size:]
+            return result
+
+    def wrong_metadata(url, timeout):
+        return Response(json.dumps({'available': True}).encode())
+    monkeypatch.setattr(publisher.urllib.request, 'urlopen', wrong_metadata)
+    with pytest.raises(ValueError, match='metadata'):
+        publisher.verify_public(release)
+
+    metadata = {'available': True, 'url': '/downloads/AIRate-Setup.exe',
+                'size_bytes': release['installer']['size_bytes'], 'release': release}
+    calls = iter([Response(json.dumps(metadata).encode()), Response(b'wrong'), Response(b'wrong')])
+    monkeypatch.setattr(publisher.urllib.request, 'urlopen', lambda url, timeout: next(calls))
+    with pytest.raises(ValueError, match='installer download'):
+        publisher.verify_public(release)
+
+    contents = {kind: (tmp_path / name).read_bytes() for kind, name in publisher.FILES.items()}
+    calls = iter([Response(json.dumps(metadata).encode()), Response(contents['installer']), Response(b'wrong')])
+    monkeypatch.setattr(publisher.urllib.request, 'urlopen', lambda url, timeout: next(calls))
+    with pytest.raises(ValueError, match='portable download'):
+        publisher.verify_public(release)
+
+    calls = iter([Response(json.dumps(metadata).encode()), Response(contents['installer']), Response(contents['portable'])])
+    monkeypatch.setattr(publisher.urllib.request, 'urlopen', lambda url, timeout: next(calls))
+    publisher.verify_public(release)
+
+
+def test_main_passes_pinned_known_hosts_to_every_ssh_call(tmp_path, monkeypatch):
+    release_files(tmp_path)
+    calls = []
+    monkeypatch.setattr(sys, 'argv', ['publish-agent.py', '--host', 'publisher@example.test', '--key', 'key',
+                                     '--known-hosts', 'hosts', '--dist', str(tmp_path)])
+    monkeypatch.setattr(publisher.subprocess, 'run', lambda command, **kwargs: calls.append(command))
+    publisher.main()
+    assert len(calls) == 3
+    assert all(command[command.index('publisher@example.test') - 2:command.index('publisher@example.test') + 1]
+               == ['-o', 'UserKnownHostsFile=hosts', 'publisher@example.test'] for command in calls)
 
 
 @pytest.mark.parametrize('name,value', [('agent-version.txt', '0.1.0'), ('account-url.txt', 'https://example.test'), ('data/account.db', 'private'), ('.env', 'private')])
@@ -82,6 +131,13 @@ def test_interrupted_activation_preserves_complete_old_release_and_retry(tmp_pat
     downgrade = stage_release(tmp_path, '2026.9.29.2', 'downgrade')
     with pytest.raises(AssertionError, match='downgrade'):
         publisher.activate(tmp_path, 'downgrade', downgrade)
+    rebuilt = stage_release(tmp_path, '2026.9.29.3', 'rebuilt')
+    rebuilt_path = tmp_path / (publisher.FILES['installer'] + '.rebuilt.upload')
+    rebuilt_path.write_bytes(b'rebuilt artifact')
+    rebuilt['installer'] = {'size_bytes': rebuilt_path.stat().st_size,
+                            'sha256': hashlib.sha256(rebuilt_path.read_bytes()).hexdigest()}
+    with pytest.raises(AssertionError, match='immutable'):
+        publisher.activate(tmp_path, 'rebuilt', rebuilt)
 
 
 @pytest.mark.skipif(os.name != 'posix', reason='Production activation uses Linux flock and symlinks')

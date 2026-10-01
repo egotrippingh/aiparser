@@ -1,0 +1,9 @@
+# Windows agent release
+
+Run `pwsh -File ./scripts/release-agent.ps1 -Compiler <ISCC.exe>` on Windows after dependencies are installed, or dispatch **Build and publish Windows agent** in Actions. The workflow builds the fixed installer and portable ZIP, tests the native browser and installer lifecycle, and stores a 30-day immutable artifact. Select `publish` on `production` only after the repository revision is already live: publication shares the website deployment queue, refuses a different `/api/v1/ready` revision and then verifies HTTPS metadata plus both downloads. Coordinate manual server deployments separately.
+
+Bump `app.__version__` before changing distributed artifacts. Re-run failed jobs preserves the same workflow artifact; **Re-run all jobs** fails rather than overwriting that run's artifact, so dispatch a new release after correcting a failure.
+
+Operations must provision `AIRATE_AGENT_PUBLISH_KEY`, `AIRATE_AGENT_KNOWN_HOSTS`, and `AIRATE_AGENT_PUBLISH_HOST` for a dedicated non-root account. That account needs only the existing downloads directory, lock, versioned releases, and current/previous aliases; it needs no sudo. Pin its host key. The current production configuration does not yet contain these dedicated credentials, so cloud publication is unverified.
+
+The repository's default branch is `main`. Register the same workflow path there with a small dispatch entry that tells operators to select `production`; the full workflow and release scripts belong in `production`. GitHub [requires the dispatch file on the default branch](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow). In **Run workflow**, choose `production` in the Branch dropdown. The `main` entry fails visibly rather than attempting to build its older agent sources.
