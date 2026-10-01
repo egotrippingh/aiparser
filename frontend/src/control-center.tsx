@@ -9,17 +9,21 @@ import { sessionLabel, type ServiceSession } from "./lib/service-auth"
 import "./control-center.css"
 
 type Query = { id: string; text: string; group_tag: string; active: boolean }
-type Config = { brand_aliases: string[]; brand_domains: string[]; region_code: string; services: string[]; browser_mode: string; speed_profile: string; parallel: boolean }
+type Config = { brand_aliases: string[]; brand_domains: string[]; brand_clarification?: string; region_code: string; services: string[]; browser_mode: string; speed_profile: string; parallel: boolean }
 type Schedule = { enabled: boolean; device_id: string | null; month_days: number[]; time: string; timezone: string }
 type Project = { id: string; revision: number; name: string; brand_name: string; device_id: string | null; config: Config; schedule: Schedule; queries: Query[]; query_count: number; active_queries: number }
 type Device = { device_id: string; name: string; online: boolean; revoked: boolean; last_seen_at: string; capabilities: { installed?: boolean; paused?: boolean; active_scan?: boolean; services?: Record<string, ServiceSession> } }
 type Run = { id: string; project_id: string; project_name: string; device_id: string; device_name: string; state: string; desired_state: string; error: string | null; total: number; created_at: string; scheduled_for: string | null; progress: { done?: number; total?: number; services?: Record<string, {done:number; total:number; state?:string; error?:string}> } }
+type Quote = { count: number; unit_kopeks: number; total_kopeks: number; available_kopeks: number; revision: number }
+type RecomputeQuote = Quote & { result_ids: string[]; skipped: number }
+type RecomputeResult = { charged_kopeks: number; status: "done" | "skipped" | "error"; message: string }
+const money = (kopeks: number) => new Intl.NumberFormat("ru-RU", {style:"currency",currency:"RUB"}).format(kopeks / 100)
 const uuid = () => crypto.randomUUID().replaceAll("-", "")
 const names: Record<string, string> = { queued: "В очереди", waiting_device: "Ожидает компьютер", running: "Выполняется", paused: "На паузе", connection_lost: "Нет связи с компьютером", done: "Завершено", failed: "Нужно действие", cancelled: "Остановлено", missed: "Пропущено" }
 const terminal = (r: Run) => ["done", "failed", "cancelled", "missed"].includes(r.state)
 const service = (id: string) => SCAN_SERVICES.find(s => s.id === id)?.label || id
 const blank = (): Project => ({ id: "new", revision: 0, name: "", brand_name: "", device_id: null, queries: [], query_count: 0, active_queries: 0,
-  config: { brand_aliases: [], brand_domains: [], region_code: "213", services: ["google_aio"], browser_mode: "headless", speed_profile: "fast", parallel: true },
+  config: { brand_aliases: [], brand_domains: [], brand_clarification: "", region_code: "213", services: ["google_aio"], browser_mode: "headless", speed_profile: "fast", parallel: true },
   schedule: { enabled: false, device_id: null, month_days: [1], time: "09:00", timezone: "Europe/Moscow" } })
 const routeNow = () => location.hash.startsWith("#/") ? location.hash.slice(2) : "projects"
 const HISTORY_POSITION = "aimt.hashPosition"
@@ -36,7 +40,7 @@ function ComputerSelect({ label, value, devices, change, required = false }: { l
   return <label>{label}<select required={required} value={value || ""} onChange={e => change(e.target.value || null)}><option value="">Выберите компьютер</option>{devices.map(d => <option key={d.device_id} value={d.device_id} disabled={d.revoked}>{d.name} · {d.revoked ? "отключён" : d.online ? "на связи" : "не в сети"}</option>)}</select></label>
 }
 
-export function ControlCenter({ token, downloadUrl, onDirtyChange }: { token: string; downloadUrl: string | null; onDirtyChange: (dirty: boolean) => void }) {
+export function ControlCenter({ token, downloadUrl, brandClarificationsEnabled, onDirtyChange }: { token: string; downloadUrl: string | null; brandClarificationsEnabled: boolean; onDirtyChange: (dirty: boolean) => void }) {
   const [route, setRoute] = useState(routeNow)
   const editorDirty = useRef(false), editorProject = useRef(""), previousHash = useRef(location.hash), previousPosition = useRef(0), restoringHistory = useRef(false)
   const [projects, setProjects] = useState<Project[]>([])
@@ -122,6 +126,12 @@ export function ControlCenter({ token, downloadUrl, onDirtyChange }: { token: st
     try { await callback(); await refresh() } catch (e) { setError(e instanceof Error ? e.message : "Не удалось выполнить действие") }
     finally { setBusy("") }
   }
+  async function launch(projectId: string) {
+    if (editorDirty.current && editorProject.current === projectId) throw new Error("Сначала сохраните изменения проекта перед запуском проверки")
+    const quote = await request<Quote>(`/control/projects/${projectId}/quote`, token)
+    if (!window.confirm(`Запустить ${quote.count} проверок? Максимальное списание: ${money(quote.total_kopeks)} (${money(quote.unit_kopeks)} за запрос в одном ИИ-сервисе). Доступно: ${money(quote.available_kopeks)}. Ошибки и пропуски могут уменьшить итоговую сумму.`)) return
+    await request(`/control/projects/${projectId}/runs`, token, {request_id:uuid(), revision:quote.revision})
+  }
   async function approve() {
     await request(`/control/connect/${connectId}/approve`, token, {})
     sessionStorage.removeItem("aimt.connect"); setConnectId(""); setConnected(true)
@@ -154,11 +164,11 @@ export function ControlCenter({ token, downloadUrl, onDirtyChange }: { token: st
       {area === "project" && projectId ? <>
         <a href="#/projects" className="cc-back">Все проекты</a>
         <div className="cc-heading"><div><span className="cc-eyebrow">Проект</span><h1>{projectId === "new" ? "Новый проект" : selected?.name || "Проект"}</h1></div>
-          {selected && <button className="cc-button primary" disabled={!!busy || !selected.device_id || !selected.active_queries || activeRuns.some(r => r.project_id === projectId)} onClick={() => action(projectId, () => request(`/control/projects/${projectId}/runs`, token, {request_id:uuid()}))}><Play size={16} />Запустить проверку</button>}</div>
+          {selected && <button className="cc-button primary" disabled={!!busy || !selected.device_id || !selected.active_queries || activeRuns.some(r => r.project_id === projectId)} onClick={() => action(projectId, () => launch(projectId))}><Play size={16} />Запустить проверку</button>}</div>
         {selected && <p className="cc-subline">{selected.active_queries} запросов · {selected.config.services.length} системы · {selected.active_queries * selected.config.services.length} проверок за запуск · {devices.find(d => d.device_id === selected.device_id)?.name || "Компьютер не выбран"}</p>}
         <nav className="cc-tabs" aria-label="Разделы проекта">{[ ["queries", "Промптовая база"], ["report", "Упоминаемость"], ["settings", "Настройки и расписание"] ].map(([tab, label]) => <a key={tab} aria-current={(projectTab || "report") === tab ? "page" : undefined} href={`#/project/${projectId}/${tab}`}>{label}</a>)}</nav>
         {projectId !== "new" && (projectTab || "report") === "report" ? <>{shownRuns.some(r => !terminal(r)) && runRows(shownRuns.filter(r => !terminal(r)))}<ReportView key={projectId} token={token} projectId={projectId}/></>
-          : <ProjectEditor key={projectId} token={token} projectId={projectId} tab={projectId === "new" ? "settings" : projectTab || "settings"} devices={devices} saved={refresh} onDirtyChange={noteEditorDirty} />}
+          : <ProjectEditor key={projectId} token={token} projectId={projectId} tab={projectId === "new" ? "settings" : projectTab || "settings"} devices={devices} brandClarificationsEnabled={brandClarificationsEnabled} saved={refresh} onDirtyChange={noteEditorDirty} />}
       </> : area === "devices" ? <>
         <div className="cc-heading"><div><span className="cc-eyebrow">Исполнители</span><h1>Компьютеры</h1><p>Назначайте проекты и расписания конкретному агенту.</p></div>{downloadUrl && <a className="cc-button primary" href={downloadUrl}><Download size={16} />Скачать агент</a>}</div>
         {!devices.length && <div className="cc-empty"><Monitor size={34}/><h2>Подключите первый компьютер</h2><p>Скачайте агент, запустите его и нажмите «Войти через браузер». Подтвердите подключение на сайте.</p></div>}
@@ -181,12 +191,14 @@ export function ControlCenter({ token, downloadUrl, onDirtyChange }: { token: st
   </div>
 }
 
-function ProjectEditor({token,projectId,tab,devices,saved,onDirtyChange}:{token:string;projectId:string;tab:string;devices:Device[];saved:()=>Promise<void>;onDirtyChange:(dirty:boolean,projectId:string)=>void}) {
+function ProjectEditor({token,projectId,tab,devices,brandClarificationsEnabled,saved,onDirtyChange}:{token:string;projectId:string;tab:string;devices:Device[];brandClarificationsEnabled:boolean;saved:()=>Promise<void>;onDirtyChange:(dirty:boolean,projectId:string)=>void}) {
   const [project,setProject] = useState<Project|null>(projectId === "new" ? blank() : null)
   const [dirty,setDirty] = useState(false)
   const [busy,setBusy] = useState(false)
   const [message,setMessage] = useState("")
   const [error,setError] = useState("")
+  const [fromDate,setFromDate] = useState("")
+  const [recomputeMessage,setRecomputeMessage] = useState("")
   const dirtyRef = useRef(false), busyRef = useRef(false), mounted = useRef(true)
   useEffect(() => () => { mounted.current = false }, [])
   useEffect(() => { onDirtyChange(dirty, projectId); return () => onDirtyChange(false, projectId) }, [dirty, onDirtyChange, projectId])
@@ -215,16 +227,45 @@ function ProjectEditor({token,projectId,tab,devices,saved,onDirtyChange}:{token:
     dirtyRef.current=false;onDirtyChange(false,projectId);setProject(next);setDirty(false);setMessage("Сохранено. Текущая проверка использует настройки на момент запуска.");await saved()
     if(mounted.current&&projectId==="new")location.hash=`/project/${next.id}/queries`
   }catch(e){if(mounted.current)setError(e instanceof Error?e.message:"Не удалось сохранить проект")}finally{busyRef.current=false;if(mounted.current)setBusy(false)}}
+  async function recompute(){
+    if (!project || projectId === "new" || !fromDate || dirty || busyRef.current) return
+    busyRef.current=true;setBusy(true);setError("");setRecomputeMessage("")
+    try {
+      const quote=await request<RecomputeQuote>(`/control/projects/${projectId}/recompute/quote?from_date=${encodeURIComponent(fromDate)}`,token)
+      if (!quote.count) {setRecomputeMessage(`С ${fromDate} нет ответов для пересчёта.${quote.skipped ? ` Без достаточных сохранённых данных: ${quote.skipped}.` : ""}`);return}
+      if (quote.available_kopeks < quote.total_kopeks) {setError(`Для пересчёта ${quote.count} ответов нужно до ${money(quote.total_kopeks)}. Сейчас доступно ${money(quote.available_kopeks)}. Пополните баланс или выберите более позднюю дату.`);return}
+      if (!window.confirm(`Пересчитать с ${fromDate} ${quote.count} сохранённых ответов по ${money(quote.unit_kopeks)} за ответ? Максимальное списание: ${money(quote.total_kopeks)}. Без достаточных сохранённых данных: ${quote.skipped} — пропускаются бесплатно. Новые проверки ИИ-сервисов не запускаются. Если ответ не удастся проанализировать, деньги за него не спишутся.`)) return
+      let done=0, skipped=0, failed=0, charged=0
+      for (const id of quote.result_ids) {
+        if (!mounted.current) break
+        try {
+          const result=await request<RecomputeResult>(`/control/projects/${projectId}/recompute/${id}`,token,{from_date:fromDate,revision:quote.revision})
+          charged+=result.charged_kopeks
+          if (result.status === "done") done++
+          else if (result.status === "skipped") skipped++
+          else {failed++;if(mounted.current)setError(result.message)}
+        } catch (e) {
+          failed++
+          if (mounted.current) setError(e instanceof Error ? e.message : "Не удалось пересчитать ответ")
+          break
+        }
+        if (mounted.current) setRecomputeMessage(`Пересчитано ${done} из ${quote.count}; списано ${money(charged)}.`)
+      }
+      if (mounted.current) setRecomputeMessage(`Готово: пересчитано ${done}, пропущено ${skipped + quote.skipped}, ошибок ${failed}. Списано ${money(charged)}. Откройте «Упоминаемость», чтобы увидеть обновлённые результаты и графики.`)
+    } catch(e) {if(mounted.current)setError(e instanceof Error?e.message:"Не удалось получить стоимость пересчёта")}
+    finally {busyRef.current=false;if(mounted.current)setBusy(false)}
+  }
   if(!project)return error?<p className="cc-alert" role="alert">{error}</p>:<div className="cc-skeleton"/>
   return <div className="cc-editor">
     {error&&<p className="cc-alert" role="alert">{error}</p>}
     <fieldset disabled={busy}>
     {tab==="queries"?<QueryLibrary queries={project.queries} saving={busy} onChange={queries=>change({...project,queries})}/>:<>
-      <div className="cc-form-section"><div><h2>Проект и бренд</h2><p>По этим названиям и доменам ищем упоминания в ответах ИИ.</p></div><div className="cc-fields"><div className="cc-two"><label>Название проекта<input required maxLength={120} value={project.name} onChange={e=>change({...project,name:e.target.value})}/></label><label>Бренд<input required maxLength={120} value={project.brand_name} onChange={e=>change({...project,brand_name:e.target.value})}/></label></div><label>Другие написания бренда<textarea rows={3} value={project.config.brand_aliases.join("\n")} onChange={e=>change({...project,config:{...project.config,brand_aliases:e.target.value.split("\n")}})}/></label><label>Домены бренда<textarea rows={2} placeholder="example.ru" value={project.config.brand_domains.join("\n")} onChange={e=>change({...project,config:{...project.config,brand_domains:e.target.value.split("\n")}})}/></label></div></div>
+      <div className="cc-form-section"><div><h2>Проект и бренд</h2><p>По этим названиям и доменам ищем упоминания в ответах ИИ.</p></div><div className="cc-fields"><div className="cc-two"><label>Название проекта<input required maxLength={120} value={project.name} onChange={e=>change({...project,name:e.target.value})}/></label><label>Бренд<input required maxLength={120} value={project.brand_name} onChange={e=>change({...project,brand_name:e.target.value})}/></label></div><label>Другие написания бренда<textarea rows={3} value={project.config.brand_aliases.join("\n")} onChange={e=>change({...project,config:{...project.config,brand_aliases:e.target.value.split("\n")}})}/></label><label>Домены бренда<textarea rows={2} placeholder="example.ru" value={project.config.brand_domains.join("\n")} onChange={e=>change({...project,config:{...project.config,brand_domains:e.target.value.split("\n")}})}/></label>{brandClarificationsEnabled && <label>Уточнения по бренду<textarea rows={4} maxLength={2000} placeholder="Например: Reflo — наш товар; Refprom — другой бренд, его не считать." value={project.config.brand_clarification || ""} onChange={e=>change({...project,config:{...project.config,brand_clarification:e.target.value}})}/><small>Сохраните, чтобы применять уточнение к будущим сканам. Это бесплатно и не меняет старые результаты.</small></label>}</div></div>
       <div className="cc-form-section"><div><h2>Выполнение проверок</h2><p>Этот компьютер получает ручные запуски. Если он не в сети, проверка останется в очереди.</p></div><div className="cc-fields"><ComputerSelect label="Компьютер для запуска" value={project.device_id} devices={devices} change={id=>change({...project,device_id:id})}/><fieldset><legend>ИИ-системы</legend><div className="cc-checkboxes">{SCAN_SERVICES.filter(s=>s.id!=="yandex_neuro").map(s=><label className="cc-check" key={s.id}><input type="checkbox" checked={project.config.services.includes(s.id)} onChange={e=>change({...project,config:{...project.config,services:e.target.checked?[...project.config.services,s.id]:project.config.services.filter(id=>id!==s.id)}})}/>{s.label}</label>)}</div></fieldset><label>Режим браузера<select value={project.config.browser_mode} onChange={e=>change({...project,config:{...project.config,browser_mode:e.target.value}})}><option value="headless">Без окон (headless)</option><option value="headful">С окнами (headful)</option></select></label><label className="cc-check"><input type="checkbox" checked={project.config.parallel} onChange={e=>change({...project,config:{...project.config,parallel:e.target.checked}})}/>Проверять системы параллельно</label><label>Регион Яндекса<input value={project.config.region_code} onChange={e=>change({...project,config:{...project.config,region_code:e.target.value}})}/><small>213 — Москва. Вход в ИИ-сервисы и капча выполняются на выбранном ПК.</small></label></div></div>
       <div className="cc-form-section"><div><h2><CalendarClock size={21}/>Расписание</h2><p>Выберите дни месяца, точное время и компьютер. Часовой пояс задаётся здесь и не зависит от настроек Windows.</p></div><div className="cc-fields"><label className="cc-check"><input type="checkbox" checked={project.schedule.enabled} onChange={e=>change({...project,schedule:{...project.schedule,enabled:e.target.checked,device_id:project.schedule.device_id||project.device_id}})}/>Проверять по расписанию</label><ComputerSelect label="Компьютер для расписания" value={project.schedule.device_id} devices={devices} required={project.schedule.enabled} change={id=>change({...project,schedule:{...project.schedule,device_id:id}})}/><div className="cc-two"><label>Время запуска<input type="time" value={project.schedule.time} onChange={e=>change({...project,schedule:{...project.schedule,time:e.target.value}})}/></label><label>Часовой пояс<input list="timezones" value={project.schedule.timezone} onChange={e=>change({...project,schedule:{...project.schedule,timezone:e.target.value}})}/><datalist id="timezones">{["Europe/Moscow","Europe/Kaliningrad","Europe/Samara","Asia/Yekaterinburg","Asia/Novosibirsk","Asia/Vladivostok","UTC"].map(z=><option key={z} value={z}/>)}</datalist></label></div><fieldset><legend>Числа месяца</legend><div className="cc-days">{MONTH_DAYS.map(day=><button type="button" key={day} aria-pressed={project.schedule.month_days.includes(day)} onClick={()=>change({...project,schedule:{...project.schedule,month_days:project.schedule.month_days.includes(day)?project.schedule.month_days.filter(d=>d!==day):[...project.schedule.month_days,day].sort((a,b)=>a-b)}})}>{day}</button>)}</div></fieldset><p className="cc-hint">Если выбранного числа нет в месяце, запуск пропускается. Выключенный ПК может забрать задание в течение 24 часов. Позже запуск отмечается как пропущенный.</p></div></div>
     </>}
     </fieldset>
     <div className="cc-savebar"><span role="status">{message || (dirty?"Есть несохранённые изменения":"Все изменения сохранены")}</span><button className="cc-button primary" disabled={busy||(!dirty&&projectId!=="new")||!project.name.trim()||!project.brand_name.trim()||!project.config.services.length||!project.schedule.month_days.length||(project.schedule.enabled&&!project.schedule.device_id)} onClick={save}><Settings2 size={16}/>{busy?"Сохраняем…":"Сохранить"}</button></div>
+    {brandClarificationsEnabled && tab === "settings" && projectId !== "new" && <section className="cc-form-section"><div><h2>Пересчитать старые ответы</h2><p>Действует только на сохранённые ответы этого проекта. Новые запросы к поисковым системам не отправляются.</p></div><div className="cc-fields"><label>Начиная с даты включительно<input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)}/></label><p className="cc-hint">Стоимость — 0,80 ₽ за каждый подходящий сохранённый ответ. Старые даты до выбранной не затрагиваются. Перед запуском покажем верхнюю границу списания. Если уйти со страницы, обработка остановится после текущего ответа; её можно продолжить без повторной оплаты уже готовых ответов.</p><button className="cc-button" disabled={busy||dirty||!fromDate||!project.config.brand_clarification?.trim()} onClick={recompute}>Пересчитать ответы с этой даты</button>{dirty && <p className="cc-hint">Сначала сохраните уточнение.</p>}{recomputeMessage && <p role="status">{recomputeMessage}</p>}</div></section>}
   </div>
 }

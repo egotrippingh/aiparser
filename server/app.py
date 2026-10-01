@@ -306,7 +306,10 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         return web_session_response(request, response,
             {"token": token, "user": {"id": user.id, "email": user.email}}, secure=cookie_secure)
 
-    register_control(app, db_session, current_user, SessionLocal)
+    brand_clarifications_user_id = os.environ.get("BRAND_CLARIFICATIONS_USER_ID", "")
+    register_control(app, db_session, current_user, SessionLocal, check_price_kopeks=price,
+                     brand_clarifications_user_id=brand_clarifications_user_id, ai_client=ai_client,
+                     screenshot_storage=screenshot_storage)
     register_browser_login(app, db_session, current_user, issue_session)
     from server.reporting import register_reports
     register_reports(app, db_session, current_user)
@@ -476,6 +479,16 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
                 Check.status == "settled")).all())
             if owned != check_ids:
                 raise HTTPException(409, "Часть результатов ещё не оплачена или относится к другому аккаунту")
+        # Keep a paid replay and a delayed agent upload from changing the same daily graph cell at once.
+        project_ids = {item.project_id for item in body.results if item.project_id}
+        for local_id in {item.local_project_id for item in body.results if not item.project_id and not item.run_id}:
+            link = db.scalar(select(ControlLink).where(ControlLink.user_id == user.id,
+                ControlLink.device_id == body.device_id, ControlLink.local_project_id == local_id))
+            if link:
+                project_ids.add(link.project_id)
+        for project_id in sorted(project_ids):
+            db.scalar(select(ControlProject.id).where(ControlProject.id == project_id,
+                ControlProject.user_id == user.id).with_for_update())
         existing = {row.local_result_id: row for row in db.scalars(select(CloudResult).where(
             CloudResult.user_id == user.id, CloudResult.device_id == body.device_id,
             CloudResult.local_result_id.in_([item.local_result_id for item in body.results]))).all()}
@@ -853,7 +866,9 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         linked = db.scalar(select(OAuthIdentity.id).where(OAuthIdentity.provider == "yandex",
                                                         OAuthIdentity.user_id == user.id))
         return {"id": user.id, "email": user.email, "yandex_linked": linked is not None,
-                "is_admin": user.is_admin}
+                "is_admin": user.is_admin,
+                "brand_clarifications_enabled": bool(brand_clarifications_user_id and user.is_admin
+                                                       and user.id == brand_clarifications_user_id)}
 
     @app.get("/api/v1/wallet")
     def wallet(user: User = Depends(current_user), db: Session = Depends(db_session)) -> dict:
