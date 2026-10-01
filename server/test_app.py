@@ -105,9 +105,9 @@ def test_payment_and_checks_are_idempotent(tmp_path, monkeypatch):
     reserve = client.post("/api/v1/checks/reserve", headers=headers,
                           json={"check_ids": ["scan-1-query-1-chatgpt", "scan-1-query-2-chatgpt"]})
     assert reserve.status_code == 200, reserve.text
-    assert reserve.json()["reserved_kopeks"] == 400
+    assert reserve.json()["reserved_kopeks"] == 240
     assert client.post("/api/v1/checks/reserve", headers=headers,
-                       json={"check_ids": ["scan-1-query-1-chatgpt"]}).json()["reserved_kopeks"] == 400
+                       json={"check_ids": ["scan-1-query-1-chatgpt"]}).json()["reserved_kopeks"] == 240
 
     for _ in range(2):
         settled = client.post("/api/v1/checks/scan-1-query-1-chatgpt/complete", headers=headers,
@@ -117,18 +117,65 @@ def test_payment_and_checks_are_idempotent(tmp_path, monkeypatch):
                            json={"status": "captcha"})
     assert released.json()["status"] == "released"
     wallet = client.get("/api/v1/wallet", headers=headers).json()
-    assert wallet["balance_kopeks"] == 29800
+    assert wallet["balance_kopeks"] == 29880
     assert wallet["reserved_kopeks"] == 0
     assert len(wallet["entries"]) == 2
 
     again = client.post("/api/v1/checks/reserve", headers=headers,
                         json={"check_ids": ["scan-1-query-2-chatgpt"]})
-    assert again.json()["reserved_kopeks"] == 200
+    assert again.json()["reserved_kopeks"] == 120
     released = client.post("/api/v1/checks/release", headers=headers,
                            json={"check_ids": ["scan-1-query-2-chatgpt"]})
     assert released.json()["released"] == 1
-    assert released.json()["balance_kopeks"] == 29800
+    assert released.json()["balance_kopeks"] == 29880
     assert released.json()["reserved_kopeks"] == 0
+
+
+def test_price_change_preserves_existing_reservations(tmp_path, monkeypatch):
+    from sqlalchemy import select
+    from server.models import Check, LedgerEntry, Wallet, make_session_factory
+
+    url = f"sqlite:///{tmp_path / 'price-change.db'}"
+    monkeypatch.setenv("CHECK_PRICE_KOPEKS", "200")
+    old = TestClient(create_app(database_url=url))
+    created = old.post("/api/v1/auth/register", json={
+        "email": "price@example.test", "password": "a-long-test-password",
+    }).json()
+    headers = {"Authorization": f"Bearer {created['token']}"}
+    engine, sessions = make_session_factory(url)
+    with sessions() as db:
+        db.get(Wallet, created["user"]["id"]).balance_kopeks = 319
+        db.commit()
+    assert old.post("/api/v1/checks/reserve", headers=headers,
+                    json={"check_ids": ["old"]}).json()["reserved_kopeks"] == 200
+
+    monkeypatch.setenv("CHECK_PRICE_KOPEKS", "120")
+    current = TestClient(create_app(database_url=url))
+    assert current.get("/api/v1/pricing").json()["check_price_kopeks"] == 120
+    assert current.post("/api/v1/checks/reserve", headers=headers,
+                        json={"check_ids": ["new"]}).status_code == 402  # 119 available
+    with sessions() as db:
+        db.get(Wallet, created["user"]["id"]).balance_kopeks = 320
+        db.commit()
+    reserved = current.post("/api/v1/checks/reserve", headers=headers,
+                            json={"check_ids": ["new"]})
+    assert reserved.status_code == 200 and reserved.json()["reserved_kopeks"] == 320
+    with sessions() as db:
+        prices = {check.client_check_id: check.price_kopeks for check in db.scalars(select(Check))}
+        assert prices == {"old": 200, "new": 120}
+
+    assert current.post("/api/v1/checks/old/complete", headers=headers,
+                        json={"status": "found"}).json()["balance_kopeks"] == 120
+    assert current.post("/api/v1/checks/new/complete", headers=headers,
+                        json={"status": "captcha"}).json()["reserved_kopeks"] == 0
+    assert current.post("/api/v1/checks/reserve", headers=headers,
+                        json={"check_ids": ["new"]}).json()["reserved_kopeks"] == 120
+    for _ in range(2):
+        assert current.post("/api/v1/checks/new/complete", headers=headers,
+                            json={"status": "not_found"}).json()["balance_kopeks"] == 0
+    with sessions() as db:
+        assert sorted(entry.amount_kopeks for entry in db.scalars(select(LedgerEntry))) == [-200, -120]
+    engine.dispose()
 
 
 def test_payment_status_must_match_order(tmp_path, monkeypatch):
@@ -183,7 +230,7 @@ def test_managed_analysis_is_once_per_reserved_check_and_paid(tmp_path, monkeypa
     again = client.post("/api/v1/checks/release", headers=headers,
                         json={"check_ids": ["run:1:chatgpt"]}).json()
     assert again["settled"] == 0
-    assert client.get("/api/v1/wallet", headers=headers).json()["balance_kopeks"] == 29800
+    assert client.get("/api/v1/wallet", headers=headers).json()["balance_kopeks"] == 29880
 
 
 def test_arbiter_is_server_owned_idempotent_and_bounded(tmp_path, monkeypatch):
@@ -213,7 +260,7 @@ def test_arbiter_is_server_owned_idempotent_and_bounded(tmp_path, monkeypatch):
         response = client.post(endpoint, headers=headers, json=body)
         assert response.status_code == 200 and response.json()["model"] == ai.arbiter_model
     assert ai.calls == ai.arbiter_calls == 1
-    assert client.get("/api/v1/wallet", headers=headers).json()["balance_kopeks"] == 29800
+    assert client.get("/api/v1/wallet", headers=headers).json()["balance_kopeks"] == 29880
 
     from sqlalchemy import select
     from server.models import Check, make_session_factory
@@ -272,7 +319,7 @@ def test_admin_checks_are_unlimited_and_free(tmp_path, monkeypatch):
         db.get(User, created["user"]["id"]).is_admin = True
         db.commit()
     assert client.get("/api/v1/me", headers=headers).json()["is_admin"] is True
-    assert client.get("/api/v1/pricing").json()["check_price_kopeks"] == 200
+    assert client.get("/api/v1/pricing").json()["check_price_kopeks"] == 120
     for start, stop in ((0, 1000), (1000, 1600)):
         ids = [f"admin-check-{index}" for index in range(start, stop)]
         response = client.post("/api/v1/checks/reserve", headers=headers,

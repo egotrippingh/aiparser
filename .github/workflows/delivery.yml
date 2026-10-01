@@ -93,4 +93,7 @@ jobs:
           with urllib.request.urlopen('https://airate.tech/api/v1/ready', timeout=30) as response:
               data = json.load(response)
           assert data == {'ok': True, 'release': os.environ['EXPECTED_RELEASE']}, data
+          with urllib.request.urlopen('https://airate.tech/api/v1/pricing', timeout=30) as response:
+              pricing = json.load(response)
+          assert pricing['check_price_kopeks'] == 120, pricing
           PY
