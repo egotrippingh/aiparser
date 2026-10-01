@@ -1,0 +1,20 @@
+name: Build and publish Windows agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the tested artifacts to production
+        required: true
+        default: false
+        type: boolean
+
+permissions: {}
+
+jobs:
+  select-production:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo 'Select production in the Run workflow Branch dropdown'
+          exit 1
