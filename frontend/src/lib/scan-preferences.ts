@@ -24,5 +24,5 @@ export const DEFAULT_SCAN_PREFERENCES: ScanPreferences = {
   month_days: [1],
   browser_mode: "headless",
   services: ["perplexity", "chatgpt"],
-  speed_profile: "balanced",
+  speed_profile: "fast",
 }

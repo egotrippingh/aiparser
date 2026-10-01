@@ -145,32 +145,39 @@ class AliceAdapter:
         несколько секунд, пока сам ответ ещё дописывался. После «Новый чат»
         ответ на странице один, и он всегда первый.
 
-        Готовность — текст не меняется _QUIET_SEC секунд. Если под ответом
-        уже появилась кнопка «Источники» (строка действий рисуется только
-        по окончании), хватает секунды тишины.
+        Пока виден стоп-контрол ``oknyx``, ответ всё ещё генерируется, даже
+        если текст временно не меняется. После исчезновения уже виденного
+        контрола хватает секунды тишины; без него сохраняем старый, более
+        консервативный путь.
         """
         answer = page.locator(_S["answer_container"]).first
         try:
             await answer.wait_for(state="attached", timeout=90000)
-        except Exception:
-            return  # capture() сам обработает отсутствие ответа как ошибку
+        except Exception as exc:
+            raise AdapterError(f"Не появился контейнер ответа Алисы: {exc}") from exc
 
         done = page.locator(_S["sources_button"])
+        generating = page.locator(_S["generating_marker"])
         deadline = time.monotonic() + _ANSWER_TIMEOUT
-        last, since = -1, time.monotonic()
+        last, since, saw_generating = None, time.monotonic(), False
         while time.monotonic() < deadline:
             try:
-                n = len(await answer.inner_text(timeout=3000))
+                text = await answer.inner_text(timeout=3000)
             except Exception:
-                n = 0
-            if n != last:
-                last, since = n, time.monotonic()
-            elif n >= _MIN_ANSWER_CHARS:
+                text = ""
+            active = bool(await generating.count())
+            saw_generating |= active
+            if text != last:
+                last, since = text, time.monotonic()
+            elif len(text) >= _MIN_ANSWER_CHARS and not active:
                 quiet = time.monotonic() - since
-                if quiet >= _QUIET_SEC or (quiet >= _DONE_QUIET_SEC and await done.count()):
+                if ((saw_generating and quiet >= _DONE_QUIET_SEC) or
+                        (not saw_generating and (quiet >= _QUIET_SEC or
+                                                  (quiet >= _DONE_QUIET_SEC and await done.count())))):
                     return
             await asyncio.sleep(0.5)
-        log.warning("Ответ Алисы не затих за %.0f с — читаю как есть (%s символов)", _ANSWER_TIMEOUT, last)
+        await dump_debug_html(page, "alice_answer_timeout")
+        raise AdapterError(f"Ответ Алисы не завершился за {_ANSWER_TIMEOUT:.0f} с")
 
     async def capture(self, page) -> Capture:
         answer = page.locator(_S["answer_container"]).first

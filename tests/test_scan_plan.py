@@ -143,6 +143,40 @@ def test_start_with_nothing_left_creates_no_scan(monkeypatch):
     assert len(repo.list_scans(pid)) == before
 
 
+def test_continuation_reuses_saved_timing_only(monkeypatch):
+    monkeypatch.setattr(orchestrator.billing, "enabled", lambda: False)
+    pid, _ = _project(1)
+    old = _scan(pid, ["chatgpt"], {}, status="stopped")
+    saved_timing = {
+        "speed_profile": "balanced", "delay_min_sec": 4.0, "delay_max_sec": 10.0,
+        "break_every_n": 25, "typing_speed": 0.63,
+        "per_service_timing": {"chatgpt": {"delay_min_sec": 10.0, "delay_max_sec": 15.0,
+                                                "break_every_n": 25, "typing_speed": 0.63}},
+    }
+    repo._exec("UPDATE scans SET settings_snapshot_json = ? WHERE id = ?", (json.dumps(saved_timing), old))
+    fresh = {"speed_profile": "fast", "delay_min_sec": 2.0, "delay_max_sec": 5.0,
+             "break_every_n": 25, "typing_speed": 0.63,
+             "per_service_timing": {"chatgpt": {"delay_min_sec": 20.0, "delay_max_sec": 30.0,
+                                                    "break_every_n": 9, "typing_speed": 0.9}}}
+    seen = {}
+
+    async def run(_project, _services, _queries, _done, settings, ctl):
+        seen.update(settings)
+        orchestrator._active.pop(ctl.scan_id, None)
+
+    monkeypatch.setattr(orchestrator, "_settings_snapshot", lambda _: dict(fresh))
+    monkeypatch.setattr(orchestrator, "_run_scan", run)
+
+    async def start():
+        scan_id = await orchestrator._start_scan_unlocked(pid, ["chatgpt"], resume=True, headless=True)
+        await asyncio.sleep(0)
+        return scan_id
+
+    assert asyncio.run(start()) == old
+    assert {key: seen[key] for key in saved_timing} == saved_timing
+    assert seen["headless"] is True
+
+
 def test_plan_endpoint():
     pid, q = _project()
     _scan(pid, ["perplexity"], {"perplexity": q[:1]})
@@ -159,7 +193,7 @@ def test_browser_crash_retries_only_unsaved_queries(monkeypatch):
     controller = orchestrator.ScanController(sid, pid, 2, TODAY)
     attempts = []
 
-    async def interrupted(_project, service, pending, _settings, _speed, _key,
+    async def interrupted(_project, service, pending, _settings, _key,
                           _model, _mode, ctl):
         attempts.append([item["id"] for item in pending])
         if len(attempts) == 1:
@@ -184,7 +218,7 @@ def test_browser_crash_with_unchecked_tail_is_failed(monkeypatch):
     sid = repo.create_scan(pid, ["perplexity"], {})
     controller = orchestrator.ScanController(sid, pid, 2, TODAY)
 
-    async def interrupted(_project, service, pending, _settings, _speed, _key,
+    async def interrupted(_project, service, pending, _settings, _key,
                           _model, _mode, ctl):
         if ctl.done == 0:
             repo.save_result(sid, query_ids[0], service, "not_found")
@@ -206,7 +240,7 @@ def test_completed_attempts_with_error_remain_failed(monkeypatch):
     sid = repo.create_scan(pid, ["google_aio"], {})
     controller = orchestrator.ScanController(sid, pid, 1, TODAY)
 
-    async def failed_attempt(_project, service, _pending, _settings, _speed, _key,
+    async def failed_attempt(_project, service, _pending, _settings, _key,
                              _model, _mode, ctl):
         repo.save_result(sid, query_ids[0], service, "error", error_message="Анализ недоступен")
         ctl.advance(service, query_ids[0])

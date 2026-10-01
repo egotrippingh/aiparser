@@ -33,6 +33,8 @@ jobs:
       - run: pip install -r scripts/requirements-ci.txt
       - run: python -m pytest server -q
       - run: python -m pytest tests/test_updates.py tests/test_update_admission.py tests/test_agent_publication.py tests/test_desktop_login.py tests/test_profiles.py tests/test_login_feedback.py tests/test_data_paths.py tests/test_main_session_check.py tests/test_billing_recovery.py tests/test_agent_live_sync.py tests/test_perplexity_diagnostics.py tests/test_readable_capture.py tests/test_scan_plan.py -q
+      - run: python -m pytest tests/test_service_timing.py tests/test_alice_wait.py tests/test_google_wait.py -q
+      - run: python scripts/benchmark_scans.py --self-check
       - run: bash -n deploy/release.sh deploy/ssh-gate.sh deploy/provision-ubuntu.sh deploy/setup-delivery.sh
       - run: npm ci && npm test && npm run build
         working-directory: frontend
