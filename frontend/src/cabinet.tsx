@@ -33,7 +33,7 @@ function Cabinet() {
   const [screenshots, setScreenshots] = useState<Screenshot[]>([])
   const [visibleScreenshots, setVisibleScreenshots] = useState(12)
   const [openedScreenshot, setOpenedScreenshot] = useState<{ id: string; url: string } | null>(null)
-  const [price, setPrice] = useState(200)
+  const [price, setPrice] = useState(120)
   const [minimum, setMinimum] = useState(30000)
   const [resetToken, setResetToken] = useState(() => new URLSearchParams(location.hash.slice(1)).get("reset_token") || "")
   const [authMode, setAuthMode] = useState<"login" | "register" | "forgot" | "reset">(() =>

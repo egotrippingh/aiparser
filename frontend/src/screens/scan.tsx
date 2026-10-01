@@ -52,7 +52,7 @@ function AccountPanel({ account, error, remaining, reload }: {
   const [useCode, setUseCode] = useState(false)
   const [busy, setBusy] = useState(false)
   if (!account?.enabled && !error) return null
-  const price = account?.pricing?.check_price_kopeks ?? 200
+  const price = account?.pricing?.check_price_kopeks ?? 120
   const rub = (n: number) => new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB" }).format(n / 100)
 
   async function login(event: FormEvent) {
