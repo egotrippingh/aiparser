@@ -87,7 +87,7 @@ Only do this when the selected image supports the current database schema.
 
 ## Windows download
 
-Use the manually dispatched **Build and publish Windows agent** workflow for a release. It builds fixed artifacts on Windows and only publishes when the site readiness revision equals the workflow source SHA. Operations must first create the dedicated non-root publisher account with ownership of `/opt/airate/deploy/downloads`, its lock, `agent-releases`, and the current/previous aliases; it must have no sudo access. Configure a pinned host key plus `AIRATE_AGENT_PUBLISH_KEY`, `AIRATE_AGENT_KNOWN_HOSTS`, and `AIRATE_AGENT_PUBLISH_HOST` in the production environment. Do not reuse `AIRATE_DEPLOY_KEY`. Current cloud credentials are not configured, so this automation is prepared but not verified live.
+Use the manually dispatched **Build and publish Windows agent** workflow for a release; select the `production` branch. It builds fixed artifacts on Windows and only publishes when the site readiness revision equals the workflow source SHA. The dedicated non-root publisher owns `/opt/airate/deploy/downloads`, its lock, release directories and current/previous aliases; it has no sudo access. A traverse-only named-user ACL on `/opt/airate` allows access through that private parent without exposing `.env`. Its pinned host key and separate credentials are configured as `AIRATE_AGENT_PUBLISH_KEY`, `AIRATE_AGENT_KNOWN_HOSTS`, and `AIRATE_AGENT_PUBLISH_HOST` in the production environment. Do not reuse `AIRATE_DEPLOY_KEY`. See [setup, checks and retry instructions](../docs/windows-agent-release.md).
 
 Build on Windows with `scripts/build-exe.ps1 -AccountUrl https://airate.tech`.
 The script builds the frontend, bundles the AIRate icon, runs EXE self-tests,
