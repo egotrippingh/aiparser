@@ -30,7 +30,7 @@ export function AgentSettingsPanel() {
   const refresh = useCallback(async () => {
     const status = await api.get<AccountStatus>("/api/account/status")
     setAccount(status)
-    if (status.connected) setPreferences(await api.get<ScanPreferences>("/api/agent/preferences"))
+    if (status.connected) setPreferences({ ...await api.get<ScanPreferences>("/api/agent/preferences"), speed_profile: "fast" })
     setAutostart(await api.get<Autostart>("/api/agent/autostart"))
   }, [])
 
@@ -58,12 +58,12 @@ export function AgentSettingsPanel() {
     setBusy(true)
     setError("")
     try {
-      const saved = await api.put<ScanPreferences>("/api/agent/preferences", preferences)
-      setPreferences(saved)
+      const saved = await api.put<ScanPreferences>("/api/agent/preferences", { ...preferences, speed_profile: "fast" })
+      setPreferences({ ...saved, speed_profile: "fast" })
       toast.success("Настройки синхронизированы с личным кабинетом")
     } catch (cause) {
       setError(errText(cause))
-      await api.get<ScanPreferences>("/api/agent/preferences").then(setPreferences).catch(() => undefined)
+      await api.get<ScanPreferences>("/api/agent/preferences").then((next) => setPreferences({ ...next, speed_profile: "fast" })).catch(() => undefined)
     } finally { setBusy(false) }
   }
 
@@ -101,7 +101,7 @@ export function AgentSettingsPanel() {
         <label className="flex items-center gap-3 text-sm"><input type="checkbox" className="accent-primary size-4" checked={preferences.enabled} onChange={(event) => setPreferences({ ...preferences, enabled: event.target.checked })} /> Проверять автоматически</label>
         <label className="block text-sm">Время запуска<input type="time" className="bg-card border-input mt-1 block h-9 rounded-lg border px-3" value={preferences.local_time} onChange={(event) => setPreferences({ ...preferences, local_time: event.target.value })} /></label>
         <fieldset><legend className="mb-2 text-sm font-medium">Числа месяца</legend><div className="grid grid-cols-7 gap-1.5 sm:grid-cols-10">{MONTH_DAYS.map((day) => <label key={day} className="cursor-pointer"><input type="checkbox" className="peer sr-only" checked={preferences.month_days.includes(day)} onChange={(event) => setPreferences({ ...preferences, month_days: event.target.checked ? [...preferences.month_days, day].sort((a, b) => a - b) : preferences.month_days.filter((value) => value !== day) })} /><span className="border-input bg-card peer-checked:border-primary peer-checked:bg-primary/20 peer-focus-visible:outline-primary grid h-9 place-items-center rounded-lg border text-xs peer-focus-visible:outline-2">{day}</span></label>)}</div><p className="text-muted-foreground mt-2 text-xs">Если в месяце нет выбранного числа, запуск пропускается. Пропущенная из-за выключенного ПК проверка начнётся при запуске агента в тот же день.</p></fieldset>
-        <div className="grid gap-4 sm:grid-cols-2"><label className="text-sm">Браузер<select className="border-input bg-card mt-1 block h-9 w-full rounded-lg border px-2" value={preferences.browser_mode} onChange={(event) => setPreferences({ ...preferences, browser_mode: event.target.value as ScanPreferences["browser_mode"] })}><option value="headless">Без окон</option><option value="headful">С видимыми окнами</option></select></label><label className="text-sm">Скорость<select className="border-input bg-card mt-1 block h-9 w-full rounded-lg border px-2" value={preferences.speed_profile} onChange={(event) => setPreferences({ ...preferences, speed_profile: event.target.value as ScanPreferences["speed_profile"] })}><option value="careful">Осторожная</option><option value="balanced">Сбалансированная</option><option value="fast">Быстрая</option></select></label></div>
+        <label className="block text-sm">Браузер<select className="border-input bg-card mt-1 block h-9 w-full rounded-lg border px-2" value={preferences.browser_mode} onChange={(event) => setPreferences({ ...preferences, browser_mode: event.target.value as ScanPreferences["browser_mode"] })}><option value="headless">Без окон</option><option value="headful">С видимыми окнами</option></select></label>
         <fieldset><legend className="mb-2 text-sm font-medium">ИИ-сервисы</legend><div className="flex flex-wrap gap-x-5 gap-y-2">{SCAN_SERVICES.map((service) => <label key={service.id} className="flex items-center gap-2 text-sm"><input type="checkbox" className="accent-primary size-4" disabled={"available" in service && !service.available} checked={preferences.services.includes(service.id)} onChange={(event) => setPreferences({ ...preferences, services: event.target.checked ? [...preferences.services, service.id] : preferences.services.filter((id) => id !== service.id) })} />{service.label}</label>)}</div></fieldset>
         <Button type="submit" disabled={busy}>{busy ? "Сохраняем…" : "Сохранить настройки"}</Button>
       </form>

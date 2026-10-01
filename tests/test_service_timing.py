@@ -53,10 +53,11 @@ def test_fast_profiles_are_service_specific_and_copied():
     assert humanize.profile("fast", "alice")["typing"] == 0.2
 
 
-def test_snapshot_freezes_tuned_values_and_chatgpt_floor(monkeypatch):
-    monkeypatch.setattr(orchestrator.repo, "all_settings", lambda: {"speed_profile": "fast"})
+def test_new_snapshot_uses_fast_despite_saved_selection(monkeypatch):
+    monkeypatch.setattr(orchestrator.repo, "all_settings", lambda: {"speed_profile": "careful"})
     monkeypatch.setattr(orchestrator, "get_adapter", orchestrator.ADAPTERS.__getitem__)
     snapshot = orchestrator._settings_snapshot(["alice", "google_aio", "chatgpt", "perplexity"])
+    assert snapshot["speed_profile"] == "fast"
     timing = snapshot["per_service_timing"]
     assert timing["alice"] == {"delay_min_sec": 1.0, "delay_max_sec": 2.0, "break_every_n": 0, "typing_speed": 0.2}
     assert timing["google_aio"] == timing["alice"]

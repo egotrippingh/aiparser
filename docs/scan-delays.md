@@ -5,8 +5,9 @@
 Tune the existing **fast** profile for ChatGPT, Alice and Google AI Overview
 using disposable copies of saved browser profiles. Preserve exact query input,
 complete answers, capture, CAPTCHA handling, billing and parallel execution.
-Perplexity is excluded: no paid account is available. Balanced/careful profiles
-and the default balanced selection remain unchanged.
+Perplexity is excluded: no paid account is available. New scans automatically
+use the measured fast timing; unfinished scans keep their recorded timing. Legacy
+profiles remain in stored/API data for compatibility.
 
 A candidate must submit the exact query and keep the captured raw answer and
 extracted source list unchanged in a follow-up observation five seconds after
@@ -27,8 +28,8 @@ Previously fast used 0.40 and 2–5 s, with the same ChatGPT floor. The multipli
 controls typing and the adapter's existing preparation/scroll pauses. Character
 delay changes from 22–70 ms to 11–35 ms; punctuation, corrected typos and scroll
 steps remain. This halves artificial input delays, not provider generation or
-network time. Select the **fast / Быстрая** speed profile for new scans after installing
-the updated agent. Existing unfinished scans retain their recorded settings.
+network time. New scans use these settings automatically; existing unfinished
+scans retain their recorded settings.
 
 ## Evidence and limits
 

@@ -11,16 +11,15 @@ from __future__ import annotations
 import asyncio
 import random
 
-# Профили скорости. Ускорение — это размен на живучесть аккаунтов, поэтому
-# режим выбирается осознанно в настройках, а выбранные значения кладутся в
-# settings_snapshot скана: задним числом видно, в каком режиме собраны данные.
+# Старые профили оставлены для сохранённых снимков и совместимости.
+# Новые сканы используют fast; фактические значения сохраняются в снимке.
 # "typing" — множитель к базовой задержке между символами.
 PROFILES: dict[str, dict[str, float]] = {
     "careful":  {"delay_min_sec": 8, "delay_max_sec": 25, "break_every_n": 12, "typing": 1.0},
     "balanced": {"delay_min_sec": 4, "delay_max_sec": 10, "break_every_n": 25, "typing": 0.63},
     "fast":     {"delay_min_sec": 2, "delay_max_sec": 5,  "break_every_n": 0,  "typing": 0.40},
 }
-DEFAULT_PROFILE = "balanced"
+DEFAULT_PROFILE = "fast"
 
 _FAST_SERVICE_OVERRIDES = {
     "chatgpt": {"typing": 0.20},

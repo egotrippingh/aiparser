@@ -48,7 +48,7 @@ export function CloudDashboard({ token }: { token: string }) {
     knownProjectKeys.current = new Set(nextProjects.map((project) => project.key))
     setProjects(nextProjects)
     setDevices(nextDevices)
-    if (nextPreferences) setPreferences(nextPreferences)
+    if (nextPreferences) setPreferences({ ...nextPreferences, speed_profile: "fast" })
     setProjectKey((current) => added?.key || (nextProjects.some((project) => project.key === current)
       ? current : nextProjects[0]?.key || ""))
     setLoaded(true)
@@ -94,12 +94,12 @@ export function CloudDashboard({ token }: { token: string }) {
     setError("")
     setSaved("")
     try {
-      const next = await accountRequest<ScanPreferences>("/scan-preferences", token, preferences, "PUT")
-      setPreferences(next)
+      const next = await accountRequest<ScanPreferences>("/scan-preferences", token, { ...preferences, speed_profile: "fast" }, "PUT")
+      setPreferences({ ...next, speed_profile: "fast" })
       setSaved("Расписание сохранено и появится в агенте при следующей синхронизации")
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Не удалось сохранить настройки")
-      await accountRequest<ScanPreferences>("/scan-preferences", token).then(setPreferences).catch(() => undefined)
+      await accountRequest<ScanPreferences>("/scan-preferences", token).then((next) => setPreferences({ ...next, speed_profile: "fast" })).catch(() => undefined)
     } finally { setBusy(false) }
   }
 
@@ -142,7 +142,6 @@ export function CloudDashboard({ token }: { token: string }) {
         <fieldset><legend>Числа месяца</legend><div className="cloud-days">{MONTH_DAYS.map((day) => <label key={day}><input type="checkbox" checked={preferences.month_days.includes(day)} onChange={(event) => setPreferences({ ...preferences, month_days: event.target.checked ? [...preferences.month_days, day].sort((a, b) => a - b) : preferences.month_days.filter((value) => value !== day) })} /><span>{day}</span></label>)}</div><small className="cloud-hint">Если в месяце нет выбранного числа, этот запуск пропускается.</small></fieldset>
         <fieldset><legend>Режим браузера</legend><div className="cloud-mode"><label><input type="radio" name="cloud-browser-mode" checked={preferences.browser_mode === "headless"} onChange={() => setPreferences({ ...preferences, browser_mode: "headless" })} /><span><b>Без окон</b><small>Работает в фоне. Для входа и капчи может понадобиться видимое окно.</small></span></label><label><input type="radio" name="cloud-browser-mode" checked={preferences.browser_mode === "headful"} onChange={() => setPreferences({ ...preferences, browser_mode: "headful" })} /><span><b>С окнами</b><small>Видно, как агент проходит проверки.</small></span></label></div></fieldset>
         <fieldset><legend>ИИ-сервисы</legend><div className="cloud-services">{SCAN_SERVICES.map((service) => <label key={service.id}><input type="checkbox" disabled={"available" in service && !service.available} checked={preferences.services.includes(service.id)} onChange={(event) => setPreferences({ ...preferences, services: event.target.checked ? [...preferences.services, service.id] : preferences.services.filter((id) => id !== service.id) })} />{service.label}</label>)}</div></fieldset>
-        <label className="cloud-field">Скорость<select value={preferences.speed_profile} onChange={(event) => setPreferences({ ...preferences, speed_profile: event.target.value as ScanPreferences["speed_profile"] })}><option value="careful">Осторожная</option><option value="balanced">Сбалансированная</option><option value="fast">Быстрая</option></select></label>
         <button className="cab-primary" disabled={busy}>{busy ? "Сохраняем…" : "Сохранить расписание"}</button>{saved && <small className="cloud-saved" role="status">{saved}</small>}
       </form>
     </div>

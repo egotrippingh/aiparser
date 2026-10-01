@@ -148,13 +148,13 @@ def test_continuation_reuses_saved_timing_only(monkeypatch):
     pid, _ = _project(1)
     old = _scan(pid, ["chatgpt"], {}, status="stopped")
     saved_timing = {
-        "speed_profile": "fast", "delay_min_sec": 10.0, "delay_max_sec": 15.0,
-        "break_every_n": 0, "typing_speed": 0.2,
+        "speed_profile": "balanced", "delay_min_sec": 4.0, "delay_max_sec": 10.0,
+        "break_every_n": 25, "typing_speed": 0.63,
         "per_service_timing": {"chatgpt": {"delay_min_sec": 10.0, "delay_max_sec": 15.0,
-                                                "break_every_n": 0, "typing_speed": 0.2}},
+                                                "break_every_n": 25, "typing_speed": 0.63}},
     }
     repo._exec("UPDATE scans SET settings_snapshot_json = ? WHERE id = ?", (json.dumps(saved_timing), old))
-    fresh = {"speed_profile": "balanced", "delay_min_sec": 4.0, "delay_max_sec": 10.0,
+    fresh = {"speed_profile": "fast", "delay_min_sec": 2.0, "delay_max_sec": 5.0,
              "break_every_n": 25, "typing_speed": 0.63,
              "per_service_timing": {"chatgpt": {"delay_min_sec": 20.0, "delay_max_sec": 30.0,
                                                     "break_every_n": 9, "typing_speed": 0.9}}}

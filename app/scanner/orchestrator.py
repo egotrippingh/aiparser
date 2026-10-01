@@ -230,8 +230,7 @@ def _settings_snapshot(services: list[str] | None = None) -> dict:
     Развёрнутые значения кладём в снимок, чтобы задним числом было видно, в
     каком режиме собирались данные.
     """
-    s = repo.all_settings()
-    name = s.get("speed_profile", humanize.DEFAULT_PROFILE)
+    name = humanize.DEFAULT_PROFILE
     prof = humanize.profile(name)
     service_ids = services or list(ADAPTERS)
     per_service_timing = {}
