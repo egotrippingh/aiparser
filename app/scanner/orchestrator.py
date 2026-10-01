@@ -509,6 +509,9 @@ async def _run_scan(
                     break
                 except Exception as exc:
                     # После падения браузера создаём новый контекст один раз.
+                    import telemetry
+                    telemetry.capture(exc, component="agent", operation="scan_query", provider=service_id,
+                                      user_id=settings.get("billing_user_id"))
                     # Уже записанные результаты и их счётчики не повторяем.
                     log.exception("Сервис %s упал (попытка %s)", service_id, attempt + 1)
                     if attempt == 0 and not ctl.stop_requested:
@@ -881,6 +884,9 @@ async def _run_one(
         return result.status
 
     except ServiceUnavailableError as exc:
+        import telemetry
+        telemetry.capture(exc, component="agent", operation="scan_query", provider=service_id,
+                          run_id=ctl.billing_run_id)
         repo.save_result(ctl.scan_id, query["id"], service_id, "limit_reached", error_message=str(exc))
         ctl.emit("query_result", query_id=query["id"], service=service_id, status="limit_reached")
         return "unavailable"
@@ -895,6 +901,9 @@ async def _run_one(
         return "captcha"
     except AdapterError as exc:
         # The detailed exception can contain answer excerpts; it belongs in the private result only.
+        import telemetry
+        telemetry.capture(exc, component="agent", operation="scan_query", provider=service_id,
+                          run_id=ctl.billing_run_id)
         log.warning("Сервис %s, запрос %s: %s (причина сохранена в результате)", service_id, query["id"], type(exc).__name__)
         repo.save_result(ctl.scan_id, query["id"], service_id, "error", error_message=str(exc))
         ctl.emit("query_result", query_id=query["id"], service=service_id, status="error")
@@ -904,6 +913,9 @@ async def _run_one(
             # Весь браузер умер: внешний цикл поднимет новый профиль и
             # повторит текущий запрос. Не записываем ложный результат.
             raise
+        import telemetry
+        telemetry.capture(exc, component="agent", operation="scan_query", provider=service_id,
+                          run_id=ctl.billing_run_id)
         log.exception("Ошибка на запросе %s / %s", query["text"], service_id)
         repo.save_result(ctl.scan_id, query["id"], service_id, "error", error_message=str(exc))
         ctl.emit("query_result", query_id=query["id"], service=service_id, status="error")

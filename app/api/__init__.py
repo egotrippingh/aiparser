@@ -7,8 +7,9 @@ WebView. Поэтому ни аутентификации, ни CORS здесь 
 from __future__ import annotations
 
 import logging
+import os
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -24,6 +25,9 @@ def create_app() -> FastAPI:
     # и адаптеров (aiparser.*) тихо проваливаются в никуда, что уже стоило
     # времени при отладке.
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    import telemetry
+    from app import __version__
+    telemetry.init(component="agent", dsn=config.SENTRY_DSN, release=__version__)
 
     repo.init_db()
     from app import updates
@@ -40,7 +44,11 @@ def create_app() -> FastAPI:
             if config.ACCOUNT_URL and not request.url.path.startswith((
                     "/api/desktop/", "/api/browser/", "/api/account/", "/api/agent/focus", "/api/agent/autostart")):
                 return JSONResponse({"detail": "Управляйте проектами и проверками на сайте"}, status_code=403)
-        return await call_next(request)
+        try:
+            return await call_next(request)
+        except Exception as exc:
+            telemetry.capture(exc, component="agent", operation="local_api")
+            raise
 
     from app.api import (
         account, agent, browser, desktop, external, mentions, projects, queries, recheck, results, scans, settings,
@@ -69,6 +77,7 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def start_agent() -> None:
         nonlocal agent_task, update_task
+        telemetry.watch_loop("agent")
         agent_task = asyncio.create_task(run_agent())
         update_task = asyncio.create_task(updates.run())
 
@@ -108,6 +117,13 @@ def create_app() -> FastAPI:
                 for s in services.SERVICES
             ],
         }
+
+    @app.get("/api/v1/telemetry", include_in_schema=False)
+    def telemetry_config(response: Response) -> dict:
+        from app import __version__
+        response.headers["Cache-Control"] = "no-store"
+        return {"dsn": config.SENTRY_DSN, "release": __version__,
+                "environment": os.environ.get("APP_ENV", "development")}
 
     @app.post("/api/agent/focus", include_in_schema=False)
     def focus_agent() -> dict:

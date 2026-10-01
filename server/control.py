@@ -478,6 +478,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
     @router.post("/projects/{project_id}/recompute/{result_id}")
     def recompute(project_id: str, result_id: int, body: RecomputeIn,
                   user=Depends(web_user), db=Depends(db_session)):
+        owner = user.id
         project = db.scalar(select(ControlProject).where(
             ControlProject.id == project_id, ControlProject.user_id == user.id,
             ControlProject.archived.is_(False)).with_for_update())
@@ -514,8 +515,10 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         if screenshot is not None:
             try:
                 image = screenshot_storage.read(screenshot.object_key)
-            except StorageError:
+            except StorageError as exc:
                 db.rollback()
+                import telemetry
+                telemetry.capture(exc, component="server", operation="recompute", user_id=owner)
                 return {"charged_kopeks": 0, "status": "error", "message": "Сохранённый скриншот недоступен; результат не изменён"}
         else:
             image = None
@@ -531,8 +534,10 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             content.append({"type": "image_url", "image_url": {"url": "data:image/webp;base64," + base64.b64encode(image).decode("ascii")}})
         try:
             verdict = json.loads(ai_client.recompute(clarification_for(project), content).raw)
-        except (AIError, ValueError, AttributeError):
+        except (AIError, ValueError, AttributeError) as exc:
             db.rollback()
+            import telemetry
+            telemetry.capture(exc, component="server", operation="recompute", user_id=owner)
             return {"charged_kopeks": 0, "status": "error", "message": "Не удалось получить решение модели; средства не списаны"}
         if not isinstance(verdict.get("found"), bool):
             db.rollback()
@@ -757,7 +762,9 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             while True:
                 try:
                     await run_in_threadpool(schedule_tick, sessions, None, brand_clarifications_user_id)
-                except Exception:
+                except Exception as exc:
+                    import telemetry
+                    telemetry.capture(exc, component="server", operation="scheduler")
                     log.exception("Schedule tick failed")
                 await asyncio.sleep(15)
         scheduler = asyncio.create_task(loop())

@@ -1,5 +1,6 @@
 """Recover missed Coinso callbacks with bounded, rotating status checks."""
 import logging
+import telemetry
 from datetime import timedelta
 from threading import Event, Thread
 
@@ -30,10 +31,12 @@ class PaymentReconciler:
                 if self.stop.is_set():
                     break
                 self.cursor = row.id
+                owner = row.user_id
                 try:
                     self.confirm(db, row, row.invoice_id)
-                except Exception:
+                except Exception as exc:
                     db.rollback()
+                    telemetry.capture(exc, component="server", operation="payment_reconcile", user_id=owner)
                     # Do not log payment bodies, user identifiers or credentials.
                     log.warning("Payment reconciliation will retry a pending invoice")
 
@@ -41,7 +44,8 @@ class PaymentReconciler:
         while not self.stop.wait(15):
             try:
                 self.reconcile_once()
-            except Exception:
+            except Exception as exc:
+                telemetry.capture(exc, component="server", operation="payment_reconcile")
                 log.warning("Payment reconciliation temporarily unavailable")
 
     def close(self):

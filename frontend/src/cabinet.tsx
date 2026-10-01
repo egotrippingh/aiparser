@@ -8,6 +8,7 @@ import { SiteFooter } from "./site-footer"
 import { Brand } from "./brand"
 import { TopupForm } from "./components/topup-form"
 import { paymentLabel, type Payment } from "./lib/payment"
+import { initTelemetry, rootOptions } from "./telemetry"
 
 const TOKEN_KEY = "aimt.account.token"
 const money = (kopeks: number) => new Intl.NumberFormat("ru-RU", {
@@ -284,4 +285,4 @@ function Cabinet() {
   </div>
 }
 
-createRoot(document.getElementById("root")!).render(<Cabinet />)
+initTelemetry().finally(() => createRoot(document.getElementById("root")!, rootOptions).render(<Cabinet />))

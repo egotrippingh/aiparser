@@ -41,6 +41,8 @@ services:
       db:
         condition: service_healthy
     environment:
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_BROWSER_DSN: ${SENTRY_BROWSER_DSN:-}
       APP_ENV: production
       AIRATE_RELEASE: ${AIRATE_RELEASE:-local}
       DATABASE_URL: postgresql+psycopg://aiparser:${DB_PASSWORD:?Set DB_PASSWORD}@db:5432/aiparser

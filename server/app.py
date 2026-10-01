@@ -165,11 +165,23 @@ def _counts_as_found(row: CloudResult, *, include_cards: bool) -> bool:
     return include_cards or not kinds or bool(kinds - {"marketplace"})
 
 
-def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient | None = None,
+def create_app(**kwargs) -> FastAPI:
+    import telemetry
+    telemetry.init(component="server")
+    try:
+        return _create_app(**kwargs)
+    except Exception as exc:
+        telemetry.capture(exc, component="server", operation="startup")
+        telemetry.flush()
+        raise
+
+
+def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient | None = None,
                ai_client: OpenRouterAI | None = None,
                yandex_client: YandexOAuth | None = None,
                screenshot_storage: ScreenshotStorage | None = None,
                password_mailer: PasswordMailer | None = None) -> FastAPI:
+    import telemetry
     database_url = database_url or os.environ.get("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL не задан")
@@ -211,8 +223,26 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         raise RuntimeError("Цена и минимальное пополнение должны быть положительными")
 
     app = FastAPI(title="AI Mentions Account API")
+    @app.on_event("startup")
+    async def telemetry_startup():
+        telemetry.watch_loop("server")
     oauth_cookie = "aimt_yandex_state"
     cookie_secure = public_base.startswith("https://")
+
+    @app.middleware("http")
+    async def sentry_boundary(request: Request, call_next):
+        try:
+            return await call_next(request)
+        except Exception as exc:
+            telemetry.capture(exc, component="server", operation="request", user_id=getattr(request.state, "telemetry_user_id", None))
+            raise
+
+    @app.get("/api/v1/telemetry", include_in_schema=False)
+    def telemetry_config(response: Response) -> dict:
+        response.headers["Cache-Control"] = "no-store"
+        return {"dsn": os.environ.get("SENTRY_BROWSER_DSN", ""),
+                "release": os.environ.get("AIRATE_RELEASE", "local"),
+                "environment": os.environ.get("APP_ENV", "development")}
 
     def cabinet_location(fragment: str = "") -> str:
         return f"{public_base}/cabinet/{fragment}" if public_base else f"/cabinet/{fragment}"
@@ -273,7 +303,10 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             if check_id:
                 assigned_check(db, grant, check_id,
                     live=request.url.path.endswith(("/analyze", "/arbitrate")))
-        return db.get(User, session.user_id)
+        user = db.get(User, session.user_id)
+        if user is not None:
+            request.state.telemetry_user_id = user.id
+        return user
 
     def assigned_check(db, grant, check_id, *, live=False, new=False):
         parts = check_id.split(":")
@@ -1106,6 +1139,7 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
         try:
             raw, model, usage = _ai_payload(ai_client.analyze(body.system, body.content), ai_client.model)
         except AIError as exc:
+            telemetry.capture(exc, component="server", operation="ai_analyze", user_id=user.id, run_id=check_id.split(":", 1)[0])
             db.commit()
             raise HTTPException(502, str(exc)) from exc
         check.analysis_json = raw
@@ -1139,6 +1173,7 @@ def create_app(*, database_url: str | None = None, coinso_client: CoinsoClient |
             fallback = getattr(ai_client, "arbiter_model", ai_client.model)
             raw, model, usage = _ai_payload(ai_client.arbitrate(body.system, body.content), fallback)
         except AIError as exc:
+            telemetry.capture(exc, component="server", operation="ai_arbitrate", user_id=user.id, run_id=check_id.split(":", 1)[0])
             db.commit()
             raise HTTPException(502, str(exc)) from exc
         check.arbitration_json = raw

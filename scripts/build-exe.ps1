@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$AccountUrl,
+    [string]$SentryDsn,
     [switch]$SkipFrontendBuild,
     [switch]$TestBrowser
 )
@@ -28,6 +29,7 @@ if ($accountUrl -notmatch '^https://[^/]+$' -and
 }
 $version = (& $python -c "from app import __version__; print(__version__)").Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') { throw 'app.__version__ must have four numeric parts' }
+if ($SentryDsn -and $SentryDsn -notmatch '^https://[^/@]+@[^/]+/\d+$') { throw 'SentryDsn must be a public Sentry DSN' }
 
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 New-Item -ItemType Directory -Path $distRoot -Force | Out-Null
@@ -56,6 +58,7 @@ try {
     }
     [System.IO.File]::WriteAllText((Join-Path $bundle 'account-url.txt'),
         $accountUrl, [System.Text.UTF8Encoding]::new($false))
+    if ($SentryDsn) { [System.IO.File]::WriteAllText((Join-Path $bundle 'sentry-dsn.txt'), $SentryDsn, [System.Text.UTF8Encoding]::new($false)) }
     [System.IO.File]::WriteAllText((Join-Path $bundle 'agent-version.txt'),
         $version, [System.Text.UTF8Encoding]::new($false))
 

@@ -7,6 +7,7 @@ import os
 import sys
 import traceback
 from pathlib import Path
+import telemetry
 
 
 if __name__ == "__main__":
@@ -19,10 +20,14 @@ if __name__ == "__main__":
         if sys.stderr is None:
             sys.stderr = stream
     try:
+        from app import config
+        telemetry.init(component="agent", dsn=config.SENTRY_DSN, release=__import__("app").__version__)
         from app.main import main
 
         main()
     except Exception:
+        telemetry.capture(sys.exc_info()[1], component="agent", operation="startup")
+        telemetry.flush()
         log_path = log_dir / "startup-error.log"
         log_path.write_text(traceback.format_exc(), encoding="utf-8")
         if "--self-test" not in sys.argv[1:]:

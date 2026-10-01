@@ -1,0 +1,13 @@
+# Sentry error reporting
+
+AIRate sends only error events after an operator configures a valid DSN. It does not send logs, traces, replays, profiles, attachments, request bodies, cookies, headers, URLs, exception messages, breadcrumb data, locals, source context, names or hostnames. Events retain only exception type, project-relative stack frames, approved component/operation/provider tags and valid internal IDs.
+
+Create an organization on the free **Developer** plan ([current plans](https://sentry.io/pricing/)) and three projects: Python server, Python Windows agent and React browser. Put the server `SENTRY_DSN` and `SENTRY_BROWSER_DSN` in `deploy/.env`. Install the updated Compose configuration through the existing operator process before redeploying: application-image delivery does not update Compose files. The browser reads its public DSN, release and environment from same-origin `/api/v1/telemetry`; no frontend rebuild is required. Do not place auth tokens in these variables.
+
+For a packaged agent, pass `-SentryDsn 'https://…'` to `scripts/build-exe.ps1`, or place the public agent DSN in `sentry-dsn.txt` beside the EXE. `AIPARSER_SENTRY_DSN` overrides the sidecar. Invalid, unreadable or absent DSNs leave telemetry disabled. Existing agents need a new release containing this code; changing server configuration does not upgrade them. Bump `app.__version__` before publishing that release.
+
+Source-map upload is intentionally not configured: it requires an organization/project/token and source maps must remain private. Browser stack frames are therefore less readable until private source-map upload is added. Confirm real ingestion only after account setup with a deliberately triggered test error; this preparation does not verify cloud ingestion.
+
+Expected typed CAPTCHA/login/confirmed-provider-quota errors, cancellations and HTTP 401/402/403/409/422/429 are discarded. Missing provider UI remains reportable. Messages are omitted, so errors group by type and code location. The same browser Error object is sent once; recurring newly created polling failures still consume event quota. Monitor the cloud quota before adding throttling.
+
+Offline checks: `python -m pytest tests/test_telemetry.py -q` and `npm --prefix frontend test`. These exercise real SDK serialization and reject late SDK metadata, attachments and sessions. Tracing, replay, profiling and log collection are disabled. The collector still receives network traffic necessary to accept an event; application headers, URLs and IP fields are excluded from its payload, with browser IP inference explicitly disabled.

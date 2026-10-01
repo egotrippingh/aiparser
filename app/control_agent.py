@@ -128,6 +128,8 @@ async def start_job(job, user_id):
         await orchestrator.start_scan(local_id, job["snapshot"]["config"]["services"],
             headless=job["snapshot"]["config"]["browser_mode"] == "headless", managed_job=managed)
     except Exception as exc:
+        import telemetry
+        telemetry.capture(exc, component="agent", operation="start_job", user_id=user_id, run_id=job.get("id"))
         STATE["error"] = str(exc)
         await update_job(job, "failed", error=exc)
 
@@ -187,6 +189,8 @@ async def run_agent():
                         if syncing and not syncing.cancelled():
                             error = syncing.exception()
                             if error:
+                                import telemetry
+                                telemetry.capture(error, component="agent", operation="control_sync", user_id=user["id"])
                                 log.warning("Sync pending: %s", error)
                                 STATE["sync_error"] = str(error)
                             else:
@@ -219,6 +223,8 @@ async def run_agent():
                             if scan and scan["status"] in ("done", "failed") or job["desired_state"] == "cancelled":
                                 if finishing is None or finishing.done():
                                     if finishing and not finishing.cancelled() and finishing.exception():
+                                        import telemetry
+                                        telemetry.capture(finishing.exception(), component="agent", operation="control_sync", user_id=user["id"], run_id=job["id"])
                                         STATE["sync_error"] = str(finishing.exception())
                                     # Keep heartbeats alive throughout potentially large uploads.
                                     async def finish(current, local_scan, terminal_state, owner, pending_sync):
@@ -239,6 +245,8 @@ async def run_agent():
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                import telemetry
+                telemetry.capture(exc, component="agent", operation="control_sync", user_id=known_user)
                 STATE["error"] = str(exc)
                 log.warning("Control sync failed: %s", exc)
                 if isinstance(exc, billing.BillingError) and exc.status_code == 401:

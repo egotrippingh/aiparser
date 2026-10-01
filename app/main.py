@@ -94,6 +94,9 @@ def _check_saved_sessions() -> dict[str, str]:
 
 
 def main() -> None:
+    import telemetry
+    from app import __version__
+    telemetry.init(component="agent", dsn=config.SENTRY_DSN, release=__version__)
     from logging.handlers import RotatingFileHandler
     handler = RotatingFileHandler(config.DATA_DIR / "agent.log", maxBytes=2_000_000,
                                   backupCount=2, encoding="utf-8")
@@ -122,6 +125,7 @@ def main() -> None:
         _check_saved_sessions()
     except Exception:
         log.exception("Не удалось проверить сохранённые cookies")
+        telemetry.capture(sys.exc_info()[1], component="agent", operation="saved_sessions")
 
     server_thread = threading.Thread(target=_run_server, daemon=True, name="agent-server")
     server_thread.start()
@@ -250,6 +254,7 @@ def main() -> None:
             tray_icon.stop()
         if window is not None:
             window.destroy()
+        telemetry.flush()
 
     def graceful_shutdown() -> None:
         """Run after the HTTP response; never join Uvicorn from its own handler."""
