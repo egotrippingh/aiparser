@@ -48,3 +48,18 @@ class ScreenshotStorage:
             )
         except Exception as exc:
             raise StorageError("Не удалось создать ссылку на скриншот") from exc
+
+    def read(self, key: str) -> bytes:
+        try:
+            stream = self.client.get_object(Bucket=self.bucket, Key=key)["Body"]
+            try:
+                data = stream.read(8 * 1024 * 1024 + 1)
+            finally:
+                stream.close()
+            if len(data) > 8 * 1024 * 1024 or data[:4] != b"RIFF" or data[8:12] != b"WEBP":
+                raise StorageError("Сохранённый скриншот недоступен для анализа")
+            return data
+        except StorageError:
+            raise
+        except Exception as exc:
+            raise StorageError("Не удалось загрузить сохранённый скриншот") from exc

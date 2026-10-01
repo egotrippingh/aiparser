@@ -76,6 +76,7 @@ def materialize(job, user_id):
     local_id = int(repo.get_setting(key, "0") or 0)
     fields = {"name": snap["name"], "brand_name": snap["brand_name"],
               "brand_aliases": snap["config"]["brand_aliases"], "brand_domains": snap["config"]["brand_domains"],
+              "brand_clarification": snap["config"].get("brand_clarification") or "",
               "region_code": snap["config"]["region_code"], "parallel_scan": snap["config"]["parallel"],
               "deep_check_depth": 0}
     if not local_id or not repo.get_project(local_id):
@@ -170,7 +171,8 @@ async def run_agent():
                     browser = browser_status()
                     capabilities = {"services": browser["services"], "installed": browser["installed"],
                                     "paused": paused(), "active_scan": bool(ctl or starting and not starting.done()
-                                                                             or browser["logins_in_progress"])}
+                                                                             or browser["logins_in_progress"]),
+                                    "brand_clarification": True}
                     reply = await billing._request("POST", "/control/agent/poll", body={"capabilities": capabilities})
                     last_ok = time.monotonic()
                     STATE.update(connected=True, user=user, name=reply.get("name", platform.node()),

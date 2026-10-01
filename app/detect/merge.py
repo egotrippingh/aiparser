@@ -25,7 +25,10 @@ class MergedVerdict:
     llm_model: str | None = None
 
 
-def merge(rule: RuleVerdict, llm: LLMVerdict | None, *, confidence_threshold: float) -> MergedVerdict:
+def merge(rule: RuleVerdict, llm: LLMVerdict | None, *, confidence_threshold: float,
+          semantic_authoritative: bool = False) -> MergedVerdict:
+    if semantic_authoritative and llm and not llm.found:
+        return MergedVerdict(status="not_found", detected_by="llm", llm_model=llm.model)
     if rule.found and llm and llm.found:
         return MergedVerdict(
             status="found",

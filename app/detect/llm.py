@@ -70,15 +70,19 @@ class LLMVerdict:
 
 
 def _build_prompt(
-    brand_name: str, aliases: list[str], answer_text: str, sources: list[str], query: str | None = None
+    brand_name: str, aliases: list[str], answer_text: str, sources: list[str], query: str | None = None,
+    brand_clarification: str = "",
 ) -> str:
     forms = ", ".join([brand_name, *aliases]) if aliases else brand_name
     src = "\n".join(f"- {s}" for s in sources[:10]) or "(источников нет)"
     # Вопрос передаём явно и помечаем: в брендовых запросах имя бренда стоит
     # в самом вопросе, и без пометки модель засчитывает его за упоминание.
     asked = f"Вопрос пользователя (НЕ считается упоминанием): {query}\n\n" if query else ""
+    clarification = (f"Контекст идентичности бренда (используй, чтобы отличить его от тёзок и похожих компаний): "
+                     f"{brand_clarification[:2000]}\n\n" if brand_clarification else "")
     return (
         asked +
+        clarification +
         f"Бренд и его известные формы: {forms}\n\n"
         f"Текст ответа ИИ:\n{answer_text[:6000]}\n\n"
         f"Ссылки-источники в ответе:\n{src}\n\n"
@@ -98,11 +102,13 @@ async def evaluate(
     managed_check_id: str | None = None,
     timeout: float = 45.0,
     query: str | None = None,
+    brand_clarification: str = "",
 ) -> LLMVerdict:
     if not managed_check_id:
         return LLMVerdict(found=False, error="Серверный анализ недоступен")
 
-    content: list[dict] = [{"type": "text", "text": _build_prompt(brand_name, aliases, answer_text, sources, query)}]
+    content: list[dict] = [{"type": "text", "text": _build_prompt(
+        brand_name, aliases, answer_text, sources, query, brand_clarification)}]
     content += _image_parts(screenshot_bytes)
 
     return await _ask_model(_SYSTEM, content, api_key=api_key, model=model,
@@ -139,6 +145,7 @@ async def arbitrate(
     timeout: float = 90.0,
     query: str | None = None,
     managed_check_id: str | None = None,
+    brand_clarification: str = "",
 ) -> LLMVerdict:
     """Окончательное решение по спорной строке — вместо ручной проверки.
 
@@ -154,7 +161,7 @@ async def arbitrate(
     why = first_verdict.reasoning if first_verdict else ""
     doms = ", ".join(domains) if domains else "(не заданы)"
     text = (
-        _build_prompt(brand_name, aliases, answer_text, sources, query)
+        _build_prompt(brand_name, aliases, answer_text, sources, query, brand_clarification)
         + f"\n\nДомены бренда: {doms}\n\n"
         "Первая модель сочла это упоминанием и сослалась на:\n"
         f"цитата: {said or '(цитаты не дала)'}\n"

@@ -48,6 +48,8 @@ def _migrate(c: sqlite3.Connection) -> None:
     cols = {r[1] for r in c.execute("PRAGMA table_info(projects)")}
     if "parallel_scan" not in cols:
         c.execute("ALTER TABLE projects ADD COLUMN parallel_scan INTEGER NOT NULL DEFAULT 0")
+    if "brand_clarification" not in cols:
+        c.execute("ALTER TABLE projects ADD COLUMN brand_clarification TEXT NOT NULL DEFAULT ''")
 
 
 def _rows(sql: str, args: Iterable = ()) -> list[dict]:
@@ -92,12 +94,13 @@ def create_project(
     deep_check_depth: int = 0,
     notes: str | None = None,
     parallel_scan: bool = False,
+    brand_clarification: str = "",
 ) -> int:
     cur = _exec(
         """INSERT INTO projects
              (name, brand_name, brand_aliases_json, brand_domains_json,
-              region_code, deep_check_depth, notes, parallel_scan)
-           VALUES (?,?,?,?,?,?,?,?)""",
+              region_code, deep_check_depth, notes, parallel_scan, brand_clarification)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
         (
             name,
             brand_name,
@@ -107,6 +110,7 @@ def create_project(
             deep_check_depth,
             notes,
             1 if parallel_scan else 0,
+            brand_clarification,
         ),
     )
     return int(cur.lastrowid)
@@ -121,7 +125,7 @@ def update_project(project_id: int, **fields: Any) -> None:
         fields["parallel_scan"] = 1 if fields["parallel_scan"] else 0
     allowed = {
         "name", "brand_name", "brand_aliases_json", "brand_domains_json",
-        "region_code", "deep_check_depth", "notes", "parallel_scan",
+        "region_code", "deep_check_depth", "notes", "parallel_scan", "brand_clarification",
     }
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:

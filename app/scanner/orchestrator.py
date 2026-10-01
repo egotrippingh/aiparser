@@ -767,10 +767,11 @@ async def _run_one(
             project["brand_aliases"], project["brand_domains"],
             card_text=extra.get("cards_text", ""),
         )
+        brand_clarification = project.get("brand_clarification") or ""
 
         llm_verdict = None
         llm_error_text = None
-        if should_call_llm(rule_verdict, llm_mode):
+        if brand_clarification or should_call_llm(rule_verdict, llm_mode):
             managed_check_id = (billing.canonical_check_id(settings, query["id"], service_id)
                                 if settings.get("managed_llm") else None)
             llm_verdict = await llm_mod.evaluate(
@@ -783,6 +784,7 @@ async def _run_one(
                 api_key=api_key,
                 model=llm_model,
                 managed_check_id=managed_check_id,
+                brand_clarification=brand_clarification,
             )
             if llm_verdict.error:
                 llm_error_text = llm_verdict.error
@@ -798,14 +800,15 @@ async def _run_one(
                 llm_verdict = None
 
         result = merge(rule_verdict, llm_verdict,
-                       confidence_threshold=settings["llm_confidence_threshold"])
+                       confidence_threshold=settings["llm_confidence_threshold"],
+                       semantic_authoritative=bool(brand_clarification))
 
         # Последний рубеж: если ни правила, ни LLM не нашли бренд в самом
         # ответе, идём на процитированные страницы и ищем его там. Только для
         # not_found — по найденному искать нечего, а на ошибках и лимитах
         # источников попросту нет.
         depth = int(project.get("deep_check_depth") or 0)
-        if result.status == "not_found" and depth > 0 and cap.sources:
+        if not brand_clarification and result.status == "not_found" and depth > 0 and cap.sources:
             hit = await deep_mod.check_sources(
                 cap.sources, project["brand_name"], project["brand_aliases"],
                 project["brand_domains"], depth=depth,
@@ -813,7 +816,7 @@ async def _run_one(
             if hit.found and hit.url:
                 result = with_deep(result, hit.url, hit.quote)
 
-        if llm_error_text and result.status == "not_found":
+        if llm_error_text and (brand_clarification or result.status == "not_found"):
             result.status = "error"
 
         # Спорная строка (правила молчат, а модель нашла) — второй, более
@@ -833,12 +836,16 @@ async def _run_one(
                 first_quote=result.evidence_quote or "",
                 query=query["text"],
                 managed_check_id=arbiter_check_id,
+                brand_clarification=brand_clarification,
             )
             if verdict.error:
                 # Арбитр не ответил — строка остаётся на ручную проверку, как
                 # было раньше. Молча принимать вердикт первой модели нельзя.
                 log.warning("Арбитр не ответил (%s, запрос %s): %s", service_id, query["id"], verdict.error)
                 ctl.emit("llm_error", service=service_id, query_id=query["id"], error=verdict.error)
+                if brand_clarification:
+                    result.status = "error"
+                    llm_error_text = verdict.error
             else:
                 result = with_arbiter(result, verdict)
 

@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS projects (
     brand_name          TEXT    NOT NULL,
     brand_aliases_json  TEXT    NOT NULL DEFAULT '[]',
     brand_domains_json  TEXT    NOT NULL DEFAULT '[]',
+    brand_clarification TEXT    NOT NULL DEFAULT '',
     region_code         TEXT,                       -- lr= для Яндекса, напр. '213' — Москва
     deep_check_depth    INTEGER NOT NULL DEFAULT 0, -- 0 = глубокая проверка источников выключена
     parallel_scan       INTEGER NOT NULL DEFAULT 0, -- 1 = ИИ-системы сканируются одновременно
