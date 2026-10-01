@@ -2,6 +2,12 @@
 
 Updated 2026-10-01. Repository: egotrippingh/aiparser; deployment branch: production.
 
+## Cost confirmation popovers — frontend release 2026-10-01
+
+- Manual scan and saved-answer recompute now show compact cost cards beside their action buttons instead of browser-native price confirmations. Each uses the current server quote and confirms explicitly before sending a mutation. Recompute retains the quoted date and result IDs; stale quotes are invalidated on edit, route/date change or dismissal. Double confirmation cannot send a second scan request. Unsaved-change navigation prompts remain unchanged. Billing API and agent are unchanged.
+- Frontend tests: 45 passed, build and diff check passed. A disposable Edge/SQLite browser check in `scripts/cost_popover_probe.py` verified 1.20/0.80 RUB server quotes, no paid POST before confirmation, one POST per confirmed action, Escape/Cancel, and popup bounds at desktop plus 300/320/360/390 px. Evidence screenshots and log are under ignored `build/qa/cost-popover-*`. Independent Sol review and Astra risk review reported no confirmed remaining defects after responsive, stale-request and focus repairs.
+- The release PR records CI and live-site verification. A real user scan or paid recompute was not run during UI verification.
+
 ## Brand clarifications and saved-answer recompute — delivered 2026.10.1.3
 
 - The exact `ivoryya` admin account has a gated project note, up to 2,000 characters. Saving it alone is free and affects future scan snapshots. When a note is present, each captured answer goes through the primary semantic model even if a quick rule matched; an arbiter can resolve disputes. New scans remain 120 kopeks per query and service. Other accounts cannot read, edit or use the feature.

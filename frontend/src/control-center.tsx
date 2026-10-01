@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { CalendarClock, ChevronRight, CircleHelp, Download, FolderOpen, Monitor, Pause, Play, Plus, Search, Settings2, ShieldCheck, Square, X } from "lucide-react"
 import { accountRequest as request } from "./account-api"
 import { SCAN_SERVICES, MONTH_DAYS } from "./lib/scan-preferences"
@@ -40,6 +40,21 @@ function ComputerSelect({ label, value, devices, change, required = false }: { l
   return <label>{label}<select required={required} value={value || ""} onChange={e => change(e.target.value || null)}><option value="">Выберите компьютер</option>{devices.map(d => <option key={d.device_id} value={d.device_id} disabled={d.revoked}>{d.name} · {d.revoked ? "отключён" : d.online ? "на связи" : "не в сети"}</option>)}</select></label>
 }
 
+function QuotePopover({ quote, item, note, action, above = false, trigger, afterConfirm, onCancel, onConfirm }: { quote: Quote; item: string; note: string; action: string; above?: boolean; trigger: RefObject<HTMLButtonElement | null>; afterConfirm?: RefObject<HTMLElement | null>; onCancel: () => void; onConfirm: () => void }) {
+  const dialog = useRef<HTMLDivElement>(null)
+  const confirmed = useRef(false)
+  useEffect(() => {
+    const triggerButton = trigger.current
+    dialog.current?.querySelector<HTMLButtonElement>("button")?.focus()
+    const dismiss = (event: KeyboardEvent) => { if (event.key === "Escape") onCancel() }
+    const outside = (event: MouseEvent) => { if (!dialog.current?.parentElement?.contains(event.target as Node)) onCancel() }
+    document.addEventListener("keydown", dismiss)
+    document.addEventListener("mousedown", outside)
+    return () => { document.removeEventListener("keydown", dismiss); document.removeEventListener("mousedown", outside); if (!confirmed.current) triggerButton?.focus() }
+  }, [onCancel, trigger])
+  return <div ref={dialog} className={`cc-quote-popover${above ? " above" : ""}`} role="dialog" aria-modal="false" aria-label={`Подтверждение: ${action}`}><p>К списанию: до <b>{money(quote.total_kopeks)}</b></p><small>{quote.count} {item} × {money(quote.unit_kopeks)} · доступно {money(quote.available_kopeks)}</small><p className="cc-quote-note">{note}</p><div><button className="cc-quote-cancel" onClick={onCancel}>Отменить</button><button className="cc-button primary" onClick={() => { confirmed.current = true; onConfirm(); requestAnimationFrame(() => afterConfirm?.current?.focus()) }}>{action}</button></div></div>
+}
+
 export function ControlCenter({ token, downloadUrl, brandClarificationsEnabled, onDirtyChange }: { token: string; downloadUrl: string | null; brandClarificationsEnabled: boolean; onDirtyChange: (dirty: boolean) => void }) {
   const [route, setRoute] = useState(routeNow)
   const editorDirty = useRef(false), editorProject = useRef(""), previousHash = useRef(location.hash), previousPosition = useRef(0), restoringHistory = useRef(false)
@@ -55,6 +70,12 @@ export function ControlCenter({ token, downloadUrl, brandClarificationsEnabled, 
   const [connectId, setConnectId] = useState(() => sessionStorage.getItem("aimt.connect") || "")
   const [connectName, setConnectName] = useState("")
   const [connected, setConnected] = useState(false)
+  const [scanQuote, setScanQuote] = useState<{projectId:string; quote:Quote}|null>(null)
+  const scanButton = useRef<HTMLButtonElement>(null)
+  const scanQuoteRequest = useRef(0)
+  const scanSubmitting = useRef(false)
+  const projectHeading = useRef<HTMLHeadingElement>(null)
+  const dismissScanQuote = useCallback(() => { scanQuoteRequest.current++; setScanQuote(null) }, [])
   const refresh = useCallback(async () => {
     const [p, d, r] = await Promise.all([request<Project[]>("/control/projects", token), request<Device[]>("/control/devices", token), request<Run[]>("/control/runs", token)])
     setProjects(p); setDevices(d); setRuns(r); setLoading(false)
@@ -62,6 +83,7 @@ export function ControlCenter({ token, downloadUrl, brandClarificationsEnabled, 
   const noteEditorDirty = useCallback((dirty: boolean, projectId: string) => {
     editorDirty.current = dirty
     if (dirty) editorProject.current = projectId
+    if (dirty) { scanQuoteRequest.current++; setScanQuote(null) }
     onDirtyChange(dirty)
   }, [onDirtyChange])
   useEffect(() => {
@@ -101,6 +123,7 @@ export function ControlCenter({ token, downloadUrl, brandClarificationsEnabled, 
       }
       previousHash.current = next
       previousPosition.current = nextPosition
+      scanQuoteRequest.current++; setScanQuote(null)
       setRoute(routeNow())
     }
     const clearRestore = () => {
@@ -126,10 +149,17 @@ export function ControlCenter({ token, downloadUrl, brandClarificationsEnabled, 
     try { await callback(); await refresh() } catch (e) { setError(e instanceof Error ? e.message : "Не удалось выполнить действие") }
     finally { setBusy("") }
   }
-  async function launch(projectId: string) {
+  async function quoteLaunch(projectId: string) {
     if (editorDirty.current && editorProject.current === projectId) throw new Error("Сначала сохраните изменения проекта перед запуском проверки")
-    const quote = await request<Quote>(`/control/projects/${projectId}/quote`, token)
-    if (!window.confirm(`Запустить ${quote.count} проверок? Максимальное списание: ${money(quote.total_kopeks)} (${money(quote.unit_kopeks)} за запрос в одном ИИ-сервисе). Доступно: ${money(quote.available_kopeks)}. Ошибки и пропуски могут уменьшить итоговую сумму.`)) return
+    const requestVersion = ++scanQuoteRequest.current; setScanQuote(null)
+    let quote: Quote
+    try { quote = await request<Quote>(`/control/projects/${projectId}/quote`, token) } catch (error) { if (requestVersion === scanQuoteRequest.current) throw error; return }
+    if (requestVersion !== scanQuoteRequest.current) return
+    if (!quote.count) throw new Error("Нет проверок для запуска")
+    if (quote.available_kopeks < quote.total_kopeks) throw new Error(`Для запуска нужно до ${money(quote.total_kopeks)}. Сейчас доступно ${money(quote.available_kopeks)}.`)
+    setScanQuote({projectId, quote})
+  }
+  async function launch(projectId: string, quote: Quote) {
     await request(`/control/projects/${projectId}/runs`, token, {request_id:uuid(), revision:quote.revision})
   }
   async function approve() {
@@ -163,8 +193,8 @@ export function ControlCenter({ token, downloadUrl, brandClarificationsEnabled, 
       {error && <div className="cc-alert" role="alert"><span>{error}</span><button aria-label="Закрыть сообщение" onClick={() => setError("")}><X size={18}/></button></div>}
       {area === "project" && projectId ? <>
         <a href="#/projects" className="cc-back">Все проекты</a>
-        <div className="cc-heading"><div><span className="cc-eyebrow">Проект</span><h1>{projectId === "new" ? "Новый проект" : selected?.name || "Проект"}</h1></div>
-          {selected && <button className="cc-button primary" disabled={!!busy || !selected.device_id || !selected.active_queries || activeRuns.some(r => r.project_id === projectId)} onClick={() => action(projectId, () => launch(projectId))}><Play size={16} />Запустить проверку</button>}</div>
+        <div className="cc-heading"><div><span className="cc-eyebrow">Проект</span><h1 ref={projectHeading} tabIndex={-1}>{projectId === "new" ? "Новый проект" : selected?.name || "Проект"}</h1></div>
+          {selected && <span className="cc-quote-anchor"><button ref={scanButton} className="cc-button primary" aria-haspopup="dialog" aria-expanded={scanQuote?.projectId === projectId} disabled={!!busy || !selected.device_id || !selected.active_queries || activeRuns.some(r => r.project_id === projectId)} onClick={() => action(projectId, () => quoteLaunch(projectId))}><Play size={16} />Запустить проверку</button>{scanQuote?.projectId === projectId && <QuotePopover quote={scanQuote.quote} item="проверок" note="Ошибки и пропуски могут уменьшить итоговую сумму." action="Запустить" trigger={scanButton} afterConfirm={projectHeading} onCancel={dismissScanQuote} onConfirm={() => { if (scanSubmitting.current) return; scanSubmitting.current = true; const pending = scanQuote; setScanQuote(null); void action(projectId, () => launch(projectId, pending.quote)).finally(() => { scanSubmitting.current = false }) }}/>}</span>}</div>
         {selected && <p className="cc-subline">{selected.active_queries} запросов · {selected.config.services.length} системы · {selected.active_queries * selected.config.services.length} проверок за запуск · {devices.find(d => d.device_id === selected.device_id)?.name || "Компьютер не выбран"}</p>}
         <nav className="cc-tabs" aria-label="Разделы проекта">{[ ["queries", "Промптовая база"], ["report", "Упоминаемость"], ["settings", "Настройки и расписание"] ].map(([tab, label]) => <a key={tab} aria-current={(projectTab || "report") === tab ? "page" : undefined} href={`#/project/${projectId}/${tab}`}>{label}</a>)}</nav>
         {projectId !== "new" && (projectTab || "report") === "report" ? <>{shownRuns.some(r => !terminal(r)) && runRows(shownRuns.filter(r => !terminal(r)))}<ReportView key={projectId} token={token} projectId={projectId}/></>
@@ -199,10 +229,16 @@ function ProjectEditor({token,projectId,tab,devices,brandClarificationsEnabled,s
   const [error,setError] = useState("")
   const [fromDate,setFromDate] = useState("")
   const [recomputeMessage,setRecomputeMessage] = useState("")
+  const [recomputeQuote,setRecomputeQuote] = useState<{quote:RecomputeQuote; fromDate:string}|null>(null)
   const dirtyRef = useRef(false), busyRef = useRef(false), mounted = useRef(true)
+  const recomputeButton = useRef<HTMLButtonElement>(null)
+  const recomputeQuoteRequest = useRef(0)
+  const recomputeHeading = useRef<HTMLHeadingElement>(null)
+  const dismissRecomputeQuote = useCallback(() => { recomputeQuoteRequest.current++; setRecomputeQuote(null) }, [])
   useEffect(() => () => { mounted.current = false }, [])
   useEffect(() => { onDirtyChange(dirty, projectId); return () => onDirtyChange(false, projectId) }, [dirty, onDirtyChange, projectId])
   useEffect(() => {if(projectId !== "new"){let alive=true;request<Project>(`/control/projects/${projectId}`,token).then(p=>{if(alive)setProject(p)}).catch(e=>{if(alive)setError(e.message)});return()=>{alive=false}}},[projectId,token])
+  useEffect(() => { recomputeQuoteRequest.current++; setRecomputeQuote(null) }, [fromDate, dirty, tab])
   useEffect(() => {const prevent=(e:BeforeUnloadEvent)=>{if(dirty){e.preventDefault();e.returnValue=""}};window.addEventListener("beforeunload",prevent);return()=>window.removeEventListener("beforeunload",prevent)},[dirty])
   useEffect(() => {
     const guard = (event: MouseEvent) => {
@@ -218,7 +254,8 @@ function ProjectEditor({token,projectId,tab,devices,brandClarificationsEnabled,s
     document.addEventListener("click", guard, true)
     return () => document.removeEventListener("click", guard, true)
   }, [projectId])
-  function change(next:Project){if(busyRef.current)return;dirtyRef.current=true;onDirtyChange(true,projectId);setProject(next);setDirty(true);setMessage("")}
+  function change(next:Project){if(busyRef.current)return;recomputeQuoteRequest.current++;setRecomputeQuote(null);dirtyRef.current=true;onDirtyChange(true,projectId);setProject(next);setDirty(true);setMessage("")}
+  function changeFromDate(value: string){recomputeQuoteRequest.current++;setRecomputeQuote(null);setFromDate(value)}
   async function save(){if(!project)return;busyRef.current=true;setBusy(true);setError("");try{
     const {revision,name,brand_name,device_id,schedule,queries}=project
     const config={...project.config,speed_profile:"fast"}
@@ -227,14 +264,24 @@ function ProjectEditor({token,projectId,tab,devices,brandClarificationsEnabled,s
     dirtyRef.current=false;onDirtyChange(false,projectId);setProject(next);setDirty(false);setMessage("Сохранено. Текущая проверка использует настройки на момент запуска.");await saved()
     if(mounted.current&&projectId==="new")location.hash=`/project/${next.id}/queries`
   }catch(e){if(mounted.current)setError(e instanceof Error?e.message:"Не удалось сохранить проект")}finally{busyRef.current=false;if(mounted.current)setBusy(false)}}
-  async function recompute(){
+  async function quoteRecompute(){
     if (!project || projectId === "new" || !fromDate || dirty || busyRef.current) return
+    const quotedDate = fromDate
+    const requestVersion = ++recomputeQuoteRequest.current; setRecomputeQuote(null)
     busyRef.current=true;setBusy(true);setError("");setRecomputeMessage("")
     try {
-      const quote=await request<RecomputeQuote>(`/control/projects/${projectId}/recompute/quote?from_date=${encodeURIComponent(fromDate)}`,token)
-      if (!quote.count) {setRecomputeMessage(`С ${fromDate} нет ответов для пересчёта.${quote.skipped ? ` Без достаточных сохранённых данных: ${quote.skipped}.` : ""}`);return}
+      const quote=await request<RecomputeQuote>(`/control/projects/${projectId}/recompute/quote?from_date=${encodeURIComponent(quotedDate)}`,token)
+      if (requestVersion !== recomputeQuoteRequest.current) return
+      if (!quote.count) {setRecomputeMessage(`С ${quotedDate} нет ответов для пересчёта.${quote.skipped ? ` Без достаточных сохранённых данных: ${quote.skipped}.` : ""}`);return}
       if (quote.available_kopeks < quote.total_kopeks) {setError(`Для пересчёта ${quote.count} ответов нужно до ${money(quote.total_kopeks)}. Сейчас доступно ${money(quote.available_kopeks)}. Пополните баланс или выберите более позднюю дату.`);return}
-      if (!window.confirm(`Пересчитать с ${fromDate} ${quote.count} сохранённых ответов по ${money(quote.unit_kopeks)} за ответ? Максимальное списание: ${money(quote.total_kopeks)}. Без достаточных сохранённых данных: ${quote.skipped} — пропускаются бесплатно. Новые проверки ИИ-сервисов не запускаются. Если ответ не удастся проанализировать, деньги за него не спишутся.`)) return
+      setRecomputeQuote({quote, fromDate: quotedDate})
+    } catch(e) {if(mounted.current && requestVersion === recomputeQuoteRequest.current)setError(e instanceof Error?e.message:"Не удалось получить стоимость пересчёта")}
+    finally {busyRef.current=false;if(mounted.current)setBusy(false)}
+  }
+  async function recompute({quote, fromDate}: {quote:RecomputeQuote; fromDate:string}){
+    if (busyRef.current) return
+    busyRef.current=true;setBusy(true);setError("");setRecomputeMessage("")
+    try {
       let done=0, skipped=0, failed=0, charged=0
       for (const id of quote.result_ids) {
         if (!mounted.current) break
@@ -252,7 +299,7 @@ function ProjectEditor({token,projectId,tab,devices,brandClarificationsEnabled,s
         if (mounted.current) setRecomputeMessage(`Пересчитано ${done} из ${quote.count}; списано ${money(charged)}.`)
       }
       if (mounted.current) setRecomputeMessage(`Готово: пересчитано ${done}, пропущено ${skipped + quote.skipped}, ошибок ${failed}. Списано ${money(charged)}. Откройте «Упоминаемость», чтобы увидеть обновлённые результаты и графики.`)
-    } catch(e) {if(mounted.current)setError(e instanceof Error?e.message:"Не удалось получить стоимость пересчёта")}
+    } catch(e) {if(mounted.current)setError(e instanceof Error?e.message:"Не удалось пересчитать ответы")}
     finally {busyRef.current=false;if(mounted.current)setBusy(false)}
   }
   if(!project)return error?<p className="cc-alert" role="alert">{error}</p>:<div className="cc-skeleton"/>
@@ -266,6 +313,6 @@ function ProjectEditor({token,projectId,tab,devices,brandClarificationsEnabled,s
     </>}
     </fieldset>
     <div className="cc-savebar"><span role="status">{message || (dirty?"Есть несохранённые изменения":"Все изменения сохранены")}</span><button className="cc-button primary" disabled={busy||(!dirty&&projectId!=="new")||!project.name.trim()||!project.brand_name.trim()||!project.config.services.length||!project.schedule.month_days.length||(project.schedule.enabled&&!project.schedule.device_id)} onClick={save}><Settings2 size={16}/>{busy?"Сохраняем…":"Сохранить"}</button></div>
-    {brandClarificationsEnabled && tab === "settings" && projectId !== "new" && <section className="cc-form-section"><div><h2>Пересчитать старые ответы</h2><p>Действует только на сохранённые ответы этого проекта. Новые запросы к поисковым системам не отправляются.</p></div><div className="cc-fields"><label>Начиная с даты включительно<input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)}/></label><p className="cc-hint">Стоимость — 0,80 ₽ за каждый подходящий сохранённый ответ. Старые даты до выбранной не затрагиваются. Перед запуском покажем верхнюю границу списания. Если уйти со страницы, обработка остановится после текущего ответа; её можно продолжить без повторной оплаты уже готовых ответов.</p><button className="cc-button" disabled={busy||dirty||!fromDate||!project.config.brand_clarification?.trim()} onClick={recompute}>Пересчитать ответы с этой даты</button>{dirty && <p className="cc-hint">Сначала сохраните уточнение.</p>}{recomputeMessage && <p role="status">{recomputeMessage}</p>}</div></section>}
+    {brandClarificationsEnabled && tab === "settings" && projectId !== "new" && <section className="cc-form-section"><div><h2 ref={recomputeHeading} tabIndex={-1}>Пересчитать старые ответы</h2><p>Действует только на сохранённые ответы этого проекта. Новые запросы к поисковым системам не отправляются.</p></div><div className="cc-fields"><label>Начиная с даты включительно<input type="date" value={fromDate} onChange={e=>changeFromDate(e.target.value)}/></label><p className="cc-hint">Стоимость — 0,80 ₽ за каждый подходящий сохранённый ответ. Старые даты до выбранной не затрагиваются. Перед запуском покажем верхнюю границу списания. Если уйти со страницы, обработка остановится после текущего ответа; её можно продолжить без повторной оплаты уже готовых ответов.</p><span className="cc-quote-anchor"><button ref={recomputeButton} className="cc-button" aria-haspopup="dialog" aria-expanded={!!recomputeQuote} disabled={busy||dirty||!fromDate||!project.config.brand_clarification?.trim()} onClick={quoteRecompute}>Пересчитать ответы с этой даты</button>{recomputeQuote && <QuotePopover quote={recomputeQuote.quote} item="ответов" note={`Без достаточных данных: ${recomputeQuote.quote.skipped} — бесплатно. Новые проверки ИИ-сервисов не запускаются.`} action="Пересчитать" above trigger={recomputeButton} afterConfirm={recomputeHeading} onCancel={dismissRecomputeQuote} onConfirm={() => { const pending = recomputeQuote; setRecomputeQuote(null); void recompute(pending) }}/>}</span>{dirty && <p className="cc-hint">Сначала сохраните уточнение.</p>}{recomputeMessage && <p role="status">{recomputeMessage}</p>}</div></section>}
   </div>
 }
