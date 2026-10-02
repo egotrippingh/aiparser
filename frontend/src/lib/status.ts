@@ -26,7 +26,7 @@ export const STATUS: Record<Status, StatusMeta> = {
     soft: "var(--ok-soft)",
   },
   not_found: {
-    sign: "✗",
+    sign: "—",
     title: "Упоминаний нет",
     color: "var(--no)",
     soft: "var(--no-soft)",
@@ -56,10 +56,10 @@ export const STATUS: Record<Status, StatusMeta> = {
     soft: "var(--bad-soft)",
   },
   limit_reached: {
-    sign: "◷",
+    sign: "!",
     title: "Лимит тарифа — запрос не проверен",
-    color: "var(--warn)",
-    soft: "var(--warn-soft)",
+    color: "var(--bad)",
+    soft: "var(--bad-soft)",
   },
 }
 

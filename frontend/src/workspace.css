@@ -74,14 +74,16 @@
 .report-matrix tbody th{font-weight:400;line-height:1.45;overflow-wrap:anywhere}
 .report-matrix tbody th small{display:block;font-size:10px;color:var(--air-muted);margin-top:3px}
 .report-matrix tbody tr:hover :is(td,th){background:var(--air-panel)}
-.report-cell{display:block;width:100%;min-width:48px;min-height:30px;border:1px solid transparent;border-radius:5px;font-size:17px;line-height:1;background:var(--air-panel);color:var(--air-muted);cursor:pointer}
+.report-matrix tbody td{padding:0}
+.report-cell{display:block;width:100%;min-width:48px;min-height:36px;border:1px solid transparent;border-radius:0;font-size:17px;font-weight:600;line-height:1;background:var(--air-panel);color:var(--air-muted);cursor:pointer}
 .report-cell:hover{border-color:currentColor;filter:brightness(1.2)}
-.report-cell.found{color:var(--air-success);background:var(--air-success-bg)}
-.report-cell.issue{color:var(--air-warning);background:var(--air-warning-bg)}
+.report-cell.found,.report-legend .found,.report-matrix tbody td:has(.report-cell.found){color:var(--air-success);background:var(--air-success-bg)}
+.report-cell.absent,.report-legend .absent,.report-matrix tbody td:has(.report-cell.absent){color:var(--air-warning);background:var(--air-warning-bg)}
+.report-cell.issue,.report-legend .issue,.report-matrix tbody td:has(.report-cell.issue){color:var(--air-danger);background:var(--air-danger-bg)}
 .report-cell.skipped{background:transparent;color:var(--air-quiet)}
-.report-no-data{color:var(--air-quiet);font-size:20px}
+.report-no-data{display:grid;place-items:center;min-height:36px;color:var(--air-quiet);font-size:17px}
 .report-legend{display:flex;flex-wrap:wrap;gap:10px 20px;margin-top:12px;font-size:11px;color:var(--cc-muted)}
-.report-legend .found{color:var(--air-success)}.report-legend .issue{color:var(--air-warning)}
+.report-legend b{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:3px;margin-right:4px}
 .report-pagination{margin-top:20px}
 .ws-dialog{color:var(--air-text);background:var(--air-bg);border:1px solid var(--air-line-strong);border-radius:14px;padding:24px;width:min(600px,calc(100vw - 32px));max-height:calc(100dvh - 40px);overflow:auto;box-sizing:border-box;color-scheme:dark}
 .ws-dialog::backdrop{background:color-mix(in srgb, var(--air-bg) 80%, transparent);backdrop-filter:blur(3px)}
