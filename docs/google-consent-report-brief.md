@@ -2,7 +2,7 @@
 
 User request (2026-10-02): accept Google cookies automatically so searches can run; display **Не проверялось** when a service was not checked on a selected date, without presenting an older result as current.
 
-Status: implementation and deterministic checks target Windows agent **2026.10.2.2**; publication and live consent-banner verification remain pending. Evidence: ignored `build/qa/google-fix-final-20261002-160857`.
+Status: website/API revision `556dc031e17a384ac4d6914b0a187e0af45c7644` is deployed through PR #23; readiness, production CI and actual backup/isolated-restore logs passed. Windows **2026.10.2.2** is built and its isolated installation, bundled-browser self-test, same-version reinstall and data-preserving uninstall passed. Windows **2026.10.2.2** is published; complete installer/ZIP hashes and sizes match via public HTTPS from the VPS, and **2026.10.2.1** is retained for rollback. Live consent-banner verification remains pending. Evidence: ignored `build/qa/google-fix-final-20261002-160857`.
 
 Final validation: Google 14, overview 23, local exports 7, server reports 5 and frontend 50 tests passed; scan benchmark self-check, lint and tracked-web build passed. A fixed UTC-clock regression removes a test-only midnight ambiguity. Independent Sol/Astra reviews found no remaining actionable findings. Isolated browser QA retained the old September 26 GPT login error in the historical period, then showed only three **Не проверялось** cells and zero result buttons for GPT on October 2. Proof: ignored `build/qa/google-fix-ui-proof.json`, `google-fix-gpt-table.jpg`.
 
@@ -19,3 +19,7 @@ Acceptance: old GPT auth-required results remain only on their historical date; 
 Limitations: the current inspected Google browser profile has no consent banner, so actual consent dismissal in the Windows agent requires later live confirmation. This change does not repair historical failed scan results or stop the ongoing Geosoft run.
 
 The report UI sends its local calendar day as `date_to`; direct API clients that omit it retain the server UTC default.
+
+Native evidence: ignored `build/qa/google-fix-native-source.json`, `google-fix-portable-proof.json`, `google-fix-installed-lifecycle.log`, `google-fix-installed-runtime.json`. Checks cover an isolated same-version reinstall, not an upgrade from a real older user installation.
+
+Final publication evidence: ignored `build/qa/google-fix-release-evidence.json`, `google-fix-public-artifacts-vps.json`, `google-fix-publication.log`. Installer: 469,993,766 bytes, SHA-256 `6828682b02100193da89ab7ad87ab5160a5f391fa03a55872fd78a0722667920`; portable: 121,113,130 bytes, SHA-256 `5528d95120da8007eb1fffa3f354e65311bd9c696f0355463e8bb894e96dcfb6`.

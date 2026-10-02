@@ -404,12 +404,13 @@ export function OverviewTable({
                   {dates.map((d) =>
                     cols.map((s, i) => {
                       const cell = r.cells[d]?.[s.id]
-                      const meta = statusMeta(cell?.status)
+                      const resultMeta = statusMeta(cell?.status)
+                      const meta = cell?.needs_review ? statusMeta("error") : resultMeta
                       const prev = prevOf[d]
                       const change = prev ? cellChange(r.cells[prev]?.[s.id], cell) : null
                       const label = cell
                         ? [
-                            `${s.name}, ${shortDate(d)}: ${meta.title}`,
+                            `${s.name}, ${shortDate(d)}: ${resultMeta.title}`,
                             cell.needs_review ? "требует проверки" : "",
                             change && prev ? `${CHANGE[change].word} (к ${shortDate(prev)})` : "",
                           ]
@@ -447,13 +448,6 @@ export function OverviewTable({
                                   {CHANGE[change].sign}
                                 </span>
                               ) : null}
-                              {cell.needs_review ? (
-                                <span
-                                  aria-hidden="true"
-                                  className="absolute top-0.5 right-0.5 size-1 rounded-full"
-                                  style={{ background: "var(--warn)" }}
-                                />
-                              ) : null}
                             </button>
                           ) : (
                             <span
@@ -464,7 +458,7 @@ export function OverviewTable({
                               title={label}
                               aria-label={label}
                             >
-                              Не проверялось
+                              —
                             </span>
                           )}
                         </td>
@@ -501,7 +495,7 @@ export function OverviewTable({
           </Button>
         ) : null}
         <span className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">
-          {(["found", "not_found", "limit_reached", "error"] as const).map((st) => {
+          {(["found", "not_found", "skipped", "error"] as const).map((st) => {
             const m = statusMeta(st)
             return (
               <span key={st} className="flex items-center gap-1.5">
@@ -512,10 +506,11 @@ export function OverviewTable({
                 >
                   {m.sign}
                 </span>
-                {m.title}
+                {st === "error" ? "Требует внимания" : m.title}
               </span>
             )
           })}
+          <span className="flex items-center gap-1.5"><span aria-hidden="true" className="text-muted-foreground/50">—</span>Не проверялось</span>
           {prevDate
             ? (["gained", "lost"] as const).map((c) => (
                 <span key={c} className="flex items-center gap-1.5">
