@@ -18,9 +18,10 @@ Updated 2026-10-02. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 - Optional cloud error reporting covers server/local API, scanner, control synchronization, background scheduler, payment reconciliation, recompute and five React roots. Typed CAPTCHA/auth/confirmed quota/cancellation and expected client HTTP statuses are filtered.
 - Only approved exception types, project stack locations, version/environment, fixed tags and scoped internal IDs enter error payloads. A final transport gate drops other envelope types and late SDK metadata; browser IP inference is disabled.
-- Account/DSNs are not available. Collection is disabled until configured; cloud ingestion, source-map upload and a published Windows update remain unverified. See [setup and limitations](docs/sentry.md).
+- Organization `airate` and projects `airate-server`, `airate-agent`, `airate-browser` are configured for errors only. Public DSNs are saved locally under ignored `build/qa/`; production and released agents have not been activated. See [setup and limitations](docs/sentry.md).
 - Broad Python checks: 104 passed; after review repairs, 17 telemetry/recompute checks passed. Frontend: 48 tests, lint and build passed. Final Windows portable build and EXE self-test passed. Independent Sol/Astra rechecks found no remaining verified defect. Offline checks use actual SDK envelope serialization. Evidence: ignored `build/qa/sentry-final-20261002-01`, `sentry-risk-regressions-20261002.log`, `sentry-native-final-20261002.log`.
-- Docker image execution was not checked locally because its daemon is unavailable. Live cloud ingestion, private source maps, installed-agent upgrade and production activation remain unverified.
+- Actual integration code at `20652ab` sent one synthetic error to each cloud project; all three appeared in Sentry in environment `test`. Browser transport returned HTTP 200 and excluded the synthetic secret. Evidence: ignored `build/qa/sentry-cloud-projects.jpg` and smoke scripts. PR [#22](https://github.com/egotrippingh/aiparser/pull/22) is open; Tests and build passed on the implementation revision.
+- Docker image execution was not checked locally because its daemon is unavailable. Private source maps, installed-agent upgrade and production activation remain unverified.
 
 ## Other open checks
 
@@ -30,7 +31,7 @@ Updated 2026-10-02. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Review the Sentry PR into `production`. Create a Sentry organization and Python server, Python agent and React projects; configure their public DSNs. Install the Compose change via the existing operator process, deploy the reviewed release and verify one deliberate test error per component. Bump the agent version before publishing its next release.
+Apply the reviewed Sentry PR into `production`, install the Compose change via the existing operator process and configure the prepared DSNs. Verify collection on the deployed release. Bump the agent version and include its DSN before publishing the next Windows release; then verify the installed agent.
 
 ## References
 
