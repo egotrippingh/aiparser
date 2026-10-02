@@ -10,7 +10,8 @@ import { Loader2, Table2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { errText } from "@/lib/api"
+import { errText, HttpError } from "@/lib/api"
+import { capture } from "@/telemetry"
 import { useApp } from "@/store/app-store"
 
 function fileName(resp: Response, fallback: string): string {
@@ -34,7 +35,7 @@ export function MentionsExportButton({ params }: { params: string }) {
       const resp = await fetch(`/api/projects/${projectId}/mentions.xlsx?${params}`)
       if (!resp.ok) {
         const detail = await resp.json().catch(() => null)
-        throw new Error(detail?.detail || `Не удалось собрать Excel (HTTP ${resp.status})`)
+        throw new HttpError(detail?.detail || `Не удалось собрать Excel (HTTP ${resp.status})`, resp.status)
       }
       const blob = await resp.blob()
       const href = URL.createObjectURL(blob)
@@ -47,6 +48,7 @@ export function MentionsExportButton({ params }: { params: string }) {
       setTimeout(() => URL.revokeObjectURL(href), 5000)
       toast.success("Таблица упоминаемости выгружена")
     } catch (e) {
+      capture(e, "local_api")
       toast.error(errText(e))
     } finally {
       setBusy(false)

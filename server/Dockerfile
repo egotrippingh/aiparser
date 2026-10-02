@@ -4,6 +4,7 @@ WORKDIR /srv
 COPY server/requirements.txt /srv/server/requirements.txt
 RUN pip install --no-cache-dir -r /srv/server/requirements.txt
 COPY server /srv/server
+COPY telemetry.py /srv/telemetry.py
 COPY alembic.ini /srv/alembic.ini
 COPY web /srv/web
 

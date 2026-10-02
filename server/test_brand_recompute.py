@@ -1,8 +1,11 @@
 import json
+from contextlib import contextmanager
 from datetime import timedelta
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from sqlalchemy import event
+from sqlalchemy.orm import Session
 
 from server.ai import AIError
 from server.app import create_app
@@ -10,6 +13,21 @@ from server.models import Check, CloudResult, ControlProject, LedgerEntry, Scree
 
 
 FEATURE_USER = "919cc8bbbdc74156bb21e9020a99564a"
+
+
+@contextmanager
+def no_sql_after_rollback():
+    def rolled_back(session, previous):
+        session.info["failed_request_rolled_back"] = True
+    def forbid_orm(state):
+        assert not state.session.info.get("failed_request_rolled_back"), "Error reporting must not reload expired ORM state"
+    event.listen(Session, "after_soft_rollback", rolled_back)
+    event.listen(Session, "do_orm_execute", forbid_orm)
+    try:
+        yield
+    finally:
+        event.remove(Session, "after_soft_rollback", rolled_back)
+        event.remove(Session, "do_orm_execute", forbid_orm)
 
 
 class FakeAI:
@@ -97,8 +115,9 @@ def test_recompute_uses_latest_visible_answer_once_and_keeps_failure_free(tmp_pa
             brand_name="Refprom", query_text="Refprom review", group_tag="", service="chatgpt", scan_date=today,
             status="found", answer_text="answer", evidence_quote="answer", sources_json="[]"))
         db.commit(); result_id = db.query(CloudResult).one().id
-    failed = client_fail.post(f"/api/v1/control/projects/{failed_project['id']}/recompute/{result_id}", headers=fail_headers,
-                              json={"from_date": today, "revision": failed_project["revision"]})
+    with no_sql_after_rollback():
+        failed = client_fail.post(f"/api/v1/control/projects/{failed_project['id']}/recompute/{result_id}", headers=fail_headers,
+                                  json={"from_date": today, "revision": failed_project["revision"]})
     assert failed.json()["status"] == "error"
     with fail_sessions() as db:
         assert db.get(Wallet, FEATURE_USER).balance_kopeks == 1000
@@ -242,8 +261,9 @@ def test_recompute_uses_saved_screenshot_and_full_text(tmp_path, monkeypatch):
             sources_json=json.dumps(["x" * 4000 + "source-at-end"]), mention_types_json='["card"]', check_id="check")
         db.add(row); db.commit(); result_id = row.id
     storage.fail = True
-    failed = client.post(f"/api/v1/control/projects/{project['id']}/recompute/{result_id}", headers=headers,
-                         json={"from_date": today, "revision": project["revision"]})
+    with no_sql_after_rollback():
+        failed = client.post(f"/api/v1/control/projects/{project['id']}/recompute/{result_id}", headers=headers,
+                             json={"from_date": today, "revision": project["revision"]})
     assert failed.json()["charged_kopeks"] == 0 and failed.json()["status"] == "error"
     storage.fail = False
     result = client.post(f"/api/v1/control/projects/{project['id']}/recompute/{result_id}", headers=headers,

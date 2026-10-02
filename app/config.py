@@ -84,9 +84,15 @@ PORT = 8756
 # Адрес только для выпуска, подключённого к платному серверу. Локальный API
 # остаётся на 127.0.0.1; наружу идут лишь запросы авторизации и биллинга.
 _account_url_file = BASE_DIR / "account-url.txt"
+_sentry_dsn_file = BASE_DIR / "sentry-dsn.txt"
 ACCOUNT_URL = (os.environ.get("AIPARSER_ACCOUNT_URL") or
                (_account_url_file.read_text(encoding="utf-8-sig").strip()
                 if _account_url_file.exists() else "")).rstrip("/")
+SENTRY_DSN = (os.environ.get("AIPARSER_SENTRY_DSN") or
+              "")
+if not SENTRY_DSN:
+    try: SENTRY_DSN = _sentry_dsn_file.read_text(encoding="utf-8-sig").strip()
+    except (OSError, UnicodeError): SENTRY_DSN = ""
 if ACCOUNT_URL and not (ACCOUNT_URL.startswith("https://") or
                         ACCOUNT_URL.startswith("http://127.0.0.1:") or
                         ACCOUNT_URL.startswith("http://localhost:")):

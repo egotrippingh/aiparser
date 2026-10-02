@@ -25,6 +25,7 @@ from app.scanner.adapters.base import (
     AdapterError,
     AuthRequiredError,
     ServiceUnavailableError,
+    ProviderQuotaError,
     Capture,
     ReadyState,
     dump_debug_html,
@@ -48,7 +49,7 @@ class PerplexityAdapter:
 
     async def _raise_if_blocked(self, page) -> None:
         if await page.get_by_role("heading", name=_LIMIT_HEADING).first.is_visible():
-            raise ServiceUnavailableError("Perplexity: достигнут лимит бесплатных поисков. Дождитесь восстановления доступа в сервисе, затем запустите новую проверку проекта.")
+            raise ProviderQuotaError("Perplexity: достигнут лимит бесплатных поисков. Дождитесь восстановления доступа в сервисе, затем запустите новую проверку проекта.")
         if await page.get_by_text(_S["signin_wall_dialog_text"]).first.is_visible():
             raise AuthRequiredError("Perplexity потребовал вход после отправки запроса")
 

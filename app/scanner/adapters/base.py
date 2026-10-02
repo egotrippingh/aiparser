@@ -307,6 +307,10 @@ class ServiceUnavailableError(AdapterError):
     """
 
 
+class ProviderQuotaError(ServiceUnavailableError):
+    """A provider showed its explicit quota wall; absence of UI remains unexpected."""
+
+
 class CaptchaError(AdapterError):
     """Антибот показал капчу/интерстишл вместо результата (у Google это редирект
     на google.com/sorry/ — живой прогон 28.08.2026 поймал это дважды подряд на

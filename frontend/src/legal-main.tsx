@@ -4,6 +4,7 @@ import { Brand } from "./brand"
 import { SiteFooter, SUPPORT_URL } from "./site-footer"
 import { privacy, terms } from "./legal-content"
 import "./legal.css"
+import { initTelemetry, rootOptions } from "./telemetry"
 
 const documentContent = window.location.pathname.startsWith("/privacy") ? privacy : terms
 
@@ -26,4 +27,4 @@ function LegalPage() {
   </>
 }
 
-createRoot(document.getElementById("root")!).render(<StrictMode><LegalPage /></StrictMode>)
+initTelemetry().finally(() => createRoot(document.getElementById("root")!, rootOptions).render(<StrictMode><LegalPage /></StrictMode>))

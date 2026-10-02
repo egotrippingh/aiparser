@@ -5,6 +5,7 @@ import "./agent-view.css"
 import { BrowserInstallProgress, type InstallProgress } from "./components/browser-install-progress"
 import { sessionLabel, sessionReady, type ServiceSession } from "./lib/service-auth"
 import { agentStatus } from "./lib/agent-status"
+import { capture, initTelemetry, rootOptions } from "./telemetry"
 
 type Release = {version:string;installer:{size_bytes:number;sha256:string};portable:{size_bytes:number;sha256:string}}
 type UpdateStatus = {current:string;portable:boolean;checking:boolean;applying?:boolean;progress?:{stage:string;downloaded_bytes?:number;total_bytes?:number}|null;error:string;release:Release|null}
@@ -14,9 +15,10 @@ type State = { configured: boolean; connected: boolean; has_token: boolean; name
   scan: {done:number;total:number;state?:string}|null; job?: {project_name:string;desired_state?:string}|null;
   browser: {installed:boolean;installing:boolean;install_error:string|null;install_progress?:InstallProgress|null;services:Record<string,ServiceSession>}; update:UpdateStatus }
 const services: Record<string,string> = {google_aio:"Google AI Overview",chatgpt:"ChatGPT",perplexity:"Perplexity",alice:"Алиса AI"}
-async function api<T>(path:string,body?:unknown,method?:string):Promise<T>{
+async function api<T>(path:string,body?:unknown,method?:string):Promise<T>{try{
   const r=await fetch(path,{method:method||(body===undefined?"GET":"POST"),headers:body===undefined?{}:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)})
-  const data=await r.json();if(!r.ok)throw new Error(typeof data.detail==="string"?data.detail:"Не удалось выполнить действие");return data
+  const data=await r.json();if(!r.ok){const error=Object.assign(new Error(typeof data.detail==="string"?data.detail:"Не удалось выполнить действие"),{status:r.status});throw error}return data
+}catch(error){capture(error,"agent_api");throw error}
 }
 function Agent(){
   const [state,setState]=useState<State|null>(null)
@@ -91,4 +93,4 @@ function Agent(){
     </>}
   </main>
 }
-createRoot(document.getElementById("root")!).render(<Agent/> )
+initTelemetry().finally(() => createRoot(document.getElementById("root")!, rootOptions).render(<Agent/> ))

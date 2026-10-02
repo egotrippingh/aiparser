@@ -7,5 +7,6 @@ server/.env.*
 server/__pycache__/
 server/test_*.py
 !alembic.ini
+!telemetry.py
 !web/
 !web/**
