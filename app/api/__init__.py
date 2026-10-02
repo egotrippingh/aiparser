@@ -7,7 +7,6 @@ WebView. Поэтому ни аутентификации, ни CORS здесь 
 from __future__ import annotations
 
 import logging
-import os
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
@@ -122,8 +121,7 @@ def create_app() -> FastAPI:
     def telemetry_config(response: Response) -> dict:
         from app import __version__
         response.headers["Cache-Control"] = "no-store"
-        return {"dsn": config.SENTRY_DSN, "release": __version__,
-                "environment": os.environ.get("APP_ENV", "development")}
+        return {"dsn": config.SENTRY_DSN, "release": __version__, "environment": telemetry.environment()}
 
     @app.post("/api/agent/focus", include_in_schema=False)
     def focus_agent() -> dict:

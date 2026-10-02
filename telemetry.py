@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import sys
 import traceback
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,10 @@ _enabled = False
 _ROOT = Path(__file__).resolve().parent
 _VALUES = {"component": {"agent", "server"}, "operation": {"startup", "saved_sessions", "local_api", "scan_query", "control_sync", "request", "ai_analyze", "ai_arbitrate", "scheduler", "payment_reconcile", "start_job", "recompute", "uncaught"}, "provider": {"chatgpt", "perplexity", "alice", "google_aio"}}
 _TYPES = {"RuntimeError", "ValueError", "KeyError", "TypeError", "AttributeError", "OSError", "ConnectionError", "TimeoutError", "AIError", "AdapterError", "ServiceUnavailableError", "BillingError", "StorageError", "CoinsoError"}
+
+
+def environment() -> str:
+    return os.environ.get("APP_ENV", "production" if getattr(sys, "frozen", False) else "development")
 
 
 def _safe_id(value: object) -> str | None:
@@ -123,7 +128,7 @@ def init(*, component: str, dsn: str | None = None, release: str | None = None) 
                         enable_logs=False, include_local_variables=False, max_breadcrumbs=0,
                         default_integrations=False, integrations=[ExcepthookIntegration(), ThreadingIntegration(propagate_scope=False), DedupeIntegration()],
                         before_send=_before_send, send_client_reports=False, transport=_transport_type(),
-                        release=release or os.environ.get("AIRATE_RELEASE", "local"), environment=os.environ.get("APP_ENV", "development"))
+                        release=release or os.environ.get("AIRATE_RELEASE", "local"), environment=environment())
         sentry_sdk.set_tag("component", component)
         sentry_sdk.set_tag("operation", "uncaught")
         _enabled = True

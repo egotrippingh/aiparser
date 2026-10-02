@@ -18,7 +18,7 @@ def collector(monkeypatch):
             bodies.append(body)
     client = sentry_sdk.Client(dsn="https://public@example.invalid/1", transport=RecordingTransport,
         before_send=telemetry._before_send, default_integrations=False, send_client_reports=False,
-        release="2026.10.1.3", environment="test", send_default_pii=False)
+        release="2026.10.2.1", environment="test", send_default_pii=False)
     monkeypatch.setattr(telemetry, "_enabled", True)
     with sentry_sdk.new_scope() as scope:
         scope.set_client(client)
@@ -54,7 +54,7 @@ def test_actual_sdk_serialized_envelope_and_expected_errors(collector):
     assert event["user"] == {"id": "a" * 32}
     assert event["contexts"] == {"run": {"id": "b" * 32}}
     assert event["exception"]["values"][0]["stacktrace"]["frames"] == [{"filename": "app/control_agent.py", "lineno": 1}]
-    assert event["release"] == "2026.10.1.3"
+    assert event["release"] == "2026.10.2.1"
 
 
 def test_transport_drops_late_sdk_items_and_metadata(collector):
@@ -159,3 +159,14 @@ def test_sanitized_event_excludes_seeded_secret_and_paths():
 
 def test_invalid_dsn_is_disabled():
     assert telemetry.init(component="agent", dsn="not-a-dsn") is False
+
+
+def test_environment_defaults_and_override(monkeypatch):
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.setattr(telemetry.sys, "frozen", True, raising=False)
+    assert telemetry.environment() == "production"
+    monkeypatch.setenv("APP_ENV", "test")
+    assert telemetry.environment() == "test"
+    monkeypatch.delenv("APP_ENV")
+    monkeypatch.delattr(telemetry.sys, "frozen", raising=False)
+    assert telemetry.environment() == "development"
