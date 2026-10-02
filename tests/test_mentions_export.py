@@ -64,7 +64,7 @@ def test_one_date_is_a_flat_table():
     assert [c.value for c in ws[1]] == ["Запрос", "Perplexity", "Алиса AI"]
     assert [c.value for c in ws[2]] == ["первый запрос", "✓", "!"]
     # Алиса этот запрос в тот день не проверяла — не «нет упоминаний», а «нет данных».
-    assert [c.value for c in ws[3]] == ["второй запрос", "✗", "·"]
+    assert [c.value for c in ws[3]] == ["второй запрос", "✗", "Не проверялось"]
     assert ws.max_row == 3
 
 
@@ -96,7 +96,14 @@ def test_legend_sheet_explains_the_signs():
     assert wb["Упоминаемость"]["B2"].value == "◷"
     legend = {row[0]: str(row[1]) for row in wb["Обозначения"].iter_rows(min_row=2, values_only=True) if row[0]}
     assert legend["◷"].startswith("Лимит тарифа")
-    assert legend["·"] == "Не проверялся в этот день"
+    assert legend["Не проверялось"] == "Не проверялось"
+
+
+def test_empty_dates_export_without_service_columns():
+    pid, _ = _project(["запрос"])
+    _scan(pid, "2026-09-10", {})
+    ws = _book(pid, "date_from=2026-09-10&date_to=2026-09-11")["Упоминаемость"]
+    assert [cell.value for cell in ws[1]] == ["Запрос"]
 
 
 def test_errors_are_explicit():

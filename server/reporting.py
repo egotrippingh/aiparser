@@ -66,7 +66,7 @@ def collect_report(db, project, options, *, with_sources=False):
     scope = (CloudResult.user_id == project.user_id, CloudResult.project_id == project.id)
     available_dates = list(db.scalars(select(CloudResult.scan_date).where(*scope).distinct()
                                       .order_by(CloudResult.scan_date)))
-    end = options.date_to or (date.fromisoformat(available_dates[-1]) if available_dates else utcnow().date())
+    end = options.date_to or utcnow().date()
     start = options.date_from or end - timedelta(days=29)
     if start > end or (end - start).days > 365:
         raise HTTPException(422, "Выберите период от 1 до 366 дней, начало не позже конца")
@@ -97,6 +97,8 @@ def collect_report(db, project, options, *, with_sources=False):
         *scope, CloudResult.scan_date >= start.isoformat(), CloudResult.scan_date <= end.isoformat(),
         CloudResult.service.in_(selected if selected is not None else SERVICES))
       .order_by(CloudResult.id.desc())).all()
+    measurement_dates = set(db.scalars(select(CloudResult.scan_date).where(
+        *scope, CloudResult.scan_date >= start.isoformat(), CloudResult.scan_date <= end.isoformat()).distinct()))
     daily = {}
     for row in measurements:
         key = row.query_id if row.query_id in queries else by_text.get(row.query_text, row.query_id or "text:" + row.query_text)
@@ -108,8 +110,7 @@ def collect_report(db, project, options, *, with_sources=False):
                and options.search.casefold() in q["text"].casefold()}
     daily = {key: row for key, row in daily.items() if key[0] in queries}
     service_ids = [s for s in SERVICES if s in selected] if selected is not None else available_services
-    dates = sorted({key[2] for key in daily})
-    table_dates = sorted({start.isoformat(), end.isoformat()}) if options.compare else dates
+    table_dates = sorted({start.isoformat(), end.isoformat()}) if options.compare else sorted({start.isoformat(), end.isoformat()} | measurement_dates)
     # Page dates from the most recent measurements, then present each window chronologically.
     window = table_dates if options.compare else sorted(list(reversed(table_dates))[options.date_offset:options.date_offset + options.date_limit])
     summary = empty_stats()
@@ -181,7 +182,7 @@ def workbook(report, project, kind):
             values = [q["text"], q["group_tag"]]
             for day, service in columns:
                 cell = q["cells"].get(day, {}).get(service)
-                values.append("Не проверялся" if cell is None else "Карточки исключены" if cell["status"] == "found" and not cell["found"]
+                values.append("Не проверялось" if cell is None else "Карточки исключены" if cell["status"] == "found" and not cell["found"]
                               else LABELS.get(cell["status"], cell["status"]))
             append(ws, values)
     else:

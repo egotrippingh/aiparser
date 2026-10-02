@@ -4,7 +4,7 @@ Updated 2026-10-02. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
-- Production source: `da7b677f42fcbfea47c732531b052d5a67dcd481`, merged Sentry PR [#22](https://github.com/egotrippingh/aiparser/pull/22). Windows **2026.10.2.1** is published with its cloud DSN; installation checks passed. Camoufox **152.0.4 beta.30**.
+- Production source: `da7b677f42fcbfea47c732531b052d5a67dcd481`, merged Sentry PR [#22](https://github.com/egotrippingh/aiparser/pull/22). Windows **2026.10.2.1** is published with its cloud DSN; installation checks passed. Camoufox **152.0.4 beta.30**. Version **2026.10.2.2** is prepared locally for Google consent and dated-report fixes; it is not published. Google 14, overview 23, exports 7 and server-reporting 5 tests passed; scan benchmark self-check, frontend 50 tests, lint and build passed. Sol/Astra final reviews found no remaining actionable findings. Isolated UI confirms GPT-only October 2 has three unchecked cells and zero result buttons; September 26 login errors stay historical. Evidence: ignored `build/qa/google-fix-final-20261002-160857`, `google-fix-ui-proof.json`, `google-fix-gpt-table.jpg`.
 - New scans cost 120 kopeks per query/service; eligible saved-answer recompute costs up to 80 kopeks per answer. Clarifications/recompute are gated to the configured admin account. Telemetry does not change charging or transaction behavior.
 
 ## Architecture
@@ -32,7 +32,7 @@ Updated 2026-10-02. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Existing users need to update their agent for desktop collection. Review real incoming Sentry issues and event quota; private browser source maps are the next optional improvement.
+Publish and verify the reviewed Google consent and dated-report fix, including Windows **2026.10.2.2**. Existing users need to update their agent; confirm actual Google consent dismissal on a live banner.
 
 ## References
 

@@ -415,7 +415,7 @@ export function OverviewTable({
                           ]
                             .filter(Boolean)
                             .join(", ")
-                        : `${s.name}, ${shortDate(d)}: не проверялся`
+                        : `${s.name}, ${shortDate(d)}: Не проверялось`
                       return (
                         <td
                           key={`${d}-${s.id}`}
@@ -462,8 +462,9 @@ export function OverviewTable({
                                 withSub ? "min-w-8" : "min-w-14",
                               )}
                               title={label}
+                              aria-label={label}
                             >
-                              ·
+                              Не проверялось
                             </span>
                           )}
                         </td>

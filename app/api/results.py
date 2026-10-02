@@ -228,13 +228,15 @@ def select_dates(
     """Какие срезы показать. Возвращает (даты по возрастанию, сколько подходило до обрезки)."""
     if mode == "custom":
         wanted = set(picked or [])
-        chosen = [d for d in all_dates if d in wanted]
+        chosen = sorted(wanted)
     else:
         if date_from or date_to:
             chosen = [
                 d for d in all_dates
                 if (not date_from or d >= date_from) and (not date_to or d <= date_to)
             ]
+            if mode in ("period", "two"):
+                chosen = sorted(set(chosen) | {d for d in (date_from, date_to) if d})
         elif mode in ("two", "monthly"):
             # Сравнение и помесячная динамика без диапазона — за всё время:
             # первая проверка против последней, по одной проверке на месяц.
@@ -250,7 +252,15 @@ def select_dates(
                 last_in_month[d[:7]] = d
             chosen = sorted(last_in_month.values())
     available = len(chosen)
-    return chosen[-max(1, max_dates):], available
+    limit = max(1, max_dates)
+    if mode == "period" and (date_from or date_to) and len(chosen) > limit and limit > 1:
+        return [chosen[0], *chosen[-(limit - 1):]], available
+    return chosen[-limit:], available
+
+
+def known_services(project_id: int) -> list[str]:
+    seen = {service for day in repo.scan_dates(project_id) for service in day["services"]}
+    return [s.id for s in services.SERVICES if s.id in seen]
 
 
 @router.get("/projects/{project_id}/scan-dates")
@@ -306,12 +316,15 @@ def overview(
         max_dates=min(max(1, max_dates), MAX_DATES),
     )
     dates = selected
+    service_ids = known_services(project_id)
     results = repo.results_by_date(project_id, dates)
+    service_ids = [s.id for s in services.SERVICES if s.id in set(service_ids) | {r["service"] for r in results}]
 
     cells: dict[int, dict[str, dict[str, dict]]] = defaultdict(lambda: defaultdict(dict))
-    counts: dict[str, dict[str, list[int]]] = {d: defaultdict(lambda: [0, 0]) for d in dates}
+    counts: dict[str, defaultdict[str, list[int]]] = {
+        d: defaultdict(lambda: [0, 0], {s: [0, 0] for s in ["_all", *service_ids]}) for d in dates
+    }
     issues = {d: {"needs_review": 0, "errors": 0, "not_checked": 0} for d in dates}
-    with_data: set[str] = set()
 
     for r in results:
         d, svc = r["scan_date"], r["service"]
@@ -321,7 +334,6 @@ def overview(
             "needs_review": bool(r["needs_review"]),
             "result_id": r["id"],
         }
-        with_data.add(svc)
         if status in COUNTED:
             for key in (svc, "_all"):
                 counts[d][key][1] += 1
@@ -401,7 +413,7 @@ def overview(
             "last_scan": all_dates[-1] if all_dates else None,
         },
         "dates": dates,
-        "services": [s.id for s in services.SERVICES if s.id in with_data],
+        "services": service_ids,
         "rows": rows,
         "stats": stats,
         "summary": summary,

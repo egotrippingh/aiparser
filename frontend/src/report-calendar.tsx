@@ -10,7 +10,7 @@ export function ReportCalendar({ from, to, available, change }: { from: string; 
   const [pickingEnd, setPickingEnd] = useState(false)
   const valid = !!start && !!end && start <= end && (Date.parse(end)-Date.parse(start))/86400000 <= 365
   function pick(day: string) { if (!pickingEnd || day < start) {setStart(day);setEnd(day);setPickingEnd(true)} else {setEnd(day);setPickingEnd(false)} }
-  function preset(days: number) { const last = available.at(-1) || to; const first = new Date(last+"T12:00:00");first.setDate(first.getDate()-days+1);setStart(iso(first));setEnd(last);setMonth(first) }
+  function preset(days: number) { const last = iso(new Date()); const first = new Date(last+"T12:00:00");first.setDate(first.getDate()-days+1);setStart(iso(first));setEnd(last);setMonth(first) }
   return <><button className="cc-button" onClick={()=>{setStart(from);setEnd(to);setMonth(new Date(from+"T12:00:00"));setPickingEnd(false);dialog.current?.showModal()}}><CalendarDays size={16}/>{shortDate(from)}.{from.slice(0,4)} — {shortDate(to)}.{to.slice(0,4)}</button>
     <dialog ref={dialog} className="ws-dialog calendar-dialog" aria-labelledby="calendar-title"><div className="ws-dialog-head"><h2 id="calendar-title">Период отчёта</h2><button className="cc-button icon" aria-label="Закрыть календарь" onClick={()=>dialog.current?.close()}><X size={18}/></button></div>
       <div className="cc-two"><label>Начало<input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Конец<input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label></div>
