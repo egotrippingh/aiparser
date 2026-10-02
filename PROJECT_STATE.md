@@ -4,7 +4,7 @@ Updated 2026-10-02. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
-- Production source: `e7594b2e50c2710bbc412fd83f0c825bfaa2e549` (cost confirmation popovers). Existing Windows agent: **2026.10.1.3**, Camoufox **152.0.4 beta.30**. This task has not deployed or published a new agent.
+- Production source: `da7b677f42fcbfea47c732531b052d5a67dcd481`, merged Sentry PR [#22](https://github.com/egotrippingh/aiparser/pull/22). Windows **2026.10.2.1** is published with its cloud DSN; installation checks passed. Camoufox **152.0.4 beta.30**.
 - New scans cost 120 kopeks per query/service; eligible saved-answer recompute costs up to 80 kopeks per answer. Clarifications/recompute are gated to the configured admin account. Telemetry does not change charging or transaction behavior.
 
 ## Architecture
@@ -14,14 +14,15 @@ Updated 2026-10-02. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 - `frontend/`: React/Vite, shared web/agent interface; tracked build in `web/`.
 - Production delivery uses GitHub Actions backup/restore verification and readiness checks. Windows artifacts use the existing atomic publication process.
 
-## Prepared Sentry integration
+## Deployed Sentry integration
 
 - Optional cloud error reporting covers server/local API, scanner, control synchronization, background scheduler, payment reconciliation, recompute and five React roots. Typed CAPTCHA/auth/confirmed quota/cancellation and expected client HTTP statuses are filtered.
 - Only approved exception types, project stack locations, version/environment, fixed tags and scoped internal IDs enter error payloads. A final transport gate drops other envelope types and late SDK metadata; browser IP inference is disabled.
-- Organization `airate` and projects `airate-server`, `airate-agent`, `airate-browser` are configured for errors only. Public DSNs are saved locally under ignored `build/qa/`; production and released agents have not been activated. See [setup and limitations](docs/sentry.md).
+- Organization `airate` and projects `airate-server`, `airate-agent`, `airate-browser` are configured for errors only. Production Compose and DSNs are installed; unrelated environment values were preserved. Root-only rollback copy: `/root/airate-sentry-config-20261002T071102Z`. See [setup and limitations](docs/sentry.md).
 - Broad Python checks: 104 passed; after review repairs, 17 telemetry/recompute checks passed. Frontend: 48 tests, lint and build passed. Final Windows portable build and EXE self-test passed. Independent Sol/Astra rechecks found no remaining verified defect. Offline checks use actual SDK envelope serialization. Evidence: ignored `build/qa/sentry-final-20261002-01`, `sentry-risk-regressions-20261002.log`, `sentry-native-final-20261002.log`.
-- Actual integration code at `20652ab` sent one synthetic error to each cloud project; all three appeared in Sentry in environment `test`. Browser transport returned HTTP 200 and excluded the synthetic secret. Evidence: ignored `build/qa/sentry-cloud-projects.jpg` and smoke scripts. PR [#22](https://github.com/egotrippingh/aiparser/pull/22) is open; Tests and build passed on the implementation revision.
-- Docker image execution was not checked locally because its daemon is unavailable. Private source maps, installed-agent upgrade and production activation remain unverified.
+- GitHub [run 36977330237](https://github.com/egotrippingh/aiparser/actions/runs/36977330237) passed tests, production deployment, database backup and isolated restore. Public readiness reports the exact production SHA. Synthetic server, runtime-configured browser and frozen-agent-code events appeared in Sentry with environment `production`; ingestion returned HTTP 200. Evidence: ignored `build/qa/sentry-production-deploy.log`, `sentry-live-check.json`, `sentry-frozen-cloud-check.json`, `sentry-production-projects.jpg`.
+- Windows installer checks passed: 3,566 installed files match the source bundle, installed EXE self-test, same-version reinstall and uninstall preserving isolated data and legacy portable data. Installed runtime reports version **2026.10.2.1**, environment `production` and the expected agent DSN. Evidence: ignored `build/qa/sentry-installed-lifecycle.log`, `sentry-installed-runtime.json`. This does not establish an upgrade from a real older installation or actual installed-EXE error ingestion. Private browser source maps remain unconfigured.
+- Publication switched atomically to **2026.10.2.1**, retaining **2026.10.1.3** for rollback. Public API metadata and complete installer/ZIP sizes and SHA-256 match the tested build. Full downloads were checked through public HTTPS URLs from the VPS; the operator-PC attempt timed out. Evidence: ignored `build/qa/sentry-public-artifacts.json`, `sentry-agent-resume-fixed.log`.
 
 ## Other open checks
 
@@ -31,7 +32,7 @@ Updated 2026-10-02. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Apply the reviewed Sentry PR into `production`, install the Compose change via the existing operator process and configure the prepared DSNs. Verify collection on the deployed release. Bump the agent version and include its DSN before publishing the next Windows release; then verify the installed agent.
+Existing users need to update their agent for desktop collection. Review real incoming Sentry issues and event quota; private browser source maps are the next optional improvement.
 
 ## References
 
