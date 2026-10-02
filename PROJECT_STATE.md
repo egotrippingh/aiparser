@@ -4,7 +4,9 @@ Updated 2026-10-02. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
-- Production source: `da7b677f42fcbfea47c732531b052d5a67dcd481`, merged Sentry PR [#22](https://github.com/egotrippingh/aiparser/pull/22). Windows **2026.10.2.1** is published with its cloud DSN; installation checks passed. Camoufox **152.0.4 beta.30**. Version **2026.10.2.2** is prepared locally for Google consent and dated-report fixes; it is not published. Google 14, overview 23, exports 7 and server-reporting 5 tests passed; scan benchmark self-check, frontend 50 tests, lint and build passed. Sol/Astra final reviews found no remaining actionable findings. Isolated UI confirms GPT-only October 2 has three unchecked cells and zero result buttons; September 26 login errors stay historical. Evidence: ignored `build/qa/google-fix-final-20261002-160857`, `google-fix-ui-proof.json`, `google-fix-gpt-table.jpg`.
+- Production source: `556dc031e17a384ac4d6914b0a187e0af45c7644`, merged Google/report PR [#23](https://github.com/egotrippingh/aiparser/pull/23). Production CI [37014201642](https://github.com/egotrippingh/aiparser/actions/runs/37014201642), actual backup/isolated-restore logs and public readiness passed.
+- Windows **2026.10.2.2** is published with its cloud DSN, built from the same merged source. Isolated installation, bundled-browser self-test, same-version reinstall and data-preserving uninstall passed. Complete public installer/ZIP sizes and SHA-256 match the tested build via HTTPS from the VPS. Previous **2026.10.2.1** remains for rollback. Camoufox **152.0.4 beta.30**. Evidence: ignored `build/qa/google-fix-release-evidence.json`.
+- Google consent and dated-report checks passed: Google 14, overview 23, exports 7, server reports 5, frontend 50; scan self-check, lint and build passed. Final Sol/Astra reviews found no remaining actionable findings. Isolated UI proves GPT-only October 2 has unchecked cells and zero result buttons while September 26 login errors remain historical. See [scope and evidence](docs/google-consent-report-brief.md).
 - New scans cost 120 kopeks per query/service; eligible saved-answer recompute costs up to 80 kopeks per answer. Clarifications/recompute are gated to the configured admin account. Telemetry does not change charging or transaction behavior.
 
 ## Architecture
@@ -32,7 +34,7 @@ Updated 2026-10-02. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Publish and verify the reviewed Google consent and dated-report fix, including Windows **2026.10.2.2**. Existing users need to update their agent; confirm actual Google consent dismissal on a live banner.
+Existing users should update to **2026.10.2.2** after their active scan finishes. Confirm actual Google consent dismissal on WEB-PM ЕГОР; real older-installation upgrade and live provider scans remain unverified by this delivery.
 
 ## References
 
