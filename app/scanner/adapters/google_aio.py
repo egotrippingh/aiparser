@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 
 from app.scanner import humanize
@@ -87,10 +88,39 @@ class GoogleAIOAdapter:
     requires_auth = False
 
     async def ensure_ready(self, page) -> ReadyState:
-        await page.goto(_S["home_url"], wait_until="domcontentloaded")
-        if _S["captcha_url_marker"] in page.url:
+        if not await self._home(page, ready=True):
             return ReadyState(ok=False, reason="captcha")
         return ReadyState(ok=True)
+
+    async def _home(self, page, *, ready: bool = False) -> bool:
+        await page.goto(_S["home_url"], wait_until="domcontentloaded")
+        if _S["captcha_url_marker"] in page.url:
+            if ready:
+                return False
+            raise CaptchaError(f"Google показал антибот-страницу: {page.url[:120]}")
+        await self._accept_consent(page)
+        if _S["captcha_url_marker"] in page.url:
+            if ready:
+                return False
+            raise CaptchaError(f"Google показал антибот-страницу: {page.url[:120]}")
+        return True
+
+    async def _accept_consent(self, page) -> None:
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            buttons = page.get_by_role("button", name=re.compile(r"^(?:Принять все|Accept all)$"))
+            for index in range(await buttons.count()):
+                button = buttons.nth(index)
+                if not await visible(button, 1000):
+                    continue
+                await safe_click(button)
+                try:
+                    await button.wait_for(state="hidden", timeout=5000)
+                except Exception as exc:
+                    await dump_debug_html(page, "google_consent_blocked")
+                    raise AdapterError("Google cookies dialog не закрылся") from exc
+                return
+            await asyncio.sleep(0.1)
 
     async def ask(self, page, query: str, region: str | None, *, speed: float = 1.0) -> None:
         # Google — поисковик, а не чат: чистое состояние под новый запрос это
@@ -98,13 +128,11 @@ class GoogleAIOAdapter:
         # от чатов, где хватает SPA-клика «Новый чат»). Заход именно с
         # главной, а не сразу на /search?q=, обязателен: прямой URL на
         # холодном профиле даёт антибот-редирект (проверено 28.08.2026).
-        await page.goto(_S["home_url"], wait_until="domcontentloaded")
-        if _S["captcha_url_marker"] in page.url:
-            raise CaptchaError(f"Google показал антибот-страницу: {page.url[:120]}")
+        await self._home(page)
 
         await focus_input(
             page, _S["input"], self.service_id,
-            recover=lambda: page.goto(_S["home_url"], wait_until="domcontentloaded"),
+            recover=lambda: self._home(page),
         )
         await humanize.type_like_human(page, _S["input"], query, speed=speed, click=False)
         await page.keyboard.press("Enter")

@@ -1,5 +1,6 @@
 import io
 import json
+from datetime import datetime, timezone
 
 from openpyxl import load_workbook
 from server.test_control import setup
@@ -85,7 +86,7 @@ def test_exports_use_all_filtered_rows_and_safe_text(tmp_path):
     assert ws.max_row == 4 and ws.max_column == 6
     assert ws['A2'].value == '=Original equipment?' and ws['A2'].data_type == 's'
     assert ws['C3'].value == 'Карточки исключены'
-    assert ws['C4'].value == 'Не проверялся'
+    assert ws['C4'].value == 'Не проверялось'
     res = client.get(base+'/sources', headers=owner, params={**args, 'group':'Brand'})
     assert res.status_code == 200, res.text
     wb = load_workbook(io.BytesIO(res.content))
@@ -119,7 +120,7 @@ def test_multiple_systems_filter_statistics_matrix_and_exports(tmp_path):
     assert data['available_services'] == ['google_aio', 'chatgpt', 'perplexity', 'alice']
     assert data['summary']['checked'] == 5 and data['summary']['found'] == 4
     assert data['summary']['visibility_pct'] == 80
-    assert data['dates'] == ['2026-09-01', '2026-09-03']
+    assert data['dates'] == ['2026-09-01', '2026-09-02', '2026-09-03']
     assert data['timeline'][1]['visibility_pct'] is None
     assert all('perplexity' not in day['services'] for day in data['timeline'])
     assert all('perplexity' not in cells for q in data['rows'] for cells in q['cells'].values())
@@ -132,8 +133,30 @@ def test_multiple_systems_filter_statistics_matrix_and_exports(tmp_path):
         wb = load_workbook(io.BytesIO(res.content))
         assert not any('Perplexity' in str(cell) for ws in wb for row in ws.values for cell in row)
         assert any('Алиса AI' in str(cell) for ws in wb for row in ws.values for cell in row)
+        if kind == 'mentions':
+            assert any(str(cell).startswith('2026-09-02') for cell in next(wb['Упоминаемость'].values))
     for selected in ('', 'invalid', 'google_aio,unknown', 'google_aio,'):
         assert client.get(base, headers=owner, params={**args,'services':selected}).status_code == 422
     assert client.get(base, headers=owner, params={**args,'service':'chatgpt'}).status_code == 422
     single = client.get(base, headers=owner, params={**args,'services':'alice,alice'}).json()
     assert single['services'] == ['alice'] and single['summary']['checked'] == 1
+
+
+def test_filtered_service_keeps_empty_selected_date_and_export_label(tmp_path):
+    client, owner, _, _, project, _, _ = seed_report(tmp_path)
+    base = f"/api/v1/control/projects/{project['id']}/mentions"
+    args = {'date_from': '2026-09-02', 'date_to': '2026-09-02', 'services': 'chatgpt'}
+    data = client.get(base, headers=owner, params=args).json()
+    assert data['dates'] == data['visible_dates'] == ['2026-09-02']
+    assert data['services'] == ['chatgpt'] and data['summary']['checked'] == 0
+    assert all(row['cells'] == {} for row in data['rows'])
+    wb = load_workbook(io.BytesIO(client.get(base + '/export/mentions', headers=owner, params=args).content))
+    assert wb['Упоминаемость']['C2'].value == 'Не проверялось'
+
+
+def test_report_default_period_ends_today(tmp_path, monkeypatch):
+    from server import reporting
+    monkeypatch.setattr(reporting, 'utcnow', lambda: datetime(2026, 10, 2, 21, 30, tzinfo=timezone.utc))
+    client, owner, _, _, project, _, _ = seed_report(tmp_path)
+    data = client.get(f"/api/v1/control/projects/{project['id']}/mentions", headers=owner).json()
+    assert data['date_to'] == '2026-10-02'
