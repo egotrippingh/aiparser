@@ -135,7 +135,14 @@ def update_project(project_id: int, **fields: Any) -> None:
 
 
 def delete_project(project_id: int) -> None:
-    _exec("DELETE FROM projects WHERE id = ?", (project_id,))
+    c = conn(); c.execute("BEGIN IMMEDIATE")
+    try:
+        if c.execute("""SELECT 1 FROM captures c JOIN scans s ON s.id = c.scan_id
+                      WHERE s.project_id = ? LIMIT 1""", (project_id,)).fetchone():
+            raise ValueError("Нельзя удалить проект: сохранённые ответы ещё обрабатываются")
+        c.execute("DELETE FROM projects WHERE id = ?", (project_id,)); c.execute("COMMIT")
+    except Exception:
+        c.execute("ROLLBACK"); raise
 
 
 # --------------------------------------------------------------------------
@@ -169,7 +176,13 @@ def set_query_active(query_id: int, active: bool) -> None:
 
 
 def delete_query(query_id: int) -> None:
-    _exec("DELETE FROM queries WHERE id = ?", (query_id,))
+    c = conn(); c.execute("BEGIN IMMEDIATE")
+    try:
+        if c.execute("SELECT 1 FROM captures WHERE query_id = ? LIMIT 1", (query_id,)).fetchone():
+            raise ValueError("Нельзя удалить запрос: сохранённый ответ ещё обрабатывается")
+        c.execute("DELETE FROM queries WHERE id = ?", (query_id,)); c.execute("COMMIT")
+    except Exception:
+        c.execute("ROLLBACK"); raise
 
 
 # --------------------------------------------------------------------------
@@ -280,6 +293,66 @@ def save_result(
     )
 
 
+def save_capture(scan_id: int, query_id: int, service: str, *, project: dict, query: dict,
+                 settings: dict, check_id: str | None, payer_id: str | None, shown: bool,
+                 answer_text: str, sources: list[str], extra: dict, screenshot_bytes: bytes | None,
+                 screenshot_path: str | None) -> None:
+    """Idempotently persist immutable browser output before analysis."""
+    _exec("""INSERT INTO captures
+             (scan_id, query_id, service, project_json, query_json, settings_json, check_id, payer_id,
+              shown, answer_text, sources_json, extra_json, screenshot_bytes, screenshot_path)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+             ON CONFLICT(scan_id, query_id, service) DO NOTHING""",
+          (scan_id, query_id, service, json.dumps(project, ensure_ascii=False),
+           json.dumps(query, ensure_ascii=False), json.dumps(settings, ensure_ascii=False), check_id, payer_id,
+           1 if shown else 0, answer_text, json.dumps(sources, ensure_ascii=False),
+           json.dumps(extra, ensure_ascii=False), screenshot_bytes, screenshot_path))
+
+
+def pending_captures(scan_id: int) -> list[dict]:
+    # Failed analysis is retried only by explicit continuation, never by the browser.
+    return captures_for_scan(scan_id)
+
+
+def captures_for_scan(scan_id: int) -> list[dict]:
+    return _rows("SELECT * FROM captures WHERE scan_id = ?", (scan_id,))
+
+
+def capture(scan_id: int, query_id: int, service: str) -> dict | None:
+    return _row("SELECT * FROM captures WHERE scan_id = ? AND query_id = ? AND service = ?", (scan_id, query_id, service))
+
+
+def capture_state(scan_id: int, query_id: int, service: str, state: str, error: str | None = None) -> None:
+    _exec("UPDATE captures SET state = ?, error_message = ?, updated_at = datetime('now') WHERE scan_id = ? AND query_id = ? AND service = ?",
+          (state, error, scan_id, query_id, service))
+
+
+def finalize_capture(scan_id: int, query_id: int, service: str, status: str, result: dict,
+                     check_id: str | None = None) -> None:
+    """Commit result, outboxes and capture completion as one SQLite transaction."""
+    c = conn()
+    c.execute("BEGIN")
+    try:
+        save_result(scan_id, query_id, service, status, **result)
+        if check_id and status in ("found", "not_found"):
+            c.execute("INSERT OR REPLACE INTO billing_outbox (check_id, status) VALUES (?, ?)", (check_id, status))
+            path = result.get("screenshot_path")
+            if path:
+                c.execute("INSERT OR REPLACE INTO screenshot_outbox (check_id, local_path) VALUES (?, ?)", (check_id, path))
+        if status in CONCLUSIVE_STATUSES:
+            c.execute("DELETE FROM captures WHERE scan_id = ? AND query_id = ? AND service = ?",
+                      (scan_id, query_id, service))
+            if check_id and status == 'skipped':
+                c.execute("INSERT OR REPLACE INTO billing_outbox (check_id, status) VALUES (?, 'release')", (check_id,))
+        else:
+            c.execute("UPDATE captures SET state = 'error', error_message = ?, updated_at = datetime('now') WHERE scan_id = ? AND query_id = ? AND service = ?",
+                      (result.get('error_message'), scan_id, query_id, service))
+        c.execute("COMMIT")
+    except Exception:
+        c.execute("ROLLBACK")
+        raise
+
+
 # Статусы, означающие «по этой паре запрос×сервис данные получены и
 # переспрашивать нечего». Всё остальное (error, captcha, auth_required,
 # limit_reached) — временные помехи, и при дозапуске такие пары берутся заново.
@@ -343,11 +416,11 @@ def find_resumable_scan(project_id: int, scannable: set[str] | None = None) -> d
     # запросам: дозапуск «оставшегося» пишет в новый скан, и сам по себе он
     # всегда выглядел бы незаконченным.
     active_ids = {q["id"] for q in list_queries(project_id, only_active=True)}
-    expected = len(active_ids) * len(services_in_scan)
-    done = sum(
-        1 for q, s in conclusive_pairs_on_date(project_id, scan["scan_date"])
-        if q in active_ids and s in services_in_scan
-    )
+    saved = {(r['query_id'], r['service']) for r in pending_captures(scan['id'])
+             if r['service'] in services_in_scan}
+    pairs = {(q, s) for q in active_ids for s in services_in_scan} | saved
+    expected = len(pairs)
+    done = len((conclusive_pairs_on_date(project_id, scan['scan_date']) - saved) & pairs)
 
     if expected == 0 or done >= expected:
         return None
@@ -628,7 +701,10 @@ def cloud_results_after(result_id: int, limit: int = 100) -> list[dict]:
 
 
 def pending_billing(user_id: str | None = None) -> list[dict]:
-    pending = _rows("SELECT check_id, status FROM billing_outbox ORDER BY created_at, check_id")
+    pending = _rows("""SELECT check_id, status FROM billing_outbox b
+        WHERE status != 'release' OR NOT EXISTS
+            (SELECT 1 FROM captures c WHERE c.check_id = b.check_id)
+        ORDER BY created_at, check_id""")
     return _owned_outbox(pending, user_id)
 
 

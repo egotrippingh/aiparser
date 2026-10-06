@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import time
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 import httpx
@@ -13,6 +15,7 @@ from app.db import repo
 
 TOKEN_KEY = "account_token"
 _screenshot_retry_after = 0.0
+scan_bearer: ContextVar[str | None] = ContextVar('scan_bearer', default=None)
 
 
 class BillingError(RuntimeError):
@@ -30,7 +33,17 @@ def enabled() -> bool:
 
 
 def token() -> str:
-    return secrets_store.unprotect(repo.get_setting(TOKEN_KEY))
+    pinned = scan_bearer.get()
+    return pinned if pinned is not None else secrets_store.unprotect(repo.get_setting(TOKEN_KEY))
+
+
+@asynccontextmanager
+async def account_change():
+    from app.scanner import orchestrator
+    async with orchestrator.scan_start_lock():
+        if orchestrator.active_controller():
+            raise BillingError('Дождитесь окончания скана перед сменой аккаунта', 409)
+        yield
 
 
 def check_id(run_id: str, query_id: int | str, service: str) -> str:
@@ -86,25 +99,28 @@ async def browser_url(destination: str = "cabinet") -> str:
 
 
 async def login(email: str, password: str) -> dict:
-    response = await _request("POST", "/auth/login", body={"email": email, "password": password}, auth=False)
-    repo.set_setting(TOKEN_KEY, secrets_store.protect(response["token"]), is_secret=True)
-    return response["user"]
+    async with account_change():
+        response = await _request("POST", "/auth/login", body={"email": email, "password": password}, auth=False)
+        repo.set_setting(TOKEN_KEY, secrets_store.protect(response["token"]), is_secret=True)
+        return response["user"]
 
 
 async def login_with_code(code: str) -> dict:
-    response = await _request("POST", "/auth/device/exchange",
-                              body={"ticket": code.strip()}, auth=False)
-    repo.set_setting(TOKEN_KEY, secrets_store.protect(response["token"]), is_secret=True)
-    return response["user"]
+    async with account_change():
+        response = await _request("POST", "/auth/device/exchange",
+                                  body={"ticket": code.strip()}, auth=False)
+        repo.set_setting(TOKEN_KEY, secrets_store.protect(response["token"]), is_secret=True)
+        return response["user"]
 
 
 async def logout() -> None:
-    if token():
-        try:
-            await _request("POST", "/auth/logout")
-        except BillingError:
-            pass
-    repo.set_setting(TOKEN_KEY, None, is_secret=True)
+    async with account_change():
+        if token():
+            try:
+                await _request("POST", "/auth/logout")
+            except BillingError:
+                pass
+        repo.set_setting(TOKEN_KEY, None, is_secret=True)
 
 
 async def status() -> dict:
@@ -254,6 +270,8 @@ async def recover_interrupted_scans(user_id: str | None = None) -> None:
             continue
         run_id = snapshot.get("billing_run_id")
         results, blocked = {}, set()
+        durable = {row["check_id"] for row in repo.captures_for_scan(scan["id"])
+                   if row["state"] in ("pending", "analyzing", "error") and row.get("check_id")}
         try:
             for row in repo.results_for_scan(scan["id"]):
                 key = canonical_check_id(snapshot, row["query_id"], row["service"])
@@ -266,9 +284,14 @@ async def recover_interrupted_scans(user_id: str | None = None) -> None:
         for key in snapshot.get("billing_reserved_ids", []):
             if key in blocked or pending.get(key) in ("found", "not_found"):
                 continue
+            # The provider answer is already durable; it must be analyzed by
+            # the same owner on resume, never released as unused work.
+            if key in durable:
+                continue
             status_value = results.get(key)
             repo.queue_billing(key, status_value if status_value in ("found", "not_found") else "release")
         reconciled.append(scan)
     await flush_outbox(user_id)
     for scan in reconciled:
-        repo.finish_scan(scan["id"], status="stopped")
+        if scan['status'] != 'paused' or not repo.pending_captures(scan['id']):
+            repo.finish_scan(scan["id"], status="stopped")

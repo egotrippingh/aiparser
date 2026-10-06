@@ -62,6 +62,9 @@ class ChatGPTAdapter:
     # _wait_out_rate_limit, и тогда границу стоит поднять.
     min_delay_sec = (10.0, 15.0)
 
+    def __init__(self) -> None:
+        self.throttled = False
+
     async def ensure_ready(self, page) -> ReadyState:
         await page.goto(_S["temporary_url"], wait_until="domcontentloaded")
         marker = page.locator(_S["logged_in_marker"]).first
@@ -93,6 +96,9 @@ class ChatGPTAdapter:
         # способ гарантировать, что answer_container останется однозначным.
         # Это SPA-клик, а не перезагрузка сайта — сам сайт грузится один раз
         # в ensure_ready на весь сервис.
+        # Reset before navigation so an exception cannot incorrectly inherit a
+        # previous request's observation; _wait_out_rate_limit sets it again.
+        self.throttled = False
         await self._new_chat(page)
         await self._wait_out_rate_limit(page)
         await humanize.sleep(0.5 * speed, 1.0 * speed)
@@ -155,6 +161,7 @@ class ChatGPTAdapter:
                 return
             if RATE_LIMIT_TEXT not in body.lower():
                 return
+            self.throttled = True
             log.warning("ChatGPT просит сбавить темп — жду %s–%s с (попытка %s)",
                         int(_COOLDOWN[0]), int(_COOLDOWN[1]), attempt + 1)
             await humanize.sleep(*_COOLDOWN)

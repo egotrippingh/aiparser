@@ -207,7 +207,7 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
 
   async function launch(resume: boolean) {
     if (!projectId) return
-    if (!activeCount) {
+    if (!activeCount && !(resume && plan?.pending_analysis)) {
       toast.error("Нет активных запросов — добавьте их на вкладке «Запросы»")
       return
     }
@@ -390,6 +390,8 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
                 ? "Скан уже идёт"
                 : allDone && plan
                   ? `Всё проверено за ${dmy(plan.date)}`
+                  : !activeCount && plan?.pending_analysis
+                    ? `Продолжить анализ ${plan.pending_analysis} ${checks(plan.pending_analysis)}`
                   : partial && plan
                     ? `Досканировать ${plan.remaining} ${checks(plan.remaining)}`
                     : "Запустить скан"}

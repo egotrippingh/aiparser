@@ -63,4 +63,7 @@ def patch_project(project_id: int, body: ProjectPatch) -> dict:
 
 @router.delete("/{project_id}", status_code=204, response_model=None)
 def delete_project(project_id: int) -> None:
-    repo.delete_project(project_id)
+    try:
+        repo.delete_project(project_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
