@@ -79,3 +79,9 @@ passed and its tracked `web/` output was refreshed. Final independent correctnes
 and focused financial/auth/data-loss reviews found no remaining substantiated
 defect. No new scan is admitted while the project still has retained answers
 from another scan; this keeps their continuation and reservation reachable.
+
+Delivery: [PR #26](https://github.com/egotrippingh/aiparser/pull/26) targets
+`production`; implementation commit `8e254bc83a3b5a5010bbe7a433b07ba6be13a463`
+passed [Tests and build](https://github.com/egotrippingh/aiparser/actions/runs/37530025581).
+Production deployment was correctly skipped for the PR. This is prepared source,
+not a published Windows release or verified live throughput.

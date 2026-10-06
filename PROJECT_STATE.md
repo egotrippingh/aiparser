@@ -7,7 +7,7 @@ Updated 2026-10-06. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 - Production API reports `fdacff6d2f2a7da1aa02e7e737696e4705bd3750` through public `/api/v1/ready`.
 - Published Windows release: **2026.10.2.3**, confirmed through public download metadata. This task has not built or published a replacement installer.
 - Prepared feature branch `codex/scan-pipeline-timing`, agent version **2026.10.6.1**: durable answer capture overlaps one bounded analysis worker; adaptive provider pauses preserve measured floors and frozen legacy timing.
-- Deterministic checks and independent reviews are recorded in [capture scope/evidence](docs/scan-pipeline-brief.md). Delivery remains a feature PR; prepared code is not a deployed release.
+- [PR #26](https://github.com/egotrippingh/aiparser/pull/26) is prepared for `production`. Implementation `8e254bc` passed [CI](https://github.com/egotrippingh/aiparser/actions/runs/37530025581) and independent correctness/risk reviews. Prepared code is not a deployed release; details are in [capture scope/evidence](docs/scan-pipeline-brief.md).
 
 ## Architecture
 
