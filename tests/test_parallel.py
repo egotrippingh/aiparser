@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import traceback
+import pytest
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -131,6 +132,13 @@ orchestrator.service_context = fake_service_context
 orchestrator.open_captcha_window = fake_captcha_window
 orchestrator.get_adapter = lambda sid: FakeAdapter(sid)
 orchestrator.humanize.between_queries = _no_pause
+
+
+@pytest.fixture(autouse=True)
+def adaptive_wait_without_real_time(monkeypatch):
+    async def wait(pacer):
+        journal.pauses.append((pacer.delay, pacer.hi))
+    monkeypatch.setattr(orchestrator.AdaptivePacer, 'wait', wait)
 
 
 _n = 0

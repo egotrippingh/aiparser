@@ -211,6 +211,7 @@ export interface ScanPlan {
   /** Только по выбранным сервисам. */
   total: number
   remaining: number
+  pending_analysis?: number
 }
 
 /* --- настройки и браузер ---------------------------------------------- */

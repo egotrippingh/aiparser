@@ -63,6 +63,31 @@ CREATE TABLE IF NOT EXISTS results (
     UNIQUE (scan_id, query_id, service)
 );
 
+-- A browser answer is durable before any slow model work starts.  Keep this
+-- separate from results: an analysis failure must never cause another browser
+-- request for an answer we already received.
+CREATE TABLE IF NOT EXISTS captures (
+    scan_id                INTEGER NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+    query_id               INTEGER NOT NULL REFERENCES queries(id) ON DELETE RESTRICT,
+    service                TEXT NOT NULL,
+    state                  TEXT NOT NULL DEFAULT 'pending', -- pending | analyzing | error; finalized rows are removed
+    project_json           TEXT NOT NULL,
+    query_json             TEXT NOT NULL,
+    settings_json          TEXT NOT NULL,
+    check_id               TEXT,
+    payer_id               TEXT,
+    shown                  INTEGER NOT NULL,
+    answer_text            TEXT NOT NULL DEFAULT '',
+    sources_json           TEXT NOT NULL DEFAULT '[]',
+    extra_json             TEXT NOT NULL DEFAULT '{}',
+    screenshot_bytes       BLOB,
+    screenshot_path        TEXT,
+    error_message          TEXT,
+    created_at             TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at             TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (scan_id, query_id, service)
+);
+
 -- Страницы-источники, которые ИИ цитировал в ответах, и нашёлся ли на них
 -- бренд. Ключ — проект: у проектов разные бренды. brand_sig — формы бренда
 -- на момент проверки: поменяли алиасы — страницу надо проверить заново.
@@ -112,3 +137,4 @@ CREATE INDEX IF NOT EXISTS idx_scans_project    ON scans(project_id, scan_date);
 CREATE INDEX IF NOT EXISTS idx_results_scan     ON results(scan_id);
 CREATE INDEX IF NOT EXISTS idx_results_query    ON results(query_id, service);
 CREATE INDEX IF NOT EXISTS idx_results_status   ON results(scan_id, status);
+CREATE INDEX IF NOT EXISTS idx_captures_state   ON captures(scan_id, state);

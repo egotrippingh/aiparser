@@ -33,6 +33,8 @@ def _track_work(task: asyncio.Task) -> asyncio.Task:
 
 
 def store_token(token):
+    if orchestrator.active_controller() or orchestrator.scan_start_lock().locked():
+        raise billing.BillingError('Дождитесь окончания скана перед сменой аккаунта', 409)
     repo.set_setting(billing.TOKEN_KEY, secrets_store.protect(token), is_secret=True)
     repo.set_setting("control_token", hashlib.sha256(token.encode()).hexdigest())
 
@@ -122,9 +124,10 @@ async def update_job(job, state, progress=None, error=None):
         "error": str(error)[:1000] if error else None})
 
 
-async def start_job(job, user_id):
+async def start_job(job, user_id, *, drain_only=False):
     try:
         local_id, managed = materialize(job, user_id)
+        managed['drain_only'] = drain_only
         await orchestrator.start_scan(local_id, job["snapshot"]["config"]["services"],
             headless=job["snapshot"]["config"]["browser_mode"] == "headless", managed_job=managed)
     except Exception as exc:
@@ -220,7 +223,19 @@ async def run_agent():
                             if starting and not starting.cancelled() and starting.exception():
                                 raise starting.exception()
                             scan = repo.get_scan(scan_id) if scan_id else None
-                            if scan and scan["status"] in ("done", "failed") or job["desired_state"] == "cancelled":
+                            if scan and repo.pending_captures(scan_id):
+                                # A terminal report would revoke analysis authorization for saved answers.
+                                if scan['status'] == 'failed':
+                                    await update_job(job, 'paused',
+                                        {'pending_analysis': len(repo.pending_captures(scan_id))},
+                                        error='Ответы сохранены. Продолжите задание для повторного анализа.')
+                                    repo.set_scan_status(scan_id, 'paused')
+                                elif (job['desired_state'] == 'running' or
+                                      job['desired_state'] == 'cancelled' and scan['status'] != 'paused'):
+                                    # Cancellation drains saved answers; explicit resume also completes the remaining queries.
+                                    starting = _track_work(asyncio.create_task(start_job(job, user['id'],
+                                        drain_only=job['desired_state'] == 'cancelled')))
+                            elif scan and scan["status"] in ("done", "failed") or job["desired_state"] == "cancelled":
                                 if finishing is None or finishing.done():
                                     if finishing and not finishing.cancelled() and finishing.exception():
                                         import telemetry

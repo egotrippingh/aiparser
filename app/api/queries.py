@@ -65,4 +65,7 @@ def toggle_query(project_id: int, query_id: int, is_active: bool) -> dict:
 
 @router.delete("/{query_id}", status_code=204, response_model=None)
 def delete_query(project_id: int, query_id: int) -> None:
-    repo.delete_query(query_id)
+    try:
+        repo.delete_query(query_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc

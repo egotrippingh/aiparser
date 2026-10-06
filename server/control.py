@@ -747,6 +747,10 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         if len(json.dumps(body.progress)) > 20000:
             raise HTTPException(422, "Слишком большой прогресс")
         row.state = body.state; row.progress_json = json.dumps(body.progress); row.error = body.error
+        if (body.state == 'paused' and body.error and body.progress.get('pending_analysis')
+                and row.desired_state == 'running'):
+            # Retain the lease while an explicitly resumed agent retries saved analysis.
+            row.desired_state = 'paused'
         row.updated_at = utcnow(); row.lease_until = utcnow()+timedelta(seconds=120)
         if row.state in TERMINAL:
             row.active_project_key = row.active_device_key = None

@@ -325,7 +325,11 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         until = run.lease_until
         if until and until.tzinfo is None:
             until = until.replace(tzinfo=timezone.utc)
-        if live and (run.state not in ("running", "paused") or run.desired_state == "cancelled"
+        # Cancellation stops new reservations, but a leased agent may still drain
+        # an answer it captured before the stop request.  The check endpoint
+        # itself requires the reservation to exist, so this cannot create work.
+        if live and (run.state not in ("running", "paused")
+                     or (new and run.desired_state == "cancelled")
                      or not until or until < utcnow()):
             raise HTTPException(409, "Задание остановлено или связь с агентом потеряна")
 
