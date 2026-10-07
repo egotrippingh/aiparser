@@ -1,8 +1,11 @@
 # Scan throughput delivery — 2026.10.7.1
 
 Scope: [checked brief](scan-throughput-brief.md). Base production source:
-`791dccbb2f93379a0557e0c4571af4950da74d3c`. Publication is pending final CI,
-backend activation and isolated Windows installer verification.
+`791dccbb2f93379a0557e0c4571af4950da74d3c`. Published through
+[PR #28](https://github.com/egotrippingh/aiparser/pull/28), source
+`fba1f8466457666f04ded8cc180ae3a25cf64276`.
+[Production CI/deployment](https://github.com/egotrippingh/aiparser/actions/runs/37602006061)
+passed. Backend activation preceded the Windows release.
 
 ## Shipped defaults
 
@@ -72,8 +75,32 @@ Neither these trials nor synthetic overlap establish 0.5 answers/second.
   failed wall-time ratio during concurrent synthetic/AST work; unchanged-code
   isolated parallel rerun passed (`parallel-isolated.log`). The overlap and
   result-integrity assertions passed in both runs. Exact-head GitHub CI is
-  required before merge. EXE/installer and live release checks remain publication
-  gates, not inferred from source tests.
+  passed before merge and again on production. Linux CI ran the two Windows-skipped
+  checks successfully (109 compatibility tests). EXE self-test and bundled-browser
+  startup passed. Isolated installer verification compared all 1819 source files,
+  launched the installed EXE/browser, reinstalled the same version, and uninstalled
+  while preserving both current and legacy data sentinels. This was not an upgrade
+  from an older real installation.
+
+## Published artifacts
+
+| Artifact | Bytes | SHA-256 |
+|---|---:|---|
+| [Installer](https://airate.tech/downloads/AIRate-Setup.exe) | 449214915 | `d2541147a95edd664df7358485530f847ca790639e29df319deff8b41e809c3f` |
+| [Portable](https://airate.tech/downloads/AI-Mentions-Windows.zip) | 99401479 | `0b352f4763804470ee7edeb21c47e9d310cf804907f114bb16b408f5c91521e6` |
+
+Publishing verified staged sizes/hashes before atomically switching the release
+pointer. Public metadata matches version 2026.10.7.1 and the local manifest.
+Both complete HTTPS downloads/hashes passed from the VPS; the operator PC checked
+readiness, pricing, metadata and the installer first 1 MiB against the local file.
+This does not prove complete downloads from every network. `agent-previous`
+retains 2026.10.6.1. Private evidence: `public-final.json`, `installer-test.log`,
+`build-exe.log`, `publish-agent.log` and `production-ci.log`.
+
+Readiness verified production source `fba1f8466457666f04ded8cc180ae3a25cf64276`;
+price remained 120 kopeks. Deployment saved
+`backups/aiparser-20261007T094120Z-2099139.dump` and restored it successfully into
+an isolated database before activation. That backup remains on this VPS.
 
 ## Recovery
 
