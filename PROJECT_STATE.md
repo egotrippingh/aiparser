@@ -36,3 +36,11 @@ Update the client agent to 2026.10.7.1 and measure an identical real-provider qu
 - [Throughput follow-up checks and rollback limits](docs/scan-throughput-release.md)
 - [Editable language rules](PYTHON_RULES.md)
 - [Sentry setup](docs/sentry.md)
+
+## Provider E2E status (2026-10-07)
+
+Forward hotfix **2026.10.7.2** is being qualified. Supplied WEB-PM logs confirm 28 four-minute ChatGPT completion waits. Verified guest DOM supports the new completion flag, composer and answer selectors; the latest message owns completion. Alice readiness accepts every visible authenticated marker, including the verified hybrid-sidebar account name. Fresh browser work is bounded to 900 seconds, fails one query on timeout and retains the service tail for continuation; stop preserves an underway capture and saved analysis work. Device polls expose version and per-service phase without query text.
+
+Final focused checks: **49 passed**; server suite: **74 passed**. Real headless local Google/Alice pipeline: **6/6 answers in 89.08 seconds**, six valid images, no paid analysis. Independent correctness/risk review and final Windows artifact checks are required before publication. Broad single-process agent collection remains failing; pristine baseline reproduced its first three API smoke failures.
+
+Remote authenticated ChatGPT, exact Google hung substep, broad Alice readiness across profiles/modes, screenshot completeness and Google citation extraction remain unqualified. The older 7.1 release remains current until the reviewed hotfix is published; [scope/evidence](docs/provider-e2e-brief.md).

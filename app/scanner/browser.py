@@ -96,6 +96,27 @@ class BrowserUnavailable(RuntimeError):
 
 
 @asynccontextmanager
+async def _bounded_camoufox(launch: dict, profile: Path):
+    manager = AsyncCamoufox(**launch)
+    context = await manager.__aenter__()
+    try:
+        yield context
+    finally:
+        closing = asyncio.create_task(manager.__aexit__(None, None, None))
+        done, _ = await asyncio.wait((closing,), timeout=10)
+        if done:
+            closing.result()
+        else:
+            closing.cancel()
+            done, _ = await asyncio.wait((closing,), timeout=5)
+            await _kill_processes_for_profile(profile)
+            if done and not closing.cancelled():
+                closing.result()
+            elif not done:
+                closing.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
+
+
+@asynccontextmanager
 async def service_context(service_id: str, *, window: tuple[int, int] = (1360, 900),
                           headless: bool = False) -> AsyncGenerator:
     """Персистентный контекст для одного сервиса; вкладку открывает вызывающий код.
@@ -131,10 +152,8 @@ async def service_context(service_id: str, *, window: tuple[int, int] = (1360, 9
 
     try:
         try:
-            async with AsyncCamoufox(**launch) as context:
-                if launch.get("geoip") is not False:
-                    _geoip_works = True
-                yield context
+            context_manager = _bounded_camoufox(launch, profile)
+            context = await context_manager.__aenter__()
         except Exception as exc:
             # geoip=True требует сходить в интернет за публичным IP (через
             # системный прокси/VPN, если он есть). Если в моменте прокси
@@ -151,8 +170,15 @@ async def service_context(service_id: str, *, window: tuple[int, int] = (1360, 9
                 "Дальнейшие запуски в этой сессии сразу идут без geoip.",
                 exc, service_id,
             )
-            async with AsyncCamoufox(**{**launch, "geoip": False}) as context:
-                yield context
+            context_manager = _bounded_camoufox({**launch, "geoip": False}, profile)
+            context = await context_manager.__aenter__()
+        else:
+            if launch.get("geoip") is not False:
+                _geoip_works = True
+        try:
+            yield context
+        finally:
+            await context_manager.__aexit__(None, None, None)
     finally:
         # Подстраховка независимо от того, как завершился контекст (успешно,
         # с ошибкой, из-за того что пользователь закрыл окно руками). Живые
@@ -211,7 +237,7 @@ async def _kill_processes_for_profile(profile: Path) -> None:
         log.warning("Не удалось принудительно завершить процессы Camoufox для %s", profile, exc_info=True)
 
 
-async def _ensure_profile_released(profile: Path, timeout: float = 6.0) -> None:
+async def _ensure_profile_released(profile: Path, timeout: float = 5.0) -> None:
     """Ждёт освобождения профиля и, если не дождалась, добивает процессы руками.
 
     Нормальный путь — lock освобождается сам за доли секунды после закрытия

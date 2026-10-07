@@ -27,6 +27,7 @@ def test_retry_ignores_old_error_rows(monkeypatch, completed_first):
             ctl.advance(service, q["id"])
 
     monkeypatch.setattr(mod, "_run_service", run_service)
+    monkeypatch.setattr(mod.repo, "pending_captures", lambda _: [])
     monkeypatch.setattr(mod.repo, "results_for_scan", lambda _: rows)
     monkeypatch.setattr(mod.repo, "finish_scan", lambda _, status: finished.append(status))
     asyncio.run(mod._run_scan({"parallel_scan": True}, ["chatgpt"], queries, set(),
@@ -43,6 +44,7 @@ def test_service_failure_remains_in_snapshot(monkeypatch):
         raise RuntimeError("composer unavailable")
 
     monkeypatch.setattr(mod, "_run_service", fail)
+    monkeypatch.setattr(mod.repo, "pending_captures", lambda _: [])
     monkeypatch.setattr(mod.repo, "results_for_scan", lambda _: [])
     monkeypatch.setattr(mod.repo, "finish_scan", lambda *args, **kwargs: None)
     asyncio.run(mod._run_scan({"parallel_scan": True}, ["chatgpt"], [{"id": 1}], set(),

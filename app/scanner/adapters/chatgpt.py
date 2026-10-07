@@ -70,7 +70,7 @@ class ChatGPTAdapter:
         marker = page.locator(_S["logged_in_marker"]).first
         if not await visible(marker, 15000):
             login = page.get_by_role("button", name=re.compile(r"^(Log in|Sign in|Войти)$", re.I))
-            if await visible(login.first, 1500):
+            if await visible(page.locator(_S["login_form"]).first, 1500) or await visible(login.first, 1500):
                 return ReadyState(ok=False, reason="auth_required")
             await dump_debug_html(page, "chatgpt_unknown_session")
             raise AdapterError("ChatGPT: не удалось определить состояние входа")
@@ -171,8 +171,9 @@ class ChatGPTAdapter:
     async def _wait_done(self, page) -> None:
         """Ждёт, пока ответ реально дописан.
 
-        Признак — кнопка «оценить» под ответом: появляется только по
-        завершении (проверено 10.09.2026 на платном аккаунте). «Текст перестал
+        Признак — флаг завершения последнего сообщения в новом интерфейсе
+        (проверено 07.10.2026 в гостевой сессии) либо кнопка «оценить» в старом
+        (проверено 10.09.2026 на платном аккаунте). «Текст перестал
         расти» здесь не годится: рассуждающая модель дольше трёх секунд
         показывает «Думаю» и «Поиск на N сайтах», и такие заглушки уходили в
         базу как ответ.
@@ -182,7 +183,17 @@ class ChatGPTAdapter:
         except Exception:
             return  # capture() честно упадёт на отсутствии ответа
         try:
-            await page.locator(_S["done_marker"]).last.wait_for(state="visible", timeout=240000)
+            await page.wait_for_function(
+                """({answer, done}) => {
+                    const latest = [...document.querySelectorAll(answer)].at(-1);
+                    const modern = latest?.closest('[data-message-role="assistant"]');
+                    if (modern) return modern.hasAttribute('data-message-complete');
+                    return [...document.querySelectorAll(done)].some(e =>
+                        e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden');
+                }""",
+                arg={"answer": _S["answer_container"], "done": _S["done_marker"]},
+                timeout=240000,
+            )
             await humanize.sleep(0.8, 1.5)
         except Exception:
             log.warning("ChatGPT: признак завершения не появился за 4 минуты — снимаю по стабилизации текста")
