@@ -46,6 +46,10 @@ class OpenRouterAI:
         self.api_key = api_key
         self.model = model or os.environ.get("OPENROUTER_PRIMARY_MODEL", "google/gemini-3.1-flash-lite")
         self.arbiter_model = arbiter_model or os.environ.get("OPENROUTER_ARBITER_MODEL", "google/gemini-3.8-flash")
+        self._client = httpx.Client(timeout=90)
+
+    def close(self) -> None:
+        self._client.close()
 
     def analyze(self, _system: str, content: list[dict]) -> AIResult:
         return self._call(self.model, PRIMARY_SYSTEM, content)
@@ -68,15 +72,14 @@ class OpenRouterAI:
             "usage": {"include": True},
         }
         try:
-            with httpx.Client(timeout=90) as client:
-                response = client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {self.api_key}", "X-Title": "AIParser"},
-                    json=payload,
-                )
-                response.raise_for_status()
-                data = response.json()
-                raw = data["choices"][0]["message"]["content"]
+            response = self._client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key}", "X-Title": "AIParser"},
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            raw = data["choices"][0]["message"]["content"]
         except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
             raise AIError("Модель временно недоступна") from exc
         if not isinstance(raw, str):

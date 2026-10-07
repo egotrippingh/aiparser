@@ -141,10 +141,6 @@ async def run_agent() -> None:
                 async with orchestrator.scan_start_lock():
                     if orchestrator.active_controller() is None:
                         await billing.recover_interrupted_scans(user["id"])
-                        try:
-                            await billing.flush_screenshot_outbox(user["id"])
-                        except billing.ScreenshotError as exc:
-                            log.warning("Отложенная отправка снимков: %s", exc)
                 try:
                     await _sync_results(user["id"], current_device_id)
                 except billing.BillingError as exc:

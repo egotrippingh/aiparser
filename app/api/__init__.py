@@ -68,6 +68,7 @@ def create_app() -> FastAPI:
 
     import asyncio
     from app.control_agent import run_agent
+    from app.scanner import orchestrator
     from app import updates
 
     agent_task: asyncio.Task | None = None
@@ -75,6 +76,9 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def start_agent() -> None:
+        from app import billing
+        await billing.start_client()
+        await billing.start_screenshot_consumer()
         nonlocal agent_task, update_task
         telemetry.watch_loop("agent")
         agent_task = asyncio.create_task(run_agent())
@@ -82,6 +86,7 @@ def create_app() -> FastAPI:
 
     @app.on_event("shutdown")
     async def stop_agent() -> None:
+        from app import billing
         if agent_task:
             agent_task.cancel()
             try:
@@ -91,6 +96,9 @@ def create_app() -> FastAPI:
         if update_task:
             update_task.cancel()
             await asyncio.gather(update_task, return_exceptions=True)
+        await orchestrator.stop_active_scans()
+        await billing.stop_screenshot_consumer()
+        await billing.close_client()
 
     @app.get("/api/meta")
     def meta() -> dict:

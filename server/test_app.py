@@ -64,6 +64,36 @@ class FakeArbiterAI(FakeAI):
                         {"prompt_tokens": 500, "completion_tokens": 200, "cost": 0.001})
 
 
+def test_saved_retry_budget_cannot_be_reset_by_rereserve(tmp_path, monkeypatch):
+    from sqlalchemy import select
+    from server.models import Check, Wallet, make_session_factory
+
+    url = f"sqlite:///{tmp_path / 'retry.db'}"
+    client = TestClient(create_app(database_url=url, ai_client=FakeAI()))
+    created = client.post('/api/v1/auth/register', json={
+        'email': 'retry@example.test', 'password': 'a-long-test-password'}).json()
+    headers = {'Authorization': f"Bearer {created['token']}"}
+    engine, sessions = make_session_factory(url)
+    with sessions() as db:
+        db.scalar(select(Wallet)).balance_kopeks = 1000
+        db.commit()
+    assert client.post('/api/v1/checks/reserve', headers=headers, json={'check_ids': ['retry']}).status_code == 200
+    body = {'system': 'Проверь упоминание бренда и верни валидный JSON без пояснений.',
+            'content': [{'type': 'text', 'text': 'answer'}]}
+    assert client.post('/api/v1/checks/retry/analyze', headers=headers, json=body).status_code == 200
+    client.post('/api/v1/checks/retry/complete', headers=headers, json={'status': 'captcha'})
+    assert client.post('/api/v1/checks/reserve', headers=headers, json={'check_ids': ['retry']}).status_code == 200
+    with sessions() as db:
+        check = db.scalar(select(Check))
+        assert check.analysis_attempts == 1  # repeat reserve did not erase lifetime budget
+        check.status = 'reserved'; check.analysis_json = None; check.analysis_attempts = 2
+        db.commit()
+    assert client.post('/api/v1/checks/retry/analyze', headers=headers, json=body).status_code == 409
+    assert client.post('/api/v1/checks/retry/analyze', headers=headers,
+                       json={**body, 'retry_saved': True}).status_code == 200
+    engine.dispose()
+
+
 def test_payment_and_checks_are_idempotent(tmp_path, monkeypatch):
     monkeypatch.setenv("COINSO_SECRET_KEY", "test-secret")
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.test")

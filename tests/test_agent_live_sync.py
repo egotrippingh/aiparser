@@ -1,11 +1,13 @@
 """Completed results reach the cabinet while a long scan is still running."""
 
 import asyncio
+import hashlib
 import json
 
 import pytest
 
-from app import agent
+from app import agent, billing, control_agent
+from app.scanner import orchestrator
 
 
 def test_active_scan_uploads_results_without_releasing_reservations(monkeypatch):
@@ -37,6 +39,65 @@ def test_active_scan_uploads_results_without_releasing_reservations(monkeypatch)
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(agent.run_agent())
     assert calls == [("owner", "desktop")]
+
+
+def test_enroll_skips_same_token_and_rejects_changed_token_during_scan(monkeypatch):
+    token = "connected"
+    marker = hashlib.sha256(token.encode()).hexdigest()
+    calls = []
+    async def send(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"token": "device"}
+    monkeypatch.setattr(control_agent.billing, "token", lambda: token)
+    monkeypatch.setattr(control_agent.repo, "get_setting", lambda _key: marker)
+    monkeypatch.setattr(control_agent.billing, "_request", send)
+    asyncio.run(control_agent.enroll())
+    assert calls == []
+
+    monkeypatch.setattr(control_agent.repo, "get_setting", lambda _key: "old-marker")
+    monkeypatch.setattr(control_agent.orchestrator, "active_controller", lambda: object())
+    with pytest.raises(billing.BillingError) as error:
+        asyncio.run(control_agent.enroll())
+    assert error.value.status_code == 409 and calls == []
+
+
+def test_tracked_result_sync_blocks_account_change_until_old_owner_finishes(monkeypatch):
+    async def scenario():
+        lock, entered, release = asyncio.Lock(), asyncio.Event(), asyncio.Event()
+        settings, bearer, sent, remote = {}, {"token": "alice"}, [], []
+        rows = [{"id": i, "status": "found", "error_message": None,
+                 "settings_snapshot_json": json.dumps({"billing_user_id": "alice"})}
+                for i in range(1, 102)]
+        monkeypatch.setattr(control_agent, "_work_tasks", set())
+        monkeypatch.setattr(orchestrator, "scan_start_lock", lambda: lock)
+        monkeypatch.setattr(orchestrator, "active_controller", lambda: None)
+        monkeypatch.setattr(agent.repo, "get_setting", lambda key, default="": settings.get(key, default))
+        monkeypatch.setattr(agent.repo, "set_setting", lambda key, value: settings.__setitem__(key, value))
+        monkeypatch.setattr(agent.repo, "cloud_results_after", lambda cursor: [r for r in rows if r["id"] > cursor][:100])
+        monkeypatch.setattr(agent, "_payload", lambda row: {"local_result_id": row["id"]})
+        monkeypatch.setattr(billing, "token", lambda: bearer["token"])
+        async def upload(_device, payload):
+            sent.append((bearer["token"], [item["local_result_id"] for item in payload]))
+            if len(sent) == 1:
+                entered.set()
+                await release.wait()
+            return {"diagnostics_version": 1}
+        monkeypatch.setattr(agent.billing, "upload_cloud_results", upload)
+        task = control_agent._track_work(asyncio.create_task(agent._sync_results("alice", "desktop")))
+        await entered.wait()
+        with pytest.raises(billing.BillingError) as error:
+            async with billing.account_change():
+                bearer["token"] = "bob"
+                remote.append("exchange")
+        assert error.value.status_code == 409 and remote == []
+        release.set()
+        await task
+        assert [owner for owner, _ids in sent] == ["alice", "alice"]
+        async with billing.account_change():
+            bearer["token"] = "bob"
+            remote.append("exchange")
+        assert remote == ["exchange"]
+    asyncio.run(scenario())
 
 
 def test_cloud_payload_keeps_local_answer_but_limits_upload_fields():

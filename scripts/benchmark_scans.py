@@ -40,11 +40,26 @@ class InputMismatch(RuntimeError):
     """Humanized typing did not leave the requested query in the input."""
 
 
+async def _google_result_ready(page, timeout: float) -> None:
+    """Candidate-only: navigation is insufficient until Google has result DOM."""
+    if google_aio._S["captcha_url_marker"] in page.url:
+        return
+    results = page.locator("#rso")
+    await results.wait_for(state="visible", timeout=timeout)
+    await results.locator(":scope > *").first.wait_for(state="attached", timeout=timeout)
+
+
 def _safe_detail(exc: Exception) -> str:
     text = str(exc)
     text = re.sub(r"https?://\S+", "<url>", text)
     text = re.sub(r"(?i)\b(token|cookie|authorization|session|secret|api[_ -]?key)\b\s*[:=]\s*\S+", r"\1=<redacted>", text)
     return text[:1200]
+
+
+def _startup_diagnostic(service: str, profile: Path) -> dict:
+    """Enough startup evidence to debug a copied profile without exposing its path."""
+    return {"service": service, "profile_present": profile.is_dir(),
+            "profile_name_sha256": _hash(profile.name)[:12]}
 
 
 def _under(child: Path, parent: Path) -> bool:
@@ -72,10 +87,14 @@ def _copy_profiles(source: Path, destination: Path, services: list[str]) -> None
             "parent.lock", ".parentlock", "lock", "*-wal", "*-shm", "*-journal"))
         for database in original.rglob("*"):
             if database.is_file() and database.suffix in (".sqlite", ".db"):
-                reader = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
-                writer = sqlite3.connect(copied / database.relative_to(original))
+                reader = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True, timeout=5)
+                writer = sqlite3.connect(copied / database.relative_to(original), timeout=5)
                 try:
-                    reader.backup(writer)
+                    deadline = time.monotonic() + 30
+                    def progress(_status, _remaining, _total):
+                        if time.monotonic() >= deadline:
+                            raise RuntimeError("profile database backup timed out")
+                    reader.backup(writer, pages=128, progress=progress, sleep=0.1)
                 finally:
                     writer.close()
                     reader.close()
@@ -92,20 +111,25 @@ class Timings:
                 values[key] = 0
 
     @contextmanager
-    def instrument(self, *, skip_scroll: bool = False):
+    def instrument(self, *, skip_scroll: bool = False, direct_fill: bool = False):
         originals = {name: getattr(humanize, name) for name in ("type_like_human", "scroll_through", "sleep")}
         def wrap(name, fn):
             async def timed(*args, **kwargs):
                 start = time.monotonic(); self.calls[name] += 1
                 try:
-                    result = await fn(*args, **kwargs)
+                    if name == "typing" and direct_fill:
+                        page, selector = args[:2]
+                        text = args[2] if len(args) > 2 else kwargs["text"]
+                        result = await page.locator(selector).first.fill(text)
+                    else:
+                        result = await fn(*args, **kwargs)
                     if name == "typing":
                         page, selector = args[:2]
-                        expected = str(args[2] if len(args) > 2 else kwargs["text"]).strip()
+                        expected = str(args[2] if len(args) > 2 else kwargs["text"])
                         actual = await page.locator(selector).first.evaluate(
-                            "el => (el.value ?? el.innerText ?? el.textContent ?? '').trim()")
-                        if actual.strip() != expected:
-                            raise InputMismatch("input text differs after humanized typing")
+                            "el => el.value ?? el.innerText ?? el.textContent ?? ''")
+                        if actual != expected:
+                            raise InputMismatch(f"input length differs ({len(actual)} != {len(expected)})")
                     return result
                 finally:
                     self.seconds[name] += time.monotonic() - start
@@ -231,21 +255,26 @@ async def _run_service(service: str, args, output) -> bool:
 
 async def _run_service_context(service: str, args, output) -> bool:
     adapter, timing = ADAPTERS[service], Timings()
+    _emit(output, {"status": "startup", **_startup_diagnostic(service, config.PROFILES_DIR / service)})
     async with service_context(service, headless=args.headless) as context:
         page = context.pages[0] if context.pages else await context.new_page()
         original_wait = page.wait_for_load_state
         async def measured_wait(state="load", **kwargs):
             timing.calls["load_state"] += 1; started = time.monotonic()
             try:
-                if args.variant == "candidate" and service == "google_aio" and state == "networkidle":
+                if args.google_dom_ready and service == "google_aio" and state == "networkidle":
                     home = google_aio._S["home_url"].rstrip("/")
-                    return await page.wait_for_url(lambda url: str(url).rstrip("/") != home and
-                        ("/search" in str(url) or "/sorry/" in str(url)), wait_until="domcontentloaded", **kwargs)
+                    timeout = kwargs.get("timeout", 15000)
+                    await original_wait("domcontentloaded", **kwargs)
+                    await page.wait_for_url(lambda url: str(url).rstrip("/") != home and
+                        ("/search" in str(url) or "/sorry/" in str(url)),
+                        wait_until="domcontentloaded", timeout=timeout)
+                    return await _google_result_ready(page, timeout)
                 return await original_wait(state, **kwargs)
             finally:
                 timing.seconds["load_state"] += time.monotonic() - started
         page.wait_for_load_state = measured_wait
-        with timing.instrument(skip_scroll=args.skip_scroll):
+        with timing.instrument(skip_scroll=args.skip_scroll, direct_fill=args.direct_fill):
             started = time.monotonic(); ready = await adapter.ensure_ready(page)
             prepare = time.monotonic() - started
             if not ready.ok:
@@ -318,8 +347,12 @@ def _args() -> argparse.Namespace:
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--variant", choices=("baseline", "candidate"), default="baseline")
     parser.add_argument("--skip-scroll", action="store_true", help="experimentally omit adapter post-answer scrolling")
+    parser.add_argument("--direct-fill", action="store_true", help="candidate: exact form fill instead of typing")
+    parser.add_argument("--google-dom-ready", action="store_true", help="candidate: DOM navigation readiness instead of networkidle")
     parser.add_argument("--self-check", action="store_true")
     args = parser.parse_args()
+    if (args.direct_fill or args.skip_scroll or args.google_dom_ready) and args.variant != "candidate":
+        parser.error("candidate flags require --variant candidate")
     if unknown := set(args.services) - set(ADAPTERS):
         parser.error(f"unknown services: {sorted(unknown)}")
     base = humanize.profile(args.profile)
@@ -345,6 +378,7 @@ async def _self_check() -> None:
         first = None
         def __init__(self, page): self.page = page; self.first = self
         async def evaluate(self, _): return self.page.value
+        async def fill(self, text): self.page.value = text
     class Page:
         value = ""
         def locator(self, _): return Input(self)
@@ -353,7 +387,7 @@ async def _self_check() -> None:
             page.value = text
     humanize.type_like_human = typing
     try:
-        with Timings().instrument():
+        with Timings().instrument(direct_fill=True):
             await humanize.type_like_human(Page(), "#input", "exact")
         assert humanize.type_like_human is typing
         with Timings().instrument():
@@ -365,6 +399,24 @@ async def _self_check() -> None:
                 raise AssertionError("typing mismatch was accepted")
     finally:
         humanize.type_like_human = original
+
+    class ResultLocator:
+        first = None
+        def __init__(self, calls): self.calls = calls; self.first = self
+        async def wait_for(self, **kwargs): self.calls.append(kwargs)
+        def locator(self, selector):
+            assert selector == ":scope > *"
+            return self
+    class ResultPage:
+        url = "https://www.google.com/search?q=test"
+        def __init__(self): self.calls = []
+        def locator(self, selector):
+            assert selector == "#rso"
+            return ResultLocator(self.calls)
+    page = ResultPage()
+    await _google_result_ready(page, 8000)
+    assert page.calls == [{"state": "visible", "timeout": 8000},
+                          {"state": "attached", "timeout": 8000}]
 
 
 async def main() -> None:
@@ -385,7 +437,8 @@ async def main() -> None:
     args.screenshots.mkdir()
     with (args.output / "progress.jsonl").open("x", encoding="utf-8") as output:
         _emit(output, {"started_at": datetime.now(timezone.utc).isoformat(), "revision": _revision(),
-                       "variant": args.variant, "skip_scroll": args.skip_scroll, "services": args.services, "rounds": args.rounds,
+                       "variant": args.variant, "skip_scroll": args.skip_scroll, "direct_fill": args.direct_fill,
+                       "google_dom_ready": args.google_dom_ready, "services": args.services, "rounds": args.rounds,
                        "query_count": len(args.queries), "profile": args.profile, "typing": args.typing, "delay": args.delay})
         complete = True
         for service in args.services:

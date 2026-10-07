@@ -756,6 +756,13 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             row.active_project_key = row.active_device_key = None
         db.commit(); return {"desired_state": row.desired_state}
 
+    @router.get("/agent/runs/{run_id}/status")
+    def run_status(run_id: str, grant=Depends(device_user), db=Depends(db_session)):
+        row = db.get(ControlRun, run_id)
+        if not row or row.user_id != grant.user_id or row.device_id != grant.device_id:
+            raise HTTPException(404, "Задание не найдено")
+        return {"state": row.state}
+
     app.include_router(router)
     scheduler = None
 

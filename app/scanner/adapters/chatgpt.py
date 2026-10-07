@@ -186,7 +186,12 @@ class ChatGPTAdapter:
             await humanize.sleep(0.8, 1.5)
         except Exception:
             log.warning("ChatGPT: признак завершения не появился за 4 минуты — снимаю по стабилизации текста")
-            await humanize.wait_until_settled(page, _S["answer_container"], quiet_for=5.0, timeout=60.0)
+            try:
+                settled = await humanize.wait_until_settled(page, _S["answer_container"], quiet_for=5.0, timeout=60.0)
+            except humanize.AnswerNotSettledError as exc:
+                raise AdapterError("ChatGPT: ответ не завершился за отведённое время") from exc
+            if not settled.strip():
+                raise AdapterError("ChatGPT: ответ не завершился за отведённое время")
 
     async def capture(self, page) -> Capture:
         try:

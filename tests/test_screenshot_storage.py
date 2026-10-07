@@ -5,6 +5,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
+import pytest
 
 from app import billing, config
 from app.db import repo
@@ -140,6 +141,121 @@ def test_desktop_upload_queue_survives_server_failure(tmp_path, monkeypatch):
         asyncio.run(billing.flush_screenshot_outbox())
         assert repo.pending_screenshots() == []
         assert shot.exists()
+    finally:
+        repo._local.conn.close()
+        del repo._local.conn
+
+
+def test_desktop_upload_stops_when_token_changes(tmp_path, monkeypatch):
+    old_conn = getattr(repo._local, "conn", None)
+    if old_conn is not None:
+        old_conn.close()
+        del repo._local.conn
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "local.db")
+    monkeypatch.setattr(config, "SCREENSHOTS_DIR", tmp_path / "shots")
+    monkeypatch.setattr(config, "ACCOUNT_URL", "https://account.example")
+    monkeypatch.setattr(billing.secrets_store, "unprotect", lambda value: value)
+    monkeypatch.setattr(billing, "_screenshot_retry_after", 0)
+    repo.init_db()
+    repo.set_setting(billing.TOKEN_KEY, "old")
+    for name in ("one.webp", "two.webp"):
+        path = config.SCREENSHOTS_DIR / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"RIFF\x04\x00\x00\x00WEBPdata")
+    repo.queue_screenshot("run:1:chatgpt", "one.webp")
+    repo.queue_screenshot("run:2:chatgpt", "two.webp")
+    sent = []
+
+    class Response:
+        status_code = 200
+        is_error = False
+
+    class Client:
+        def __init__(self, **_kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *_args): pass
+        async def put(self, _url, *, content, headers):
+            sent.append(headers["Authorization"])
+            repo.set_setting(billing.TOKEN_KEY, "new")
+            return Response()
+
+    monkeypatch.setattr(billing.httpx, "AsyncClient", Client)
+    try:
+        asyncio.run(billing.flush_screenshot_outbox(pinned="old"))
+        assert sent == ["Bearer old"]
+        assert repo.pending_screenshots() == [{"check_id": "run:2:chatgpt", "local_path": "two.webp"}]
+    finally:
+        repo._local.conn.close()
+        del repo._local.conn
+
+
+def test_screenshot_flush_cursor_reaches_later_good_row_after_persistent_404s(tmp_path, monkeypatch):
+    old_conn = getattr(repo._local, "conn", None)
+    if old_conn is not None:
+        old_conn.close()
+        del repo._local.conn
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "local.db")
+    monkeypatch.setattr(config, "SCREENSHOTS_DIR", tmp_path / "shots")
+    monkeypatch.setattr(config, "ACCOUNT_URL", "https://account.example")
+    monkeypatch.setattr(billing, "token", lambda: "owner-token")
+    monkeypatch.setattr(billing.secrets_store, "unprotect", lambda value: value)
+    monkeypatch.setattr(billing, "_screenshot_retry_after", 0)
+    monkeypatch.setattr(billing, "_screenshot_cursor", "")
+    repo.init_db()
+    repo.set_setting(billing.TOKEN_KEY, "owner-token")
+    for number in range(20, -1, -1):
+        name = f"bad-{number:02}.webp"
+        (config.SCREENSHOTS_DIR / name).parent.mkdir(parents=True, exist_ok=True)
+        (config.SCREENSHOTS_DIR / name).write_bytes(b"RIFF\x04\x00\x00\x00WEBPdata")
+        repo.queue_screenshot(f"run:bad-{number:02}:chatgpt", name)
+    (config.SCREENSHOTS_DIR / "good.webp").write_bytes(b"RIFF\x04\x00\x00\x00WEBPdata")
+    repo.queue_screenshot("run:good:chatgpt", "good.webp")
+    uploaded = []
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.is_error = status_code >= 400
+
+    class Client:
+        def __init__(self, **_kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *_args): pass
+        async def put(self, url, **_kwargs):
+            uploaded.append(url)
+            return Response(200 if "run:good:" in url else 404)
+
+    monkeypatch.setattr(billing.httpx, "AsyncClient", Client)
+    try:
+        asyncio.run(billing.flush_screenshot_outbox(limit=20, pinned="owner-token"))
+        asyncio.run(billing.flush_screenshot_outbox(limit=20, pinned="owner-token"))
+        assert any("run:good:" in url for url in uploaded)
+        assert len(repo.pending_screenshots()) == 21
+    finally:
+        repo._local.conn.close()
+        del repo._local.conn
+
+
+def test_locked_screenshot_stays_queued(tmp_path, monkeypatch):
+    old_conn = getattr(repo._local, "conn", None)
+    if old_conn is not None:
+        old_conn.close()
+        del repo._local.conn
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "local.db")
+    monkeypatch.setattr(config, "SCREENSHOTS_DIR", tmp_path / "shots")
+    monkeypatch.setattr(config, "ACCOUNT_URL", "https://account.example")
+    monkeypatch.setattr(billing, "token", lambda: "desktop-session")
+    monkeypatch.setattr(billing, "_screenshot_retry_after", 0)
+    repo.init_db()
+    shot = config.SCREENSHOTS_DIR / "locked.webp"
+    shot.parent.mkdir(parents=True)
+    shot.write_bytes(b"RIFF\x04\x00\x00\x00WEBPdata")
+    repo.queue_screenshot("run:1:chatgpt", "locked.webp")
+    monkeypatch.setattr(type(shot), "read_bytes", lambda _path: (_ for _ in ()).throw(PermissionError("locked")))
+    try:
+        with pytest.raises(billing.ScreenshotError):
+            asyncio.run(billing.flush_screenshot_outbox())
+        assert repo.pending_screenshots() == [{"check_id": "run:1:chatgpt", "local_path": "locked.webp"}]
     finally:
         repo._local.conn.close()
         del repo._local.conn

@@ -22,7 +22,7 @@ def test_password_login_enrolls_and_keeps_only_device_token(monkeypatch):
     monkeypatch.setattr(desktop, "device_id", lambda: "device")
     monkeypatch.setattr(desktop.window_control, "hide", MagicMock())
     asyncio.run(desktop.password_login(desktop.PasswordIn(email="test@example.test", password="password")))
-    stored.assert_called_once_with("device-token")
+    stored.assert_called_once_with("device-token", admitted=True)
     assert calls[1][1]["bearer"] == "temporary-web-token"
     assert calls[2] == ("/auth/logout", {"bearer": "temporary-web-token"})
     assert desktop.STATE["connected"]
