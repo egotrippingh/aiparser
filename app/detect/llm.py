@@ -103,6 +103,7 @@ async def evaluate(
     timeout: float = 45.0,
     query: str | None = None,
     brand_clarification: str = "",
+    retry_saved: bool = False,
 ) -> LLMVerdict:
     if not managed_check_id:
         return LLMVerdict(found=False, error="Серверный анализ недоступен")
@@ -112,7 +113,7 @@ async def evaluate(
     content += _image_parts(screenshot_bytes)
 
     return await _ask_model(_SYSTEM, content, api_key=api_key, model=model,
-                            timeout=timeout, managed_check_id=managed_check_id)
+                            timeout=timeout, managed_check_id=managed_check_id, retry_saved=retry_saved)
 
 
 def _image_parts(screenshot_bytes: bytes | None) -> list[dict]:
@@ -146,6 +147,7 @@ async def arbitrate(
     query: str | None = None,
     managed_check_id: str | None = None,
     brand_clarification: str = "",
+    retry_saved: bool = False,
 ) -> LLMVerdict:
     """Окончательное решение по спорной строке — вместо ручной проверки.
 
@@ -173,17 +175,21 @@ async def arbitrate(
 
     return await _ask_model(_ARBITER_SYSTEM, content, api_key=api_key, model=model,
                             timeout=timeout, managed_check_id=managed_check_id,
-                            managed_arbiter=True)
+                            managed_arbiter=True, retry_saved=retry_saved)
 
 
 async def _ask_model(system: str, content: list[dict], *, api_key: str, model: str, timeout: float,
                      retry: bool = True, managed_check_id: str | None = None,
-                     managed_arbiter: bool = False) -> LLMVerdict:
+                     managed_arbiter: bool = False, retry_saved: bool = False) -> LLMVerdict:
     if not managed_check_id:
         return LLMVerdict(found=False, model=model, error="Серверный анализ недоступен")
     try:
-        result = (await billing.arbitrate(managed_check_id, system, content)
-                  if managed_arbiter else await billing.analyze(managed_check_id, system, content))
+        if managed_arbiter:
+            result = await billing.arbitrate(managed_check_id, system, content,
+                                             **({"retry_saved": True} if retry_saved else {}))
+        else:
+            result = await billing.analyze(managed_check_id, system, content,
+                                           **({"retry_saved": True} if retry_saved else {}))
         return parse_verdict(result["raw"], result["model"]) or LLMVerdict(
             found=False, model=model, error="Не удалось разобрать ответ серверной модели")
     except (billing.BillingError, KeyError) as exc:
@@ -191,7 +197,7 @@ async def _ask_model(system: str, content: list[dict], *, api_key: str, model: s
             await asyncio.sleep(2)
             return await _ask_model(system, content, api_key=api_key, model=model,
                                     timeout=timeout, retry=False, managed_check_id=managed_check_id,
-                                    managed_arbiter=managed_arbiter)
+                                    managed_arbiter=managed_arbiter, retry_saved=retry_saved)
         return LLMVerdict(found=False, model=model, error=str(exc))
 
 

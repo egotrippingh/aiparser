@@ -32,8 +32,8 @@ def _track_work(task: asyncio.Task) -> asyncio.Task:
     return task
 
 
-def store_token(token):
-    if orchestrator.active_controller() or orchestrator.scan_start_lock().locked():
+def store_token(token, *, admitted: bool = False):
+    if not admitted and (orchestrator.active_controller() or orchestrator.scan_start_lock().locked()):
         raise billing.BillingError('Дождитесь окончания скана перед сменой аккаунта', 409)
     repo.set_setting(billing.TOKEN_KEY, secrets_store.protect(token), is_secret=True)
     repo.set_setting("control_token", hashlib.sha256(token.encode()).hexdigest())
@@ -41,11 +41,15 @@ def store_token(token):
 
 async def enroll():
     token = billing.token()
-    marker = hashlib.sha256(token.encode()).hexdigest()
-    if repo.get_setting("control_token") != marker:
-        response = await billing._request("POST", "/control/agent/enroll", body={
-            "device_id": device_id(), "name": platform.node() or "Windows агент"})
-        store_token(response["token"])
+    if repo.get_setting("control_token") == hashlib.sha256(token.encode()).hexdigest():
+        return
+    async with billing.account_change():
+        token = billing.token()
+        marker = hashlib.sha256(token.encode()).hexdigest()
+        if repo.get_setting("control_token") != marker:
+            response = await billing._request("POST", "/control/agent/enroll", body={
+                "device_id": device_id(), "name": platform.node() or "Windows агент"})
+            store_token(response["token"], admitted=True)
 
 
 async def import_projects(user_id):
@@ -112,10 +116,22 @@ async def maintenance(user_id):
             await billing.recover_interrupted_scans(user_id)
     # Images and results are retried while other service tasks continue.
     await _sync_results(user_id, device_id())
-    try:
-        await billing.flush_screenshot_outbox(user_id)
-    except billing.ScreenshotError as exc:
-        log.warning("Screenshot upload pending: %s", exc)
+    for item in repo.secret_settings(f"abandoned_terminal:{user_id}:{device_id()}:"):
+        try:
+            marker = json.loads(secrets_store.unprotect(item["value"]))
+            if marker.get("owner") != user_id or marker.get("device_id") != device_id():
+                continue
+            count = len(repo.results_for_scan(int(marker["scan_id"])))
+            await update_job({"id": marker["run_id"], "lease_token": marker["lease_token"]}, "failed",
+                             {"done": count, "total": marker.get("total", 0)},
+                             "Оператор завершил сохранённые ответы без анализа.")
+        except billing.BillingError as exc:
+            if exc.status_code not in (401, 409):
+                raise
+            status = await billing._request("GET", f"/control/agent/runs/{marker['run_id']}/status")
+            if status.get("state") not in ("done", "failed", "cancelled", "missed"):
+                raise
+        repo.delete_setting(item["key"])
 
 
 async def update_job(job, state, progress=None, error=None):

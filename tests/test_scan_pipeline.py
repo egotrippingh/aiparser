@@ -70,8 +70,10 @@ def save(project, query, settings, ctl, state='pending', payer=None, check=None)
 
 
 @pytest.mark.parametrize('action', ['pause', 'stop', 'cancel'])
-def test_overlap_bounded_backlog_and_controls(tmp_path, monkeypatch, action):
+@pytest.mark.parametrize('workers', [1, 2])
+def test_overlap_bounded_backlog_and_controls(tmp_path, monkeypatch, action, workers):
     project, items, settings, ctl, asked, _ = setup(tmp_path, monkeypatch, services=('chatgpt', 'perplexity'))
+    settings['analysis_workers'] = workers
     async def scenario():
         entered, release = asyncio.Event(), asyncio.Event()
         busy = peak = 0
@@ -87,8 +89,8 @@ def test_overlap_bounded_backlog_and_controls(tmp_path, monkeypatch, action):
         task = asyncio.create_task(run(project, items, settings, ctl, ('chatgpt', 'perplexity')))
         await entered.wait()
         for _ in range(30): await asyncio.sleep(0)
-        assert ctl.done == 0 and 2 <= len(asked) <= 5  # 1 active + 2 waiting + 1 per producer
-        assert ctl.analysis_queue.qsize() <= 2 and peak == 1
+        assert ctl.done == 0 and 2 <= len(asked) <= 6  # 1–2 active + 2 waiting + producers
+        assert ctl.analysis_queue.qsize() <= 2 and peak == workers
         getattr(ctl, action)() if action != 'cancel' else task.cancel()
         if action == 'cancel':
             with pytest.raises(asyncio.CancelledError): await task
@@ -134,7 +136,8 @@ def test_raw_capture_survives_export_failure_and_retries_analysis(tmp_path, monk
                                    0, '', 'fake', 'never', ctl)
     assert asyncio.run(one()) == 'error'
     row = repo.pending_captures(ctl.scan_id)[0]
-    assert row['state'] == 'error' and row['screenshot_bytes'] == b'image'
+    assert row['state'] == 'error' and 'screenshot_bytes' not in row
+    assert repo.capture(ctl.scan_id, items[0]['id'], 'chatgpt')['screenshot_bytes'] == b'image'
     monkeypatch.setattr(scan.imaging, 'to_webp', lambda raw: raw)
     assert asyncio.run(one()) == 'found' and asked == ['question 0']
 
@@ -157,6 +160,48 @@ def test_skipped_capture_finishes_and_deletion_protects_errors(tmp_path, monkeyp
     repo.delete_project(project['id'])
 
 
+def test_abandon_keeps_raw_but_releases_existing_check(tmp_path, monkeypatch):
+    project, items, settings, ctl, _, _ = setup(tmp_path, monkeypatch, count=1)
+    save(project, items[0], settings, ctl, 'error', check='run:1:chatgpt')
+    repo.save_result(ctl.scan_id, items[0]['id'], 'chatgpt', 'error', error_message='model timeout')
+    old_id = repo.results_for_scan(ctl.scan_id)[0]['id']
+    repo.abandon_saved_scan(ctl.scan_id, 'analysis retry budget exhausted')
+    row = repo.capture(ctl.scan_id, items[0]['id'], 'chatgpt')
+    assert row['state'] == 'abandoned' and row['answer_text'] == 'original answer'
+    assert not repo.pending_captures(ctl.scan_id)
+    assert repo.pending_billing() == [{'check_id': 'run:1:chatgpt', 'status': 'release'}]
+    result = repo.results_for_scan(ctl.scan_id)[0]
+    assert result['status'] == 'error' and result['error_message'] == 'analysis retry budget exhausted'
+    assert result['id'] > old_id
+    assert repo.get_scan(ctl.scan_id)['status'] == 'abandoned'
+    assert repo.find_resumable_scan(project['id']) is None
+    assert repo.abandon_saved_scan(ctl.scan_id, 'again')['captures'] == []
+    assert repo.results_for_scan(ctl.scan_id)[0]['id'] == result['id']
+
+
+def test_abandon_preserves_settlement_and_rolls_back_as_one_unit(tmp_path, monkeypatch):
+    project, items, settings, ctl, _, _ = setup(tmp_path, monkeypatch, count=2)
+    first, second = items
+    found, unused = 'run:1:chatgpt', 'run:2:chatgpt'
+    settings['billing_reserved_ids'] = [found, unused]
+    repo._exec('UPDATE scans SET settings_snapshot_json=? WHERE id=?', (json.dumps(settings), ctl.scan_id))
+    repo.save_result(ctl.scan_id, first['id'], 'chatgpt', 'found')
+    repo.queue_billing(found, 'found')
+    save(project, second, settings, ctl, 'error', check=unused)
+    repo.abandon_saved_scan(ctl.scan_id, 'operator ended analysis')
+    assert repo.pending_billing() == [{'check_id': found, 'status': 'found'}, {'check_id': unused, 'status': 'release'}]
+    third = repo.create_scan(project['id'], ['chatgpt'], settings)
+    extra = scan.ScanController(third, project['id'], 1, '2026-10-06')
+    save(project, first, settings, extra, 'error', check='run:3:chatgpt')
+    repo._exec("CREATE TRIGGER fail_abandon BEFORE UPDATE ON captures BEGIN SELECT RAISE(ABORT, 'disk'); END")
+    with pytest.raises(sqlite3.IntegrityError):
+        repo.abandon_saved_scan(third, 'operator ended analysis')
+    assert repo.capture(third, first['id'], 'chatgpt')['state'] == 'error'
+    assert repo.get_scan(third)['status'] == 'running'
+    assert not repo.results_for_scan(third)
+    repo._exec('DROP TRIGGER fail_abandon')
+
+
 def test_finalization_rolls_back_result_outboxes_and_raw_cleanup(tmp_path, monkeypatch):
     project, items, settings, ctl, _, _ = setup(tmp_path, monkeypatch, count=1)
     save(project, items[0], settings, ctl, check='run:1:chatgpt')
@@ -165,13 +210,22 @@ def test_finalization_rolls_back_result_outboxes_and_raw_cleanup(tmp_path, monke
         repo.finalize_capture(ctl.scan_id, items[0]['id'], 'chatgpt', 'found',
                               {'answer_text': 'answer', 'screenshot_path': 'shot.webp'}, 'run:1:chatgpt')
     assert repo.results_for_scan(ctl.scan_id) == [] and repo.pending_billing() == []
-    assert repo.pending_captures(ctl.scan_id)[0]['answer_text'] == 'original answer'
+    assert 'answer_text' not in repo.pending_captures(ctl.scan_id)[0]
+    assert repo.capture(ctl.scan_id, items[0]['id'], 'chatgpt')['answer_text'] == 'original answer'
     repo._exec('DROP TRIGGER fail_outbox')
     repo.finalize_capture(ctl.scan_id, items[0]['id'], 'chatgpt', 'found',
                           {'answer_text': 'answer', 'screenshot_path': 'shot.webp'}, 'run:1:chatgpt')
     assert repo.pending_billing() == [{'check_id': 'run:1:chatgpt', 'status': 'found'}]
     assert repo.pending_screenshots()[0]['local_path'] == 'shot.webp'
     assert not repo.pending_captures(ctl.scan_id)
+
+
+def test_capture_planning_queries_metadata_only(monkeypatch):
+    queries = []
+    monkeypatch.setattr(repo, '_rows', lambda sql, *_args: queries.append(sql) or [])
+    assert repo.pending_captures(1) == []
+    assert repo.captures_for_scan(1) == []
+    assert all('screenshot_bytes' not in query.lower() for query in queries)
 
 
 def test_worker_fault_terminates_without_progress_or_losing_raw(tmp_path, monkeypatch):
@@ -240,9 +294,11 @@ def test_foreign_capture_is_retained_and_credentials_are_pinned(tmp_path, monkey
 def test_legacy_continuation_keeps_fixed_policy_and_inactive_saved_query(tmp_path, monkeypatch):
     project, items, settings, ctl, asked, _ = setup(tmp_path, monkeypatch, count=1)
     settings.pop('adaptive_pacing')
+    settings['analysis_workers'] = 1
     repo._exec('UPDATE scans SET settings_snapshot_json=?, status=? WHERE id=?',
                (json.dumps(settings), 'stopped', ctl.scan_id))
     save(project, items[0], settings, ctl, 'error')
+    repo.set_setting('analysis_workers', '2')
     repo.set_query_active(items[0]['id'], False)
     scan._active.clear()
     plan = scan.plan_scan(project['id'], ['chatgpt'])
@@ -259,6 +315,7 @@ def test_legacy_continuation_keeps_fixed_policy_and_inactive_saved_query(tmp_pat
         await asyncio.sleep(0)
     asyncio.run(scenario())
     assert 'adaptive_pacing' not in seen[0][1]
+    assert seen[0][1]['analysis_workers'] == 1
     assert {q['id'] for q in seen[0][0]} == {q['id'] for q in items}
     assert asked == []
 

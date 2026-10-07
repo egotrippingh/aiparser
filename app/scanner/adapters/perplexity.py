@@ -114,7 +114,12 @@ class PerplexityAdapter:
 
         await self._raise_if_blocked(page)
 
-        await humanize.wait_until_settled(page, _S["answer_container"], quiet_for=3.0, timeout=60.0)
+        try:
+            settled = await humanize.wait_until_settled(page, _S["answer_container"], quiet_for=3.0, timeout=60.0)
+        except humanize.AnswerNotSettledError as exc:
+            raise AdapterError("Perplexity: ответ не завершился за отведённое время") from exc
+        if not settled.strip():
+            raise AdapterError("Perplexity: ответ не завершился за отведённое время")
         await humanize.scroll_through(page, speed=speed)
 
     async def _reset(self, page) -> None:

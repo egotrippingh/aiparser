@@ -11,6 +11,10 @@ from __future__ import annotations
 import asyncio
 import random
 
+
+class AnswerNotSettledError(RuntimeError):
+    """The answer kept growing until the deadline; it is unsafe to capture."""
+
 # Старые профили оставлены для сохранённых снимков и совместимости.
 # Новые сканы используют fast; фактические значения сохраняются в снимке.
 # "typing" — множитель к базовой задержке между символами.
@@ -118,7 +122,7 @@ async def wait_until_settled(
     """
     loop = asyncio.get_event_loop()
     deadline = loop.time() + timeout
-    last_len, last_change = -1, loop.time()
+    last_text, last_change = None, loop.time()
 
     while loop.time() < deadline:
         try:
@@ -126,15 +130,12 @@ async def wait_until_settled(
         except Exception:
             text = ""
 
-        if len(text) != last_len:
-            last_len = len(text)
+        if text != last_text:
+            last_text = text
             last_change = loop.time()
-        elif last_len > 0 and loop.time() - last_change >= quiet_for:
+        elif text and loop.time() - last_change >= quiet_for:
             return text
 
         await asyncio.sleep(poll)
 
-    try:
-        return await page.locator(selector).last.inner_text(timeout=5000)
-    except Exception:
-        return ""
+    raise AnswerNotSettledError("ответ продолжал изменяться до истечения ожидания")

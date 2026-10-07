@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import time
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
@@ -16,6 +18,10 @@ from app.db import repo
 TOKEN_KEY = "account_token"
 _screenshot_retry_after = 0.0
 scan_bearer: ContextVar[str | None] = ContextVar('scan_bearer', default=None)
+_client: httpx.AsyncClient | None = None
+_screenshot_task: asyncio.Task | None = None
+_screenshot_cursor = ""
+log = logging.getLogger("aiparser.billing")
 
 
 class BillingError(RuntimeError):
@@ -26,6 +32,49 @@ class BillingError(RuntimeError):
 
 class ScreenshotError(RuntimeError):
     pass
+
+
+async def start_client() -> None:
+    """Start the agent's reusable account client; auth stays per request."""
+    global _client
+    if _client is None:
+        _client = httpx.AsyncClient()
+
+
+async def close_client() -> None:
+    global _client
+    if _client is not None:
+        await _client.aclose()
+        _client = None
+
+
+async def start_screenshot_consumer() -> None:
+    global _screenshot_task
+    if _screenshot_task is not None and not _screenshot_task.done():
+        return
+    async def consume() -> None:
+        while True:
+            try:
+                # Do not inherit a scan's ContextVar token into a daemon task.
+                pinned = secrets_store.unprotect(repo.get_setting(TOKEN_KEY))
+                if enabled() and pinned:
+                    owner = await identity(bearer=pinned)
+                    if secrets_store.unprotect(repo.get_setting(TOKEN_KEY)) == pinned:
+                        await flush_screenshot_outbox(owner["id"], limit=20, pinned=pinned)
+                await asyncio.sleep(15)
+            except asyncio.CancelledError:
+                raise
+            except (BillingError, ScreenshotError):
+                await asyncio.sleep(60)
+    _screenshot_task = asyncio.create_task(consume())
+
+
+async def stop_screenshot_consumer() -> None:
+    global _screenshot_task
+    if _screenshot_task:
+        _screenshot_task.cancel()
+        await asyncio.gather(_screenshot_task, return_exceptions=True)
+        _screenshot_task = None
 
 
 def enabled() -> bool:
@@ -40,9 +89,10 @@ def token() -> str:
 @asynccontextmanager
 async def account_change():
     from app.scanner import orchestrator
+    from app.control_agent import work_in_progress
     async with orchestrator.scan_start_lock():
-        if orchestrator.active_controller():
-            raise BillingError('Дождитесь окончания скана перед сменой аккаунта', 409)
+        if orchestrator.active_controller() or work_in_progress():
+            raise BillingError('Дождитесь окончания текущей работы агента перед сменой аккаунта', 409)
         yield
 
 
@@ -74,9 +124,13 @@ async def _request(method: str, path: str, *, body: dict | None = None,
         raise BillingError("Войдите в аккаунт перед запуском скана")
     headers = {"Authorization": f"Bearer {key}"} if key else {}
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.request(method, f"{config.ACCOUNT_URL}/api/v1{path}",
-                                            json=body, headers=headers)
+        if _client is None:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.request(method, f"{config.ACCOUNT_URL}/api/v1{path}",
+                                                json=body, headers=headers)
+        else:
+            response = await _client.request(method, f"{config.ACCOUNT_URL}/api/v1{path}",
+                                             json=body, headers=headers, timeout=timeout)
     except httpx.HTTPError as exc:
         raise BillingError("Не удалось связаться с сервером оплаты") from exc
     if response.is_error:
@@ -138,8 +192,8 @@ async def status() -> dict:
             "cabinet_url": f"{config.ACCOUNT_URL}/cabinet/"}
 
 
-async def identity() -> dict:
-    return await _request("GET", "/me")
+async def identity(*, bearer: str | None = None) -> dict:
+    return await _request("GET", "/me", bearer=bearer)
 
 
 async def heartbeat(device_id: str, name: str, zone: str, active_scan: bool) -> dict:
@@ -170,14 +224,14 @@ async def reserve(check_ids: list[str]) -> dict:
     return result
 
 
-async def analyze(check_id_value: str, system: str, content: list[dict]) -> dict:
+async def analyze(check_id_value: str, system: str, content: list[dict], *, retry_saved: bool = False) -> dict:
     return await _request("POST", f"/checks/{check_id_value}/analyze",
-                          body={"system": system, "content": content}, timeout=100)
+                          body={"system": system, "content": content, "retry_saved": retry_saved}, timeout=100)
 
 
-async def arbitrate(check_id_value: str, system: str, content: list[dict]) -> dict:
+async def arbitrate(check_id_value: str, system: str, content: list[dict], *, retry_saved: bool = False) -> dict:
     return await _request("POST", f"/checks/{check_id_value}/arbitrate",
-                          body={"system": system, "content": content}, timeout=100)
+                          body={"system": system, "content": content, "retry_saved": retry_saved}, timeout=100)
 
 
 async def complete(check_id_value: str, status: str) -> dict:
@@ -216,33 +270,49 @@ async def flush_outbox(user_id: str | None = None) -> None:
         repo.billing_sent(chunk)
 
 
-async def flush_screenshot_outbox(user_id: str | None = None) -> None:
+async def flush_screenshot_outbox(user_id: str | None = None, *, limit: int | None = None,
+                                  pinned: str | None = None) -> None:
     """Best-effort upload; billing and the local result remain independent."""
     global _screenshot_retry_after
-    if not enabled() or not token():
+    if not enabled() or not (pinned if pinned is not None else token()):
         return
     if time.monotonic() < _screenshot_retry_after:
         return
     root = Path(config.SCREENSHOTS_DIR).resolve()
-    for item in (repo.pending_screenshots(user_id) if user_id else repo.pending_screenshots()):
-        path = (root / item["local_path"]).resolve()
-        if not path.is_relative_to(root) or not path.is_file():
-            repo.screenshot_sent(item["check_id"])
-            continue
-        if path.stat().st_size > 8 * 1024 * 1024:
-            repo.screenshot_sent(item["check_id"])
-            continue
+    global _screenshot_cursor
+    items = repo.pending_screenshots(user_id) if user_id else repo.pending_screenshots()
+    if items and limit:
+        start = next(((i + 1) % len(items) for i, item in enumerate(items)
+                      if item["check_id"] == _screenshot_cursor), 0)
+        items = (items[start:] + items[:start])[:limit]
+    for item in items:
+        _screenshot_cursor = item["check_id"]
+        if pinned is not None and secrets_store.unprotect(repo.get_setting(TOKEN_KEY)) != pinned:
+            return
         try:
-            async with httpx.AsyncClient(timeout=45) as client:
-                response = await client.put(
+            path = (root / item["local_path"]).resolve()
+            if not path.is_relative_to(root) or not path.is_file() or path.stat().st_size > 8 * 1024 * 1024:
+                repo.screenshot_sent(item["check_id"], item["local_path"])
+                continue
+            upload_started = time.monotonic()
+            if _client is None:
+                async with httpx.AsyncClient(timeout=45) as client:
+                    response = await client.put(
+                        f"{config.ACCOUNT_URL}/api/v1/checks/{item['check_id']}/screenshot",
+                        content=path.read_bytes(),
+                        headers={"Authorization": f"Bearer {pinned or token()}", "Content-Type": "image/webp"})
+            else:
+                response = await _client.put(
                     f"{config.ACCOUNT_URL}/api/v1/checks/{item['check_id']}/screenshot",
                     content=path.read_bytes(),
-                    headers={"Authorization": f"Bearer {token()}",
-                             "Content-Type": "image/webp"},
-                )
+                    headers={"Authorization": f"Bearer {pinned or token()}",
+                             "Content-Type": "image/webp"}, timeout=45)
         except httpx.HTTPError as exc:
             _screenshot_retry_after = time.monotonic() + 60
             raise ScreenshotError("Не удалось отправить скриншот") from exc
+        except OSError as exc:
+            _screenshot_retry_after = time.monotonic() + 60
+            raise ScreenshotError("Не удалось прочитать скриншот") from exc
         if response.status_code == 404:
             # Проверка могла принадлежать другому аккаунту на этом ПК.
             # Сохраняем очередь для прежнего владельца, остальные шлём дальше.
@@ -250,7 +320,8 @@ async def flush_screenshot_outbox(user_id: str | None = None) -> None:
         if response.is_error:
             _screenshot_retry_after = time.monotonic() + 60
             raise ScreenshotError(f"Сервер не принял скриншот: HTTP {response.status_code}")
-        repo.screenshot_sent(item["check_id"])
+        repo.screenshot_sent(item["check_id"], item["local_path"])
+        log.info("screenshot upload %.3fs", time.monotonic() - upload_started)
 
 
 async def recover_interrupted_scans(user_id: str | None = None) -> None:
@@ -293,5 +364,5 @@ async def recover_interrupted_scans(user_id: str | None = None) -> None:
         reconciled.append(scan)
     await flush_outbox(user_id)
     for scan in reconciled:
-        if scan['status'] != 'paused' or not repo.pending_captures(scan['id']):
+        if scan['status'] != 'abandoned' and (scan['status'] != 'paused' or not repo.pending_captures(scan['id'])):
             repo.finish_scan(scan["id"], status="stopped")

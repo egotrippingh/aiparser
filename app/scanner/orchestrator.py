@@ -137,6 +137,8 @@ class ScanController:
         self.parallel = False
         self.analysis_queue: asyncio.Queue | None = None
         self.analysis_worker: asyncio.Task | None = None
+        self.analysis_workers: list[asyncio.Task] = []
+        self.scan_task: asyncio.Task | None = None
         self.admitted_pairs: set[tuple[int, str]] = set()
         self.bearer: str | None = None
 
@@ -156,6 +158,12 @@ class ScanController:
         item = {"event": event, **data}
         for q in list(self._subscribers):
             q.put_nowait(item)
+
+    def timing(self, phase: str, seconds: float, **data) -> None:
+        """Ephemeral phase evidence; results retain only total duration."""
+        seconds = round(seconds, 3)
+        log.info("scan %s %s %.3fs", self.scan_id, phase, seconds)
+        self.emit("phase_timing", phase=phase, seconds=seconds, **data)
 
     def subscribe(self) -> "asyncio.Queue[dict]":
         q: asyncio.Queue[dict] = asyncio.Queue()
@@ -266,6 +274,21 @@ def active_controller() -> ScanController | None:
     return next(iter(_active.values()), None)
 
 
+async def stop_active_scans() -> None:
+    """Stop and join scan workers before their shared HTTP client closes."""
+    tasks = []
+    for controller in list(_active.values()):
+        controller.stop()
+        if controller.scan_task and not controller.scan_task.done():
+            controller.scan_task.cancel()
+            tasks.append(controller.scan_task)
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    for controller in list(_active.values()):
+        if controller.scan_task is None or controller.scan_task.done():
+            _active.pop(controller.scan_id, None)
+
+
 def _settings_snapshot(services: list[str] | None = None) -> dict:
     """Разворачивает выбранный профиль скорости в конкретные значения.
 
@@ -288,6 +311,7 @@ def _settings_snapshot(services: list[str] | None = None) -> dict:
             "break_every_n": int(resolved["break_every_n"]),
             "typing_speed": float(resolved["typing"]),
         }
+    workers = repo.all_settings().get("analysis_workers", "1")
     return {
         "llm_mode": "smart",
         "llm_confidence_threshold": 0.6,
@@ -303,6 +327,7 @@ def _settings_snapshot(services: list[str] | None = None) -> dict:
         "per_service_timing": per_service_timing,
         "adaptive_pacing": {"version": 1, "floor_sec": 0, "ceiling_sec": 60,
                               "recovery_sec": 1},
+        "analysis_workers": 2 if workers == "2" else 1,
     }
 
 
@@ -352,12 +377,15 @@ async def _start_scan_unlocked(project_id: int, service_ids: list[str], *, resum
     if managed_job:
         previous_id = int(repo.get_setting(f"managed_scan:{managed_job['id']}", "0") or 0)
         previous = repo.get_scan(previous_id) if previous_id else None
+        if previous and previous["status"] == "abandoned":
+            raise ValueError("Сохранённые ответы этого задания были завершены без анализа")
         plan = {"date": managed_job["date"], "continue_scan_id": previous_id if previous else None,
                 "done_pairs": {(r["query_id"], r["service"]) for r in repo.results_for_scan(previous_id)
                                if r["status"] in repo.CONCLUSIVE_STATUSES} if previous else set()}
     done_pairs = plan["done_pairs"]
     retained_scans = repo._rows('''SELECT DISTINCT c.scan_id FROM captures c
-        JOIN scans s ON s.id=c.scan_id WHERE s.project_id=?''', (project_id,))
+        JOIN scans s ON s.id=c.scan_id WHERE s.project_id=? AND c.state IN ('pending','analyzing','error')''',
+                                      (project_id,))
     if any(row['scan_id'] != plan['continue_scan_id'] for row in retained_scans):
         raise ScanAlreadyRunning('Есть сохранённые ответы: сначала продолжите предыдущий скан с его сервисами и аккаунтом')
     work = [(svc, q) for svc in known for q in queries if (q["id"], svc) not in done_pairs]
@@ -392,6 +420,7 @@ async def _start_scan_unlocked(project_id: int, service_ids: list[str], *, resum
         for key in ("speed_profile", "delay_min_sec", "delay_max_sec", "break_every_n", "typing_speed"):
             if key in old_settings:
                 snapshot[key] = old_settings[key]
+        snapshot["analysis_workers"] = old_settings.get("analysis_workers", 1)
         if "per_service_timing" in old_settings:
             snapshot["per_service_timing"] = old_settings["per_service_timing"]
         else:
@@ -410,10 +439,6 @@ async def _start_scan_unlocked(project_id: int, service_ids: list[str], *, resum
     reserved: dict[tuple[int, str], str] = {}
     if billing.enabled():
         await billing.recover_interrupted_scans(billing_user["id"])
-        try:
-            await billing.flush_screenshot_outbox(billing_user["id"])
-        except billing.ScreenshotError as exc:
-            log.warning("Скриншоты ожидают повторной отправки: %s", exc)
         if plan["continue_scan_id"]:
             billing_run_id = old_settings.get("billing_run_id") or f"legacy-{old_scan['id']}"
         else:
@@ -472,7 +497,7 @@ async def _start_scan_unlocked(project_id: int, service_ids: list[str], *, resum
         repo.billing_sent(list(reserved.values()))
     _active[scan_id] = controller
 
-    asyncio.create_task(_run_scan(project, known, queries, done_pairs, snapshot, controller))
+    controller.scan_task = asyncio.create_task(_run_scan(project, known, queries, done_pairs, snapshot, controller))
     return scan_id
 
 
@@ -566,28 +591,35 @@ async def _run_scan(
 
     failed_services: list[str] = []
 
-    # ponytail: one analyzer and two waiting answers per scan; increase only after measurement.
+    # ponytail: bounded two-worker experiment; widen only after live measurement.
     ctl.analysis_queue = asyncio.Queue(maxsize=2)
     bearer_context = billing.scan_bearer.set(ctl.bearer)
 
     async def analyze_worker() -> None:
-        while (pair := await ctl.analysis_queue.get()) is not None:
-            query_id, service_id = pair
+        while (item := await ctl.analysis_queue.get()) is not None:
+            query_id, service_id, retry_saved, queued_at = item
+            ctl.timing("wait_for_analyzer", time.monotonic() - queued_at,
+                       query_id=query_id, service=service_id)
             row = repo.capture(ctl.scan_id, query_id, service_id)
             if row is None:
                 raise RuntimeError('Сохранённый ответ отсутствует')
             if row['payer_id'] != settings.get('billing_user_id'):
                 raise billing.BillingError('Сохранённый ответ принадлежит другому аккаунту')
             repo.capture_state(ctl.scan_id, query_id, service_id, 'analyzing')
+            started = time.monotonic()
             await _run_one(project, {'id': query_id}, service_id, None, None, settings,
-                           0, api_key, llm_model, llm_mode, ctl, cap=row)
+                           0, api_key, llm_model, llm_mode, ctl, cap=row, retry_saved=retry_saved)
+            ctl.timing("analysis", time.monotonic() - started, query_id=query_id, service=service_id)
             ctl.advance(service_id, query_id)
 
-    ctl.analysis_worker = asyncio.create_task(analyze_worker())
+    count = 2 if settings.get("analysis_workers") == 2 else 1
+    ctl.analysis_workers = [asyncio.create_task(analyze_worker()) for _ in range(count)]
+    ctl.analysis_worker = ctl.analysis_workers[0]
     def worker_done(task):
         if not task.cancelled() and task.exception() is not None:
             ctl.stop()
-    ctl.analysis_worker.add_done_callback(worker_done)
+    for worker in ctl.analysis_workers:
+        worker.add_done_callback(worker_done)
 
     async def run_service(service_id: str) -> None:
         pending = [q for q in queries if (q["id"], service_id) not in done_pairs]
@@ -645,7 +677,7 @@ async def _run_scan(
         for row in repo.pending_captures(ctl.scan_id):
             pair = (row['query_id'], row['service'])
             if row['service'] in service_ids and pair not in done_pairs:
-                await _enqueue_analysis(ctl, pair)
+                await _enqueue_analysis(ctl, pair, retry_saved=True)
         if parallel:
             # У каждого сервиса свой persistent-профиль, а значит свой
             # процесс браузера: друг другу они не мешают, и ограничивать их
@@ -658,8 +690,9 @@ async def _run_scan(
                     break
                 await run_service(service_id)
 
-        await _enqueue_analysis(ctl, None)
-        await ctl.analysis_worker
+        for _ in ctl.analysis_workers:
+            await _enqueue_analysis(ctl, None)
+        await asyncio.gather(*ctl.analysis_workers)
         for svc, st in ctl.per_service.items():
             if st['state'] != 'failed':
                 st['state'] = 'finished' if st['done'] == st['total'] else 'stopped'
@@ -696,20 +729,25 @@ async def _run_scan(
         ctl.state = 'finished'
         ctl.emit('scan_finished', status='failed', error=str(exc), **ctl.snapshot())
     finally:
-        if not ctl.analysis_worker.done():
-            ctl.analysis_worker.cancel()
-        await asyncio.gather(ctl.analysis_worker, return_exceptions=True)
+        for worker in ctl.analysis_workers:
+            if not worker.done():
+                worker.cancel()
+        await asyncio.gather(*ctl.analysis_workers, return_exceptions=True)
         billing.scan_bearer.reset(bearer_context)
         _active.pop(ctl.scan_id, None)
 
 
-async def _enqueue_analysis(ctl: ScanController, pair: tuple[int, str] | None) -> None:
+async def _enqueue_analysis(ctl: ScanController, pair: tuple[int, str] | None,
+                            *, retry_saved: bool = False) -> None:
     """Bound admission without hanging if the only consumer fails."""
-    put = asyncio.create_task(ctl.analysis_queue.put(pair))
+    item = None if pair is None else (*pair, retry_saved, time.monotonic())
+    put = asyncio.create_task(ctl.analysis_queue.put(item))
     try:
-        await asyncio.wait((put, ctl.analysis_worker), return_when=asyncio.FIRST_COMPLETED)
-        if ctl.analysis_worker.done():
-            ctl.analysis_worker.result()
+        workers = tuple(ctl.analysis_workers or [ctl.analysis_worker])
+        await asyncio.wait((put, *workers), return_when=asyncio.FIRST_COMPLETED)
+        for worker in workers:
+            if worker.done():
+                worker.result()
             if not put.done():
                 raise RuntimeError('Очередь анализа закрыта')
         await put
@@ -911,6 +949,7 @@ async def _run_one(
     *,
     cap=None,
     capture_only: bool = False,
+    retry_saved: bool = False,
 ) -> str:
     """Одна пара «запрос × сервис». Возвращает записанный статус."""
     started = time.monotonic()
@@ -924,6 +963,8 @@ async def _run_one(
         if cap is None:
             stored = repo.capture(ctl.scan_id, query['id'], service_id)
         if stored is not None:
+            if stored["state"] == "abandoned":
+                return "abandoned"
             if stored['payer_id'] != settings.get('billing_user_id'):
                 raise billing.BillingError('Сохранённый ответ принадлежит другому аккаунту')
             project = json.loads(stored['project_json'])
@@ -937,7 +978,10 @@ async def _run_one(
         browser_capture = cap is None
         if cap is None:
             await adapter.ask(page, query["text"], project.get("region_code"), speed=speed)
+            capture_started = time.monotonic()
             cap = await adapter.capture(page)
+            ctl.timing("browser_capture", time.monotonic() - capture_started,
+                       query_id=query["id"], service=service_id)
         check_id = (stored['check_id'] if stored else
                     billing.canonical_check_id(settings, query['id'], service_id) if ctl.billing_run_id else None)
 
@@ -993,6 +1037,7 @@ async def _run_one(
                 model=llm_model,
                 managed_check_id=managed_check_id,
                 brand_clarification=brand_clarification,
+                retry_saved=retry_saved,
             )
             if llm_verdict.error:
                 llm_error_text = llm_verdict.error
@@ -1045,6 +1090,7 @@ async def _run_one(
                 query=query["text"],
                 managed_check_id=arbiter_check_id,
                 brand_clarification=brand_clarification,
+                retry_saved=retry_saved,
             )
             if verdict.error:
                 # Арбитр не ответил — строка остаётся на ручную проверку, как
@@ -1057,6 +1103,7 @@ async def _run_one(
             else:
                 result = with_arbiter(result, verdict)
 
+        settlement_started = time.monotonic()
         repo.finalize_capture(ctl.scan_id, query["id"], service_id, result.status, {
             "mention_types": result.mention_types, "confidence": result.confidence,
             "evidence_quote": result.evidence_quote, "answer_text": cap.answer_text,
@@ -1068,14 +1115,16 @@ async def _run_one(
         if ctl.billing_run_id and result.status in ("found", "not_found"):
             try:
                 await billing.flush_outbox(settings.get("billing_user_id"))
-                try:
-                    await billing.flush_screenshot_outbox(settings.get("billing_user_id"))
-                except billing.ScreenshotError as exc:
-                    log.warning("Скриншот ожидает повторной отправки: %s", exc)
             except billing.BillingError as exc:
                 log.warning("Ответ сохранён, списание ожидает повторной отправки: %s", exc)
                 ctl.emit("billing_error", error=str(exc))
                 ctl.stop()
+        ctl.timing("settlement", time.monotonic() - settlement_started,
+                   query_id=query["id"], service=service_id)
+        # A queued durable capture starts before this call, so this is only the
+        # analysis stage; duration_ms keeps its historical meaning below.
+        ctl.timing("analysis_stage", time.monotonic() - started,
+                   query_id=query["id"], service=service_id)
         ctl.emit("query_result", query_id=query["id"], service=service_id, status=result.status)
         return result.status
 

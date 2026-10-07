@@ -220,7 +220,7 @@ def get_scan(scan_id: int) -> dict | None:
 
 def interrupted_billing_scans() -> list[dict]:
     return _rows(
-        "SELECT * FROM scans WHERE status IN ('running', 'paused') AND "
+        "SELECT * FROM scans WHERE status IN ('running', 'paused', 'abandoned') AND "
         "settings_snapshot_json LIKE '%billing_reserved_ids%'"
     )
 
@@ -247,6 +247,21 @@ def latest_scan(project_id: int) -> dict | None:
         "SELECT * FROM scans WHERE project_id = ? ORDER BY started_at DESC, id DESC LIMIT 1",
         (project_id,),
     )
+
+
+def abandonable_saved_scan(owner: str) -> dict | None:
+    """Minimal desktop metadata for the currently verified account only."""
+    for scan in _rows("SELECT * FROM scans WHERE status != 'abandoned' ORDER BY started_at DESC, id DESC"):
+        try:
+            snapshot = json.loads(scan["settings_snapshot_json"] or "{}")
+        except ValueError:
+            continue
+        if snapshot.get("billing_user_id") != owner:
+            continue
+        rows = pending_captures(scan["id"])
+        if rows and all(row.get("payer_id") == owner for row in rows):
+            return {"scan_id": scan["id"], "saved_answers": len(rows)}
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -309,13 +324,26 @@ def save_capture(scan_id: int, query_id: int, service: str, *, project: dict, qu
            json.dumps(extra, ensure_ascii=False), screenshot_bytes, screenshot_path))
 
 
+ACTIVE_CAPTURE_STATES = ("pending", "analyzing", "error")
+
+
 def pending_captures(scan_id: int) -> list[dict]:
-    # Failed analysis is retried only by explicit continuation, never by the browser.
-    return captures_for_scan(scan_id)
+    """Raw captures that still own a reservation and block new browser work."""
+    placeholders = ",".join("?" * len(ACTIVE_CAPTURE_STATES))
+    # Enumeration must not deserialize screenshot BLOBs; only the worker calls capture().
+    return _rows(f"""SELECT scan_id, query_id, service, state, project_json, query_json,
+                         settings_json, check_id, payer_id, shown, screenshot_path,
+                         error_message, created_at, updated_at
+                    FROM captures WHERE scan_id = ? AND state IN ({placeholders})""",
+                 (scan_id, *ACTIVE_CAPTURE_STATES))
 
 
 def captures_for_scan(scan_id: int) -> list[dict]:
-    return _rows("SELECT * FROM captures WHERE scan_id = ?", (scan_id,))
+    """Capture metadata for recovery; loading raw BLOBs belongs to capture()."""
+    return _rows("""SELECT scan_id, query_id, service, state, project_json, query_json,
+                         settings_json, check_id, payer_id, shown, screenshot_path,
+                         error_message, created_at, updated_at
+                    FROM captures WHERE scan_id = ?""", (scan_id,))
 
 
 def capture(scan_id: int, query_id: int, service: str) -> dict | None:
@@ -325,6 +353,68 @@ def capture(scan_id: int, query_id: int, service: str) -> dict | None:
 def capture_state(scan_id: int, query_id: int, service: str, state: str, error: str | None = None) -> None:
     _exec("UPDATE captures SET state = ?, error_message = ?, updated_at = datetime('now') WHERE scan_id = ? AND query_id = ? AND service = ?",
           (state, error, scan_id, query_id, service))
+
+
+def abandon_saved_scan(scan_id: int, reason: str, *, terminal_marker: tuple[str, str] | None = None) -> dict:
+    """Retain every pending raw answer and release its reservations atomically."""
+    c = conn(); c.execute("BEGIN IMMEDIATE")
+    try:
+        scan = c.execute("SELECT * FROM scans WHERE id=?", (scan_id,)).fetchone()
+        if scan is None:
+            raise ValueError("Скан не найден")
+        scan = dict(scan)
+        if scan["status"] == "abandoned":
+            c.execute("COMMIT")
+            return {"scan": scan, "captures": []}
+        placeholders = ",".join("?" * len(ACTIVE_CAPTURE_STATES))
+        rows = [dict(row) for row in c.execute(
+            f"SELECT * FROM captures WHERE scan_id=? AND state IN ({placeholders})",
+            (scan_id, *ACTIVE_CAPTURE_STATES)).fetchall()]
+        if not rows:
+            raise ValueError("В скане нет сохранённых ответов")
+        for row in rows:
+            existing = c.execute("SELECT * FROM results WHERE scan_id=? AND query_id=? AND service=?",
+                                 (scan_id, row["query_id"], row["service"])).fetchone()
+            if existing and existing["status"] not in CONCLUSIVE_STATUSES:
+                c.execute("""INSERT OR REPLACE INTO results
+                             (scan_id, query_id, service, status, mention_types_json, confidence,
+                              evidence_quote, answer_text, sources_json, screenshot_path,
+                              detected_by, needs_review, llm_model, duration_ms, error_message)
+                             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                          (scan_id, row["query_id"], row["service"], "error", existing["mention_types_json"],
+                           existing["confidence"], existing["evidence_quote"],
+                           existing["answer_text"] or row["answer_text"],
+                           existing["sources_json"] if existing["sources_json"] not in (None, "", "[]") else row["sources_json"],
+                           existing["screenshot_path"] or row["screenshot_path"], existing["detected_by"],
+                           existing["needs_review"], existing["llm_model"], existing["duration_ms"], reason))
+            else:
+                c.execute("""INSERT INTO results (scan_id, query_id, service, status, mention_types_json,
+                             answer_text, sources_json, screenshot_path, needs_review, error_message)
+                             VALUES (?,?,?,?,?,?,?,?,?,?)
+                             ON CONFLICT(scan_id, query_id, service) DO NOTHING""",
+                          (scan_id, row["query_id"], row["service"], "error", "[]", row["answer_text"],
+                           row["sources_json"], row["screenshot_path"], 0, reason))
+            if row["check_id"]:
+                c.execute("INSERT INTO billing_outbox (check_id, status) VALUES (?, 'release') "
+                          "ON CONFLICT(check_id) DO NOTHING", (row["check_id"],))
+        snapshot = json.loads(scan["settings_snapshot_json"] or "{}")
+        successful = {row["check_id"] for row in c.execute(
+            "SELECT check_id FROM billing_outbox WHERE status IN ('found', 'not_found')").fetchall()}
+        for check_id in snapshot.get("billing_reserved_ids", []):
+            if check_id not in successful:
+                c.execute("INSERT INTO billing_outbox (check_id, status) VALUES (?, 'release') "
+                          "ON CONFLICT(check_id) DO NOTHING", (check_id,))
+        c.execute(f"UPDATE captures SET state='abandoned', error_message=?, updated_at=datetime('now') "
+                  f"WHERE scan_id=? AND state IN ({placeholders})", (reason, scan_id, *ACTIVE_CAPTURE_STATES))
+        c.execute("UPDATE scans SET status='abandoned', finished_at=? WHERE id=?",
+                  (datetime.now().isoformat(timespec="seconds"), scan_id))
+        if terminal_marker:
+            c.execute("INSERT OR REPLACE INTO settings (key, value, is_secret) VALUES (?,?,1)", terminal_marker)
+        c.execute("COMMIT")
+        return {"scan": scan, "captures": rows}
+    except Exception:
+        c.execute("ROLLBACK")
+        raise
 
 
 def finalize_capture(scan_id: int, query_id: int, service: str, status: str, result: dict,
@@ -407,6 +497,8 @@ def find_resumable_scan(project_id: int, scannable: set[str] | None = None) -> d
     )
     if not scan:
         return None
+    if scan["status"] == "abandoned":
+        return None
 
     services_in_scan = json.loads(scan["services_json"])
     if scannable is not None:
@@ -429,6 +521,7 @@ def find_resumable_scan(project_id: int, scannable: set[str] | None = None) -> d
     scan["expected"] = expected
     scan["conclusive"] = done
     scan["remaining"] = expected - done
+    scan["saved_answers"] = len(saved)
     return scan
 
 
@@ -656,8 +749,17 @@ def set_setting(key: str, value: str | None, is_secret: bool = False) -> None:
     )
 
 
+def delete_setting(key: str) -> None:
+    _exec("DELETE FROM settings WHERE key = ?", (key,))
+
+
 def all_settings() -> dict[str, str]:
     return {r["key"]: r["value"] for r in _rows("SELECT key, value FROM settings WHERE is_secret = 0")}
+
+
+def secret_settings(prefix: str) -> list[dict]:
+    """Internal durable work markers; never expose these through settings APIs."""
+    return _rows("SELECT key, value FROM settings WHERE is_secret = 1 AND key LIKE ?", (f"{prefix}%",))
 
 
 def queue_billing(check_id: str, status: str) -> None:
@@ -703,7 +805,8 @@ def cloud_results_after(result_id: int, limit: int = 100) -> list[dict]:
 def pending_billing(user_id: str | None = None) -> list[dict]:
     pending = _rows("""SELECT check_id, status FROM billing_outbox b
         WHERE status != 'release' OR NOT EXISTS
-            (SELECT 1 FROM captures c WHERE c.check_id = b.check_id)
+            (SELECT 1 FROM captures c WHERE c.check_id = b.check_id
+             AND c.state IN ('pending','analyzing','error'))
         ORDER BY created_at, check_id""")
     return _owned_outbox(pending, user_id)
 
@@ -770,8 +873,11 @@ def pending_screenshots(user_id: str | None = None) -> list[dict]:
     return _owned_outbox(_rows("SELECT check_id, local_path FROM screenshot_outbox ORDER BY created_at, check_id"), user_id)
 
 
-def screenshot_sent(check_id: str) -> None:
-    _exec("DELETE FROM screenshot_outbox WHERE check_id = ?", (check_id,))
+def screenshot_sent(check_id: str, local_path: str | None = None) -> None:
+    if local_path is None:
+        _exec("DELETE FROM screenshot_outbox WHERE check_id = ?", (check_id,))
+    else:
+        _exec("DELETE FROM screenshot_outbox WHERE check_id = ? AND local_path = ?", (check_id, local_path))
 
 
 def repair_managed_outbox(user_id: str) -> int:

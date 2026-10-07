@@ -134,7 +134,7 @@ def test_reserved_update_does_not_poll_or_open_login(monkeypatch):
 
 def test_password_enrollment_keeps_admission_through_temporary_token_revocation(monkeypatch):
     stored = []
-    monkeypatch.setattr(desktop, 'store_token', stored.append)
+    monkeypatch.setattr(desktop, 'store_token', lambda token, **_kwargs: stored.append(token))
     async def scenario():
         phases = ('/auth/login', '/control/agent/enroll', '/auth/logout')
         entered = {path: asyncio.Event() for path in phases}

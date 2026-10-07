@@ -14,6 +14,7 @@ DEFAULTS = {
     # два источника правды неминуемо разъезжаются. Конкретные значения
     # разворачиваются из профиля в app/scanner/humanize.py.
     "speed_profile": humanize.DEFAULT_PROFILE,   # careful | balanced | fast
+    "analysis_workers": "1",                    # opt-in throughput experiment: 1 | 2
 }
 
 
@@ -22,6 +23,7 @@ class SettingsIn(BaseModel):
 
     screenshot_retention_days: str | None = None
     speed_profile: str | None = None
+    analysis_workers: str | None = None
 
 
 @router.get("")
@@ -42,6 +44,8 @@ def put_settings(body: SettingsIn) -> dict:
 
     if "speed_profile" in data and data["speed_profile"] not in humanize.PROFILES:
         data["speed_profile"] = humanize.DEFAULT_PROFILE
+    if "analysis_workers" in data and data["analysis_workers"] not in ("1", "2"):
+        data["analysis_workers"] = "1"
 
     for k, v in data.items():
         repo.set_setting(k, v)

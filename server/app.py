@@ -62,6 +62,7 @@ class CompleteIn(BaseModel):
 class AnalyzeIn(BaseModel):
     system: str = Field(min_length=50, max_length=4000)
     content: list[dict] = Field(min_length=1, max_length=4)
+    retry_saved: bool = False
 
 
 def _validate_ai_content(content: list[dict]) -> None:
@@ -1096,6 +1097,11 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
                 select(Check).where(Check.user_id == user.id, Check.client_check_id.in_(ids))
             )
         }
+        reused = [check for check in existing.values() if check.status == "released"
+                  and (check.analysis_attempts or check.arbitration_attempts
+                       or check.analysis_json or check.arbitration_json)]
+        if reused:
+            raise HTTPException(409, "Проверка с начатым анализом не может быть зарезервирована повторно")
         pending = [check_id for check_id in ids if check_id not in existing or existing[check_id].status == "released"]
         available = wallet_row.balance_kopeks - _held(db, user.id)
         if len(pending) * effective_price > available:
@@ -1137,7 +1143,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
             return {"raw": check.analysis_json, "model": check.analysis_model or ai_client.model}
         if check.status != "reserved":
             raise HTTPException(409, "Проверка уже закрыта")
-        if check.analysis_attempts >= 2:
+        if check.analysis_attempts >= (4 if body.retry_saved else 2):
             raise HTTPException(409, "Лимит попыток анализа исчерпан")
         check.analysis_attempts += 1
         try:
@@ -1170,7 +1176,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
             raise HTTPException(409, "Арбитр доступен только после положительного первого анализа")
         if check.status not in ("reserved", "settled"):
             raise HTTPException(409, "Проверка закрыта без оплаты")
-        if check.arbitration_attempts >= 2:
+        if check.arbitration_attempts >= (4 if body.retry_saved else 2):
             raise HTTPException(409, "Лимит попыток арбитра исчерпан")
         check.arbitration_attempts += 1
         try:
@@ -1333,22 +1339,29 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         def cabinet() -> FileResponse:
             return FileResponse(web_dir / "cabinet" / "index.html", headers={"Cache-Control": "no-cache"})
 
+    from contextlib import asynccontextmanager
     if coinso_client and os.environ.get("APP_ENV") == "production":
-        from contextlib import asynccontextmanager
         from .payment_reconcile import PaymentReconciler
-        existing_lifespan = app.router.lifespan_context
+    else:
+        PaymentReconciler = None
+    existing_lifespan = app.router.lifespan_context
 
-        @asynccontextmanager
-        async def payment_lifespan(_app):
-            async with existing_lifespan(_app):
-                reconciler = PaymentReconciler(SessionLocal, confirm_payment)
+    @asynccontextmanager
+    async def service_lifespan(_app):
+        async with existing_lifespan(_app):
+            reconciler = PaymentReconciler(SessionLocal, confirm_payment) if PaymentReconciler else None
+            if reconciler:
                 reconciler.thread.start()
-                try:
-                    yield
-                finally:
+            try:
+                yield
+            finally:
+                if reconciler:
                     await run_in_threadpool(reconciler.close)
+                close_ai = getattr(ai_client, "close", None)
+                if close_ai:
+                    await run_in_threadpool(close_ai)
 
-        app.router.lifespan_context = payment_lifespan
+    app.router.lifespan_context = service_lifespan
     app.state.reconcile_payment = confirm_payment
     app.state.payment_sessions = SessionLocal
     return app
