@@ -65,6 +65,12 @@ log = logging.getLogger("aiparser.orchestrator")
 # Единичный сбой бывает случайным (подвисла вёрстка), три подряд — это уже
 # не совпадение, а состояние аккаунта.
 LIMIT_STRIKES = 3
+_BROWSER_TASK_TIMEOUT = 900
+_BROWSER_CANCEL_GRACE = 10
+
+
+class BrowserTaskTimeout(AdapterError):
+    pass
 
 
 class AdaptivePacer:
@@ -141,6 +147,9 @@ class ScanController:
         self.scan_task: asyncio.Task | None = None
         self.admitted_pairs: set[tuple[int, str]] = set()
         self.bearer: str | None = None
+        self.browser_tasks: set[asyncio.Task] = set()
+        self.browser_phase: dict[str, dict] = {}
+        self.browser_timeout_services: set[str] = set()
 
         # Своя очередь у каждого подписчика. Раньше очередь была одна на скан,
         # и два подключения делили события между собой — каждое доставалось
@@ -149,6 +158,7 @@ class ScanController:
         # в свою очередь, недосчиталось бы того, что забрал наблюдатель.
         self._subscribers: list[asyncio.Queue[dict]] = []
         self.stop_requested = False
+        self.stop_signal = asyncio.Event()
         self.paused = asyncio.Event()
         self.paused.set()               # не на паузе
 
@@ -190,6 +200,7 @@ class ScanController:
         self.stop_requested = True
         self.state = "stopping"
         self.paused.set()   # разбудить, если стояли на паузе, чтобы выйти из цикла
+        self.stop_signal.set()
         self.emit("stopping", **self.snapshot())
 
     # --- прогресс ---------------------------------------------------------
@@ -238,6 +249,11 @@ class ScanController:
         now = time.time()
         elapsed = now - self.started_at
         eta = self._eta(now)
+        browser_tasks = {service: {**phase, "phase_elapsed_sec": round(time.monotonic() - phase["started"], 1),
+                                   "phase_timeout_sec": _BROWSER_TASK_TIMEOUT}
+                         for service, phase in self.browser_phase.items()}
+        for phase in browser_tasks.values():
+            phase.pop("started")
         return {
             "scan_id": self.scan_id,
             "project_id": self.project_id,
@@ -250,6 +266,8 @@ class ScanController:
             "parallel": self.parallel,
             "elapsed_sec": int(elapsed),
             "eta_sec": eta,
+            "browser_task": next(iter(browser_tasks.values()), None),
+            "browser_tasks": browser_tasks,
             "services": {s: {"done": st["done"], "total": st["total"],
                              "state": st.get("state", "pending"), "error": st.get("error")}
                          for s, st in self.per_service.items()},
@@ -649,6 +667,9 @@ async def _run_scan(
                                       user_id=settings.get("billing_user_id"))
                     # Уже записанные результаты и их счётчики не повторяем.
                     log.exception("Сервис %s упал (попытка %s)", service_id, attempt + 1)
+                    if service_id in ctl.browser_timeout_services:
+                        failed_services.append(service_id)
+                        break
                     if attempt == 0 and not ctl.stop_requested:
                         # Старые ошибки дозапуска ещё лежат в results. Они не
                         # означают, что запрос обработан в текущей попытке.
@@ -842,10 +863,15 @@ async def _run_service(
                         return None
 
                 q = queue[0]
-                status = await _run_one(
-                    project, q, service_id, adapter, page, settings, speed,
-                    api_key, llm_model, llm_mode, ctl, **({"capture_only": True} if pipeline else {}),
-                )
+                try:
+                    status = await _run_one(
+                        project, q, service_id, adapter, page, settings, speed,
+                        api_key, llm_model, llm_mode, ctl, **({"capture_only": True} if pipeline else {}),
+                    )
+                except asyncio.CancelledError:
+                    if ctl.stop_requested:
+                        return None
+                    raise
 
                 if pacer:
                     pacer.completed(getattr(adapter, 'throttled', False) or status == 'quota',
@@ -863,6 +889,16 @@ async def _run_service(
                         await humanize.between_queries(done, lo=delay_lo, hi=delay_hi,
                                                        break_every=break_every)
                     continue
+
+                if status == "browser_timeout":
+                    queue.pop(0)
+                    done += 1
+                    ctl.advance(service_id, q["id"])
+                    message = "Browser ask/capture timed out; remaining prompts were not submitted"
+                    ctl.browser_timeout_services.add(service_id)
+                    ctl.per_service[service_id].update(state="failed", error=message)
+                    ctl.emit("service_error", service=service_id, error=message)
+                    return None
 
                 if status == "captcha" and headless:
                     # Запрос остаётся в очереди и будет задан заново: результат
@@ -934,6 +970,63 @@ def _mark_limit_reached(ctl: ScanController, service_id: str, pending: list[dict
     ctl.emit("service_limit", service=service_id, skipped=len(rest))
 
 
+async def _ask_and_capture(adapter, page, project: dict, query: dict, service_id: str,
+                           speed: float, ctl: ScanController):
+    phase = {"service": service_id, "query_id": query["id"],
+             "phase": "ask", "started": time.monotonic()}
+    ctl.browser_phase[service_id] = phase
+    aborted = False
+    async def work():
+        if aborted or ctl.stop_requested:
+            raise asyncio.CancelledError
+        await adapter.ask(page, query["text"], project.get("region_code"), speed=speed)
+        if aborted or ctl.stop_requested:
+            raise asyncio.CancelledError
+        phase.update(phase="capture", started=time.monotonic())
+        return await adapter.capture(page)
+
+    task = asyncio.create_task(work())
+    ctl.browser_tasks.add(task)
+    def finished(child):
+        ctl.browser_tasks.discard(child)
+        if ctl.browser_phase.get(service_id) is phase:
+            ctl.browser_phase.pop(service_id)
+        if not child.cancelled():
+            child.exception()
+    task.add_done_callback(finished)
+    stopped = asyncio.create_task(ctl.stop_signal.wait())
+    deadline = time.monotonic() + _BROWSER_TASK_TIMEOUT
+    try:
+        await asyncio.wait((task, stopped), timeout=_BROWSER_TASK_TIMEOUT,
+                           return_when=asyncio.FIRST_COMPLETED)
+        if task.done():
+            return task.result()
+        if ctl.stop_requested:
+            if phase['phase'] == 'capture':
+                # Finish the current capture before stopping; adapters can hold
+                # answer/image evidence while they await source extraction.
+                await asyncio.wait((task,), timeout=max(0, deadline - time.monotonic()))
+                if task.done():
+                    return task.result()
+            else:
+                aborted = True
+                task.cancel()
+                await asyncio.wait((task,), timeout=_BROWSER_CANCEL_GRACE)
+                raise asyncio.CancelledError
+        aborted = True
+        task.cancel()
+        await asyncio.wait((task,), timeout=_BROWSER_CANCEL_GRACE)
+        raise BrowserTaskTimeout(
+            f"{service_id} query {query['id']}: {phase['phase']} exceeded "
+            f"{_BROWSER_TASK_TIMEOUT}s"
+        )
+    finally:
+        stopped.cancel()
+        if not task.done():
+            aborted = True
+            task.cancel()
+
+
 async def _run_one(
     project: dict,
     query: dict,
@@ -977,9 +1070,8 @@ async def _run_one(
                                   screenshot_bytes=stored['screenshot_bytes'])
         browser_capture = cap is None
         if cap is None:
-            await adapter.ask(page, query["text"], project.get("region_code"), speed=speed)
             capture_started = time.monotonic()
-            cap = await adapter.capture(page)
+            cap = await _ask_and_capture(adapter, page, project, query, service_id, speed, ctl)
             ctl.timing("browser_capture", time.monotonic() - capture_started,
                        query_id=query["id"], service=service_id)
         check_id = (stored['check_id'] if stored else
@@ -1152,6 +1244,10 @@ async def _run_one(
         repo.save_result(ctl.scan_id, query["id"], service_id, "captcha", error_message=str(exc))
         ctl.emit("query_result", query_id=query["id"], service=service_id, status="captcha")
         return "captcha"
+    except BrowserTaskTimeout as exc:
+        repo.save_result(ctl.scan_id, query["id"], service_id, "error", error_message=str(exc))
+        ctl.emit("query_result", query_id=query["id"], service=service_id, status="browser_timeout")
+        return "browser_timeout"
     except AdapterError as exc:
         retain_capture_error(exc)
         # The detailed exception can contain answer excerpts; it belongs in the private result only.

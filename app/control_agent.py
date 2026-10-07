@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from app import billing, secrets_store, updates, window_control
+from app import __version__, billing, secrets_store, updates, window_control
 from app.db import repo
 from app.scanner import orchestrator
 from app.agent import device_id, _sync_results
@@ -193,7 +193,7 @@ async def run_agent():
                     capabilities = {"services": browser["services"], "installed": browser["installed"],
                                     "paused": paused(), "active_scan": bool(ctl or starting and not starting.done()
                                                                              or browser["logins_in_progress"]),
-                                    "brand_clarification": True}
+                                    "brand_clarification": True, "agent_version": __version__}
                     reply = await billing._request("POST", "/control/agent/poll", body={"capabilities": capabilities})
                     last_ok = time.monotonic()
                     STATE.update(connected=True, user=user, name=reply.get("name", platform.node()),

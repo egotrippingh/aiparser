@@ -84,12 +84,16 @@ class AliceAdapter:
 
         try:
             marker = page.locator(_S["logged_in_marker"])
-            if not await visible(marker.first, 6000):
-                return ReadyState(ok=False, reason="auth_required")
+            deadline = time.monotonic() + 6
+            while time.monotonic() < deadline:
+                for index in range(await marker.count()):
+                    timeout = max(1, min(250, int((deadline - time.monotonic()) * 1000)))
+                    if await visible(marker.nth(index), timeout):
+                        return ReadyState(ok=True)
+                await asyncio.sleep(0.1)
+            return ReadyState(ok=False, reason="auth_required")
         except Exception:
             return ReadyState(ok=False, reason="auth_required")
-
-        return ReadyState(ok=True)
 
     async def _new_chat(self, page) -> None:
         """Новый пустой чат — переходом на главную, а не кликом по «Новый чат».

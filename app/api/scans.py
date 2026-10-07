@@ -90,7 +90,7 @@ def get_scan(scan_id: int) -> dict:
 
 
 @router.post("/scans/{scan_id}/pause")
-def pause_scan(scan_id: int) -> dict:
+async def pause_scan(scan_id: int) -> dict:
     ctl = orchestrator.get_controller(scan_id)
     if not ctl:
         raise HTTPException(404, "Скан не выполняется")
@@ -99,7 +99,7 @@ def pause_scan(scan_id: int) -> dict:
 
 
 @router.post("/scans/{scan_id}/resume")
-def resume_scan(scan_id: int) -> dict:
+async def resume_scan(scan_id: int) -> dict:
     ctl = orchestrator.get_controller(scan_id)
     if not ctl:
         raise HTTPException(404, "Скан не выполняется")
@@ -108,7 +108,7 @@ def resume_scan(scan_id: int) -> dict:
 
 
 @router.post("/scans/{scan_id}/stop")
-def stop_scan(scan_id: int) -> dict:
+async def stop_scan(scan_id: int) -> dict:
     ctl = orchestrator.get_controller(scan_id)
     if not ctl:
         raise HTTPException(404, "Скан не выполняется")
