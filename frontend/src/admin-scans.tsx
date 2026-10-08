@@ -14,7 +14,7 @@ export function AdminScans({ token }: { token: string }) {
   const [offset, setOffset] = useState(0), [tick, setTick] = useState(0)
   const [data, setData] = useState<{ total: number; results: Row[] } | null>(null)
   const [selected, setSelected] = useState<number | null>(null), [detail, setDetail] = useState<Detail | null>(null)
-  const [error, setError] = useState(""), [detailError, setDetailError] = useState(""), [loading, setLoading] = useState(true)
+  const [error, setError] = useState(""), [detailError, setDetailError] = useState<{ id: number; message: string } | null>(null), [loading, setLoading] = useState(true)
   useEffect(() => {
     let alive = true
     const timer = setTimeout(() => {
@@ -26,8 +26,7 @@ export function AdminScans({ token }: { token: string }) {
   }, [search, status, offset, tick, token])
   useEffect(() => {
     let alive = true
-    setDetailError("")
-    if (selected !== null) accountRequest<Detail>(`/admin/scan-results/${selected}`, token).then(d => { if (alive) setDetail(d) }).catch(e => { if (alive) setDetailError(e.message) })
+    if (selected !== null) accountRequest<Detail>(`/admin/scan-results/${selected}`, token).then(d => { if (alive) setDetail(d) }).catch(e => { if (alive) setDetailError({ id: selected, message: e.message }) })
     return () => { alive = false }
   }, [selected, token])
   return <section className="cab-panel admin-scans"><div className="cab-section-head"><div><h1>Сканы пользователей</h1><p>Сохранённые ответы ИИ, доказательства и отметки для проверки точности.</p></div><button className="cc-button" disabled={loading} onClick={() => setTick(n => n + 1)}>Обновить</button></div>
@@ -36,7 +35,7 @@ export function AdminScans({ token }: { token: string }) {
     {data && <><p>{data.total} результатов</p><div className="admin-scan-list">{data.results.map(row => <article key={row.id}>
       <p className="ws-note">{row.email} · {row.project_name} · {row.scan_date} · {row.service}</p><h3>{row.query_text}</h3><p>Бренд: {row.brand_name} · {statuses[row.status] || row.status} · {row.mention_types.join(", ")}</p>
       <button className="cc-button" aria-expanded={selected === row.id} onClick={() => setSelected(selected === row.id ? null : row.id)}>{selected === row.id ? "Скрыть ответ" : "Ответ и причина"}</button>
-      {selected === row.id && <div className="admin-scan-detail">{detailError && <p role="alert">{detailError}</p>}{detail?.id !== row.id && !detailError && <p role="status">Загружаем ответ…</p>}{detail?.id === row.id && <>
+      {selected === row.id && <div className="admin-scan-detail">{detailError?.id === row.id && <p role="alert">{detailError.message}</p>}{detail?.id !== row.id && detailError?.id !== row.id && <p role="status">Загружаем ответ…</p>}{detail?.id === row.id && <>
         {detail.feedback && <p>Отметка пользователя: <b>{labels[detail.feedback.label]}</b>{detail.feedback.comment && ` · ${detail.feedback.comment}`}</p>}
         {detail.evidence_quote && <blockquote>{detail.evidence_quote}</blockquote>}
         {detail.analysis?.reasoning && <p>Анализ ({detail.analysis_model}): {detail.analysis.reasoning}</p>}{detail.arbitration?.reasoning && <p>Арбитр ({detail.arbitration_model}): {detail.arbitration.reasoning}</p>}
