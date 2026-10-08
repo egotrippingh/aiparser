@@ -247,9 +247,8 @@ def register_reports(app, db_session, current_user):
         row = db.get(CloudResult, result_id)
         if not row or row.user_id != user.id or row.project_id != project_id:
             raise HTTPException(404, "Результат не найден")
-        return {"query_text": row.query_text, "service": row.service, "scan_date": row.scan_date,
-                "status": row.status, "answer_text": row.answer_text, "error_message": row.error_message, "evidence_quote": row.evidence_quote,
-                "sources": json.loads(row.sources_json or "[]"), "check_id": row.check_id}
+        from server.scan_feedback import result_detail
+        return result_detail(db, row)
 
     @router.get("/export/{kind}")
     def export(project_id: str, kind: Literal["mentions", "sources"], options: ReportOptions = Depends(),

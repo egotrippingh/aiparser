@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { createRoot } from "react-dom/client"
 import { ArrowDownLeft, ArrowUpRight, Download, Image as ImageIcon, LogOut, ShieldCheck } from "lucide-react"
 import { ACCOUNT_API as API, COOKIE_SESSION, accountRequest as request, AccountError } from "./account-api"
+import { AdminScans } from "./admin-scans"
 import { ControlCenter } from "./control-center"
 import "./cabinet.css"
 import { SiteFooter } from "./site-footer"
@@ -45,7 +46,7 @@ function Cabinet() {
   const [message, setMessage] = useState("")
   const [yandexEnabled, setYandexEnabled] = useState(false)
   const [resetEnabled, setResetEnabled] = useState(false)
-  const [section, setSection] = useState<"dashboard" | "account">(location.hash === "#/topup" ? "account" : "dashboard")
+  const [section, setSection] = useState<"dashboard" | "account" | "admin">(location.hash === "#/topup" ? "account" : "dashboard")
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
 
   function acceptSession(result: {token?: string}) {
@@ -245,7 +246,7 @@ function Cabinet() {
   }
 
   return <div className={`cabinet ${user && section === "dashboard" ? "cab-workspace" : ""}`}>
-    <header className="cab-header"><div className="cab-container cab-header-inner"><Brand className="cab-brand" /><span className="cab-header-label">Личный кабинет</span>{user && <nav className="cab-nav" aria-label="Разделы кабинета"><button className={section === "dashboard" ? "active" : ""} onClick={() => setSection("dashboard")}>Рабочее пространство</button><button className={section === "account" ? "active" : ""} onClick={() => { if (leaveEditor()) { setSection("account"); refresh(token).catch(e => setMessage(e.message)) } }}>{user.is_admin ? "Аккаунт" : "Аккаунт и оплата"}</button></nav>}{user && <button className="cab-logout" onClick={logout}><LogOut size={16} /> Выйти</button>}</div></header>
+    <header className="cab-header"><div className="cab-container cab-header-inner"><Brand className="cab-brand" /><span className="cab-header-label">Личный кабинет</span>{user && <nav className="cab-nav" aria-label="Разделы кабинета"><button className={section === "dashboard" ? "active" : ""} onClick={() => setSection("dashboard")}>Рабочее пространство</button><button className={section === "account" ? "active" : ""} onClick={() => { if (leaveEditor()) { setSection("account"); refresh(token).catch(e => setMessage(e.message)) } }}>{user.is_admin ? "Аккаунт" : "Аккаунт и оплата"}</button>{user.is_admin && <button className={section === "admin" ? "active" : ""} onClick={() => { if (leaveEditor()) setSection("admin") }}>Сканы пользователей</button>}</nav>}{user && <button className="cab-logout" onClick={logout}><LogOut size={16} /> Выйти</button>}</div></header>
     <main className="cab-container cab-main">
       {checkingSession ? <p role="status">Открываем кабинет…</p> : !user ? <section className="cab-auth-wrap">
         <div className="cab-intro"><span className="cab-kicker">AI MENTIONS / АККАУНТ</span><h1>Проверки под вашим контролем.</h1><p>Смотрите отчёты в браузере, задавайте расписание для агента и пополняйте баланс. Новые результаты синхронизируются с вашим аккаунтом после проверки на компьютере.</p><div className="cab-price-note"><ShieldCheck size={18} /> {money(price)} за запрос в одном ИИ-сервисе</div>{downloadUrl && <p><a className="cab-download" href={downloadUrl}><Download size={17} /> Скачать агент для Windows</a></p>}</div>
@@ -267,7 +268,7 @@ function Cabinet() {
           <button className="cab-primary" disabled={busy}>{busy ? "Подождите…" : authMode === "login" ? (connectId ? "Войти и подключить компьютер" : "Войти") : authMode === "register" ? "Зарегистрироваться" : authMode === "forgot" ? "Отправить ссылку" : "Сменить пароль"}</button>
           {authMode === "login" && resetEnabled && <button className="cab-refresh" type="button" onClick={() => setAuthMode("forgot")}>Забыли пароль?</button>}
         </form>
-      </section> : section === "dashboard" ? <ControlCenter token={token} downloadUrl={downloadUrl} brandClarificationsEnabled={!!user.brand_clarifications_enabled} onDirtyChange={setEditorDirty} /> : <>
+      </section> : section === "admin" && user.is_admin ? <AdminScans token={token} /> : section === "dashboard" ? <ControlCenter token={token} downloadUrl={downloadUrl} brandClarificationsEnabled={!!user.brand_clarifications_enabled} onDirtyChange={setEditorDirty} /> : <>
         <div className="cab-title-row"><div><span className="cab-kicker">ВАШ АККАУНТ</span><h1>Баланс и проверки</h1><p>{user.email}</p>{yandexEnabled && <button className="cab-link-yandex" disabled={busy || user.yandex_linked} onClick={linkYandex}>{user.yandex_linked ? "Яндекс ID подключён" : "Привязать Яндекс ID"}</button>}</div><span className="cab-rate">{user.is_admin ? "Администратор · проверки бесплатно" : `Одна проверка · ${money(price)}`}</span></div>
         <div className="cab-grid">
           <section className="cab-panel cab-balance"><span className="cab-kicker">ДОСТУПНО ДЛЯ ПРОВЕРОК</span><strong>{user.is_admin ? "Безлимитно" : money(wallet?.available_kopeks || 0)}</strong><p>{user.is_admin ? `Обычные проверки бесплатны.${user.brand_clarifications_enabled ? ` Пересчёт сохранённых ответов — 0,80 ₽ за ответ; доступный баланс ${money(wallet?.available_kopeks || 0)}.` : ""}` : `На балансе ${money(wallet?.balance_kopeks || 0)}${wallet?.reserved_kopeks ? ` · Зарезервировано ${money(wallet.reserved_kopeks)}` : ""}`}</p><div className="cab-balance-foot">{user.is_admin ? "Обычная проверка запроса в ИИ-сервисе · 0 ₽" : `Примерно ${Math.floor((wallet?.available_kopeks || 0) / price)} проверок по текущей цене`}</div><button className="cab-primary" type="button" onClick={() => document.getElementById("topup-amount")?.focus()}>Пополнить баланс</button></section>
