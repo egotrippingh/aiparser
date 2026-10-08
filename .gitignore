@@ -24,3 +24,6 @@ runtime/
 *.log
 .idea/
 .vscode/
+
+# Local code-navigation cache; contains machine-specific paths.
+graphify-out/

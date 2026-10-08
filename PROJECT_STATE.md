@@ -1,6 +1,7 @@
 # AIRate current project state
 
-Updated 2026-10-07. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
+Updated 2026-10-08. Repository: `egotrippingh/aiparser`; development branch: `main`;
+deployment branch: `production`.
 
 ## Current release
 
@@ -20,7 +21,7 @@ Updated 2026-10-07. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Open checks
 
-- Prepared 2026-10-08 in [PR #32](https://github.com/egotrippingh/aiparser/pull/32) (`codex/scan-feedback`): owner answer labels adapt future project scans through frozen examples; admin scan journal includes evidence and screenshots. Local checks/reviews passed; not published. Live model accuracy and the original Neighbours Expert verdict cause remain unverified. See [scope and checks](docs/scan-feedback.md).
+- Merged 2026-10-08 into `main` in [PR #32](https://github.com/egotrippingh/aiparser/pull/32), merge `09976b67ea7a396123297a93ce5dc9920a86b67b`: owner answer labels adapt future project scans through frozen examples; admin scan journal includes evidence and screenshots. PR checks passed; this merge did not update `production` or publish a release. Live model accuracy and the original Neighbours Expert verdict cause remain unverified. See [scope and checks](docs/scan-feedback.md).
 
 - Live provider throughput and sustained throttling, real-profile power-loss recovery and an upgrade from an older installed version remain unverified. Native isolated install, browser/EXE self-test, same-version reinstall and uninstall/data preservation passed. Synthetic two-analyzer median improved ~24% in the final local run; this does not establish real-provider throughput.
 - Complete operator-PC HTTPS artifact downloads are not qualified; complete downloads/hashes passed from the VPS, and the operator-PC installer range matched the local build.
