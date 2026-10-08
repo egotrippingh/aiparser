@@ -20,7 +20,7 @@ Updated 2026-10-07. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Open checks
 
-- Prepared 2026-10-08 on `codex/scan-feedback`: owner answer labels adapt future project scans through frozen examples; admin scan journal includes evidence and screenshots. Local checks/reviews passed; not published. Live model accuracy and the original Neighbours Expert verdict cause remain unverified. See [scope and checks](docs/scan-feedback.md).
+- Prepared 2026-10-08 in [PR #32](https://github.com/egotrippingh/aiparser/pull/32) (`codex/scan-feedback`): owner answer labels adapt future project scans through frozen examples; admin scan journal includes evidence and screenshots. Local checks/reviews passed; not published. Live model accuracy and the original Neighbours Expert verdict cause remain unverified. See [scope and checks](docs/scan-feedback.md).
 
 - Live provider throughput and sustained throttling, real-profile power-loss recovery and an upgrade from an older installed version remain unverified. Native isolated install, browser/EXE self-test, same-version reinstall and uninstall/data preservation passed. Synthetic two-analyzer median improved ~24% in the final local run; this does not establish real-provider throughput.
 - Complete operator-PC HTTPS artifact downloads are not qualified; complete downloads/hashes passed from the VPS, and the operator-PC installer range matched the local build.
