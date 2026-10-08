@@ -23,3 +23,11 @@
 .cab-panel{background:var(--air-panel);box-shadow:none}
 
 .cab-amount-presets{display:flex;flex-wrap:wrap;gap:8px}.cab-amount-presets button{min-height:40px;padding:0 13px;border:1px solid var(--air-line-strong);border-radius:8px;background:transparent;color:var(--air-text);font:inherit;font-size:13px}.cab-amount-presets button[aria-pressed=true]{border-color:var(--air-accent);background:var(--air-raised)}.cab-amount-presets button:focus-visible{outline:2px solid var(--air-accent);outline-offset:3px}.cab-topup .cab-payment-method{padding:10px 12px;border:1px solid var(--air-line-strong);border-radius:9px;min-height:44px}.cab-payment-method:has(input:checked){border-color:var(--air-accent);background:var(--air-raised)}.cab-topup fieldset{flex-wrap:wrap;margin:0}.cab-payment-error{color:var(--air-danger)!important;font-size:13px;margin:0}.cab-payment-note{padding:12px;border:1px solid var(--air-line-strong);border-radius:9px;font-size:13px;margin:0}.cab-payment-status{margin-left:auto;font-size:13px;color:var(--air-muted)}.cab-payment-status.paid{color:var(--air-success)}.cab-payment-row{flex-wrap:wrap;padding:12px 0}.cab-payment-row a{font-size:12px}.cab-balance>.cab-primary{margin-top:20px}.cab-payment-spinner{animation:payment-spin 1s linear infinite}@keyframes payment-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.cab-payment-spinner{animation:none}}@media(max-width:480px){.cab-payment-status{margin-left:0}.cab-payment-row>span:first-child{width:100%}.cab-payment-row a{margin-left:auto}}
+/* Scan review reuses cabinet controls and surface tokens. */
+.scan-feedback { margin: 24px 0; padding-top: 16px; border-top: 1px solid var(--air-line-strong); }
+.scan-feedback label, .admin-scans label { display: grid; gap: 8px; margin-bottom: 16px; }
+.scan-feedback textarea { min-height: 80px; resize: vertical; }
+.scan-feedback textarea, .admin-scans input, .admin-scans select { width: 100%; padding: 10px; border: 1px solid var(--air-line-strong); border-radius: 6px; background: var(--air-panel); color: var(--air-text); }
+.admin-scan-list article { padding: 20px 0; border-top: 1px solid var(--air-line-strong); overflow-wrap: anywhere; }
+.admin-scan-detail { padding: 16px 0; }
+.admin-scan-detail blockquote { padding-left: 16px; border-left: 2px solid var(--air-line-strong); }

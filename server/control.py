@@ -22,6 +22,7 @@ from server.ai import AIError
 from server.models import (AgentDevice, Check, CloudResult, ControlLink, ControlProject, ControlRun,
                            DeviceConnect, DeviceGrant, LedgerEntry, Screenshot, SessionToken, User, Wallet, utcnow)
 from server.reporting import SERVICES
+from server.scan_feedback import KEY as FEEDBACK_KEY, learning_context
 from server.security import new_token, token_hash
 from server.storage import StorageError
 
@@ -173,6 +174,7 @@ class ImportIn(BaseModel):
 def project_payload(row, detail=True, brand_clarifications_enabled=False):
     queries = json.loads(row.queries_json)
     config = json.loads(row.config_json)
+    config.pop(FEEDBACK_KEY, None)
     if not brand_clarifications_enabled:
         config.pop("brand_clarification", None)
     payload = {"id": row.id, "revision": row.revision, "name": row.name,
@@ -214,6 +216,12 @@ def create_run(db, project, device_id, key, scheduled_for=None, brand_clarificat
         return existing
     device = device_for(db, project.user_id, device_id)
     snap = project_payload(project, brand_clarifications_enabled=brand_clarifications_enabled)
+    examples = learning_context(project)
+    if examples:
+        snap["config"]["brand_clarification"] = (snap["config"].get("brand_clarification", "") +
+            "\nУчитывай размеченные владельцем примеры идентификации бренда, приложенные сервером.").strip()
+        snap["scan_feedback_context"] = examples
+        snap["feedback_enabled"] = True
     if snap["config"].get("brand_clarification") and not json.loads(device.capabilities_json).get("brand_clarification"):
         raise HTTPException(422, "Обновите агент AIRate, чтобы использовать уточнения по бренду")
     snap["queries"] = [q for q in snap["queries"] if q["active"]]
@@ -417,8 +425,12 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         if not brand_enabled(user) and clarification_for(row):
             body = body.model_copy(deep=True)
             body.config.brand_clarification = clarification_for(row)
+        values = project_values(body, row.schedule_json)
+        config = json.loads(values["config_json"])
+        config[FEEDBACK_KEY] = json.loads(row.config_json).get(FEEDBACK_KEY, [])
+        values["config_json"] = json.dumps(config, ensure_ascii=False)
         result = db.execute(update(ControlProject).where(ControlProject.id == row.id,
-            ControlProject.revision == body.revision).values(**project_values(body, row.schedule_json), revision=body.revision + 1))
+            ControlProject.revision == body.revision).values(**values, revision=body.revision + 1))
         if result.rowcount != 1:
             raise HTTPException(409, "Проект изменён на другом устройстве. Обновите страницу перед сохранением.")
         db.commit(); db.refresh(row)
@@ -709,8 +721,10 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         device.last_seen_at = utcnow(); device.capabilities_json = json.dumps(body.capabilities)
         key = f"{grant.user_id}:{grant.device_id}"
         def supported(candidate):
-            note = json.loads(candidate.snapshot_json).get("config", {}).get("brand_clarification")
-            return not note or bool(body.capabilities.get("brand_clarification") and brand_enabled(db.get(User, grant.user_id)))
+            snapshot = json.loads(candidate.snapshot_json)
+            note = snapshot.get("config", {}).get("brand_clarification")
+            return not note or bool(body.capabilities.get("brand_clarification") and
+                                   (snapshot.get("feedback_enabled") or brand_enabled(db.get(User, grant.user_id))))
         run = db.scalar(select(ControlRun).where(ControlRun.active_device_key == key))
         if run and not supported(run):
             device.active_scan = False

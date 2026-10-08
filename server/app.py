@@ -351,6 +351,8 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
     register_browser_login(app, db_session, current_user, issue_session)
     from server.reporting import register_reports
     register_reports(app, db_session, current_user)
+    from server.scan_feedback import register_scan_feedback
+    register_scan_feedback(app, db_session, current_user, screenshot_storage)
 
     @app.get("/api/v1/auth/connect/{identifier}")
     def connect_login_info(identifier: str, response: Response, db: Session = Depends(db_session)):
@@ -1147,7 +1149,8 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
             raise HTTPException(409, "Лимит попыток анализа исчерпан")
         check.analysis_attempts += 1
         try:
-            raw, model, usage = _ai_payload(ai_client.analyze(body.system, body.content), ai_client.model)
+            from server.scan_feedback import analysis_content
+            raw, model, usage = _ai_payload(ai_client.analyze(body.system, analysis_content(db, check, body.content)), ai_client.model)
         except AIError as exc:
             telemetry.capture(exc, component="server", operation="ai_analyze", user_id=user.id, run_id=check_id.split(":", 1)[0])
             db.commit()
@@ -1181,7 +1184,8 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         check.arbitration_attempts += 1
         try:
             fallback = getattr(ai_client, "arbiter_model", ai_client.model)
-            raw, model, usage = _ai_payload(ai_client.arbitrate(body.system, body.content), fallback)
+            from server.scan_feedback import analysis_content
+            raw, model, usage = _ai_payload(ai_client.arbitrate(body.system, analysis_content(db, check, body.content)), fallback)
         except AIError as exc:
             telemetry.capture(exc, component="server", operation="ai_arbitrate", user_id=user.id, run_id=check_id.split(":", 1)[0])
             db.commit()
