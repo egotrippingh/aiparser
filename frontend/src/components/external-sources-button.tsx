@@ -11,7 +11,8 @@ import { FileSpreadsheet, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { api, errText } from "@/lib/api"
+import { api, errText, HttpError } from "@/lib/api"
+import { capture } from "@/telemetry"
 import { plural } from "@/lib/format"
 import type { ExternalCheck } from "@/lib/types"
 import { useApp } from "@/store/app-store"
@@ -38,7 +39,7 @@ export function ExternalSourcesButton({ date }: { date: string }) {
         `/api/projects/${projectId}/external-sources/check?date=${date}`,
       )
       const resp = await fetch(`/api/projects/${projectId}/external-sources.xlsx?date=${date}`)
-      if (!resp.ok) throw new Error(`Не удалось собрать Excel (HTTP ${resp.status})`)
+      if (!resp.ok) throw new HttpError(`Не удалось собрать Excel (HTTP ${resp.status})`, resp.status)
       const blob = await resp.blob()
       const href = URL.createObjectURL(blob)
       const a = document.createElement("a")
@@ -64,6 +65,7 @@ export function ExternalSourcesButton({ date }: { date: string }) {
       )
       if (r.updated_results) refreshData()
     } catch (e) {
+      capture(e, "local_api")
       toast.error(errText(e))
     } finally {
       setBusy(false)

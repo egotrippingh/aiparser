@@ -25,6 +25,7 @@ config.DB_PATH = _tmp_db
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.api import create_app  # noqa: E402
+from app.api.results import select_dates  # noqa: E402
 from app.db import repo  # noqa: E402
 
 client = TestClient(create_app())
@@ -173,8 +174,8 @@ def test_period_range_filters_dates():
     pid = _calendar_project()
     d = client.get(f"/api/projects/{pid}/overview",
                    params={"date_from": "2026-08-01", "date_to": "2026-08-31"}).json()
-    assert d["dates"] == ["2026-08-05", "2026-08-30"]
-    assert d["selection"]["available"] == 2 and d["selection"]["truncated"] is False
+    assert d["dates"] == ["2026-08-01", "2026-08-05", "2026-08-30", "2026-08-31"]
+    assert d["selection"]["available"] == 4 and d["selection"]["truncated"] is False
     assert d["selection"]["first_scan"] == "2026-07-10"
 
 
@@ -182,10 +183,10 @@ def test_two_dates_compares_first_and_last_of_range():
     pid = _calendar_project()
     d = client.get(f"/api/projects/{pid}/overview",
                    params={"mode": "two", "date_from": "2026-07-01", "date_to": "2026-09-30"}).json()
-    assert d["dates"] == ["2026-07-10", "2026-09-02"]
+    assert d["dates"] == ["2026-07-01", "2026-09-30"]
     s = d["summary"]
-    assert s["prev_date"] == "2026-07-10" and s["date"] == "2026-09-02"
-    assert s["total"]["delta"] == 100.0      # было 0% (not_found), стало 100%
+    assert s["prev_date"] == "2026-07-01" and s["date"] == "2026-09-30"
+    assert s["total"]["delta"] is None
 
 
 def test_without_range_change_is_measured_against_the_previous_scan():
@@ -207,9 +208,9 @@ def test_picked_range_is_measured_across_the_whole_range():
     d = client.get(f"/api/projects/{pid}/overview",
                    params={"date_from": "2026-07-01", "date_to": "2026-09-30"}).json()
     s = d["summary"]
-    assert len(d["dates"]) == 5
+    assert len(d["dates"]) == 7
     assert s["compare"] == "period"
-    assert s["prev_date"] == "2026-07-10" and s["date"] == "2026-09-02"
+    assert s["prev_date"] == "2026-07-01" and s["date"] == "2026-09-30"
 
 
 _scope_n = 0
@@ -268,11 +269,35 @@ def test_custom_dates_and_truncation():
     pid = _calendar_project()
     d = client.get(f"/api/projects/{pid}/overview",
                    params={"mode": "custom", "dates": "2026-07-10,2026-08-30,2099-01-01"}).json()
-    assert d["dates"] == ["2026-07-10", "2026-08-30"]
+    assert d["dates"] == ["2026-07-10", "2026-08-30", "2099-01-01"]
 
     d = client.get(f"/api/projects/{pid}/overview", params={"max_dates": 2}).json()
     assert d["dates"] == ["2026-08-30", "2026-09-02"]
     assert d["selection"]["available"] == 5 and d["selection"]["truncated"] is True
+
+
+def test_explicit_range_truncation_keeps_both_endpoints():
+    dates = [f"2026-01-{day:02d}" for day in range(1, 32)] + [f"2026-02-{day:02d}" for day in range(1, 10)]
+    selected, available = select_dates(dates, date_from=dates[0], date_to=dates[-1], max_dates=30)
+    assert available == 40 and selected == [dates[0], *dates[-29:]]
+
+
+def test_monthly_range_uses_last_actual_measurement_without_empty_endpoint():
+    dates = ["2026-09-05", "2026-09-20"]
+    selected, available = select_dates(dates, mode="monthly", date_from="2026-09-01", date_to="2026-09-30")
+    assert available == 1 and selected == ["2026-09-20"]
+
+
+def test_historical_service_stays_visible_as_unchecked_on_current_date():
+    pid, q = _project("Исторический GPT", ["запрос"])
+    old = _scan(pid, "2026-09-26", ["chatgpt"])
+    repo.save_result(old, q["запрос"], "chatgpt", "auth_required")
+    current = _scan(pid, "2026-10-02", ["google_aio", "alice"])
+    repo.save_result(current, q["запрос"], "google_aio", "found")
+    repo.save_result(current, q["запрос"], "alice", "not_found")
+    data = client.get(f"/api/projects/{pid}/overview", params={"date_from": "2026-10-02", "date_to": "2026-10-02"}).json()
+    assert data["services"] == ["chatgpt", "alice", "google_aio"]
+    assert "chatgpt" not in data["rows"][0]["cells"]["2026-10-02"]
 
 
 def test_two_and_monthly_without_range_use_all_history():

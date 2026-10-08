@@ -1,7 +1,8 @@
 /** Карточка запроса: что именно ответил каждый сервис в выбранный день. */
 
+import { AnswerContent, SourceList, ResultIssue } from "./answer-content"
 import { useEffect, useState } from "react"
-import { ExternalLink, ImageOff } from "lucide-react"
+import { ImageOff } from "lucide-react"
 
 import {
   Sheet,
@@ -147,9 +148,7 @@ export function QuerySheet({
                           {info.evidence_quote}
                         </blockquote>
                       ) : null}
-                      {info.error_message ? (
-                        <p className="mt-2.5 font-mono text-xs break-words">{info.error_message}</p>
-                      ) : null}
+                      <ResultIssue status={info.status} error={info.error_message} answer={info.answer_text}/>
                       {info.mention_types?.length ? (
                         <div className="mt-2.5 flex flex-wrap gap-1.5">
                           {info.mention_types.map((t) => (
@@ -185,33 +184,12 @@ export function QuerySheet({
 
                     {info.answer_text ? (
                       <Section title="Текст ответа">
-                        <p className="bg-muted/60 max-h-72 overflow-y-auto rounded-lg p-3 text-sm whitespace-pre-wrap">
-                          {info.answer_text}
-                        </p>
+                        <div className="bg-muted/60 max-h-72 overflow-y-auto rounded-lg p-3 text-sm"><AnswerContent text={info.answer_text} service={s.id} sources={info.sources || []} /></div>
                       </Section>
                     ) : null}
 
                     <Section title={`Источники${info.sources?.length ? ` (${info.sources.length})` : ""}`}>
-                      {info.sources?.length ? (
-                        <ul className="space-y-1">
-                          {info.sources.map((u) => (
-                            <li key={u}>
-                              <a
-                                href={u}
-                                target="_blank"
-                                rel="noopener"
-                                className="text-primary inline-flex max-w-full items-center gap-1.5 text-xs hover:underline"
-                                style={{ overflowWrap: "anywhere" }}
-                              >
-                                <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
-                                <span className="min-w-0">{u}</span>
-                              </a>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <Muted>Ссылок в ответе нет</Muted>
-                      )}
+                      <SourceList sources={info.sources || []}/>
                     </Section>
 
                     {info.history?.length ? (

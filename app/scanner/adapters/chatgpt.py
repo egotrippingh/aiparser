@@ -1,10 +1,8 @@
 """Адаптер ChatGPT (chatgpt.com).
 
-Селекторы сняты вживую 28.08.2026 на реальном залогиненном аккаунте:
-``#prompt-textarea`` (ProseMirror, contenteditable) и
-``[data-message-author-role="assistant"]`` — известный по множеству других
-инструментов устойчивый паттерн разметки ChatGPT, не привязанный к
-сгенерированным id.
+Селекторы сверены на залогиненном профиле 26.09.2026. Поле ввода и ответ
+находятся по атрибутам редактора и сообщения, с сохранёнными старыми
+селекторами для совместимости.
 
 Источники НЕ проверены живьём: обычный ответ без включённого веб-поиска их
 не показывает, а решение искать ли в интернете ChatGPT принимает сам по
@@ -15,9 +13,11 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from app.scanner import humanize
 from app.scanner.adapters import shot
+from app.scanner.adapters.readable import readable
 from app.scanner.adapters.base import (
     AdapterError,
     Capture,
@@ -62,17 +62,33 @@ class ChatGPTAdapter:
     # _wait_out_rate_limit, и тогда границу стоит поднять.
     min_delay_sec = (10.0, 15.0)
 
-    async def ensure_ready(self, page) -> ReadyState:
-        await page.goto(_S["home_url"], wait_until="domcontentloaded")
+    def __init__(self) -> None:
+        self.throttled = False
 
-        try:
-            marker = page.locator(_S["logged_in_marker"])
-            if not await visible(marker.first, 6000):
+    async def ensure_ready(self, page) -> ReadyState:
+        await page.goto(_S["temporary_url"], wait_until="domcontentloaded")
+        marker = page.locator(_S["logged_in_marker"]).first
+        if not await visible(marker, 15000):
+            login = page.get_by_role("button", name=re.compile(r"^(Log in|Sign in|Войти)$", re.I))
+            if await visible(page.locator(_S["login_form"]).first, 1500) or await visible(login.first, 1500):
                 return ReadyState(ok=False, reason="auth_required")
-        except Exception:
-            return ReadyState(ok=False, reason="auth_required")
+            await dump_debug_html(page, "chatgpt_unknown_session")
+            raise AdapterError("ChatGPT: не удалось определить состояние входа")
+        await self._wait_for_composer(page)
 
         return ReadyState(ok=True)
+
+    async def _wait_for_composer(self, page) -> None:
+        # SSR сначала показывает #pending-home-input. Это ещё не редактор:
+        # ждём загрузки приложения, включая медленный старт четырёх браузеров.
+        for attempt in range(2):
+            if await visible(page.locator(_S["input"]).first, 60000):
+                return
+            if attempt == 0:
+                log.warning("ChatGPT: редактор не загрузился — обновляю временный чат")
+                await page.goto(_S["temporary_url"], wait_until="domcontentloaded")
+        await dump_debug_html(page, "chatgpt_no_composer")
+        raise AdapterError("ChatGPT: редактор не загрузился после повторного открытия страницы")
 
     async def ask(self, page, query: str, region: str | None, *, speed: float = 1.0) -> None:
         # Новый чат перед каждым запросом: контекст предыдущего не должен
@@ -80,6 +96,9 @@ class ChatGPTAdapter:
         # способ гарантировать, что answer_container останется однозначным.
         # Это SPA-клик, а не перезагрузка сайта — сам сайт грузится один раз
         # в ensure_ready на весь сервис.
+        # Reset before navigation so an exception cannot incorrectly inherit a
+        # previous request's observation; _wait_out_rate_limit sets it again.
+        self.throttled = False
         await self._new_chat(page)
         await self._wait_out_rate_limit(page)
         await humanize.sleep(0.5 * speed, 1.0 * speed)
@@ -114,10 +133,14 @@ class ChatGPTAdapter:
         """
         async def fresh():
             await page.goto(_S["temporary_url"], wait_until="domcontentloaded")
-            await visible(page.locator(_S["input"]).first, 20000)
+            await self._wait_for_composer(page)
 
         await fresh()
-        if not await visible(page.get_by_role("button", name=_S["temporary_active_label"]), 5000):
+        temporary_active = page.get_by_role("button", name=re.compile(
+            r"(Выключить временный чат|Выйти из режима временного чата|"
+            r"Turn off temporary chat|Exit temporary chat)", re.I,
+        ))
+        if not await visible(temporary_active, 5000):
             # Данные важнее чистоты истории: запрос уходит, но это видно в логе.
             log.warning("ChatGPT: временный чат не включился — запрос сохранится в истории "
                         "и может учесть персонализацию аккаунта")
@@ -138,6 +161,7 @@ class ChatGPTAdapter:
                 return
             if RATE_LIMIT_TEXT not in body.lower():
                 return
+            self.throttled = True
             log.warning("ChatGPT просит сбавить темп — жду %s–%s с (попытка %s)",
                         int(_COOLDOWN[0]), int(_COOLDOWN[1]), attempt + 1)
             await humanize.sleep(*_COOLDOWN)
@@ -147,8 +171,9 @@ class ChatGPTAdapter:
     async def _wait_done(self, page) -> None:
         """Ждёт, пока ответ реально дописан.
 
-        Признак — кнопка «оценить» под ответом: появляется только по
-        завершении (проверено 10.09.2026 на платном аккаунте). «Текст перестал
+        Признак — флаг завершения последнего сообщения в новом интерфейсе
+        (проверено 07.10.2026 в гостевой сессии) либо кнопка «оценить» в старом
+        (проверено 10.09.2026 на платном аккаунте). «Текст перестал
         расти» здесь не годится: рассуждающая модель дольше трёх секунд
         показывает «Думаю» и «Поиск на N сайтах», и такие заглушки уходили в
         базу как ответ.
@@ -158,11 +183,26 @@ class ChatGPTAdapter:
         except Exception:
             return  # capture() честно упадёт на отсутствии ответа
         try:
-            await page.locator(_S["done_marker"]).last.wait_for(state="visible", timeout=240000)
+            await page.wait_for_function(
+                """({answer, done}) => {
+                    const latest = [...document.querySelectorAll(answer)].at(-1);
+                    const modern = latest?.closest('[data-message-role="assistant"]');
+                    if (modern) return modern.hasAttribute('data-message-complete');
+                    return [...document.querySelectorAll(done)].some(e =>
+                        e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden');
+                }""",
+                arg={"answer": _S["answer_container"], "done": _S["done_marker"]},
+                timeout=240000,
+            )
             await humanize.sleep(0.8, 1.5)
         except Exception:
             log.warning("ChatGPT: признак завершения не появился за 4 минуты — снимаю по стабилизации текста")
-            await humanize.wait_until_settled(page, _S["answer_container"], quiet_for=5.0, timeout=60.0)
+            try:
+                settled = await humanize.wait_until_settled(page, _S["answer_container"], quiet_for=5.0, timeout=60.0)
+            except humanize.AnswerNotSettledError as exc:
+                raise AdapterError("ChatGPT: ответ не завершился за отведённое время") from exc
+            if not settled.strip():
+                raise AdapterError("ChatGPT: ответ не завершился за отведённое время")
 
     async def capture(self, page) -> Capture:
         try:
@@ -182,6 +222,7 @@ class ChatGPTAdapter:
             raise AdapterError(f"ChatGPT: ответ не дописан ({len(answer_text.strip())} симв.: "
                                f"{answer_text.strip()[:60]!r})")
 
+        display = await readable(page.locator(_S["answer_container"]).last)
         sources = await self._extract_sources(page)
         # Снимок только самого ответа. На снимке всего экрана модель OpenRouter
         # видела и вопрос, и соседние сообщения — 10.09.2026 она «нашла» бренд
@@ -190,7 +231,9 @@ class ChatGPTAdapter:
         # снимаем кусками с прокруткой и склеиваем (app/scanner/adapters/shot.py).
         screenshot = await shot.full_shot(page, page.locator(_S["answer_container"]).last)
 
-        return Capture(screenshot_bytes=screenshot, answer_text=answer_text.strip(), sources=sources)
+        raw = answer_text.strip()
+        return Capture(screenshot_bytes=screenshot, answer_text=display["display"] or raw, sources=sources,
+                       extra={"main_text": raw, "plain_text": raw})
 
     async def _extract_sources(self, page) -> list[str]:
         try:

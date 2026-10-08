@@ -6,20 +6,22 @@
  * запросы.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { motion, useReducedMotion } from "motion/react"
-import { History, Play, RotateCcw } from "lucide-react"
+import { History, Play, RotateCcw, Wallet } from "lucide-react"
 import { cn } from "cn"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ConfirmButton } from "@/components/confirm-button"
 import { EmptyState, Panel, PanelFoot, PanelHead, ServiceDot } from "@/components/bits"
 import { useResource } from "@/hooks/use-resource"
 import { api, errText } from "@/lib/api"
+import type { ScanPreferences } from "@/lib/scan-preferences"
 import { dmy } from "@/lib/dates"
 import { plural } from "@/lib/format"
 import type { Query, Resumable, ScanPlan } from "@/lib/types"
@@ -27,6 +29,95 @@ import { useApp } from "@/store/app-store"
 import type { View } from "@/hooks/use-hash-route"
 
 const checks = (n: number) => plural(n, "проверка", "проверки", "проверок")
+
+type AccountStatus = {
+  enabled: boolean
+  connected: boolean
+  is_admin?: boolean
+  email?: string
+  cabinet_url?: string
+  wallet?: { balance_kopeks: number; available_kopeks: number; reserved_kopeks: number }
+  pricing?: { check_price_kopeks: number }
+}
+
+function AccountPanel({ account, error, remaining, reload }: {
+  account: AccountStatus | null
+  error: string | null
+  remaining: number
+  reload: () => void
+}) {
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [deviceCode, setDeviceCode] = useState("")
+  const [useCode, setUseCode] = useState(false)
+  const [busy, setBusy] = useState(false)
+  if (!account?.enabled && !error) return null
+  const price = account?.pricing?.check_price_kopeks ?? 120
+  const rub = (n: number) => new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB" }).format(n / 100)
+
+  async function login(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    try {
+      await api.post("/api/account/login", { email, password })
+      setPassword("")
+      reload()
+      toast.success("Аккаунт подключён")
+    } catch (e) {
+      toast.error(errText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function logout() {
+    await api.post("/api/account/logout")
+    reload()
+  }
+
+  async function loginCode(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    try {
+      await api.post("/api/account/login-code", { code: deviceCode.trim() })
+      setDeviceCode("")
+      reload()
+      toast.success("Аккаунт подключён")
+    } catch (e) {
+      toast.error(errText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <Panel>
+    <PanelHead title={account?.is_admin ? "Проверки администратора" : "Оплата проверок"} hint={account?.is_admin ? "Без ограничений по количеству и без списаний с баланса" : "Сумма резервируется перед запуском. Капчи и сбои до получения ответа не оплачиваются."} />
+    <div className="flex flex-wrap items-center gap-4 px-4 pb-4">
+      <Wallet size={22} className="text-primary" aria-hidden="true" />
+      {account?.connected ? <>
+        <div className="min-w-0 flex-1 text-sm"><strong>{account.email}</strong><p className="text-muted-foreground mt-1">{account.is_admin ? "Администратор · проверки бесплатно" : `Доступно ${rub(account.wallet?.available_kopeks ?? 0)} · ${rub(price)} за проверку`}</p></div>
+        <div className="text-sm font-semibold">Для запуска: {account.is_admin ? "0 ₽" : `до ${rub(remaining * price)}`}</div>
+        <Button size="sm" variant="outline" onClick={logout}>Выйти</Button>
+      </> : <div className="min-w-64 flex-1">
+        <div className="mb-3 flex gap-2">
+          <Button size="sm" type="button" variant={useCode ? "outline" : "secondary"} onClick={() => setUseCode(false)}>По email</Button>
+          <Button size="sm" type="button" variant={useCode ? "secondary" : "outline"} onClick={() => setUseCode(true)}>Код из кабинета</Button>
+        </div>
+        {useCode ? <form onSubmit={loginCode} className="flex flex-wrap items-end gap-2">
+          <label className="min-w-64 flex-1 text-xs">Одноразовый код<Input className="mt-1" autoComplete="off" required value={deviceCode} onChange={(e) => setDeviceCode(e.target.value)} /></label>
+          <Button type="submit" size="sm" disabled={busy}>Подключить</Button>
+          <p className="text-muted-foreground w-full text-xs">Войдите через Яндекс в кабинете и скопируйте код в разделе «Подключить приложение».</p>
+        </form> : <form onSubmit={login} className="flex flex-wrap items-end gap-2">
+          <label className="min-w-40 flex-1 text-xs">Email<Input className="mt-1" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+          <label className="min-w-40 flex-1 text-xs">Пароль<Input className="mt-1" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+          <Button type="submit" size="sm" disabled={busy}>Войти</Button>
+        </form>}
+      </div>}
+      {account?.cabinet_url && <a className="text-primary text-xs underline underline-offset-2" href={account.cabinet_url} target="_blank" rel="noreferrer">Личный кабинет и пополнение</a>}
+      {error && <p className="text-destructive w-full text-xs">{error}</p>}
+    </div>
+  </Panel>
+}
 
 export function ScanScreen({ onView }: { onView: (v: View) => void }) {
   const {
@@ -47,6 +138,16 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
   // Режим окон выбирается на запуск, а не в настройках: он зависит от того,
   // нужен ли компьютер прямо сейчас, а не от проекта.
   const [headless, setHeadless] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    api.get<ScanPreferences>("/api/agent/preferences").then((preferences) => {
+      if (cancelled) return
+      setHeadless(preferences.browser_mode === "headless")
+      setChosen(new Set(preferences.services.filter((id) => services.some((service) => service.id === id && service.has_adapter))))
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [services])
 
   const ready = useMemo(() => services.filter((s) => s.has_adapter), [services])
   const notReady = useMemo(() => services.filter((s) => !s.has_adapter), [services])
@@ -76,9 +177,21 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
       : null,
     [projectId, chosenKey, dataVersion],
   )
+  const { data: account, error: accountError, reload: reloadAccount } = useResource<AccountStatus>(
+    () => api.get<AccountStatus>("/api/account/status"),
+    [dataVersion],
+  )
 
   const activeCount = active?.length ?? 0
   const running = scan !== null && scan.state !== "finished"
+  useEffect(() => {
+    if (!running) return
+    const timer = window.setInterval(() => {
+      reloadResumable()
+      reloadPlan()
+    }, 30_000)
+    return () => window.clearInterval(timer)
+  }, [running, reloadResumable, reloadPlan])
   const done = (id: string) => plan?.by_service[id]?.done ?? 0
   // За дату уже что-то собрано хоть по одной системе — показываем прогресс
   // по каждой и предлагаем досканировать хвосты.
@@ -94,7 +207,7 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
 
   async function launch(resume: boolean) {
     if (!projectId) return
-    if (!activeCount) {
+    if (!activeCount && !(resume && plan?.pending_analysis)) {
       toast.error("Нет активных запросов — добавьте их на вкладке «Запросы»")
       return
     }
@@ -123,6 +236,7 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
 
   return (
     <div className="space-y-4">
+      <AccountPanel account={account} error={accountError} remaining={plan?.remaining ?? 0} reload={reloadAccount} />
       {resumable ? (
         <Alert>
           <History />
@@ -276,6 +390,8 @@ export function ScanScreen({ onView }: { onView: (v: View) => void }) {
                 ? "Скан уже идёт"
                 : allDone && plan
                   ? `Всё проверено за ${dmy(plan.date)}`
+                  : !activeCount && plan?.pending_analysis
+                    ? `Продолжить анализ ${plan.pending_analysis} ${checks(plan.pending_analysis)}`
                   : partial && plan
                     ? `Досканировать ${plan.remaining} ${checks(plan.remaining)}`
                     : "Запустить скан"}

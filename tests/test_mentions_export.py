@@ -64,7 +64,7 @@ def test_one_date_is_a_flat_table():
     assert [c.value for c in ws[1]] == ["Запрос", "Perplexity", "Алиса AI"]
     assert [c.value for c in ws[2]] == ["первый запрос", "✓", "!"]
     # Алиса этот запрос в тот день не проверяла — не «нет упоминаний», а «нет данных».
-    assert [c.value for c in ws[3]] == ["второй запрос", "✗", "·"]
+    assert [c.value for c in ws[3]] == ["второй запрос", "✗", "Не проверялось"]
     assert ws.max_row == 3
 
 
@@ -96,7 +96,14 @@ def test_legend_sheet_explains_the_signs():
     assert wb["Упоминаемость"]["B2"].value == "◷"
     legend = {row[0]: str(row[1]) for row in wb["Обозначения"].iter_rows(min_row=2, values_only=True) if row[0]}
     assert legend["◷"].startswith("Лимит тарифа")
-    assert legend["·"] == "Не проверялся в этот день"
+    assert legend["Не проверялось"] == "Не проверялось"
+
+
+def test_empty_dates_export_without_service_columns():
+    pid, _ = _project(["запрос"])
+    _scan(pid, "2026-09-10", {})
+    ws = _book(pid, "date_from=2026-09-10&date_to=2026-09-11")["Упоминаемость"]
+    assert [cell.value for cell in ws[1]] == ["Запрос"]
 
 
 def test_errors_are_explicit():
@@ -105,6 +112,25 @@ def test_errors_are_explicit():
     assert client.get(f"/api/projects/{pid}/mentions.xlsx").status_code == 404
     assert client.get("/api/projects/99999/mentions.xlsx").status_code == 404
     assert client.get(f"/api/projects/{pid}/mentions.xlsx?mode=ерунда").status_code == 400
+
+
+def test_product_card_toggle_matches_dashboard_and_export():
+    pid, q = _project(["только карточка", "карточка и текст"])
+    sid = repo.create_scan(pid, ["perplexity"], {})
+    repo._exec("UPDATE scans SET scan_date = ?, status = 'done' WHERE id = ?", ("2026-09-15", sid))
+    repo.save_result(sid, q[0], "perplexity", "found", mention_types=["card"])
+    repo.save_result(sid, q[1], "perplexity", "found", mention_types=["card", "text"])
+
+    included = client.get(f"/api/projects/{pid}/overview?include_cards=true").json()
+    excluded = client.get(f"/api/projects/{pid}/overview?include_cards=false").json()
+    assert included["summary"]["total"]["found"] == 2
+    assert excluded["summary"]["total"]["found"] == 1
+    assert excluded["summary"]["total"]["checked"] == 2
+    assert excluded["selection"]["include_cards"] is False
+
+    ws = _book(pid, "include_cards=false")["Упоминаемость"]
+    assert [c.value for c in ws[2]] == ["только карточка", "✗"]
+    assert [c.value for c in ws[3]] == ["карточка и текст", "✓"]
 
 
 if __name__ == "__main__":

@@ -1,0 +1,41 @@
+/* AIRate: shared website palette. Edit these tokens to recolor landing, cabinet and desktop agent. */
+:root {
+  --air-bg: #1e1f1c;
+  --air-panel: #252622;
+  --air-raised: #30312c;
+  --air-selected: #3b3a31;
+  --air-line: #42443b;
+  --air-line-strong: #626456;
+  --air-text: #e5e5d8;
+  --air-muted: #b9bbad;
+  --air-quiet: #9c9f93;
+  --air-accent: #e9ad7c;
+  --air-accent-strong: #d59260;
+  --air-ink: #20221c;
+  --air-success: #adc6ae;
+  --air-success-bg: #29372b;
+  --air-warning: #dfbd86;
+  --air-danger: #edb4a7;
+  --air-danger-bg: #3e2924;
+  --air-danger-line: #956558;
+  --air-warning-bg: #3b3328;
+  --air-chart-grid: #41443b;
+  --air-chart-total: #e9ad7c;
+  --air-icon: var(--air-muted);
+  --air-icon-accent: var(--air-accent);
+  --air-icon-surface: #2b2c26;
+}
+
+/* Keep controls in the same outline family; chart and brand SVGs are unaffected. */
+:is(.landing, .cabinet) .lucide {
+  stroke-width: 1.75;
+  flex-shrink: 0;
+}
+.cabinet .cc-sidebar nav a .lucide,
+.cabinet .ql-groups button .lucide {
+  color: var(--air-icon);
+}
+.cabinet .cc-sidebar nav a[aria-current=page] .lucide,
+.cabinet .ql-groups button[aria-pressed=true] .lucide {
+  color: var(--air-icon-accent);
+}

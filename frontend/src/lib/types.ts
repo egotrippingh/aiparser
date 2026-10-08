@@ -107,6 +107,7 @@ export interface Selection {
   mode: CalendarMode
   /** Выбранный учёт упоминаний. */
   scope: MentionScope
+  include_cards: boolean
   date_from: string | null
   date_to: string | null
   /** Сколько срезов подходило под выбор до обрезки до 30. */
@@ -173,6 +174,7 @@ export type ScanState = "running" | "paused" | "stopping" | "finished"
 
 export interface ScanSnapshot {
   scan_id: number
+  project_id: number
   state: ScanState
   done: number
   total: number
@@ -181,8 +183,14 @@ export interface ScanSnapshot {
   current_service: string | null
   /** Все системы, которые идут прямо сейчас (при параллельном скане — несколько). */
   running_services?: string[]
+  parallel?: boolean
   /** Прогресс этого прогона по каждой системе. */
-  services?: Record<string, { done: number; total: number }>
+  services?: Record<string, {
+    done: number
+    total: number
+    state?: "pending" | "running" | "failed" | "finished" | "stopped"
+    error?: string | null
+  }>
 }
 
 export interface Resumable {
@@ -203,6 +211,7 @@ export interface ScanPlan {
   /** Только по выбранным сервисам. */
   total: number
   remaining: number
+  pending_analysis?: number
 }
 
 /* --- настройки и браузер ---------------------------------------------- */
@@ -216,17 +225,8 @@ export interface SpeedProfile {
 }
 
 export interface Settings {
-  openrouter_model: string
-  /** Модель, которая решает спорные строки вместо ручной проверки. */
-  openrouter_arbiter_model: string
-  llm_arbiter: "on" | "off"
-  llm_mode: "smart" | "always" | "never"
-  llm_confidence_threshold: string
   screenshot_retention_days: string
   speed_profile: string
-  openrouter_api_key_masked: string
-  openrouter_api_key_set: boolean
-  secrets_encrypted: boolean
   speed_profiles: Record<string, SpeedProfile>
 }
 

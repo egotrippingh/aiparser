@@ -65,6 +65,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [dataVersion, setDataVersion] = useState(0)
 
   const esRef = useRef<EventSource | null>(null)
+  const watchedScanId = useRef<number | null>(null)
+  const selectedScanId = useRef<number | null>(null)
   const lineId = useRef(0)
   const servicesRef = useRef<ServiceMeta[]>([])
 
@@ -101,9 +103,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const watchScan = useCallback(
     (scanId: number) => {
-      if (esRef.current) return // подписка уже есть, вторая только дублирует события
+      if (esRef.current && watchedScanId.current === scanId) return
+      esRef.current?.close()
       const es = new EventSource(`/api/scans/${scanId}/stream`)
       esRef.current = es
+      watchedScanId.current = scanId
 
       const on = <T,>(name: string, fn: (data: T) => void) =>
         es.addEventListener(name, (ev) => {
@@ -136,7 +140,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       on<{ name: string; pending: number }>("service_started", (e) =>
         pushLog(`→ сервис ${e.name} · запросов: ${e.pending}`),
       )
-      on<{ service: string }>("service_finished", (e) => pushLog(`← сервис ${e.service} завершён`))
+      on<{ service: string; state?: string }>("service_finished", (e) => {
+        const failed = e.state === "failed" || e.state === "stopped"
+        pushLog(`← сервис ${e.service} ${failed ? "остановлен" : "завершён"}`, failed ? "err" : undefined)
+      })
       on<{ service: string; error: string }>("service_error", (e) =>
         pushLog(`сервис ${e.service} упал: ${e.error}`, "err"),
       )
@@ -179,15 +186,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         )
       })
       on<{ status: string }>("scan_finished", (e) => {
-        pushLog(
-          e.status === "done" ? "Скан завершён" : `Скан остановлен (${e.status})`,
-          e.status === "done" ? "ok" : undefined,
-        )
+        const message = e.status === "done" ? "Скан завершён" : e.status === "failed"
+          ? "Скан прерван: часть запросов не проверена" : "Скан остановлен"
+        pushLog(message, e.status === "done" ? "ok" : "err")
         setScan(null)
         es.close()
         esRef.current = null
+        watchedScanId.current = null
         setDataVersion((v) => v + 1)
-        toast.success(e.status === "done" ? "Скан завершён" : "Скан остановлен")
+        if (e.status === "done") toast.success(message)
+        else toast.error(message)
       })
 
       // Кратковременный обрыв EventSource переживает сам — переподключается.
@@ -198,7 +206,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // деле, — переподпишет эффект ниже.
       es.onerror = () => {
         if (es.readyState !== EventSource.CLOSED) return
-        if (esRef.current === es) esRef.current = null
+        if (esRef.current === es) {
+          esRef.current = null
+          watchedScanId.current = null
+        }
         void refreshScan()
       }
     },
@@ -228,6 +239,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setProjectId(id)
     localStorage.setItem(LAST_PROJECT_KEY, String(id))
   }, [])
+
+  // Скан или проект могут быть созданы через API, расписание либо другим
+  // окном. Подхватываем их без перезагрузки открытого агента.
+  useEffect(() => {
+    let busy = false
+    const sync = async () => {
+      if (document.visibilityState !== "visible" || busy) return
+      busy = true
+      try {
+        await Promise.all([reloadProjects(), refreshScan()])
+      } catch {
+        // Краткий обрыв локального сервера исправит следующий опрос.
+      } finally {
+        busy = false
+      }
+    }
+    const onVisible = () => { if (document.visibilityState === "visible") void sync() }
+    const timer = window.setInterval(() => void sync(), 10_000)
+    window.addEventListener("focus", onVisible)
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener("focus", onVisible)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [reloadProjects, refreshScan])
+
+  useEffect(() => {
+    if (!scan || scan.scan_id === selectedScanId.current ||
+        !projects.some((p) => p.id === scan.project_id)) return
+    selectedScanId.current = scan.scan_id
+    selectProject(scan.project_id)
+  }, [scan, projects, selectProject])
 
   const applyProject = useCallback((p: Project) => {
     setProjects((prev) => {

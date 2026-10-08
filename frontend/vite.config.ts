@@ -6,18 +6,28 @@ import { defineConfig } from 'vite'
 // Собранный интерфейс кладётся в ../web и коммитится: start.bat запускает
 // программу без Node. Node нужен только для разработки фронта.
 const backend = 'http://127.0.0.1:8756'
+const accountBackend = 'http://127.0.0.1:8757'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: { '@': path.resolve(__dirname, './src') },
+    alias: { '@': path.resolve(import.meta.dirname, './src') },
   },
   build: {
     outDir: '../web',
     emptyOutDir: true,
     chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      input: {
+        terms: path.resolve(import.meta.dirname, 'terms/index.html'),
+        privacy: path.resolve(import.meta.dirname, 'privacy/index.html'),
+        landing: path.resolve(import.meta.dirname, 'index.html'),
+        app: path.resolve(import.meta.dirname, 'app/index.html'),
+        cabinet: path.resolve(import.meta.dirname, 'cabinet/index.html'),
+      },
+    },
   },
   server: {
-    proxy: { '/api': backend, '/shots': backend },
+    proxy: { '/api/v1': accountBackend, '/api': backend, '/shots': backend },
   },
 })

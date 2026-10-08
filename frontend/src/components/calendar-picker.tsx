@@ -79,7 +79,6 @@ export function CalendarPicker({
 
   function clickDay(d: string) {
     if (draft.mode === "custom") {
-      if (!checksOn.has(d)) return
       setDraft((v) => ({
         ...v,
         picked: v.picked.includes(d) ? v.picked.filter((x) => x !== d) : [...v.picked, d].sort(),
@@ -96,8 +95,8 @@ export function CalendarPicker({
     }
   }
 
-  const chosen = selectedChecks(draft, all)
-  const chosenSet = new Set(chosen)
+  const chosen = selectedChecks(draft, all, false)
+  const chosenSet = new Set(selectedChecks(draft, all))
   const months = [new Date(view.y, view.m - 1, 1), new Date(view.y, view.m, 1)]
   const canApply = draft.mode === "custom" ? draft.picked.length > 0 : true
 
@@ -204,7 +203,7 @@ export function CalendarPicker({
               : ""}
             в отчёт: {Math.min(chosen.length, MAX_DATES)}{" "}
             {plural(Math.min(chosen.length, MAX_DATES), "проверка", "проверки", "проверок")}
-            {chosen.length > MAX_DATES ? ` (из ${chosen.length}, показываются последние ${MAX_DATES})` : ""}
+            {chosen.length > MAX_DATES ? ` (показано ${MAX_DATES} из ${chosen.length})` : ""}
           </span>
           <div className="ml-auto flex gap-2">
             <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
@@ -264,7 +263,7 @@ function Month({
           const inRange = Boolean(from && to && d >= from && d <= to)
           const edge = d === from || d === to
           const isChosen = chosen.has(d)
-          const disabled = draft.mode === "custom" && !checks
+          const disabled = false
           const label = `${dmy(d)}${checks ? `, проверок: ${checks}` : ", проверок не было"}${isChosen ? ", попадёт в отчёт" : ""}`
           return (
             <button

@@ -1,0 +1,112 @@
+x-logging: &bounded-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *bounded-logging
+    mem_limit: 512m
+    environment:
+      POSTGRES_DB: aiparser
+      POSTGRES_USER: aiparser
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aiparser -d aiparser"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web:
+    image: ${AIRATE_IMAGE:-airate-web:local}
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 180s
+    logging: *bounded-logging
+    mem_limit: 896m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/ready', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_BROWSER_DSN: ${SENTRY_BROWSER_DSN:-}
+      APP_ENV: production
+      AIRATE_RELEASE: ${AIRATE_RELEASE:-local}
+      DATABASE_URL: postgresql+psycopg://aiparser:${DB_PASSWORD:?Set DB_PASSWORD}@db:5432/aiparser
+      PUBLIC_BASE_URL: https://${DOMAIN:?Set DOMAIN}
+      COINSO_PROJECT_ID: ${COINSO_PROJECT_ID:-}
+      COINSO_SECRET_KEY: ${COINSO_SECRET_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_PRIMARY_MODEL: ${OPENROUTER_PRIMARY_MODEL:-google/gemini-3.1-flash-lite}
+      OPENROUTER_ARBITER_MODEL: ${OPENROUTER_ARBITER_MODEL:-google/gemini-3.8-flash}
+      YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
+      YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      COINSO_API_BASE_URL: https://coinso.io/api
+      COINSO_ALLOW_TEST_PAYMENTS: ${COINSO_ALLOW_TEST_PAYMENTS:-false}
+      CHECK_PRICE_KOPEKS: ${CHECK_PRICE_KOPEKS:-120}
+      BRAND_CLARIFICATIONS_USER_ID: ${BRAND_CLARIFICATIONS_USER_ID:-}
+      MIN_TOPUP_KOPEKS: ${MIN_TOPUP_KOPEKS:-30000}
+      S3_SCREENSHOTS_BUCKET: ${S3_SCREENSHOTS_BUCKET:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      AGENT_DOWNLOAD_FILE: /srv/downloads/AI-Mentions-Windows-latest.zip
+    volumes:
+      - ./downloads:/srv/downloads:ro
+
+  backup-upload:
+    image: ${AIRATE_IMAGE:-airate-web:local}
+    logging: *bounded-logging
+    profiles: ["ops"]
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    entrypoint: ["python", "-m", "server.backup_upload"]
+    environment:
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_ACCESS_KEY_ID: ${BACKUP_ACCESS_KEY_ID:-}
+      BACKUP_SECRET_ACCESS_KEY: ${BACKUP_SECRET_ACCESS_KEY:-}
+      BACKUP_S3_ENDPOINT: https://storage.yandexcloud.net
+    volumes:
+      - ./backups:/backups:ro
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging: *bounded-logging
+    mem_limit: 128m
+    depends_on:
+      web:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

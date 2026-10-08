@@ -10,17 +10,19 @@ const ALL = ["2026-07-10", "2026-07-25", "2026-08-05", "2026-08-30", "2026-09-02
 const v = (p: Partial<CalendarValue>): CalendarValue => ({ mode: "period", from: null, to: null, picked: [], ...p })
 
 describe("selectedChecks", () => {
-  it("период — все проверки диапазона", () => {
+  it("период сохраняет границы без проверок", () => {
     expect(selectedChecks(v({ from: "2026-08-01", to: "2026-08-31" }), ALL)).toEqual([
+      "2026-08-01",
       "2026-08-05",
       "2026-08-30",
+      "2026-08-31",
     ])
   })
 
   it("две даты — первая и последняя проверка диапазона", () => {
     expect(selectedChecks(v({ mode: "two", from: "2026-07-01", to: "2026-09-30" }), ALL)).toEqual([
-      "2026-07-10",
-      "2026-09-02",
+      "2026-07-01",
+      "2026-09-30",
     ])
   })
 
@@ -32,15 +34,27 @@ describe("selectedChecks", () => {
     ])
   })
 
-  it("выбранные даты — только существующие проверки", () => {
+  it("месячный диапазон не добавляет пустую границу", () => {
+    expect(selectedChecks(v({ mode: "monthly", from: "2026-09-01", to: "2026-09-30" }), ["2026-09-05", "2026-09-20"])).toEqual(["2026-09-20"])
+  })
+
+  it("выбранные даты сохраняют пустые даты", () => {
     expect(selectedChecks(v({ mode: "custom", picked: ["2026-07-10", "2099-01-01"] }), ALL)).toEqual([
       "2026-07-10",
+      "2099-01-01",
     ])
   })
 
   it("без диапазона — последние 30 проверок", () => {
     const many = Array.from({ length: 40 }, (_, i) => `2026-01-${String(i + 1).padStart(2, "0")}`)
     expect(selectedChecks(v({}), many)).toHaveLength(30)
+  })
+
+  it("период сохраняет границу при ограничении, а календарь считает все даты", () => {
+    const many = Array.from({ length: 40 }, (_, i) => `2026-01-${String(i + 1).padStart(2, "0")}`)
+    const range = v({ from: many[0], to: many.at(-1)! })
+    expect(selectedChecks(range, many, false)).toHaveLength(40)
+    expect(selectedChecks(range, many)).toEqual([many[0], ...many.slice(-29)])
   })
 
   it("сравнение без диапазона — первая проверка за всё время против последней", () => {

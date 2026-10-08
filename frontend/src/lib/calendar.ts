@@ -36,23 +36,33 @@ export const CALENDAR_MODES: { id: CalendarMode; label: string; hint: string }[]
   { id: "custom", label: "Выбранные даты", hint: "отметьте проверки в календаре" },
 ]
 
-export function selectedChecks(v: CalendarValue, all: string[]): string[] {
-  if (v.mode === "custom") return all.filter((d) => v.picked.includes(d))
+export function selectedChecks(v: CalendarValue, all: string[], cap = true): string[] {
+  if (v.mode === "custom") {
+    const chosen = [...new Set(v.picked)].sort()
+    return cap ? chosen.slice(-MAX_DATES) : chosen
+  }
   // Без диапазона «Период» — последние 30 проверок, а сравнение и помесячная
   // динамика — за всё время: первая против последней, по проверке на месяц.
   const inRange =
     v.from || v.to
       ? all.filter((d) => (!v.from || d >= v.from) && (!v.to || d <= v.to))
       : v.mode === "period"
-        ? all.slice(-MAX_DATES)
+        ? all
         : all
-  if (v.mode === "two") return inRange.length > 2 ? [inRange[0], inRange[inRange.length - 1]] : inRange
+  const dated = (v.mode === "period" || v.mode === "two") && (v.from || v.to)
+    ? [...new Set([...inRange, ...(v.from ? [v.from] : []), ...(v.to ? [v.to] : [])])].sort()
+    : inRange
+  let chosen = v.mode === "two" && dated.length > 2 ? [dated[0], dated[dated.length - 1]] : dated
   if (v.mode === "monthly") {
     const last = new Map<string, string>()
-    for (const d of inRange) last.set(d.slice(0, 7), d)
-    return [...last.values()]
+    for (const d of dated) last.set(d.slice(0, 7), d)
+    chosen = [...last.values()]
   }
-  return inRange
+  if (!cap) return chosen
+  if (v.mode === "period" && (v.from || v.to) && chosen.length > MAX_DATES) {
+    return [chosen[0], ...chosen.slice(-(MAX_DATES - 1))]
+  }
+  return chosen.slice(-MAX_DATES)
 }
 
 export function calendarLabel(v: CalendarValue): string {

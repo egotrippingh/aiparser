@@ -1,0 +1,7 @@
+# Sentry brief
+
+Optional, sanitized error telemetry for server, agent and five React roots. Captcha/auth/cancellation and confirmed client status errors are excluded; unexpected scanner, control-sync, API and server-AI failures are captured without changing workflow or billing behavior.
+
+Acceptance: absent/malformed configuration and unavailable collectors cannot block normal use. Actual SDK serialized envelopes contain only approved error fields; sessions, attachments, logs, traces, content and credentials are excluded. Scoped internal identities cannot leak between captures. Both global hooks and handled failures are covered; unexpected missing-provider-UI errors remain visible.
+
+Delivery is merged PR [#22](https://github.com/egotrippingh/aiparser/pull/22), deployed source `da7b677f42fcbfea47c732531b052d5a67dcd481` and published Windows **2026.10.2.1**. The `airate` organization and three projects are configured; synthetic server, browser and frozen-agent-code events appeared in environment `production`. GitHub production tests, backup/restore and readiness gates passed. Installed EXE self-test, 3,566 file comparisons, same-version reinstall and uninstall preservation passed; runtime version/environment/DSN match. Complete public HTTPS downloads from the VPS match both local artifact hashes and sizes. Private browser source maps, real older-installation upgrade and actual installed-EXE error ingestion remain unverified. Redis, dashboards, distributed tracing and session replay are outside this task.

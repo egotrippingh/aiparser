@@ -16,12 +16,16 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from app.scanner import humanize
 from app.scanner.adapters import shot
+from app.scanner.adapters.readable import readable
 from app.scanner.adapters.base import (
     AdapterError,
     AuthRequiredError,
+    ServiceUnavailableError,
+    ProviderQuotaError,
     Capture,
     ReadyState,
     dump_debug_html,
@@ -35,12 +39,19 @@ from app.scanner.adapters.base import (
 log = logging.getLogger("aiparser.adapters.perplexity")
 
 _S = load_selectors()["perplexity"]
+_LIMIT_HEADING = re.compile(r"^(?:Вы достигли лимита бесплатных поисков|You've reached your free search limit)$", re.I)
 
 
 class PerplexityAdapter:
     service_id = "perplexity"
     display_name = "Perplexity"
     requires_auth = True  # см. app/services.py — это лишь подсказка для UI
+
+    async def _raise_if_blocked(self, page) -> None:
+        if await page.get_by_role("heading", name=_LIMIT_HEADING).first.is_visible():
+            raise ProviderQuotaError("Perplexity: достигнут лимит бесплатных поисков. Дождитесь восстановления доступа в сервисе, затем запустите новую проверку проекта.")
+        if await page.get_by_text(_S["signin_wall_dialog_text"]).first.is_visible():
+            raise AuthRequiredError("Perplexity потребовал вход после отправки запроса")
 
     async def ensure_ready(self, page) -> ReadyState:
         await page.goto(_S["home_url"], wait_until="domcontentloaded")
@@ -87,7 +98,7 @@ class PerplexityAdapter:
             # запросе ради редкой стены дорого, а если модалка появится
             # позже, её выдаст отсутствие контейнера ответа ниже.
             if await wall.first.is_visible():
-                raise AdapterError("Perplexity потребовал вход после отправки запроса")
+                raise AuthRequiredError("Perplexity потребовал вход после отправки запроса")
         except AdapterError:
             raise
         except Exception:
@@ -97,11 +108,18 @@ class PerplexityAdapter:
         # контейнера ответа, прежде чем следить за стабилизацией его текста
         # — иначе можно словить ложную «тишину» на промежуточном статусе.
         try:
-            await page.locator(_S["answer_container"]).first.wait_for(state="attached", timeout=90000)
+            await page.locator(_S["answer_container"]).or_(page.get_by_role("heading", name=_LIMIT_HEADING)).first.wait_for(state="attached", timeout=90000)
         except Exception:
             pass  # capture() сам обработает отсутствие контейнера как ошибку
 
-        await humanize.wait_until_settled(page, _S["answer_container"], quiet_for=3.0, timeout=60.0)
+        await self._raise_if_blocked(page)
+
+        try:
+            settled = await humanize.wait_until_settled(page, _S["answer_container"], quiet_for=3.0, timeout=60.0)
+        except humanize.AnswerNotSettledError as exc:
+            raise AdapterError("Perplexity: ответ не завершился за отведённое время") from exc
+        if not settled.strip():
+            raise AdapterError("Perplexity: ответ не завершился за отведённое время")
         await humanize.scroll_through(page, speed=speed)
 
     async def _reset(self, page) -> None:
@@ -161,9 +179,11 @@ class PerplexityAdapter:
                         type(exc).__name__)
 
     async def capture(self, page) -> Capture:
+        await self._raise_if_blocked(page)
         try:
             answer_text = await page.inner_text(_S["answer_container"], timeout=5000)
         except Exception as exc:
+            await self._raise_if_blocked(page)
             await dump_debug_html(page, "perplexity_no_answer")
             raise AdapterError(f"Не найден контейнер ответа: {exc}") from exc
 
@@ -180,13 +200,17 @@ class PerplexityAdapter:
         # попадал кусок списка источников вместо ответа. Теперь сначала ответ
         # целиком (с прокруткой и склейкой), потом вкладка источников, и обе
         # части склеиваются в один снимок — видно и ответ, и источники.
-        answer_shot = await shot.full_shot(page, page.locator(_S["answer_container"]).first,
+        answer = page.locator(_S["answer_container"]).first
+        display = await readable(answer)
+        answer_shot = await shot.full_shot(page, answer,
                                            bottom_selector=_S["input"])
         sources = await self._extract_sources(page)
         sources_shot = await self._sources_shot(page)
         screenshot = shot.glue([answer_shot, sources_shot]) if sources_shot else answer_shot
 
-        return Capture(screenshot_bytes=screenshot, answer_text=answer_text.strip(), sources=sources)
+        raw = answer_text.strip()
+        return Capture(screenshot_bytes=screenshot, answer_text=display["display"] or raw, sources=sources,
+                       extra={"main_text": raw, "plain_text": raw})
 
     async def _sources_shot(self, page) -> bytes | None:
         """Снимок вкладки «Ссылки» — её открыл _extract_sources."""

@@ -13,11 +13,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { ConfirmButton } from "@/components/confirm-button"
+import { AgentSettingsPanel } from "@/components/agent-settings-panel"
 import { Panel, PanelFoot, PanelHead, ServiceDot } from "@/components/bits"
 import { useResource } from "@/hooks/use-resource"
 import { api, errText } from "@/lib/api"
 import { fmtWhen, splitLines } from "@/lib/format"
-import type { BrowserStatus, Project, ServiceAuth, Settings } from "@/lib/types"
+import type { BrowserStatus, Project, ServiceAuth } from "@/lib/types"
 import { useApp } from "@/store/app-store"
 
 /* --- мелкие обёртки формы ---------------------------------------------- */
@@ -41,18 +42,6 @@ function Field({
       {children}
       {hint ? <p className="text-muted-foreground text-xs">{hint}</p> : null}
     </div>
-  )
-}
-
-function NativeSelect({ className, ...props }: React.ComponentProps<"select">) {
-  return (
-    <select
-      {...props}
-      className={cn(
-        "border-input bg-card focus-visible:border-ring focus-visible:ring-ring/50 h-8 w-full cursor-pointer rounded-lg border px-2 text-[13px] focus-visible:ring-3 focus-visible:outline-none",
-        className,
-      )}
-    />
   )
 }
 
@@ -99,10 +88,6 @@ const TONE: Record<string, { color: string; bg: string }> = {
 export function SettingsScreen() {
   const { project, services, applyProject, removeProject, reloadProjects } = useApp()
 
-  const { data: settings, reload: reloadSettings } = useResource<Settings>(
-    () => api.get<Settings>("/api/settings"),
-    [],
-  )
   const { data: browser, reload: reloadBrowser } = useResource<BrowserStatus>(
     () => api.get<BrowserStatus>("/api/browser/status"),
     [],
@@ -110,14 +95,15 @@ export function SettingsScreen() {
 
   if (!project) {
     return (
-      <Panel>
-        <div className="text-muted-foreground p-6 text-sm">Сначала выберите или создайте проект.</div>
-      </Panel>
+      <div className="space-y-4"><AgentSettingsPanel /><Panel>
+        <div className="text-muted-foreground p-6 text-sm">Создайте проект, чтобы настроить запросы и ИИ-сервисы.</div>
+      </Panel></div>
     )
   }
 
   return (
     <div className="space-y-4">
+      <AgentSettingsPanel />
       <ProjectForm
         key={project.id}
         project={project}
@@ -132,8 +118,13 @@ export function SettingsScreen() {
         services={services}
         onChanged={reloadBrowser}
       />
-      <ScanSpeedPanel settings={settings} onSaved={reloadSettings} />
-      <LlmPanel settings={settings} onSaved={reloadSettings} />
+      <Panel>
+        <PanelHead title="Анализ упоминаний" hint="Модели и арбитр работают на сервере aiParser" />
+        <p className="text-muted-foreground p-4 text-sm">
+          Настраивать ключи и выбирать модели на этом компьютере не требуется.
+          Спорные результаты проверяет серверный арбитр в рамках стоимости проверки.
+        </p>
+      </Panel>
     </div>
   )
 }
@@ -155,7 +146,6 @@ function ProjectForm({
     aliases: (project.brand_aliases || []).join("\n"),
     domains: (project.brand_domains || []).join("\n"),
     region_code: project.region_code ?? "",
-    deep_check_depth: String(project.deep_check_depth ?? 0),
     parallel: Boolean(project.parallel_scan),
   })
   const [busy, setBusy] = useState(false)
@@ -191,7 +181,6 @@ function ProjectForm({
         brand_aliases: splitLines(form.aliases),
         brand_domains: splitLines(form.domains),
         region_code: form.region_code.trim() || null,
-        deep_check_depth: Number(form.deep_check_depth) || 0,
         parallel_scan: form.parallel,
       })
       onSaved(updated)
@@ -269,21 +258,6 @@ function ProjectForm({
             placeholder="213"
             value={form.region_code}
             onChange={(e) => setForm((f) => ({ ...f, region_code: e.target.value }))}
-          />
-        </Field>
-
-        <Field
-          label="Глубокая проверка источников"
-          htmlFor="f_deep"
-          hint="Сколько процитированных страниц открывать, 0 — выключено. Если бренда нет в самом ответе, программа заглянет в источники и поищет его там: так ловятся упоминания на сайтах партнёров и перекупщиков. Добавляет около 5 секунд на каждый запрос без упоминания — на базе в 100 запросов это примерно полчаса к прогону."
-        >
-          <Input
-            id="f_deep"
-            type="number"
-            min={0}
-            max={5}
-            value={form.deep_check_depth}
-            onChange={(e) => setForm((f) => ({ ...f, deep_check_depth: e.target.value }))}
           />
         </Field>
 
@@ -477,235 +451,6 @@ function BrowserPanel({
           )
         })}
       </div>
-    </Panel>
-  )
-}
-
-/* --- скорость скана ----------------------------------------------------- */
-
-const SPEED_LABELS: Record<string, string> = {
-  careful: "Осторожно — максимальная безопасность аккаунтов",
-  balanced: "Сбалансированно — примерно вдвое быстрее (по умолчанию)",
-  fast: "Быстро — минимальные паузы, выше риск капчи",
-}
-
-function ScanSpeedPanel({
-  settings,
-  onSaved,
-}: {
-  settings: Settings | null
-  onSaved: () => void
-}) {
-  const [value, setValue] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  const current = value ?? settings?.speed_profile ?? "balanced"
-  const prof = settings?.speed_profiles?.[current]
-
-  async function save() {
-    setBusy(true)
-    try {
-      await api.put("/api/settings", { speed_profile: current })
-      onSaved()
-      toast.success("Режим сохранён")
-    } catch (e) {
-      toast.error(errText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Panel>
-      <PanelHead
-        title="Скорость скана"
-        hint="размен между временем прогона и живучестью аккаунтов"
-      />
-      <div className="space-y-3 p-4">
-        {settings ? (
-          <Field label="Режим" htmlFor="f_speed">
-            <NativeSelect
-              id="f_speed"
-              value={current}
-              onChange={(e) => setValue(e.target.value)}
-            >
-              {Object.keys(settings.speed_profiles || {}).map((k) => (
-                <option key={k} value={k}>
-                  {SPEED_LABELS[k] ?? k}
-                </option>
-              ))}
-            </NativeSelect>
-          </Field>
-        ) : (
-          <Skeleton className="h-8 w-full" />
-        )}
-        {prof ? (
-          <p className="text-muted-foreground text-xs">
-            Пауза между запросами {prof.delay_min_sec}–{prof.delay_max_sec} сек,{" "}
-            {prof.break_every_n
-              ? `длинный перерыв каждые ${prof.break_every_n} запросов`
-              : "без длинных перерывов"}
-            . Ускорение не сокращает время ответа самой нейросети — только паузы между запросами.
-          </p>
-        ) : null}
-      </div>
-      <PanelFoot className="justify-end">
-        <Button
-          size="sm"
-          onClick={save}
-          disabled={busy || !settings || current === settings.speed_profile}
-        >
-          <Save />
-          Сохранить
-        </Button>
-      </PanelFoot>
-    </Panel>
-  )
-}
-
-/* --- OpenRouter --------------------------------------------------------- */
-
-function LlmPanel({ settings, onSaved }: { settings: Settings | null; onSaved: () => void }) {
-  const [form, setForm] = useState<{
-    key: string
-    model: string | null
-    arbiterModel: string | null
-    mode: string | null
-    threshold: string | null
-  }>({ key: "", model: null, arbiterModel: null, mode: null, threshold: null })
-  const [busy, setBusy] = useState(false)
-
-  const model = form.model ?? settings?.openrouter_model ?? ""
-  const arbiterModel =
-    form.arbiterModel ??
-    (settings?.llm_arbiter === "off" ? "" : (settings?.openrouter_arbiter_model ?? ""))
-  const mode = form.mode ?? settings?.llm_mode ?? "smart"
-  const threshold = form.threshold ?? settings?.llm_confidence_threshold ?? "0.6"
-
-  async function save() {
-    setBusy(true)
-    try {
-      // Пустое поле арбитра — это «выключить»: отдельный переключатель рядом
-      // с полем модели был бы двумя ручками для одного решения.
-      const body: Record<string, string> = {
-        openrouter_model: model.trim(),
-        llm_mode: mode,
-        llm_confidence_threshold: threshold,
-        llm_arbiter: arbiterModel.trim() ? "on" : "off",
-      }
-      if (arbiterModel.trim()) body.openrouter_arbiter_model = arbiterModel.trim()
-      if (form.key) body.openrouter_api_key = form.key
-      await api.put("/api/settings", body)
-      setForm({ key: "", model: null, arbiterModel: null, mode: null, threshold: null })
-      onSaved()
-      toast.success("Настройки сохранены")
-    } catch (e) {
-      toast.error(errText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Panel>
-      <PanelHead
-        title="OpenRouter"
-        hint="LLM-детекция упоминаний там, где правила не справились"
-      />
-      {settings ? (
-        <div className="grid gap-4 p-4 sm:grid-cols-2">
-          <Field
-            label={
-              <>
-                API-ключ
-                {settings.openrouter_api_key_set ? (
-                  <span className="text-muted-foreground ml-1.5 font-normal">
-                    сейчас: {settings.openrouter_api_key_masked}
-                  </span>
-                ) : null}
-              </>
-            }
-            htmlFor="f_orkey"
-            hint={
-              settings.secrets_encrypted
-                ? "Ключ хранится в зашифрованном виде."
-                : "Ключ хранится на этом компьютере в файле настроек."
-            }
-          >
-            <Input
-              id="f_orkey"
-              type="password"
-              autoComplete="off"
-              value={form.key}
-              placeholder={
-                settings.openrouter_api_key_set ? "оставьте пустым, чтобы не менять" : "sk-or-..."
-              }
-              onChange={(e) => setForm((f) => ({ ...f, key: e.target.value }))}
-            />
-          </Field>
-
-          <Field label="Модель" htmlFor="f_ormodel">
-            <Input
-              id="f_ormodel"
-              value={model}
-              onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
-            />
-          </Field>
-
-          <Field
-            label="Модель-арбитр"
-            htmlFor="f_orarb"
-            hint="Решает спорные строки вместо ручной проверки. Пусто — арбитр выключен, такие строки останутся вам."
-          >
-            <Input
-              id="f_orarb"
-              value={arbiterModel}
-              placeholder="например, anthropic/claude-opus-5"
-              onChange={(e) => setForm((f) => ({ ...f, arbiterModel: e.target.value }))}
-            />
-          </Field>
-
-          <Field label="Когда вызывать LLM" htmlFor="f_llmmode">
-            <NativeSelect
-              id="f_llmmode"
-              value={mode}
-              onChange={(e) => setForm((f) => ({ ...f, mode: e.target.value }))}
-            >
-              <option value="smart">Только когда правила не нашли (рекомендуется)</option>
-              <option value="always">Всегда</option>
-              <option value="never">Никогда</option>
-            </NativeSelect>
-          </Field>
-
-          <Field
-            label="Порог уверенности"
-            htmlFor="f_llmthr"
-            hint="Ниже порога результат помечается как «требует проверки»."
-          >
-            <Input
-              id="f_llmthr"
-              type="number"
-              min={0}
-              max={1}
-              step={0.05}
-              value={threshold}
-              onChange={(e) => setForm((f) => ({ ...f, threshold: e.target.value }))}
-            />
-          </Field>
-        </div>
-      ) : (
-        <div className="grid gap-4 p-4 sm:grid-cols-2">
-          {Array.from({ length: 4 }, (_, i) => (
-            <Skeleton key={i} className="h-14 w-full" />
-          ))}
-        </div>
-      )}
-      <PanelFoot className="justify-end">
-        <Button size="sm" onClick={save} disabled={busy || !settings}>
-          <Save />
-          Сохранить
-        </Button>
-      </PanelFoot>
     </Panel>
   )
 }

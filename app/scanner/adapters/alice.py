@@ -24,6 +24,7 @@ import time
 
 from app.scanner import humanize
 from app.scanner.adapters import shot
+from app.scanner.adapters.readable import readable
 from app.scanner.adapters.base import (
     AdapterError,
     Capture,
@@ -67,25 +68,6 @@ CARDS_MARK = "— Карточки в ответе —"
 # (товары и т.п.). Текстом считаем только markdown без чипов, всё остальное —
 # карточками: чип «neighbors-expert.ru» — ссылка на источник, а не слова ИИ.
 # Нет ни одного markdown-блока (вёрстка сменилась) — всё текст, как раньше.
-_SPLIT_JS = r"""(el) => {
-  const full = el.innerText || '';
-  const md = [...el.querySelectorAll('.FuturisMarkdown')].filter(e => !e.parentElement.closest('.FuturisMarkdown'));
-  if (!md.length) return { main: full, cards: '' };
-  const foot = [...el.querySelectorAll('.FuturisFootnote, .FuturisFootnoteGroup')]
-    .filter(e => !e.parentElement.closest('.FuturisFootnote, .FuturisFootnoteGroup'))
-    .map(e => (e.innerText || '').trim()).filter(Boolean);
-  let rest = full;
-  const texts = [];
-  for (const e of md) {
-    let t = (e.innerText || '').trim();
-    const i = rest.indexOf(t);
-    if (i >= 0) rest = rest.slice(0, i) + '\n' + rest.slice(i + t.length);
-    for (const f of foot) t = t.split(f).join(' ');
-    texts.push(t.replace(/[ \t]+/g, ' ').trim());
-  }
-  const cards = [rest.replace(/\n{2,}/g, '\n').trim(), ...foot].filter(Boolean).join('\n');
-  return { main: texts.join('\n\n'), cards };
-}"""
 
 
 def _is_chrome_link(url: str) -> bool:
@@ -102,12 +84,16 @@ class AliceAdapter:
 
         try:
             marker = page.locator(_S["logged_in_marker"])
-            if not await visible(marker.first, 6000):
-                return ReadyState(ok=False, reason="auth_required")
+            deadline = time.monotonic() + 6
+            while time.monotonic() < deadline:
+                for index in range(await marker.count()):
+                    timeout = max(1, min(250, int((deadline - time.monotonic()) * 1000)))
+                    if await visible(marker.nth(index), timeout):
+                        return ReadyState(ok=True)
+                await asyncio.sleep(0.1)
+            return ReadyState(ok=False, reason="auth_required")
         except Exception:
             return ReadyState(ok=False, reason="auth_required")
-
-        return ReadyState(ok=True)
 
     async def _new_chat(self, page) -> None:
         """Новый пустой чат — переходом на главную, а не кликом по «Новый чат».
@@ -163,32 +149,39 @@ class AliceAdapter:
         несколько секунд, пока сам ответ ещё дописывался. После «Новый чат»
         ответ на странице один, и он всегда первый.
 
-        Готовность — текст не меняется _QUIET_SEC секунд. Если под ответом
-        уже появилась кнопка «Источники» (строка действий рисуется только
-        по окончании), хватает секунды тишины.
+        Пока виден стоп-контрол ``oknyx``, ответ всё ещё генерируется, даже
+        если текст временно не меняется. После исчезновения уже виденного
+        контрола хватает секунды тишины; без него сохраняем старый, более
+        консервативный путь.
         """
         answer = page.locator(_S["answer_container"]).first
         try:
             await answer.wait_for(state="attached", timeout=90000)
-        except Exception:
-            return  # capture() сам обработает отсутствие ответа как ошибку
+        except Exception as exc:
+            raise AdapterError(f"Не появился контейнер ответа Алисы: {exc}") from exc
 
         done = page.locator(_S["sources_button"])
+        generating = page.locator(_S["generating_marker"])
         deadline = time.monotonic() + _ANSWER_TIMEOUT
-        last, since = -1, time.monotonic()
+        last, since, saw_generating = None, time.monotonic(), False
         while time.monotonic() < deadline:
             try:
-                n = len(await answer.inner_text(timeout=3000))
+                text = await answer.inner_text(timeout=3000)
             except Exception:
-                n = 0
-            if n != last:
-                last, since = n, time.monotonic()
-            elif n >= _MIN_ANSWER_CHARS:
+                text = ""
+            active = bool(await generating.count())
+            saw_generating |= active
+            if text != last:
+                last, since = text, time.monotonic()
+            elif len(text) >= _MIN_ANSWER_CHARS and not active:
                 quiet = time.monotonic() - since
-                if quiet >= _QUIET_SEC or (quiet >= _DONE_QUIET_SEC and await done.count()):
+                if ((saw_generating and quiet >= _DONE_QUIET_SEC) or
+                        (not saw_generating and (quiet >= _QUIET_SEC or
+                                                  (quiet >= _DONE_QUIET_SEC and await done.count())))):
                     return
             await asyncio.sleep(0.5)
-        log.warning("Ответ Алисы не затих за %.0f с — читаю как есть (%s символов)", _ANSWER_TIMEOUT, last)
+        await dump_debug_html(page, "alice_answer_timeout")
+        raise AdapterError(f"Ответ Алисы не завершился за {_ANSWER_TIMEOUT:.0f} с")
 
     async def capture(self, page) -> Capture:
         answer = page.locator(_S["answer_container"]).first
@@ -206,20 +199,23 @@ class AliceAdapter:
         # колонку ответа. Снимаем сам ответ целиком, а не видимую часть окна:
         # после прокрутки в окне оставался только хвост ответа (11.09.2026).
         try:
-            parts = await answer.evaluate(_SPLIT_JS)
+            parts = await readable(answer, "alice")
             main, cards = parts["main"].strip(), parts["cards"].strip()
         except Exception as exc:
             log.info("Не удалось отделить карточки в ответе Алисы (%s) — считаю всё текстом", exc)
             main, cards = answer_text, ""
+            parts = {"display_main": main, "display_cards": cards}
 
         screenshot = await self._screenshot(page, answer)
         sources = await self._extract_sources(page)
 
         # В базу — всё, что видел пользователь; карточки отделены пометкой.
         stored = f"{main}\n\n{CARDS_MARK}\n{cards}" if cards else main
+        display_main, display_cards = parts["display_main"].strip(), parts["display_cards"].strip()
+        displayed = f"{display_main}\n\n{CARDS_MARK}\n{display_cards}" if display_cards else display_main
         return Capture(
-            screenshot_bytes=screenshot, answer_text=stored, sources=sources,
-            extra={"main_text": main, "cards_text": cards},
+            screenshot_bytes=screenshot, answer_text=displayed or stored, sources=sources,
+            extra={"main_text": main, "cards_text": cards, "plain_text": stored},
         )
 
     async def _screenshot(self, page, answer) -> bytes:

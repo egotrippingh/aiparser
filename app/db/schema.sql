@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS projects (
     brand_name          TEXT    NOT NULL,
     brand_aliases_json  TEXT    NOT NULL DEFAULT '[]',
     brand_domains_json  TEXT    NOT NULL DEFAULT '[]',
+    brand_clarification TEXT    NOT NULL DEFAULT '',
     region_code         TEXT,                       -- lr= для Яндекса, напр. '213' — Москва
     deep_check_depth    INTEGER NOT NULL DEFAULT 0, -- 0 = глубокая проверка источников выключена
     parallel_scan       INTEGER NOT NULL DEFAULT 0, -- 1 = ИИ-системы сканируются одновременно
@@ -62,6 +63,31 @@ CREATE TABLE IF NOT EXISTS results (
     UNIQUE (scan_id, query_id, service)
 );
 
+-- A browser answer is durable before any slow model work starts.  Keep this
+-- separate from results: an analysis failure must never cause another browser
+-- request for an answer we already received.
+CREATE TABLE IF NOT EXISTS captures (
+    scan_id                INTEGER NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+    query_id               INTEGER NOT NULL REFERENCES queries(id) ON DELETE RESTRICT,
+    service                TEXT NOT NULL,
+    state                  TEXT NOT NULL DEFAULT 'pending', -- pending | analyzing | error; finalized rows are removed
+    project_json           TEXT NOT NULL,
+    query_json             TEXT NOT NULL,
+    settings_json          TEXT NOT NULL,
+    check_id               TEXT,
+    payer_id               TEXT,
+    shown                  INTEGER NOT NULL,
+    answer_text            TEXT NOT NULL DEFAULT '',
+    sources_json           TEXT NOT NULL DEFAULT '[]',
+    extra_json             TEXT NOT NULL DEFAULT '{}',
+    screenshot_bytes       BLOB,
+    screenshot_path        TEXT,
+    error_message          TEXT,
+    created_at             TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at             TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (scan_id, query_id, service)
+);
+
 -- Страницы-источники, которые ИИ цитировал в ответах, и нашёлся ли на них
 -- бренд. Ключ — проект: у проектов разные бренды. brand_sig — формы бренда
 -- на момент проверки: поменяли алиасы — страницу надо проверить заново.
@@ -82,8 +108,33 @@ CREATE TABLE IF NOT EXISTS settings (
     is_secret  INTEGER NOT NULL DEFAULT 0  -- значение зашифровано через DPAPI
 );
 
+-- Удалённый биллинг может быть недоступен после сохранения локального ответа.
+-- Очередь переживает перезапуск и отправляется перед следующим сканом.
+CREATE TABLE IF NOT EXISTS billing_outbox (
+    check_id    TEXT PRIMARY KEY,
+    status      TEXT NOT NULL, -- found | not_found | release
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Скриншоты отправляются после подтверждённого списания; сбой сети не
+-- блокирует сканирование и не теряет локальный файл.
+CREATE TABLE IF NOT EXISTS screenshot_outbox (
+    check_id    TEXT PRIMARY KEY,
+    local_path  TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Prevent a scheduled project from starting twice after an agent restart.
+CREATE TABLE IF NOT EXISTS scheduled_scan_runs (
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    scan_date  TEXT NOT NULL,
+    scan_id    INTEGER,
+    PRIMARY KEY (project_id, scan_date)
+);
+
 CREATE INDEX IF NOT EXISTS idx_queries_project  ON queries(project_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_scans_project    ON scans(project_id, scan_date);
 CREATE INDEX IF NOT EXISTS idx_results_scan     ON results(scan_id);
 CREATE INDEX IF NOT EXISTS idx_results_query    ON results(query_id, service);
 CREATE INDEX IF NOT EXISTS idx_results_status   ON results(scan_id, status);
+CREATE INDEX IF NOT EXISTS idx_captures_state   ON captures(scan_id, state);

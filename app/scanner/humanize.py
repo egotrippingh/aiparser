@@ -11,20 +11,34 @@ from __future__ import annotations
 import asyncio
 import random
 
-# Профили скорости. Ускорение — это размен на живучесть аккаунтов, поэтому
-# режим выбирается осознанно в настройках, а выбранные значения кладутся в
-# settings_snapshot скана: задним числом видно, в каком режиме собраны данные.
+
+class AnswerNotSettledError(RuntimeError):
+    """The answer kept growing until the deadline; it is unsafe to capture."""
+
+# Старые профили оставлены для сохранённых снимков и совместимости.
+# Новые сканы используют fast; фактические значения сохраняются в снимке.
 # "typing" — множитель к базовой задержке между символами.
 PROFILES: dict[str, dict[str, float]] = {
     "careful":  {"delay_min_sec": 8, "delay_max_sec": 25, "break_every_n": 12, "typing": 1.0},
     "balanced": {"delay_min_sec": 4, "delay_max_sec": 10, "break_every_n": 25, "typing": 0.63},
     "fast":     {"delay_min_sec": 2, "delay_max_sec": 5,  "break_every_n": 0,  "typing": 0.40},
 }
-DEFAULT_PROFILE = "balanced"
+DEFAULT_PROFILE = "fast"
+
+_FAST_SERVICE_OVERRIDES = {
+    "chatgpt": {"typing": 0.20},
+    "alice": {"typing": 0.20, "delay_min_sec": 1, "delay_max_sec": 2},
+    "google_aio": {"typing": 0.20, "delay_min_sec": 1, "delay_max_sec": 2},
+}
 
 
-def profile(name: str | None) -> dict[str, float]:
-    return PROFILES.get(name or DEFAULT_PROFILE, PROFILES[DEFAULT_PROFILE])
+def profile(name: str | None, service_id: str | None = None) -> dict[str, float]:
+    """Resolve a copy so one scan cannot mutate another profile's timings."""
+    selected = name or DEFAULT_PROFILE
+    values = dict(PROFILES.get(selected, PROFILES[DEFAULT_PROFILE]))
+    if selected == "fast" and service_id in _FAST_SERVICE_OVERRIDES:
+        values.update(_FAST_SERVICE_OVERRIDES[service_id])
+    return values
 
 
 # Паузы после знаков препинания — человек тут думает, а не печатает ровно.
@@ -108,7 +122,7 @@ async def wait_until_settled(
     """
     loop = asyncio.get_event_loop()
     deadline = loop.time() + timeout
-    last_len, last_change = -1, loop.time()
+    last_text, last_change = None, loop.time()
 
     while loop.time() < deadline:
         try:
@@ -116,15 +130,12 @@ async def wait_until_settled(
         except Exception:
             text = ""
 
-        if len(text) != last_len:
-            last_len = len(text)
+        if text != last_text:
+            last_text = text
             last_change = loop.time()
-        elif last_len > 0 and loop.time() - last_change >= quiet_for:
+        elif text and loop.time() - last_change >= quiet_for:
             return text
 
         await asyncio.sleep(poll)
 
-    try:
-        return await page.locator(selector).last.inner_text(timeout=5000)
-    except Exception:
-        return ""
+    raise AnswerNotSettledError("ответ продолжал изменяться до истечения ожидания")

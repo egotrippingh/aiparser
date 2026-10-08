@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import json
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app import services
+from app import billing, services
 from app.db import repo
 from app.scanner import orchestrator
 from app.scanner.adapters import ADAPTERS
@@ -40,6 +39,9 @@ async def start_scan(project_id: int, body: StartScanIn) -> dict:
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
+    except billing.BillingError as exc:
+        status = 402 if "Недостаточно средств" in str(exc) else 503
+        raise HTTPException(status, str(exc)) from exc
 
     return {"scan_id": scan_id}
 
@@ -88,7 +90,7 @@ def get_scan(scan_id: int) -> dict:
 
 
 @router.post("/scans/{scan_id}/pause")
-def pause_scan(scan_id: int) -> dict:
+async def pause_scan(scan_id: int) -> dict:
     ctl = orchestrator.get_controller(scan_id)
     if not ctl:
         raise HTTPException(404, "Скан не выполняется")
@@ -97,7 +99,7 @@ def pause_scan(scan_id: int) -> dict:
 
 
 @router.post("/scans/{scan_id}/resume")
-def resume_scan(scan_id: int) -> dict:
+async def resume_scan(scan_id: int) -> dict:
     ctl = orchestrator.get_controller(scan_id)
     if not ctl:
         raise HTTPException(404, "Скан не выполняется")
@@ -106,7 +108,7 @@ def resume_scan(scan_id: int) -> dict:
 
 
 @router.post("/scans/{scan_id}/stop")
-def stop_scan(scan_id: int) -> dict:
+async def stop_scan(scan_id: int) -> dict:
     ctl = orchestrator.get_controller(scan_id)
     if not ctl:
         raise HTTPException(404, "Скан не выполняется")

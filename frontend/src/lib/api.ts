@@ -6,7 +6,9 @@
  * а не «HTTP 500».
  */
 
-async function call<T>(path: string, method: string, body?: unknown): Promise<T> {
+import { capture } from "../telemetry"
+export class HttpError extends Error { status: number; constructor(message: string, status: number) { super(message); this.status = status } }
+async function call<T>(path: string, method: string, body?: unknown): Promise<T> { try {
   const opts: RequestInit = { method, headers: {} }
   if (body !== undefined) {
     opts.headers = { "Content-Type": "application/json" }
@@ -22,11 +24,12 @@ async function call<T>(path: string, method: string, body?: unknown): Promise<T>
     } catch {
       /* тело не json — оставляем statusText */
     }
-    throw new Error(msg || `HTTP ${resp.status}`)
+    throw new HttpError(msg || `HTTP ${resp.status}`, resp.status)
   }
   if (resp.status === 204) return null as T
   const ct = resp.headers.get("content-type") || ""
-  return (ct.includes("application/json") ? resp.json() : resp.text()) as Promise<T>
+  return await (ct.includes("application/json") ? resp.json() : resp.text()) as T
+} catch (error) { capture(error, "local_api"); throw error }
 }
 
 export const api = {
@@ -36,16 +39,17 @@ export const api = {
   put: <T>(path: string, body?: unknown) => call<T>(path, "PUT", body),
   del: <T>(path: string) => call<T>(path, "DELETE"),
 
-  async upload<T>(path: string, file: File, query?: Record<string, string>): Promise<T> {
+  async upload<T>(path: string, file: File, query?: Record<string, string>): Promise<T> { try {
     const fd = new FormData()
     fd.append("file", file)
     const qs = query ? "?" + new URLSearchParams(query) : ""
     const resp = await fetch(path + qs, { method: "POST", body: fd })
     if (!resp.ok) {
       const j = await resp.json().catch(() => ({}) as { detail?: string })
-      throw new Error(j.detail || resp.statusText)
+      throw new HttpError(j.detail || resp.statusText, resp.status)
     }
-    return resp.json() as Promise<T>
+    return await resp.json() as T
+  } catch (error) { capture(error, "local_api"); throw error }
   },
 }
 

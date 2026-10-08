@@ -21,6 +21,7 @@ from camoufox.async_api import AsyncCamoufox
 from camoufox.exceptions import InvalidIP, InvalidProxy, NotInstalledGeoIPExtra, UnknownIPLocation
 
 from app import config
+from app.scanner.browser_install import available_browser, launch_resources
 
 log = logging.getLogger("aiparser.browser")
 
@@ -85,16 +86,34 @@ def reset_geoip_cache() -> None:
 
 def camoufox_installed() -> bool:
     try:
-        from camoufox.pkgman import camoufox_path
-
-        camoufox_path(download_if_missing=False)
-        return True
+        return available_browser() is not None
     except Exception:
         return False
 
 
 class BrowserUnavailable(RuntimeError):
     """Camoufox ещё не скачан — нужно пройти мастер первого запуска."""
+
+
+@asynccontextmanager
+async def _bounded_camoufox(launch: dict, profile: Path):
+    manager = AsyncCamoufox(**launch)
+    context = await manager.__aenter__()
+    try:
+        yield context
+    finally:
+        closing = asyncio.create_task(manager.__aexit__(None, None, None))
+        done, _ = await asyncio.wait((closing,), timeout=10)
+        if done:
+            closing.result()
+        else:
+            closing.cancel()
+            done, _ = await asyncio.wait((closing,), timeout=5)
+            await _kill_processes_for_profile(profile)
+            if done and not closing.cancelled():
+                closing.result()
+            elif not done:
+                closing.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
 
 
 @asynccontextmanager
@@ -113,12 +132,16 @@ async def service_context(service_id: str, *, window: tuple[int, int] = (1360, 9
         )
 
     profile = config.profile_dir(service_id)
+    lock = profile / "parent.lock"
+    if lock.exists() and not _lock_is_free(lock):
+        raise BrowserUnavailable("Профиль занят другим окном. Закройте браузер этого ИИ-сервиса и повторите вход")
     log.info("launching camoufox for %s (profile=%s)", service_id, profile)
 
     global _geoip_works
 
     # Копия настроек на каждый запуск: Camoufox дописывает в этот словарь свои ключи.
     launch = dict(persistent_context=True, user_data_dir=str(profile), window=window,
+                  **launch_resources(),
                   firefox_user_prefs=dict(_FIREFOX_PREFS), **_DEFAULT_LAUNCH)
     if headless:
         launch["headless"] = True
@@ -129,10 +152,8 @@ async def service_context(service_id: str, *, window: tuple[int, int] = (1360, 9
 
     try:
         try:
-            async with AsyncCamoufox(**launch) as context:
-                if launch.get("geoip") is not False:
-                    _geoip_works = True
-                yield context
+            context_manager = _bounded_camoufox(launch, profile)
+            context = await context_manager.__aenter__()
         except Exception as exc:
             # geoip=True требует сходить в интернет за публичным IP (через
             # системный прокси/VPN, если он есть). Если в моменте прокси
@@ -149,8 +170,15 @@ async def service_context(service_id: str, *, window: tuple[int, int] = (1360, 9
                 "Дальнейшие запуски в этой сессии сразу идут без geoip.",
                 exc, service_id,
             )
-            async with AsyncCamoufox(**{**launch, "geoip": False}) as context:
-                yield context
+            context_manager = _bounded_camoufox({**launch, "geoip": False}, profile)
+            context = await context_manager.__aenter__()
+        else:
+            if launch.get("geoip") is not False:
+                _geoip_works = True
+        try:
+            yield context
+        finally:
+            await context_manager.__aexit__(None, None, None)
     finally:
         # Подстраховка независимо от того, как завершился контекст (успешно,
         # с ошибкой, из-за того что пользователь закрыл окно руками). Живые
@@ -209,7 +237,7 @@ async def _kill_processes_for_profile(profile: Path) -> None:
         log.warning("Не удалось принудительно завершить процессы Camoufox для %s", profile, exc_info=True)
 
 
-async def _ensure_profile_released(profile: Path, timeout: float = 6.0) -> None:
+async def _ensure_profile_released(profile: Path, timeout: float = 5.0) -> None:
     """Ждёт освобождения профиля и, если не дождалась, добивает процессы руками.
 
     Нормальный путь — lock освобождается сам за доли секунды после закрытия
@@ -270,7 +298,8 @@ async def open_captcha_window(service_id: str, url: str, timeout: float = 900) -
         return False
 
 
-async def open_login_window(service_id: str, login_url: str) -> None:
+async def open_login_window(service_id: str, login_url: str, *, on_open=None,
+                            on_navigation_error=None) -> None:
     """Открывает окно на странице логина и ждёт, пока пользователь его не закроет.
 
     Закрытие окна — единственный сигнал готовности, который не зависит от
@@ -284,26 +313,26 @@ async def open_login_window(service_id: str, login_url: str) -> None:
     пережившие оба этих шага, — от них страхует `_ensure_profile_released`
     внутри `service_context`, который прибивает зависшее принудительно.
     """
-    entered = False
-    try:
-        async with service_context(service_id) as context:
-            entered = True
-            page = context.pages[0] if context.pages else await context.new_page()
-            await page.goto(login_url, wait_until="domcontentloaded")
-            try:
-                await page.wait_for_event("close", timeout=0)
-            except Exception:
-                pass
-            try:
-                await context.close()
-            except Exception:
-                pass
-    except Exception:
-        if not entered:
-            # Браузер не запустился вообще (не установлен, сбой Camoufox) —
-            # это настоящая ошибка, её нужно показать пользователю, а не
-            # проглатывать молча.
-            raise
-        # Штатный путь: закрытие контекста при выходе из `async with` уже
-        # само по себе закрыто явным вызовом выше — сюда попадает разве что
-        # повторная попытка закрыть уже закрытый контекст в __aexit__.
+    async with service_context(service_id) as context:
+        closed = asyncio.Event()
+        context.on("close", lambda *_: closed.set())
+        def watch(page):
+            def page_closed(*_):
+                if not any(not p.is_closed() for p in context.pages):
+                    closed.set()
+            page.on("close", page_closed)
+        context.on("page", watch)
+        for existing in context.pages:
+            watch(existing)
+        page = context.pages[0] if context.pages else await context.new_page()
+        if on_open:
+            on_open()
+        try:
+            await page.goto(login_url, wait_until="domcontentloaded", timeout=30000)
+        except Exception:
+            if not closed.is_set():
+                log.warning("%s: страница входа не загрузилась; оставляю окно открытым", service_id)
+                if on_navigation_error:
+                    on_navigation_error("Страница не загрузилась. Проверьте соединение или VPN и обновите её в открытом окне.")
+        # A network failure must not close the window underneath the user.
+        await closed.wait()

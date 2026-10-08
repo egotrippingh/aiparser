@@ -1,0 +1,12 @@
+# Only server sources and the compiled website enter the production image context.
+**
+!server/
+!server/**
+server/.env
+server/.env.*
+server/__pycache__/
+server/test_*.py
+!alembic.ini
+!telemetry.py
+!web/
+!web/**

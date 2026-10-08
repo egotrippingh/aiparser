@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
 from app import services
-from app.api.results import MAX_DATES, MODES, SCOPES, _check_date, scoped_status, select_dates
+from app.api.results import MAX_DATES, MODES, SCOPES, _check_date, allowed_mention_types, known_services, scoped_status, select_dates
 from app.db import repo
 
 router = APIRouter(prefix="/api", tags=["mentions"])
@@ -33,7 +33,7 @@ SIGNS = {
     "limit_reached": "◷",
 }
 # Запрос по этой системе в этот день не проверялся.
-NO_DATA = "·"
+NO_DATA = "Не проверялось"
 
 LEGEND = [
     ("✓", "Упоминание найдено"),
@@ -41,7 +41,7 @@ LEGEND = [
     ("—", "AI-блок не показан"),
     ("!", "Проверка не удалась: ошибка, капча или нужен вход"),
     ("◷", "Лимит тарифа — запрос не проверен"),
-    (NO_DATA, "Не проверялся в этот день"),
+    (NO_DATA, NO_DATA),
 ]
 
 
@@ -53,16 +53,11 @@ def collect(project_id: int, dates: list[str], allowed: set[str] | None = None) 
     """
     results = repo.results_by_date(project_id, dates)
     cells: dict[int, dict[str, dict[str, str]]] = defaultdict(lambda: defaultdict(dict))
-    with_data: set[str] = set()
     for r in results:
         status = scoped_status(r["status"], r.get("mention_types_json"), allowed)
         cells[r["query_id"]][r["scan_date"]][r["service"]] = SIGNS.get(status, "?")
-        with_data.add(r["service"])
 
-    # Порядок систем — как в интерфейсе, а не как в базе; системы без единой
-    # проверки в выбранном периоде не показываем, иначе таблица зарастёт
-    # пустыми столбцами.
-    service_ids = [s.id for s in services.SERVICES if s.id in with_data]
+    service_ids = known_services(project_id)
 
     rows = []
     for q in repo.list_queries(project_id):
@@ -86,7 +81,7 @@ def build_xlsx(project: dict, dates: list[str], service_ids: list[str], rows: li
     bold = Font(bold=True)
     center = Alignment(horizontal="center", vertical="center")
     head_fill = PatternFill("solid", fgColor="EEF2F7")
-    many = len(dates) > 1
+    many = len(dates) > 1 and bool(service_ids)
 
     if many:
         # Две строки шапки: сверху дата, под ней системы этой даты.
@@ -152,6 +147,7 @@ def export_mentions(
     dates: str | None = None,
     max_dates: int = MAX_DATES,
     scope: str = "all",
+    include_cards: bool = True,
 ) -> Response:
     """Excel «запросы × ИИ-системы» за выбранный в календаре период."""
     project = repo.get_project(project_id)
@@ -182,7 +178,7 @@ def export_mentions(
     if not selected:
         raise HTTPException(404, "За выбранный период нет ни одной проверки")
 
-    rows, service_ids = collect(project_id, selected, SCOPES[scope])
+    rows, service_ids = collect(project_id, selected, allowed_mention_types(scope, include_cards))
     body = build_xlsx(project, selected, service_ids, rows)
 
     period = selected[0] if len(selected) == 1 else f"{selected[0]}—{selected[-1]}"

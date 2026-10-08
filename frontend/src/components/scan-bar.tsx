@@ -21,8 +21,11 @@ export function ScanBar() {
 
   const paused = scan?.state === "paused"
   const svc = serviceById(scan?.current_service)
-  // При параллельном скане идут сразу несколько систем — показываем все.
-  const running = (scan?.running_services ?? []).map((id) => serviceById(id)).filter(Boolean)
+  // Завершённые и остановленные системы остаются видны до конца прогона.
+  const serviceIds = Object.keys(scan?.services ?? {})
+  const listed = (serviceIds.length ? serviceIds : scan?.running_services ?? [])
+    .map((id) => serviceById(id)).filter(Boolean)
+  const parallel = scan?.parallel ?? (scan?.running_services?.length ?? 0) > 1
 
   async function send(action: "pause" | "resume" | "stop") {
     if (!scan) return
@@ -47,10 +50,10 @@ export function ScanBar() {
         >
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 md:px-6">
             <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-medium">
-              {running.length > 1 ? (
+              {listed.length > 0 ? (
                 <>
-                  <span className="text-muted-foreground font-normal">параллельно:</span>
-                  {running.map((s) => {
+                  <span className="text-muted-foreground font-normal">{parallel ? "параллельно:" : "системы:"}</span>
+                  {listed.map((s) => {
                     const p = scan.services?.[s!.id]
                     return (
                       <span key={s!.id} className="flex items-center gap-1.5">
@@ -59,6 +62,15 @@ export function ScanBar() {
                         {p ? (
                           <span className="tnum text-muted-foreground text-xs font-normal">
                             {p.done}/{p.total}
+                          </span>
+                        ) : null}
+                        {p?.state && p.state !== "running" ? (
+                          <span
+                            className="text-xs font-normal"
+                            style={{ color: p.state === "failed" || p.state === "stopped" ? "var(--bad)" : "var(--muted-foreground)" }}
+                            title={p.error ?? undefined}
+                          >
+                            {{ pending: "в очереди", failed: "ошибка", finished: "готово", stopped: "остановлен" }[p.state]}
                           </span>
                         ) : null}
                       </span>
