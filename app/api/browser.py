@@ -20,6 +20,7 @@ from app import services
 from app.db import repo
 from app.scanner.browser import camoufox_installed, open_login_window
 from app.scanner.profiles import cookie_auth_state
+from app.scanner.adapters import xmlriver
 
 router = APIRouter(prefix="/api/browser", tags=["browser"])
 log = logging.getLogger("aiparser.api.browser")
@@ -39,10 +40,11 @@ def _service_auth(service_id: str) -> dict:
     Кука может лежать, а сервис её уже не принимать, поэтому показываем обе:
     одна отвечает на «я вообще логинился?», вторая на «оно ещё работает?».
     """
-    cookie = cookie_auth_state(service_id)
+    api_backend = service_id == "yandex_neuro" or (service_id == "google_aio" and xmlriver.configured())
+    cookie = cookie_auth_state(service_id) if not api_backend else {"state": "none", "expires_at": None}
 
     last_state, last_at = None, None
-    raw = repo.get_setting(f"auth_state:{service_id}")
+    raw = repo.get_setting(f"{'xmlriver_state' if api_backend else 'auth_state'}:{service_id}")
     if raw:
         try:
             parsed = json.loads(raw)
@@ -52,6 +54,8 @@ def _service_auth(service_id: str) -> dict:
 
     return {
         "cookie_state": cookie["state"],
+        "api_backend": api_backend,
+        "api_configured": xmlriver.configured() if api_backend else False,
         "expires_at": cookie["expires_at"],
         "last_scan_state": last_state,
         "last_scan_at": last_at,

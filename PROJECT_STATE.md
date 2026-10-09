@@ -1,5 +1,32 @@
 # AIRate current project state
 
+## Local XMLRiver AI work (2026-10-09)
+
+Branch `codex/xmlriver-ai` adds opt-in XMLRiver capture for Google AI Overview
+and the existing Yandex Neuro SERP identity. The branch has not been pushed,
+merged, deployed or released. Provider/geography are frozen for resume; saved
+captures continue through the existing analyzer and settlement path. Google
+legacy scans remain browser-backed. Setup and the local screenshot provenance
+are documented in [README.md](README.md). Final checks passed: 322 Python tests,
+51 frontend tests, lint/build, benchmark self-check and diff check. Two Linux-only
+publication tests were skipped on Windows. Sol/Astra re-review found no remaining
+blockers. Fresh-context UI smoke passed at desktop/narrow widths, including
+keyboard selection, save errors and API readiness. Two final live XMLRiver calls
+returned Google/Yandex AI captures with valid images and no render requests or
+credential logs. This verifies capture, not live model/payment or load behavior.
+Local evidence: `~/.codex/tmp/xmlriver-ai-20261009/checks-100338/report.json`.
+
+Retry follow-up on the same branch: malformed/partial XML, invalid base64/HTML
+and empty extracted AI main text are recollected automatically before publishing
+an error. All transient failures share three HTTP attempts with 1/2-second waits;
+stop/cancel prevents new requests, saved answers are not recollected. Exhausted
+attempts remain recoverable errors; auth/quota and valid absence do not retry.
+Scoped checks: 62 XMLRiver/pipeline tests, 46 readiness/watchdog tests and 52
+pipeline/durable/billing/storage tests passed (133 distinct tests), including
+offline browser renders. Benchmark self-check and diff check passed. Independent
+Sol review found no blockers. This follow-up used fake API responses only; no
+live XMLRiver, model, payment or deployment check.
+
 Updated 2026-10-08. Repository: `egotrippingh/aiparser`; development branch: `main`;
 deployment branch: `production`.
 

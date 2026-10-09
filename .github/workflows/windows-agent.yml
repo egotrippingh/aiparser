@@ -1,0 +1,143 @@
+name: Build and publish Windows agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the tested artifacts to production
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - run: |
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install -r scripts/requirements-ci.txt
+          python -m pytest tests/test_agent_publication.py -q
+          python -m pytest tests/test_xmlriver.py -q
+
+  windows:
+    needs: checks
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install isolated build dependencies
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create the Python 3.12 virtual environment' }
+          .\.venv\Scripts\python.exe -m pip install -r requirements.txt -r scripts/requirements-build.txt -r scripts/requirements-ci.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Could not install Windows agent build dependencies' }
+      - name: Install pinned Inno Setup 6.7.3
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.3.exe'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe' -OutFile $installer
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne '9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732') { throw 'Inno Setup checksum mismatch' }
+          $process = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER' -Wait -PassThru -WindowStyle Hidden
+          if ($process.ExitCode -ne 0) { throw "Pinned Inno Setup installer failed: $($process.ExitCode)" }
+          $compiler = Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $compiler)) { throw 'Pinned Inno Setup 6.7.3 installation did not provide ISCC.exe' }
+          "INNO_COMPILER=$compiler" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Build and smoke-test the agent
+        shell: pwsh
+        run: .\scripts\release-agent.ps1 -Compiler $env:INNO_COMPILER
+      - name: Summarize release
+        shell: pwsh
+        run: |
+          $release = Get-Content -Raw dist\agent-release.json | ConvertFrom-Json
+          @"
+          ## Windows agent
+          Source: $env:GITHUB_SHA
+          Version: $($release.version)
+          Installer: $($release.installer.size_bytes) bytes, $($release.installer.sha256)
+          Portable: $($release.portable.size_bytes) bytes, $($release.portable.sha256)
+          "@ | Add-Content $env:GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: agent-windows-${{ github.run_id }}
+          path: |
+            dist/AIRate-Setup-latest.exe
+            dist/AI-Mentions-Windows-latest.zip
+            dist/agent-release.json
+          retention-days: 30
+          compression-level: 0
+          if-no-files-found: error
+      - name: Upload installer smoke logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: agent-installer-smoke-${{ github.run_id }}
+          path: |
+            build/agent-*.log
+            build/installer-smoke-*/*.log
+          retention-days: 30
+          if-no-files-found: warn
+
+  publish:
+    needs: [checks, windows]
+    if: inputs.publish && github.ref == 'refs/heads/production'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production
+    concurrency:
+      group: airate-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: agent-windows-${{ github.run_id }}
+          path: dist
+      - name: Verify the site revision and publish
+        shell: bash
+        env:
+          AGENT_PUBLISH_KEY: ${{ secrets.AIRATE_AGENT_PUBLISH_KEY }}
+          AGENT_KNOWN_HOSTS: ${{ secrets.AIRATE_AGENT_KNOWN_HOSTS }}
+          AGENT_PUBLISH_HOST: ${{ vars.AIRATE_AGENT_PUBLISH_HOST }}
+          EXPECTED_RELEASE: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ -n "$AGENT_PUBLISH_KEY" && -n "$AGENT_KNOWN_HOSTS" && -n "$AGENT_PUBLISH_HOST" ]] || { echo 'Set dedicated AIRATE_AGENT_PUBLISH_KEY, AIRATE_AGENT_KNOWN_HOSTS, and AIRATE_AGENT_PUBLISH_HOST in production'; exit 64; }
+          python3 - <<'PY'
+          import json, os, urllib.request
+          with urllib.request.urlopen('https://airate.tech/api/v1/ready', timeout=30) as response:
+              assert json.load(response) == {'ok': True, 'release': os.environ['EXPECTED_RELEASE']}
+          PY
+          umask 077
+          key="$RUNNER_TEMP/airate-agent-publish-key"
+          hosts="$RUNNER_TEMP/airate-agent-known-hosts"
+          trap 'rm -f "$key" "$hosts"' EXIT
+          printf '%s\n' "$AGENT_PUBLISH_KEY" | tr -d '\r' > "$key"
+          printf '%s\n' "$AGENT_KNOWN_HOSTS" | tr -d '\r' > "$hosts"
+          chmod 600 "$key" "$hosts"
+          python scripts/publish-agent.py --host "$AGENT_PUBLISH_HOST" --key "$key" --known-hosts "$hosts" --dist dist --verify-public

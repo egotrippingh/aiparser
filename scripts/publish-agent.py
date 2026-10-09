@@ -9,10 +9,15 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import urllib.request
 import uuid
 import zipfile
 
 FILES = {'installer': 'AIRate-Setup-latest.exe', 'portable': 'AI-Mentions-Windows-latest.zip'}
+PUBLIC_URLS = {
+    'installer': 'https://airate.tech/downloads/AIRate-Setup.exe',
+    'portable': 'https://airate.tech/downloads/AI-Mentions-Windows.zip',
+}
 
 
 def activate(directory: Path, staged_id: str, release: dict) -> None:
@@ -107,11 +112,36 @@ def validate_release(directory: Path) -> dict:
     return release
 
 
+def verify_public(release: dict) -> None:
+    """Require the activated HTTPS metadata and both fixed downloads to match."""
+    with urllib.request.urlopen('https://airate.tech/api/v1/agent-download', timeout=30) as response:
+        metadata = json.load(response)
+    expected = {
+        'available': True,
+        'url': '/downloads/AIRate-Setup.exe',
+        'size_bytes': release['installer']['size_bytes'],
+        'release': release,
+    }
+    if metadata != expected:
+        raise ValueError('Public agent metadata does not match the activated release')
+    for kind, url in PUBLIC_URLS.items():
+        digest = hashlib.sha256()
+        size = 0
+        with urllib.request.urlopen(url, timeout=60) as response:
+            while chunk := response.read(1024 * 1024):
+                digest.update(chunk)
+                size += len(chunk)
+        if size != release[kind]['size_bytes'] or digest.hexdigest() != release[kind]['sha256']:
+            raise ValueError(f'Public {kind} download does not match the activated release')
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--host', required=True, help='SSH user@host; existing known_hosts entry required')
     parser.add_argument('--key', type=Path, required=True)
     parser.add_argument('--dist', type=Path, default=Path('dist'))
+    parser.add_argument('--known-hosts', type=Path, help='Pinned SSH known_hosts file')
+    parser.add_argument('--verify-public', action='store_true', help='Verify public HTTPS metadata and downloads after activation')
     args = parser.parse_args()
     if not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.-]*@[A-Za-z0-9][A-Za-z0-9.-]*', args.host):
         parser.error('--host must be user@host')
@@ -119,6 +149,8 @@ def main() -> None:
     staged_id = uuid.uuid4().hex
     ssh = ['ssh', '-i', str(args.key), '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
            '-o', 'ConnectTimeout=25', '-o', 'ServerAliveInterval=15', args.host]
+    if args.known_hosts:
+        ssh[-1:-1] = ['-o', f'UserKnownHostsFile={args.known_hosts}']
     # Unique uploads avoid concurrent publishers overwriting each other's staging files.
     for kind, name in FILES.items():
         staged = f'{name}.{staged_id}.upload'
@@ -140,6 +172,8 @@ from pathlib import Path
 activate(Path('/opt/airate/deploy/downloads'), {staged_id!r}, json.loads({json.dumps(release)!r}))
 '''
     subprocess.run(ssh + ['python3 -c ' + shlex.quote(command)], check=True)
+    if args.verify_public:
+        verify_public(release)
 
 
 if __name__ == '__main__':

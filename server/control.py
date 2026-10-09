@@ -54,7 +54,7 @@ class ScanConfig(BaseModel):
     brand_domains: list[str] = Field(default_factory=list, max_length=100)
     brand_clarification: str = Field(default="", max_length=2000)
     region_code: str = Field(default="213", max_length=20)
-    services: list[str] = Field(default_factory=lambda: ["google_aio"], min_length=1, max_length=4)
+    services: list[str] = Field(default_factory=lambda: ["google_aio"], min_length=1, max_length=5)
     browser_mode: str = Field(default="headless", pattern="^(headless|headful)$")
     speed_profile: str = Field(default="balanced", pattern="^(careful|balanced|fast)$")
     parallel: bool = True
@@ -224,6 +224,12 @@ def create_run(db, project, device_id, key, scheduled_for=None, brand_clarificat
         snap["feedback_enabled"] = True
     if snap["config"].get("brand_clarification") and not json.loads(device.capabilities_json).get("brand_clarification"):
         raise HTTPException(422, "Обновите агент AIRate, чтобы использовать уточнения по бренду")
+    capabilities = json.loads(device.capabilities_json)
+    backends = capabilities.get("capture_backends")
+    configured = capabilities.get("provider_configured")
+    if "yandex_neuro" in snap["config"]["services"] and not (isinstance(backends, dict) and backends.get("yandex_neuro") == "xmlriver" and
+                                                               isinstance(configured, dict) and configured.get("yandex_neuro") is True):
+        raise HTTPException(422, "Обновите агент и настройте XMLRiver на выбранном компьютере для Яндекс Нейро")
     snap["queries"] = [q for q in snap["queries"] if q["active"]]
     if not snap["queries"]:
         raise HTTPException(422, "Добавьте активные запросы в проект")
@@ -720,13 +726,20 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             AgentDevice.device_id == grant.device_id).with_for_update())
         device.last_seen_at = utcnow(); device.capabilities_json = json.dumps(body.capabilities)
         key = f"{grant.user_id}:{grant.device_id}"
-        def supported(candidate):
+        def supported(candidate, *, active=False):
             snapshot = json.loads(candidate.snapshot_json)
             note = snapshot.get("config", {}).get("brand_clarification")
+            if "yandex_neuro" in snapshot.get("config", {}).get("services", []):
+                backends = body.capabilities.get("capture_backends")
+                if not isinstance(backends, dict) or backends.get("yandex_neuro") != "xmlriver":
+                    return False
+                configured = body.capabilities.get("provider_configured")
+                if not active and (not isinstance(configured, dict) or configured.get("yandex_neuro") is not True):
+                    return False
             return not note or bool(body.capabilities.get("brand_clarification") and
                                    (snapshot.get("feedback_enabled") or brand_enabled(db.get(User, grant.user_id))))
         run = db.scalar(select(ControlRun).where(ControlRun.active_device_key == key))
-        if run and not supported(run):
+        if run and not supported(run, active=True):
             device.active_scan = False
             db.commit()
             return {"run": None, "name": device.name}

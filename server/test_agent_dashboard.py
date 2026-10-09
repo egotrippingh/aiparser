@@ -34,7 +34,7 @@ def test_month_day_schedule_and_report_ownership(tmp_path):
     assert client.put("/api/v1/scan-preferences", headers=headers,
                       json={**response.json(), "month_days": [0, 31]}).status_code == 422
     assert client.put("/api/v1/scan-preferences", headers=headers,
-                      json={**response.json(), "services": ["yandex_neuro"]}).status_code == 422
+                      json={**response.json(), "services": ["yandex_neuro"]}).status_code == 200
     assert client.put("/api/v1/scan-preferences", headers=headers, json=changed).status_code == 409
     assert client.get("/api/v1/scan-preferences", headers=other_headers).json()["enabled"] is False
 
