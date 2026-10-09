@@ -39,6 +39,12 @@ class CollectionCancelled(AdapterError):
     """The owning run stopped before the next paid provider request."""
 
 
+class ProviderThrottleError(ProviderQuotaError):
+    """XMLRiver blocks the engine for ten minutes after excess parallel requests."""
+
+    retry_after = 600
+
+
 class _RedactXMLRiver(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if "xmlriver.com/" in record.getMessage().lower():
@@ -203,7 +209,7 @@ def _parse_xml(payload: bytes, service_id: str, *, include_images: bool = False)
         if code == "200":
             raise ProviderQuotaError("XMLRiver: закончился баланс")
         if code == "115":
-            raise ProviderQuotaError("XMLRiver: временная блокировка из-за частоты запросов")
+            raise ProviderThrottleError("XMLRiver: временная блокировка из-за частоты запросов")
         if code in _AUTH_CODES:
             raise AdapterError(f"XMLRiver: ошибка доступа {code}")
         if code in _RETRY_CODES:
@@ -471,7 +477,7 @@ class XMLRiverClient:
                 async with httpx.AsyncClient(timeout=90, follow_redirects=False) as client:
                     response = await client.get(endpoint, params=params)
                 if response.status_code == 429:
-                    raise ProviderQuotaError("XMLRiver: временная блокировка из-за частоты запросов")
+                    raise ProviderThrottleError("XMLRiver: временная блокировка из-за частоты запросов")
                 if response.status_code in (500, 502, 503, 504):
                     raise XMLRiverResponseError(f"XMLRiver: HTTP {response.status_code}")
                 if response.status_code != 200:
