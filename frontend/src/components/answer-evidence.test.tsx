@@ -1,20 +1,21 @@
 import { expect, it } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
-import { XMLRiverAnswer, HighlightedSources, brandLink, safeProductImage } from "./xmlriver-answer"
+import { AnswerEvidenceView, HighlightedSources, brandLink, safeProductImage } from "./answer-evidence"
 
 const brand = {names:["Tuvio","Тувио"],domains:["tuvio.test"]}
 it("renders XML structure and red brand accents without injecting provider markup", () => {
-  const html = renderToStaticMarkup(<XMLRiverAnswer brand={brand} evidence={{content:[{tag:"h2",children:["TUVIO и Тувио"]},{tag:"p",children:["Не tuvioshop. ",{tag:"a",href:"https://shop.tuvio.test/a",children:["Официальный сайт"]},{tag:"script",children:["alert(1)"]},{tag:"a",href:"javascript:alert(1)",children:["плохая ссылка"]}]}],products:[],source_cards:[]}}/> )
+  const html = renderToStaticMarkup(<AnswerEvidenceView brand={brand} evidence={{content:[{tag:"h2",children:["TUVIO и Тувио"]},{tag:"p",children:["Не tuvioshop. ",{tag:"a",href:"https://shop.tuvio.test/a",children:["Официальный сайт"]},{tag:"script",children:["alert(1)"]},{tag:"a",href:"javascript:alert(1)",children:["плохая ссылка"]}]}],products:[],source_cards:[]}}/> )
   expect(html).toContain('<h2><mark class="answer-brand">TUVIO</mark>')
   expect(html).toContain('class="answer-brand-link"')
   expect(html).not.toContain('<script')
   expect(html).not.toContain('href="javascript:')
   expect(html).toContain('Не tuvioshop.')
+  expect(html).not.toMatch(/xmlriver/i)
   expect(brandLink("https://tuvio.test.evil.test",brand)).toBe(false)
   expect(brandLink("https://evil.test/?next=tuvio.test",brand)).toBe(false)
 })
 it("shows photo products in a labelled carousel and source cards with safe links", () => {
-  const html = renderToStaticMarkup(<XMLRiverAnswer brand={brand} evidence={{content:["Совет"],products:[{title:"Tuvio робот",url:"https://shop.test/product",image_url:"https://photos.test/robot.jpg",price:"23 455 ₽"}],source_cards:[{title:"Источник Tuvio",url:"https://source.test",text:"Описание товара"}]}}/> )
+  const html = renderToStaticMarkup(<AnswerEvidenceView brand={brand} evidence={{content:["Совет"],products:[{title:"Tuvio робот",url:"https://shop.test/product",image_url:"https://photos.test/robot.jpg",price:"23 455 ₽"}],source_cards:[{title:"Источник Tuvio",url:"https://source.test",text:"Описание товара"}]}}/> )
   expect(html).toContain('src="https://photos.test/robot.jpg"')
   expect(html).toContain('loading="lazy"')
   expect(html).toContain('referrerPolicy="no-referrer"')
@@ -24,7 +25,7 @@ it("shows photo products in a labelled carousel and source cards with safe links
   expect(html).toContain('Карточки ответа')
 })
 it("displays organization cards without a link or photo instead of dropping them", () => {
-  const html=renderToStaticMarkup(<XMLRiverAnswer brand={brand} evidence={{content:["Совет"],products:[],source_cards:[{title:"Клиника Tuvio",text:"",url:""}]}}/> )
+  const html=renderToStaticMarkup(<AnswerEvidenceView brand={brand} evidence={{content:["Совет"],products:[],source_cards:[{title:"Клиника Tuvio",text:"",url:""}]}}/> )
   expect(html).toContain('Клиника <mark class="answer-brand">Tuvio</mark>')
   expect(html).not.toContain('href=""')
 })

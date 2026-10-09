@@ -307,5 +307,6 @@ class DeviceConnect(Base):
 
 
 def make_session_factory(database_url: str):
-    engine = create_engine(database_url, pool_pre_ping=True)
+    pool = {"pool_size": 30, "max_overflow": 0} if database_url.startswith(("postgresql://", "postgresql+")) else {}
+    engine = create_engine(database_url, pool_pre_ping=True, **pool)
     return engine, sessionmaker(engine, expire_on_commit=False)

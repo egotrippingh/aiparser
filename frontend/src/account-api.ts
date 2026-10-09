@@ -1,10 +1,11 @@
 export const ACCOUNT_API = (import.meta.env.VITE_ACCOUNT_API_URL || "").replace(/\/$/, "")
 import { capture } from "./telemetry"
+import { publicError } from "./lib/public-error"
 
 export const COOKIE_SESSION = "cookie-session"
 export class AccountError extends Error {
   status: number
-  constructor(message: string, status: number) { super(message); this.status = status }
+  constructor(message: string, status: number) { super(publicError(message)); this.status = status }
 }
 
 export async function accountDownload(path: string, token: string, filename: string) { try {

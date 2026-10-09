@@ -7,7 +7,8 @@
  */
 
 import { capture } from "../telemetry"
-export class HttpError extends Error { status: number; constructor(message: string, status: number) { super(message); this.status = status } }
+import { publicError } from "./public-error"
+export class HttpError extends Error { status: number; constructor(message: string, status: number) { super(publicError(message)); this.status = status } }
 async function call<T>(path: string, method: string, body?: unknown): Promise<T> { try {
   const opts: RequestInit = { method, headers: {} }
   if (body !== undefined) {
@@ -54,5 +55,5 @@ export const api = {
 }
 
 export function errText(e: unknown): string {
-  return e instanceof Error ? e.message : String(e)
+  return publicError(e instanceof Error ? e.message : String(e))
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { accountRequest } from "./account-api"
 import { AnswerContent, ResultIssue, SourceList } from "./components/answer-content"
-import { XMLRiverAnswer, HighlightedSources, type AnswerEvidence, type BrandHighlight } from "./components/xmlriver-answer"
+import { AnswerEvidenceView, HighlightedSources, type AnswerEvidence, type BrandHighlight } from "./components/answer-evidence"
 import type { ScanFeedback } from "./scan-feedback"
 
 type Row = { id: number; email: string; project_name: string; brand_name: string; query_text: string; service: string; scan_date: string; status: string; mention_types: string[] }
@@ -40,7 +40,7 @@ export function AdminScans({ token }: { token: string }) {
         {detail.feedback && <p>Отметка пользователя: <b>{labels[detail.feedback.label]}</b>{detail.feedback.comment && ` · ${detail.feedback.comment}`}</p>}
         {detail.evidence_quote && <blockquote>{detail.evidence_quote}</blockquote>}
         {detail.analysis?.reasoning && <p>Анализ ({detail.analysis_model}): {detail.analysis.reasoning}</p>}{detail.arbitration?.reasoning && <p>Арбитр ({detail.arbitration_model}): {detail.arbitration.reasoning}</p>}
-        {detail.answer_evidence ? <XMLRiverAnswer key={detail.id} evidence={detail.answer_evidence} brand={detail.highlight}/> : detail.answer_text && <AnswerContent text={detail.answer_text} service={detail.service} sources={detail.sources} />}<ResultIssue status={detail.status} error={detail.error_message} answer={detail.answer_text} />
+        {detail.answer_evidence ? <AnswerEvidenceView key={detail.id} evidence={detail.answer_evidence} brand={detail.highlight}/> : detail.answer_text && <AnswerContent text={detail.answer_text} service={detail.service} sources={detail.sources} />}<ResultIssue status={detail.status} error={detail.error_message} answer={detail.answer_text} />
         <h3>Источники</h3>{detail.answer_evidence ? <HighlightedSources sources={detail.sources} brand={detail.highlight}/> : <SourceList sources={detail.sources} />}
         {detail.check_id && detail.has_screenshot !== false && !detail.answer_evidence && <button className="cc-button" disabled={shot?.id === row.id && shot.loading} onClick={() => {
           setShot({ id: row.id, loading: true })

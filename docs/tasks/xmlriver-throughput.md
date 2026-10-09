@@ -45,8 +45,11 @@
 - Server retries use six attempts; the legacy agent keeps three. A typed
   HTTP 429/XML 115 throttle carries the documented 600-second delay and stays
   compatible with existing quota-error handlers.
-- Production remains `09df3b7` until exact-source CI and normal image deployment
-  pass. No migration or administrator SSH access is required for this change.
+- Production is now `803101980710fee1f3e794789449207f2c41895f`, delivered through
+  PRs #37/#38. Feature `638044f`, updated main `7fe3724` and production share an
+  identical source tree. Exact-SHA CI passed, including Docker import/build;
+  normal image deployment and independent HTTPS readiness/pricing/private-API
+  smoke passed. No migration or administrator SSH access was required.
 - New batch tests use fake providers and disposable SQLite. They do not prove
   PostgreSQL concurrency, model latency or live provider throughput.
 - Cooldown lives in the single worker and resets on process restart. Account
@@ -59,3 +62,7 @@
   retries execute but does not prove upstream errors disappear. Safe metadata
   is outside Git in `~/.codex/tmp/xmlriver-release-20261009/speed-fixed-provider.json`;
   successful capture is DPAPI-encrypted. No text/model/billing scan was run.
+- Final Sol correctness and Astra risk re-review found no remaining P1/P2.
+  Selected independent regressions passed. Astra terminated one quiet hung run;
+  its diagnostic repeat passed 13 tests in 18.05s. No new authenticated live
+  production scan or PostgreSQL concurrency test was performed for the follow-up.
