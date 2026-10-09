@@ -1,11 +1,17 @@
 import { expect, it } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
 import { AnswerContent, ResultIssue, SourceList, sourcesOf } from "./answer-content"
+import { publicError } from "../lib/public-error"
 
 it("keeps collection suppliers private in historical errors", () => {
   const html = renderToStaticMarkup(<ResultIssue status="error" error="XMLRiver: ошибка API 500"/>)
   expect(html).not.toMatch(/xmlriver/i)
   expect(html).toContain("ошибка API 500")
+})
+
+it("sanitizes legacy supplier spellings and non-string API details", () => {
+  expect(publicError("XMLreaver: ошибка")).toBe("Сервис сбора: ошибка")
+  expect(publicError([{ msg: "invalid" }])).toBe("[object Object]")
 })
 
 it("renders paragraphs, real lists and safe links while keeping HTML literal", () => {

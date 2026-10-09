@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import json
 import logging
 import threading
@@ -17,6 +18,7 @@ from sqlalchemy import and_, or_, select, update
 
 from app.detect import rules
 from app.detect.merge import merge, with_arbiter
+from server.ai import AIRetryAfter
 from server.checks import analyze_check, arbitrate_check, complete_check, reserve_checks
 from server.models import Check, CloudResult, ControlRun, ServerCapture, User, utcnow
 from shared.detection import _build_prompt, parse_verdict
@@ -101,7 +103,7 @@ def _renew(sessions, run_id, token, *, need_running=False):
         return result.rowcount == 1
 
 
-def _finish_item(db, run, snapshot):
+def _finish_item(db, run, snapshot, *, keep_lease=False):
     db.flush()
     complete = db.execute(select(CloudResult.query_id, CloudResult.service).where(
         CloudResult.run_id == run.id, CloudResult.user_id == run.user_id)).all()
@@ -109,6 +111,8 @@ def _finish_item(db, run, snapshot):
     progress = json.loads(run.progress_json)
     progress["cloud_done"] = count
     run.progress_json = json.dumps(progress)
+    if keep_lease:
+        return
     run.lease_token = run.lease_until = None
     if run.desired_state == "cancelled":
         completed = set(complete)
@@ -154,30 +158,48 @@ def _record(db, run, snapshot, query, service, check_id, capture, verdict=None, 
 
 def _analyze_saved(sessions, run_id, token, check_id, content, ai_client):
     with sessions() as db:
-        run = db.execute(select(ControlRun).where(ControlRun.id == run_id).with_for_update()).scalar_one_or_none()
+        owner_id = db.scalar(select(ControlRun.user_id).where(ControlRun.id == run_id))
+        if owner_id is None:
+            return None
+        check = db.execute(select(Check).where(Check.user_id == owner_id,
+            Check.client_check_id == check_id)
+            .with_for_update()).scalar_one_or_none()
+        run = db.execute(select(ControlRun).where(ControlRun.id == run_id)
+            .execution_options(populate_existing=True)).scalar_one_or_none()
         run = _owned(db, run_id, token) if run else None
         if not run:
             return None
         user = db.get(User, run.user_id)
-        check = db.scalar(select(Check).where(Check.user_id == user.id, Check.client_check_id == check_id))
+        if not check or check.user_id != user.id:
+            return None
         if run.desired_state != "running" and not (check and check.analysis_json):
             return None
-        return analyze_check(db, user, check_id, "", content, ai_client,
-            retry_saved=bool(check and check.analysis_attempts), accumulate_usage=True)
+        with db.no_autoflush:
+            return analyze_check(db, user, check_id, "", content, ai_client,
+                retry_saved=bool(check.analysis_attempts), accumulate_usage=True)
 
 
 def _arbitrate_saved(sessions, run_id, token, check_id, content, ai_client):
     with sessions() as db:
-        run = db.execute(select(ControlRun).where(ControlRun.id == run_id).with_for_update()).scalar_one_or_none()
+        owner_id = db.scalar(select(ControlRun.user_id).where(ControlRun.id == run_id))
+        if owner_id is None:
+            return None
+        check = db.execute(select(Check).where(Check.user_id == owner_id,
+            Check.client_check_id == check_id)
+            .with_for_update()).scalar_one_or_none()
+        run = db.execute(select(ControlRun).where(ControlRun.id == run_id)
+            .execution_options(populate_existing=True)).scalar_one_or_none()
         run = _owned(db, run_id, token) if run else None
         if not run:
             return None
         user = db.get(User, run.user_id)
-        check = db.scalar(select(Check).where(Check.user_id == user.id, Check.client_check_id == check_id))
+        if not check or check.user_id != user.id:
+            return None
         if run.desired_state != "running" and not (check and check.arbitration_json):
             return None
-        return arbitrate_check(db, user, check_id, "", content, ai_client,
-            retry_saved=bool(check and check.arbitration_attempts), accumulate_usage=True)
+        with db.no_autoflush:
+            return arbitrate_check(db, user, check_id, "", content, ai_client,
+                retry_saved=bool(check.arbitration_attempts), accumulate_usage=True)
 
 
 def _clear_invalid_verdict(sessions, run_id, token, check_id, stage, raw):
@@ -204,18 +226,19 @@ def _parse_cloud_verdict(response):
         return None
 
 
-def _release_unstarted(sessions, run_id, token, check_id, snapshot):
+def _release_unstarted(sessions, run_id, token, check_id, snapshot, *, keep_lease=False):
     with sessions() as db:
         run = _owned_locked(db, run_id, token)
         if not run:
             return False
         complete_check(db, db.get(User, run.user_id), check_id, "skipped", commit=False)
-        _finish_item(db, run, snapshot)
+        _finish_item(db, run, snapshot, keep_lease=keep_lease)
         db.commit()
     return True
 
 
-def _defer_or_cancel(sessions, run_id, token, snapshot, query, service, check_id, payload):
+def _defer_or_cancel(sessions, run_id, token, snapshot, query, service, check_id, payload,
+                     *, keep_lease=False):
     with sessions() as db:
         run = _owned_locked(db, run_id, token)
         if not run:
@@ -226,22 +249,25 @@ def _defer_or_cancel(sessions, run_id, token, snapshot, query, service, check_id
             complete_check(db, db.get(User, run.user_id), check_id, "error", commit=False)
             _record(db, run, snapshot, query, service, check_id, payload, status="error",
                     error="Проверка остановлена до завершения анализа")
-            _finish_item(db, run, snapshot)
+            _finish_item(db, run, snapshot, keep_lease=keep_lease)
         else:
             run.state = "paused"
-            run.lease_token = run.lease_until = None
+            if not keep_lease:
+                run.lease_token = run.lease_until = None
         db.commit()
         return True
 
 
-def _finish_exhausted(sessions, run_id, token, snapshot, query, service, check_id, payload, stage):
+def _finish_exhausted(sessions, run_id, token, snapshot, query, service, check_id, payload, stage,
+                      *, keep_lease=False):
     """Turn an exhausted model budget into one durable error and settled/released check."""
     with sessions() as db:
         run = _owned_locked(db, run_id, token)
         if not run:
             return False
+        # complete_check acquires wallet then Check; keep the same lock order.
         check = db.execute(select(Check).where(Check.user_id == run.user_id,
-            Check.client_check_id == check_id).with_for_update()).scalar_one_or_none()
+            Check.client_check_id == check_id)).scalar_one_or_none()
         if not check:
             return False
         attempts = check.analysis_attempts if stage == "analysis" else check.arbitration_attempts
@@ -252,7 +278,7 @@ def _finish_exhausted(sessions, run_id, token, snapshot, query, service, check_i
         error = ("Не удалось проанализировать ответ: исчерпан лимит попыток" if stage == "analysis"
                  else "Не удалось разрешить спорный результат: исчерпан лимит попыток")
         _record(db, run, snapshot, query, service, check_id, payload, status="error", error=error)
-        _finish_item(db, run, snapshot)
+        _finish_item(db, run, snapshot, keep_lease=keep_lease)
         db.commit()
         return True
 
@@ -276,121 +302,181 @@ def _provider_error(exc, snapshot):
             "brand_domains": snapshot["config"].get("brand_domains", [])}
 
 
-async def _prefetch_batch(sessions, run_id, token, snapshot, ai_client, price,
-                          collector_factory, limits, shutdown_event, cooldowns, clock):
-    """Reserve a bounded affordable set, then commit each returned answer independently."""
-    selected = []
-    counts = {service: 0 for service in snapshot["cloud_services"]}
+async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
+                      collector_factory, limits, shutdown_event, cooldowns, clock):
+    """Keep both provider engines and the shared model pool busy until the run drains."""
     with sessions() as db:
         run = _owned_locked(db, run_id, token)
-        if not run or run.desired_state != "running":
-            return
+        if not run:
+            return False
         done = set(db.execute(select(CloudResult.query_id, CloudResult.service).where(
-            CloudResult.run_id == run.id, CloudResult.user_id == run.user_id)).all())
-        saved = set(db.execute(select(ServerCapture.query_id, ServerCapture.service).where(
-            ServerCapture.run_id == run.id)).all())
-        pending = [(q, s) for q, s in _pairs(snapshot) if (q["id"], s) not in done]
-        if any((q["id"], s) in saved for q, s in pending):
-            return
-        user = db.get(User, run.user_id)
-        for query, service in pending:
-            if shutdown_event and shutdown_event.is_set():
-                break
-            if cooldowns and cooldowns.get(service, 0) > clock():
-                continue
-            if counts[service] >= max(1, min(int(limits.get(service, 1)), 10)):
-                continue
-            run = _owned_locked(db, run_id, token)
-            if not run or run.desired_state != "running":
-                break
-            check_id = f"{run.id}:{query['id']}:{service}"
-            try:
-                reserve_checks(db, user, [check_id], price, ai_client)
-            except HTTPException as exc:
-                if exc.status_code != 402 or not selected:
-                    run = _owned_locked(db, run_id, token)
-                    if run and run.desired_state == "running":
-                        run.state = run.desired_state = "paused"
-                        run.error = str(exc.detail)[:1000]
-                        db.commit()
-                break
-            selected.append((query, service, check_id))
-            counts[service] += 1
-
-    blocked = set()
-
-    async def collect_one(query, service, check_id):
-        def may_continue():
-            return (not (shutdown_event and shutdown_event.is_set()) and service not in blocked
-                    and _renew(sessions, run_id, token, need_running=True)
-                    and not (shutdown_event and shutdown_event.is_set()) and service not in blocked)
-
-        try:
-            if not may_continue():
-                return query, service, check_id, None, False
-            geo = snapshot["cloud_geography"][service]
-            payload = await collector_factory(service, geo, max_attempts=6).collect(
-                query["text"], should_continue=may_continue)
-            payload = {**payload,
-                       "brand_names": [snapshot["brand_name"], *snapshot["config"].get("brand_aliases", [])],
-                       "brand_domains": snapshot["config"].get("brand_domains", [])}
-        except CollectionCancelled:
-            payload = None
-        except ProviderQuotaError as exc:
-            blocked.add(service)
-            if isinstance(exc, ProviderThrottleError) and cooldowns is not None:
-                cooldowns[service] = max(cooldowns.get(service, 0), clock() + exc.retry_after)
-            payload = _provider_error(exc, snapshot)
-        except (AdapterError, XMLRiverResponseError) as exc:
-            payload = _provider_error(exc, snapshot)
-        except Exception as exc:
-            logging.getLogger(__name__).error("Cloud batch collection failed (%s)", type(exc).__name__)
-            return query, service, check_id, None, True
-        return query, service, check_id, payload, False
-
-    tasks = [asyncio.create_task(collect_one(*item)) for item in selected]
-    failed = False
-    for task in asyncio.as_completed(tasks):
-        try:
-            query, service, check_id, payload, collection_failed = await task
-        except Exception as exc:
-            logging.getLogger(__name__).error("Cloud batch task failed (%s)", type(exc).__name__)
-            failed = True
+            CloudResult.run_id == run_id, CloudResult.user_id == run.user_id)).all())
+        captures = set(db.execute(select(ServerCapture.query_id, ServerCapture.service).where(
+            ServerCapture.run_id == run_id)).all())
+    queues = {service: deque() for service in snapshot["cloud_services"]}
+    ready = deque()
+    for query, service in _pairs(snapshot):
+        pair = (query["id"], service)
+        if pair in done:
             continue
-        failed |= collection_failed
-        if collection_failed:
-            continue  # Keep the reservation for an explicit retry; never record false absence.
-        try:
-            with sessions() as db:
-                run = _owned_locked(db, run_id, token)
-                if not run:
-                    continue
-                if payload is None:
-                    if not (shutdown_event and shutdown_event.is_set()):
-                        complete_check(db, db.get(User, run.user_id), check_id, "skipped", commit=False)
-                else:
-                    db.add(ServerCapture(run_id=run_id, query_id=query["id"], service=service,
-                        check_id=check_id, answer_json=json.dumps(payload, ensure_ascii=False)))
-                db.commit()
-        except Exception as exc:
-            logging.getLogger(__name__).error("Cloud batch save failed (%s)", type(exc).__name__)
-            failed = True
-    if failed:
-        with sessions() as db:
-            run = _owned_locked(db, run_id, token)
-            if run and run.desired_state == "running":
-                run.state = run.desired_state = "paused"
-                run.error = "Сбор части ответов прервался; сохранённые ответы доступны после возобновления"
-                run.lease_token = run.lease_until = None
-                db.commit()
-        return
-    if blocked:
+        if pair in captures:
+            ready.append((query, service))
+        else:
+            queues[service].append(query)
+
+    providers = {}
+    analyses = {}
+    blocked = set()
+    model_slots = asyncio.Semaphore(20)
+    last_heartbeat = time.monotonic()
+
+    def pause(message):
         with sessions() as db:
             run = _owned_locked(db, run_id, token)
             if run and run.desired_state == "running":
                 run.desired_state = "paused"
-                run.error = "XMLRiver ограничил частоту или баланс; сохранённые ответы доступны после возобновления"
+                run.error = message
                 db.commit()
+
+    def desired():
+        with sessions() as db:
+            run = _owned(db, run_id, token)
+            return run.desired_state if run else None
+
+    async def collect(query, service, check_id):
+        def may_continue():
+            return (not (shutdown_event and shutdown_event.is_set()) and service not in blocked
+                    and _renew(sessions, run_id, token, need_running=True)
+                    and not (shutdown_event and shutdown_event.is_set()) and service not in blocked)
+        try:
+            if not may_continue():
+                return None, False, None
+            payload = await collector_factory(service, snapshot["cloud_geography"][service],
+                max_attempts=6).collect(query["text"], should_continue=may_continue)
+            return {**payload,
+                "brand_names": [snapshot["brand_name"], *snapshot["config"].get("brand_aliases", [])],
+                "brand_domains": snapshot["config"].get("brand_domains", [])}, False, None
+        except CollectionCancelled:
+            return None, False, None
+        except ProviderQuotaError as exc:
+            blocked.add(service)
+            if isinstance(exc, ProviderThrottleError) and cooldowns is not None:
+                cooldowns[service] = max(cooldowns.get(service, 0), clock() + exc.retry_after)
+            return _provider_error(exc, snapshot), False, "Лимит сервиса; сохранённые ответы доступны после возобновления"
+        except (AdapterError, XMLRiverResponseError) as exc:
+            return _provider_error(exc, snapshot), False, None
+        except Exception as exc:
+            logging.getLogger(__name__).error("Cloud collection failed (%s)", type(exc).__name__)
+            return None, True, "Сбор части ответов прервался; сохранённые ответы доступны после возобновления"
+
+    while True:
+        state = desired()
+        if state is None:
+            # A new owner may use saved model cache, but this owner cannot publish.
+            if not providers and not analyses:
+                return False
+        running = state == "running" and not (shutdown_event and shutdown_event.is_set())
+        if running:
+            reserve_failure = None
+            for service, queue in queues.items():
+                capacity = max(1, min(int(limits.get(service, 1)), 10))
+                while (queue and service not in blocked and
+                       not (cooldowns and cooldowns.get(service, 0) > clock()) and
+                       sum(s == service for _, s, _ in providers.values()) < capacity):
+                    query = queue[0]
+                    check_id = f"{run_id}:{query['id']}:{service}"
+                    reserve_error = None
+                    with sessions() as db:
+                        run = _owned_locked(db, run_id, token)
+                        if not run or run.desired_state != "running":
+                            break
+                        try:
+                            reserve_checks(db, db.get(User, run.user_id), [check_id], price, ai_client)
+                        except HTTPException as exc:
+                            reserve_error = str(exc.detail)[:1000]
+                    if reserve_error:
+                        reserve_failure = reserve_error
+                        break
+                    queue.popleft()
+                    task = asyncio.create_task(collect(query, service, check_id))
+                    providers[task] = (query, service, check_id)
+                if reserve_failure or desired() != "running":
+                    break
+            if reserve_failure:
+                # Give all affordable reservations one event-loop turn to enter
+                # their HTTP call before pausing the unaffordable remainder.
+                await asyncio.sleep(0)
+                pause(reserve_failure)
+        state = desired()
+        while ready and len(analyses) < 20 and state is not None and not (shutdown_event and shutdown_event.is_set()):
+            query, service = ready.popleft()
+            with sessions() as db:
+                capture = db.scalar(select(ServerCapture).where(ServerCapture.run_id == run_id,
+                    ServerCapture.query_id == query["id"], ServerCapture.service == service))
+                if not capture:
+                    continue
+                payload = json.loads(capture.answer_json)
+            task = asyncio.create_task(_process_saved_pair(sessions, ai_client, run_id, token,
+                snapshot, query, service, payload, shutdown_event, keep_lease=True,
+                model_semaphore=model_slots))
+            analyses[task] = (query, service)
+
+        active = set(providers) | set(analyses)
+        if not active:
+            break
+        finished, _ = await asyncio.wait(active, timeout=20, return_when=asyncio.FIRST_COMPLETED)
+        if time.monotonic() - last_heartbeat >= 20:
+            _renew(sessions, run_id, token)
+            last_heartbeat = time.monotonic()
+        for task in finished:
+            if task in providers:
+                query, service, check_id = providers.pop(task)
+                try:
+                    payload, failed, message = task.result()
+                except Exception as exc:
+                    logging.getLogger(__name__).error("Cloud collection task failed (%s)", type(exc).__name__)
+                    payload, failed, message = None, True, "Сбор части ответов прервался"
+                if failed or message:
+                    pause(message or "Сбор части ответов прервался")
+                if payload is None:
+                    if not (shutdown_event and shutdown_event.is_set()):
+                        _release_unstarted(sessions, run_id, token, check_id, snapshot,
+                            keep_lease=True) if not failed else None
+                    continue
+                try:
+                    with sessions() as db:
+                        run = _owned_locked(db, run_id, token)
+                        if not run:
+                            continue
+                        db.add(ServerCapture(run_id=run_id, query_id=query["id"], service=service,
+                            check_id=check_id, answer_json=json.dumps(payload, ensure_ascii=False)))
+                        db.commit()
+                    ready.append((query, service))
+                except Exception as exc:
+                    logging.getLogger(__name__).error("Cloud capture save failed (%s)", type(exc).__name__)
+                    pause("Сбор части ответов прервался; сохранённые ответы доступны после возобновления")
+            else:
+                analyses.pop(task)
+                try:
+                    task.result()
+                except Exception as exc:
+                    logging.getLogger(__name__).error("Cloud analysis task failed (%s)", type(exc).__name__)
+                    pause("Сохранённый ответ ожидает повторного анализа")
+
+    if shutdown_event and shutdown_event.is_set():
+        return _yield_shutdown(sessions, run_id, token)
+    with sessions() as db:
+        run = _owned_locked(db, run_id, token)
+        if not run:
+            return False
+        if run.desired_state == "cancelled":
+            for check in db.scalars(select(Check).where(Check.user_id == run.user_id,
+                    Check.client_check_id.startswith(run.id + ":"), Check.status == "reserved")):
+                complete_check(db, db.get(User, run.user_id), check.client_check_id,
+                    "skipped", commit=False)
+        _finish_item(db, run, snapshot)
+        db.commit()
+    return True
 
 
 async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClient,
@@ -404,8 +490,8 @@ async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClien
     if shutdown_event and shutdown_event.is_set():
         return _yield_shutdown(sessions, run_id, token)
     if prefetch_limits:
-        await _prefetch_batch(sessions, run_id, token, snapshot, ai_client, price,
-                              collector_factory, prefetch_limits, shutdown_event, cooldowns, clock)
+        return await _stream_run(sessions, run_id, token, snapshot, ai_client, price,
+            collector_factory, prefetch_limits, shutdown_event, cooldowns, clock)
     if shutdown_event and shutdown_event.is_set():
         return _yield_shutdown(sessions, run_id, token)
     with sessions() as db:
@@ -484,8 +570,59 @@ async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClien
             saved_db.add(capture_row)
             saved_db.commit()  # Raw answer survives model failure and process restart.
 
+    return await _process_saved_pair(sessions, ai_client, run_id, token, snapshot,
+        query, service, payload, shutdown_event)
+
+
+async def _model_response(fn, sessions, run_id, token, check_id, content, ai_client,
+                          shutdown_event, semaphore):
+    async def invoke():
+        if shutdown_event and shutdown_event.is_set():
+            return None
+        if not _renew(sessions, run_id, token, need_running=True):
+            return None
+        return await run_in_threadpool(fn, sessions, run_id, token, check_id, content, ai_client)
+
+    deferred_rejections = 0
+    while True:
+        try:
+            if semaphore is None:
+                return await invoke()
+            async with semaphore:
+                return await invoke()
+        except HTTPException as exc:
+            rate = exc.__cause__
+            if not isinstance(rate, AIRetryAfter) or not rate.retryable:
+                raise
+            with sessions() as db:
+                owner_id = db.scalar(select(ControlRun.user_id).where(ControlRun.id == run_id))
+                attempts_field = (Check.analysis_attempts if fn is _analyze_saved
+                                  else Check.arbitration_attempts)
+                attempts = db.scalar(select(attempts_field).where(Check.user_id == owner_id,
+                    Check.client_check_id == check_id)) if owner_id else None
+            if attempts is not None and attempts >= 4:
+                raise
+            if not rate.sent:
+                deferred_rejections += 1
+                if deferred_rejections >= 4:
+                    raise
+            # Provider-accepted calls consume the existing four-attempt budget.
+            # Pre-provider rejections have their own finite retry bound.
+            deadline = time.monotonic() + rate.seconds
+            while time.monotonic() < deadline:
+                if shutdown_event and shutdown_event.is_set():
+                    return None
+                if not _renew(sessions, run_id, token, need_running=True):
+                    return None
+                await asyncio.sleep(min(1, deadline - time.monotonic()))
+
+
+async def _process_saved_pair(sessions, ai_client, run_id, token, snapshot, query, service,
+                              payload, shutdown_event=None, *, keep_lease=False,
+                              model_semaphore=None):
+    check_id = f"{run_id}:{query['id']}:{service}"
     if shutdown_event and shutdown_event.is_set():
-        return _yield_shutdown(sessions, run_id, token)
+        return False if keep_lease else _yield_shutdown(sessions, run_id, token)
 
     with sessions() as db:
         run = _owned_locked(db, run_id, token)
@@ -496,7 +633,7 @@ async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClien
             complete_check(db, db.get(User, run.user_id), check_id, status, commit=False)
             _record(db, run, snapshot, query, service, check_id, payload, status=status,
                     error=payload.get("error_message") or ("AI-блок не показан" if status == "skipped" else None))
-            _finish_item(db, run, snapshot)
+            _finish_item(db, run, snapshot, keep_lease=keep_lease)
             db.commit()
             return True
 
@@ -513,22 +650,23 @@ async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClien
             text_only=True)}]
         try:
             if shutdown_event and shutdown_event.is_set():
-                return _yield_shutdown(sessions, run_id, token)
-            if not _renew(sessions, run_id, token):
-                return False
-            response = await run_in_threadpool(_analyze_saved, sessions, run_id, token, check_id, content, ai_client)
+                return False if keep_lease else _yield_shutdown(sessions, run_id, token)
+            response = await _model_response(_analyze_saved, sessions, run_id, token, check_id,
+                content, ai_client, shutdown_event, model_semaphore)
             if response is None:
-                return _defer_or_cancel(sessions, run_id, token, snapshot, query, service, check_id, payload) or False
+                return _defer_or_cancel(sessions, run_id, token, snapshot, query, service,
+                    check_id, payload, keep_lease=keep_lease) or False
             llm = _parse_cloud_verdict(response)
             if llm is None:
                 _clear_invalid_verdict(sessions, run_id, token, check_id, "analysis", response["raw"])
                 raise ValueError("Модель вернула неполное решение")
         except (HTTPException, ValueError) as exc:
-            disposition = _defer_or_cancel(sessions, run_id, token, snapshot, query, service, check_id, payload)
+            disposition = _defer_or_cancel(sessions, run_id, token, snapshot, query, service,
+                check_id, payload, keep_lease=keep_lease)
             if disposition is not None:
                 return disposition
             exhausted = _finish_exhausted(sessions, run_id, token, snapshot, query, service,
-                check_id, payload, "analysis")
+                check_id, payload, "analysis", keep_lease=keep_lease)
             if exhausted is not None:
                 return exhausted
             with sessions() as db:
@@ -536,7 +674,8 @@ async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClien
                 if run:
                     run.state = run.desired_state = "paused"
                     run.error = "Сохранённый ответ ожидает повторного анализа"
-                    run.lease_token = run.lease_until = None
+                    if not keep_lease:
+                        run.lease_token = run.lease_until = None
                     db.commit()
             return True
     verdict = merge(rule, llm, confidence_threshold=0.7, semantic_authoritative=bool(clarification))
@@ -544,24 +683,24 @@ async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClien
         text = content[0]["text"] + "\n\nПервая модель сочла упоминание найденным: " + (llm.quote or "")
         try:
             if shutdown_event and shutdown_event.is_set():
-                return _yield_shutdown(sessions, run_id, token)
-            if not _renew(sessions, run_id, token):
-                return False
-            response = await run_in_threadpool(_arbitrate_saved, sessions, run_id, token, check_id,
-                [{"type": "text", "text": text}], ai_client)
+                return False if keep_lease else _yield_shutdown(sessions, run_id, token)
+            response = await _model_response(_arbitrate_saved, sessions, run_id, token, check_id,
+                [{"type": "text", "text": text}], ai_client, shutdown_event, model_semaphore)
             if response is None:
-                return _defer_or_cancel(sessions, run_id, token, snapshot, query, service, check_id, payload) or False
+                return _defer_or_cancel(sessions, run_id, token, snapshot, query, service,
+                    check_id, payload, keep_lease=keep_lease) or False
             arbiter = _parse_cloud_verdict(response)
             if arbiter is None:
                 _clear_invalid_verdict(sessions, run_id, token, check_id, "arbitration", response["raw"])
                 raise ValueError("Арбитр вернул неполное решение")
             verdict = with_arbiter(verdict, arbiter)
         except (HTTPException, ValueError):
-            disposition = _defer_or_cancel(sessions, run_id, token, snapshot, query, service, check_id, payload)
+            disposition = _defer_or_cancel(sessions, run_id, token, snapshot, query, service,
+                check_id, payload, keep_lease=keep_lease)
             if disposition is not None:
                 return disposition
             exhausted = _finish_exhausted(sessions, run_id, token, snapshot, query, service,
-                check_id, payload, "arbitration")
+                check_id, payload, "arbitration", keep_lease=keep_lease)
             if exhausted is not None:
                 return exhausted
             with sessions() as db:
@@ -569,7 +708,8 @@ async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClien
                 if run:
                     run.state = run.desired_state = "paused"
                     run.error = "Сохранённый ответ ожидает повторного арбитража"
-                    run.lease_token = run.lease_until = None
+                    if not keep_lease:
+                        run.lease_token = run.lease_until = None
                     db.commit()
             return True
     with sessions() as db:
@@ -579,7 +719,7 @@ async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClien
         user = db.get(User, run.user_id)
         complete_check(db, user, check_id, verdict.status, commit=False)
         _record(db, run, snapshot, query, service, check_id, payload, verdict)
-        _finish_item(db, run, snapshot)
+        _finish_item(db, run, snapshot, keep_lease=keep_lease)
         db.commit()
     return True
 

@@ -10,6 +10,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import load_only
 
 from server.models import Check, CloudResult, ControlProject, Screenshot, ServerCapture, User, utcnow
+from server.public_errors import public_error
 from server.storage import StorageError
 
 KEY = "scan_feedback"
@@ -64,7 +65,7 @@ def result_detail(db, row):
         evidence = None
     has_screenshot = bool(check and db.get(Screenshot, check.id))
     return {"id": row.id, "query_text": row.query_text, "service": row.service, "scan_date": row.scan_date,
-            "status": row.status, "answer_text": row.answer_text, "error_message": row.error_message,
+            "status": row.status, "answer_text": row.answer_text, "error_message": public_error(row.error_message),
             "evidence_quote": row.evidence_quote, "sources": json.loads(row.sources_json or "[]"),
             "mention_types": json.loads(row.mention_types_json or "[]"), "check_id": row.check_id,
             "feedback": visible_feedback,

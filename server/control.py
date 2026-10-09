@@ -21,6 +21,7 @@ from server.agent_schemas import SCHEDULABLE_IDS
 from server.ai import AIError
 from server.models import (AgentDevice, Check, CloudResult, ControlLink, ControlProject, ControlRun, ServerCapture,
                            DeviceConnect, DeviceGrant, LedgerEntry, Screenshot, SessionToken, User, Wallet, utcnow)
+from server.public_errors import public_error, public_progress
 from server.reporting import SERVICES
 from server.scan_feedback import KEY as FEEDBACK_KEY, learning_context
 from server.security import new_token, token_hash
@@ -200,7 +201,7 @@ def run_payload(row, device=None):
     elif state in ("running", "paused") and row.lease_until and aware(row.lease_until) < utcnow():
         state = "connection_lost"
     snap = json.loads(row.snapshot_json)
-    progress = json.loads(row.progress_json)
+    progress = public_progress(json.loads(row.progress_json))
     cloud_total = len(snap["queries"]) * len(snap.get("cloud_services", []))
     if cloud_total:
         progress = {**progress, "cloud_done": progress.get("cloud_done", 0), "cloud_total": cloud_total,
@@ -208,7 +209,7 @@ def run_payload(row, device=None):
     return {"id": row.id, "project_id": row.project_id, "project_name": snap["name"],
             "device_id": row.device_id, "device_name": device.name if device else (row.device_id[-6:] if row.device_id else "Сервер"),
             "phase": row.phase, "state": state, "desired_state": row.desired_state, "progress": progress,
-            "error": row.error, "total": len(snap["queries"]) * len(snap["config"]["services"]),
+            "error": public_error(row.error), "total": len(snap["queries"]) * len(snap["config"]["services"]),
             "created_at": aware(row.created_at).isoformat(),
             "scheduled_for": aware(row.scheduled_for).isoformat() if row.scheduled_for else None}
 
@@ -231,12 +232,12 @@ def create_run(db, project, device_id, key, scheduled_for=None, brand_clarificat
     if cloud:
         from shared.xmlriver import configured, geography
         if not configured():
-            raise HTTPException(422, "Серверный XMLRiver не настроен для выбранного региона")
+            raise HTTPException(422, "Серверный сбор не настроен для выбранного региона")
         try:
             snap["cloud_geography"] = {service: geography(service, snap["config"].get("region_code", "213"))
                                        for service in cloud}
         except ValueError as exc:
-            raise HTTPException(422, str(exc)) from exc
+            raise HTTPException(422, public_error(str(exc))) from exc
     snap["cloud_services"] = cloud
     examples = learning_context(project)
     if examples:
