@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import ipaddress
+import time
 from dataclasses import dataclass, field
 from typing import Callable
 from urllib.parse import urlsplit
@@ -51,6 +52,28 @@ for _logger in ("httpx", "httpcore.connection", "httpcore.http11", "httpcore.htt
 
 def configured() -> bool:
     return bool(os.environ.get("AIPARSER_XMLRIVER_USER") and os.environ.get("AIPARSER_XMLRIVER_KEY"))
+
+
+async def account_limits() -> dict[str, int]:
+    limits = {"google_aio": 1, "yandex_neuro": 1}
+    if not configured():
+        return limits
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
+            response = await client.get("https://xmlriver.com/api/get_info/", params={
+                "user": os.environ["AIPARSER_XMLRIVER_USER"], "key": os.environ["AIPARSER_XMLRIVER_KEY"]})
+        response.raise_for_status()
+        data = response.json()
+        threads = data.get("threads") if isinstance(data, dict) else None
+        if isinstance(threads, dict):
+            for service, engine in (("google_aio", "google"), ("yandex_neuro", "yandex")):
+                value = threads.get(engine)
+                # One VPS worker owns these slots; cap memory/in-flight response size.
+                if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+                    limits[service] = min(value, 10)
+    except (httpx.HTTPError, ValueError):
+        pass  # Unknown account capacity permits only one request per engine.
+    return limits
 
 
 def geography(service_id: str, region: str) -> dict[str, str]:
@@ -200,17 +223,16 @@ def _parse_xml(payload: bytes, service_id: str, *, include_images: bool = False)
         encoded = ai.findtext("answer")
         if not encoded:
             raise XMLRiverResponseError("XMLRiver: AI-блок есть, но ответ отсутствует")
+        encoded_parts = [encoded]
         for item in ai.findall("item"):
             cards.append((item.findtext("title") or "", item.findtext("snippet") or "", item.findtext("url") or ""))
     else:
-        items = ai.findall("item")
-        if not items:
-            raise XMLRiverResponseError("XMLRiver: AI-блок есть, но содержимое отсутствует")
-        encoded = items[0].findtext("content")
-        if not encoded:
+        encoded_parts = list(dict.fromkeys(content.strip() for item in ai.findall("item")
+                                          if (content := item.findtext("content")) and content.strip()))
+        if not encoded_parts:
             raise XMLRiverResponseError("XMLRiver: AI-блок есть, но содержимое отсутствует")
     try:
-        html = base64.b64decode(encoded.strip(), validate=True).decode("utf-8")
+        html = "".join(base64.b64decode(part.strip(), validate=True).decode("utf-8") for part in encoded_parts)
     except (binascii.Error, UnicodeError) as exc:
         raise XMLRiverResponseError("XMLRiver: некорректный HTML ответа") from exc
     if not html.strip():
@@ -383,7 +405,11 @@ def evidence(markup: str | None, cards: list[tuple[str, str, str]], service_id: 
 class XMLRiverClient:
     requires_auth = False
 
-    def __init__(self, service_id: str, geo: dict[str, str], *, include_images: bool = True) -> None:
+    def __init__(self, service_id: str, geo: dict[str, str], *, include_images: bool = True,
+                 max_attempts: int = 3) -> None:
+        if type(max_attempts) is not int or not 1 <= max_attempts <= 6:
+            raise ValueError("XMLRiver retry budget must be an integer between 1 and 6")
+        self.max_attempts = max_attempts
         self.service_id = service_id
         self.include_images = include_images
         self.display_name = "Google AI Overview" if service_id == "google_aio" else "Яндекс Нейро"
@@ -402,11 +428,15 @@ class XMLRiverClient:
         if not configured():
             raise AdapterError("XMLRiver: доступ к API не настроен")
         self._should_continue = should_continue
+        started = time.monotonic()
         try:
             await self.ask(None, query, None)
             while True:
                 try:
-                    return evidence(self.html, self.cards, self.service_id)
+                    result = evidence(self.html, self.cards, self.service_id)
+                    result["collection"] = {"attempts": self._attempts,
+                                            "elapsed_ms": round((time.monotonic() - started) * 1000)}
+                    return result
                 except XMLRiverResponseError:
                     if not await self.retry():
                         raise
@@ -422,7 +452,7 @@ class XMLRiverClient:
 
     async def retry(self) -> bool:
         # Capture validation and HTTP/XML failures share one paid-request budget.
-        if self._query is None or self._attempts >= 3:
+        if self._query is None or self._attempts >= self.max_attempts:
             return False
         self._check_continue()
         self.html, self.cards = None, []
@@ -434,7 +464,7 @@ class XMLRiverClient:
         params = {**self.geo, "query": self._query, "ai": "1", "device": "desktop", "groupby": "10",
                   "user": os.environ["AIPARSER_XMLRIVER_USER"], "key": os.environ["AIPARSER_XMLRIVER_KEY"]}
         endpoint = GOOGLE_URL if self.service_id == "google_aio" else YANDEX_URL
-        while self._attempts < 3:
+        while self._attempts < self.max_attempts:
             self._check_continue()
             self._attempts += 1
             try:
@@ -449,9 +479,9 @@ class XMLRiverClient:
                 self.html, self.cards = _parse_xml(response.content, self.service_id, include_images=self.include_images)
                 return
             except XMLRiverResponseError:
-                if self._attempts >= 3:
+                if self._attempts >= self.max_attempts:
                     raise
             except (httpx.TransportError, httpx.TimeoutException):
-                if self._attempts >= 3:
+                if self._attempts >= self.max_attempts:
                     raise AdapterError("XMLRiver: ошибка сети или таймаут") from None
             await asyncio.sleep(self._attempts)
