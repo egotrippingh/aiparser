@@ -6,7 +6,8 @@ Read root `AGENTS.md`; read `PRODUCT.md` and `DESIGN.md` for UI changes.
   palette, keyboard access, labelled controls, focus and reduced motion. Use native
   controls or installed components before dependencies. Do not edit vendored React Bits
   merely to match formatting; preserve licenses.
-- Website configures projects; agent executes scans. Local `/api` and server `/api/v1`
+- Website configures projects; server executes Google/Yandex XMLRiver checks and
+  agent executes the other services. Local `/api` and server `/api/v1`
   are different contracts (`lib/api.ts`, `account-api.ts`, Vite proxies). Trace the actual
   endpoint and server response before changing types or optimistic UI state.
 - Polling must not overwrite dirty forms. Preserve revision conflicts, loading/error/

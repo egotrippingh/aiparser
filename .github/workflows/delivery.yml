@@ -44,6 +44,10 @@ jobs:
       - run: bash -n deploy/release.sh deploy/ssh-gate.sh deploy/provision-ubuntu.sh deploy/setup-delivery.sh
       - run: npm ci && npm test && npm run build
         working-directory: frontend
+      - name: Verify server image without desktop dependencies
+        run: |
+          docker build -t airate-server:ci -f server/Dockerfile .
+          docker run --rm -e APP_ENV=test -e DATABASE_URL=sqlite:////tmp/account.db --entrypoint python airate-server:ci -c 'from server.app import app; from server.cloud_scans import cloud_tick; assert app and cloud_tick'
 
   deploy:
     name: Deploy production
