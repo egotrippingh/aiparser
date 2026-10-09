@@ -1,6 +1,8 @@
 import asyncio
 import json
 import logging
+import threading
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -711,3 +713,62 @@ def test_worker_log_omits_database_parameters(monkeypatch, caplog):
             pass
     assert 'Cloud scan tick failed' in caplog.text
     assert secret not in caplog.text
+
+
+def test_worker_database_wait_does_not_delay_server_heartbeat(monkeypatch):
+    entered = threading.Event()
+    finished = threading.Event()
+
+    def blocked_claim(sessions):
+        entered.set()
+        time.sleep(0.6)  # Simulate a bounded SQL lock held by another request.
+        finished.set()
+        return None
+
+    monkeypatch.setattr('server.cloud_scans._claim', blocked_claim)
+
+    async def scenario():
+        task = asyncio.create_task(worker(None, None, 120))
+        try:
+            start = asyncio.get_running_loop().time()
+            await asyncio.sleep(0.05)
+            heartbeat_delay = asyncio.get_running_loop().time() - start
+            assert heartbeat_delay < 0.25
+            assert await asyncio.to_thread(entered.wait, 1)
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        assert finished.is_set()
+
+    asyncio.run(scenario())
+
+
+def test_lifespan_waits_for_current_cloud_tick_before_closing_ai(tmp_path, monkeypatch):
+    ai = FakeAI()
+    client, _, _, _, _ = setup(tmp_path, monkeypatch, ai=ai)
+    entered = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    closed = threading.Event()
+
+    async def blocked_tick(*args):
+        entered.set()
+        release.wait(2)
+        finished.set()
+        return False
+
+    def close_ai():
+        assert finished.is_set()
+        closed.set()
+
+    monkeypatch.setattr('server.cloud_scans.cloud_tick', blocked_tick)
+    ai.close = close_ai
+    with client:
+        assert entered.wait(1)
+        timer = threading.Timer(0.1, release.set)
+        timer.start()
+    timer.join(1)
+    assert closed.is_set()

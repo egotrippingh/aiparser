@@ -392,10 +392,23 @@ async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClien
     return True
 
 
+def _run_tick_in_thread(sessions, ai_client, price):
+    # The tick contains synchronous SQLAlchemy calls and must not block uvicorn's loop.
+    return asyncio.run(cloud_tick(sessions, ai_client, price))
+
+
 async def worker(sessions, ai_client, price):
     while True:
+        current = asyncio.create_task(asyncio.to_thread(_run_tick_in_thread, sessions, ai_client, price))
         try:
-            advanced = await cloud_tick(sessions, ai_client, price)
+            advanced = await asyncio.shield(current)
+        except asyncio.CancelledError:
+            # The provider/model call is bounded; finish it before closing the AI client.
+            try:
+                await current
+            except Exception:
+                pass
+            raise
         except Exception:
             import logging
             # Database exceptions may embed bound answer text in their parameters.
