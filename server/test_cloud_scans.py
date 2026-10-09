@@ -50,6 +50,9 @@ class FakeAI:
 
 @pytest.fixture(autouse=True)
 def reset_collector(monkeypatch):
+    async def fake_limits():
+        return {'google_aio': 1, 'yandex_neuro': 1}
+    monkeypatch.setattr('server.cloud_scans.account_limits', fake_limits)
     monkeypatch.setattr(Collector, 'answer', {
         'shown': True, 'main_text': 'Brand is recommended', 'cards_text': '',
         'answer_text': 'Brand is recommended', 'html': '<p>Brand is recommended</p>',
@@ -697,7 +700,7 @@ def test_cloud_schedule_without_device(tmp_path, monkeypatch):
 def test_worker_log_omits_database_parameters(monkeypatch, caplog):
     secret = 'PRIVATE_ANSWER_SENTINEL'
 
-    async def fail_tick(*args):
+    async def fail_tick(*args, **kwargs):
         raise StatementError('failed write', 'INSERT INTO server_captures',
             {'answer_json': secret}, ValueError('database error'))
 
@@ -754,9 +757,10 @@ def test_lifespan_waits_for_current_cloud_tick_before_closing_ai(tmp_path, monke
     finished = threading.Event()
     closed = threading.Event()
 
-    async def blocked_tick(*args):
+    async def blocked_tick(*args, **kwargs):
         entered.set()
         release.wait(2)
+        assert kwargs['shutdown_event'].is_set()
         finished.set()
         return False
 
@@ -772,3 +776,272 @@ def test_lifespan_waits_for_current_cloud_tick_before_closing_ai(tmp_path, monke
         timer.start()
     timer.join(1)
     assert closed.is_set()
+
+
+def test_batch_prefetch_overlaps_and_respects_engine_caps(tmp_path, monkeypatch):
+    client, owner, _, _, sessions = setup(tmp_path, monkeypatch)
+    _, run = project_and_run(client, owner, services=('google_aio', 'yandex_neuro'),
+        queries=[{'text': f'q{i}'} for i in range(3)])
+
+    class BatchCollector(Collector):
+        active = peak = 0
+        calls = []
+        attempts = []
+
+        def __init__(self, service, geo, *, max_attempts=3):
+            super().__init__(service, geo)
+            self.attempts.append(max_attempts)
+
+        async def collect(self, query, *, should_continue=None):
+            assert should_continue()
+            self.calls.append((self.service, query))
+            type(self).active += 1
+            type(self).peak = max(type(self).peak, type(self).active)
+            await asyncio.sleep(0.05)
+            type(self).active -= 1
+            return dict(self.answer)
+
+    limits = {'google_aio': 2, 'yandex_neuro': 2}
+    def batch_tick():
+        return asyncio.run(cloud_tick(sessions, None, 120, BatchCollector, prefetch_limits=limits))
+
+    assert batch_tick()
+    assert BatchCollector.peak == 4
+    assert sorted(BatchCollector.attempts) == [6] * 4
+    assert sorted(BatchCollector.calls) == sorted([(service, f'q{i}')
+        for service in limits for i in range(2)])
+    with sessions() as db:
+        assert len(db.scalars(select(ServerCapture)).all()) == 4
+        assert len(db.scalars(select(CloudResult)).all()) == 1
+    assert batch_tick()
+    assert len(BatchCollector.calls) == 4  # Saved answers drain before another batch.
+    for _ in range(4):
+        assert batch_tick()
+    with sessions() as db:
+        assert db.get(ControlRun, run['id']).state == 'done'
+        assert len(db.scalars(select(ServerCapture)).all()) == 6
+        assert len(db.scalars(select(CloudResult)).all()) == 6
+    assert max(BatchCollector.attempts) == 6
+
+
+def test_batch_hard_caps_ten_requests_per_engine(tmp_path, monkeypatch):
+    client, owner, _, _, sessions = setup(tmp_path, monkeypatch)
+    project_and_run(client, owner, services=('google_aio', 'yandex_neuro'),
+        queries=[{'text': f'q{i}'} for i in range(11)])
+
+    class CappedCollector(Collector):
+        calls = []
+
+        def __init__(self, service, geo, *, max_attempts):
+            assert max_attempts == 6
+            super().__init__(service, geo)
+
+        async def collect(self, query, *, should_continue=None):
+            self.calls.append((self.service, query))
+            return dict(self.answer)
+
+    assert asyncio.run(cloud_tick(sessions, None, 120, CappedCollector,
+        prefetch_limits={'google_aio': 100, 'yandex_neuro': 100}))
+    assert sum(service == 'google_aio' for service, _ in CappedCollector.calls) == 10
+    assert sum(service == 'yandex_neuro' for service, _ in CappedCollector.calls) == 10
+    with sessions() as db:
+        assert len(db.scalars(select(ServerCapture)).all()) == 20
+
+
+def test_partial_batch_crash_drains_later_saved_answer_first(tmp_path, monkeypatch):
+    client, owner, _, _, sessions = setup(tmp_path, monkeypatch)
+    _, run = project_and_run(client, owner, queries=[{'text': 'q0'}, {'text': 'q1'}])
+
+    class PartialCollector(Collector):
+        calls = []
+
+        def __init__(self, service, geo, *, max_attempts=3):
+            super().__init__(service, geo)
+
+        async def collect(self, query, *, should_continue=None):
+            self.calls.append(query)
+            if query == 'q0':
+                raise CollectionCancelled('interrupted before response')
+            return dict(self.answer)
+
+    assert asyncio.run(cloud_tick(sessions, None, 120, PartialCollector,
+        prefetch_limits={'google_aio': 2}))
+    assert PartialCollector.calls == ['q0', 'q1']
+    with sessions() as db:
+        captures = db.scalars(select(ServerCapture)).all()
+        results = db.scalars(select(CloudResult)).all()
+        assert len(captures) == len(results) == 1
+        assert results[0].query_text == 'q1'
+        assert db.get(ControlRun, run['id']).state == 'running'
+
+
+def test_stop_during_batch_drains_all_saved_and_releases_unstarted(tmp_path, monkeypatch):
+    client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, admin=False)
+    _, run = project_and_run(client, owner, queries=[{'text': f'q{i}'} for i in range(4)])
+    with sessions() as db:
+        db.get(Wallet, user_id).balance_kopeks = 500
+        db.commit()
+
+    class StopCollector(Collector):
+        calls = []
+        started = 0
+
+        def __init__(self, service, geo, *, max_attempts):
+            super().__init__(service, geo)
+
+        async def collect(self, query, *, should_continue=None):
+            assert should_continue()
+            self.calls.append(query)
+            type(self).started += 1
+            while type(self).started < 3:
+                await asyncio.sleep(0)
+            if query == 'q0':
+                assert client.post(f"/api/v1/control/runs/{run['id']}/command", headers=owner,
+                    json={'action': 'stop'}).status_code == 200
+            await asyncio.sleep(0)
+            return dict(self.answer)
+
+    def batch_tick():
+        return asyncio.run(cloud_tick(sessions, None, 120, StopCollector,
+            prefetch_limits={'google_aio': 3}))
+
+    assert batch_tick()
+    assert sorted(StopCollector.calls) == ['q0', 'q1', 'q2']
+    with sessions() as db:
+        assert len(db.scalars(select(ServerCapture)).all()) == 3
+        assert db.get(ControlRun, run['id']).state == 'running'
+    assert batch_tick() and batch_tick()
+    with sessions() as db:
+        assert db.get(ControlRun, run['id']).state == 'cancelled'
+        assert len(db.scalars(select(CloudResult)).all()) == 3
+        assert all(row.status == 'settled' for row in db.scalars(select(Check)).all())
+        assert db.get(Wallet, user_id).balance_kopeks == 140
+        assert len(db.scalars(select(LedgerEntry).where(LedgerEntry.kind == 'check')).all()) == 3
+    assert not batch_tick()
+
+
+def test_batch_pause_preserves_other_answers_for_resume(tmp_path, monkeypatch):
+    client, owner, _, _, sessions = setup(tmp_path, monkeypatch)
+    _, run = project_and_run(client, owner, queries=[{'text': 'q0'}, {'text': 'q1'}])
+
+    class PauseCollector(Collector):
+        calls = []
+        started = 0
+
+        def __init__(self, service, geo, *, max_attempts):
+            super().__init__(service, geo)
+
+        async def collect(self, query, *, should_continue=None):
+            assert should_continue()
+            self.calls.append(query)
+            type(self).started += 1
+            while type(self).started < 2:
+                await asyncio.sleep(0)
+            if query == 'q0':
+                assert client.post(f"/api/v1/control/runs/{run['id']}/command", headers=owner,
+                    json={'action': 'pause'}).status_code == 200
+            return dict(self.answer)
+
+    def batch_tick():
+        return asyncio.run(cloud_tick(sessions, None, 120, PauseCollector,
+            prefetch_limits={'google_aio': 2}))
+
+    assert batch_tick()
+    with sessions() as db:
+        assert len(db.scalars(select(ServerCapture)).all()) == 2
+        assert db.get(ControlRun, run['id']).state == 'paused'
+    assert sorted(PauseCollector.calls) == ['q0', 'q1']
+    assert client.post(f"/api/v1/control/runs/{run['id']}/command", headers=owner,
+        json={'action': 'resume'}).status_code == 200
+    assert batch_tick()
+    with sessions() as db:
+        assert db.get(ControlRun, run['id']).state == 'done'
+        assert len(db.scalars(select(CloudResult)).all()) == 2
+    assert sorted(PauseCollector.calls) == ['q0', 'q1']
+
+
+def test_batch_reserves_only_affordable_checks_before_provider_calls(tmp_path, monkeypatch):
+    client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, admin=False)
+    _, run = project_and_run(client, owner, queries=[{'text': f'q{i}'} for i in range(3)])
+    with sessions() as db:
+        db.get(Wallet, user_id).balance_kopeks = 250
+        db.commit()
+
+    class PaidCollector(Collector):
+        calls = []
+
+        def __init__(self, service, geo, *, max_attempts):
+            super().__init__(service, geo)
+
+        async def collect(self, query, *, should_continue=None):
+            assert should_continue()
+            self.calls.append(query)
+            return dict(self.answer)
+
+    def batch_tick():
+        return asyncio.run(cloud_tick(sessions, None, 120, PaidCollector,
+            prefetch_limits={'google_aio': 3}))
+
+    assert batch_tick() and batch_tick() and batch_tick()
+    assert PaidCollector.calls == ['q0', 'q1']
+    with sessions() as db:
+        assert db.get(ControlRun, run['id']).state == 'paused'
+        assert len(db.scalars(select(ServerCapture)).all()) == 2
+        assert len(db.scalars(select(CloudResult)).all()) == 2
+        assert db.get(Wallet, user_id).balance_kopeks == 10
+        assert len(db.scalars(select(LedgerEntry).where(LedgerEntry.kind == 'check')).all()) == 2
+
+
+def test_shutdown_stops_retry_but_preserves_inflight_answer_and_reservation(tmp_path, monkeypatch):
+    client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, admin=False)
+    _, run = project_and_run(client, owner, queries=[{'text': 'q0'}, {'text': 'q1'}])
+    with sessions() as db:
+        db.get(Wallet, user_id).balance_kopeks = 500
+        db.commit()
+    shutdown = threading.Event()
+
+    class ShutdownCollector(Collector):
+        calls = []
+
+        def __init__(self, service, geo, *, max_attempts):
+            super().__init__(service, geo)
+
+        async def collect(self, query, *, should_continue=None):
+            self.calls.append(query)
+            assert should_continue()
+            if query == 'q0':
+                shutdown.set()  # The current provider response still arrives.
+                assert not should_continue()
+                return dict(self.answer)
+            raise AssertionError('shutdown started another HTTP request')
+
+    assert asyncio.run(cloud_tick(sessions, None, 120, ShutdownCollector,
+        prefetch_limits={'google_aio': 2}, shutdown_event=shutdown))
+    assert ShutdownCollector.calls == ['q0']
+    with sessions() as db:
+        assert db.get(ControlRun, run['id']).state == 'running'
+        assert db.get(ControlRun, run['id']).lease_token is None
+        assert len(db.scalars(select(ServerCapture)).all()) == 1
+        assert len(db.scalars(select(Check)).all()) == 2
+        assert all(check.status == 'reserved' for check in db.scalars(select(Check)).all())
+        assert db.get(Wallet, user_id).balance_kopeks == 500
+
+    class ResumeCollector(Collector):
+        calls = []
+
+        def __init__(self, service, geo, *, max_attempts):
+            super().__init__(service, geo)
+
+        async def collect(self, query, *, should_continue=None):
+            self.calls.append(query)
+            return dict(self.answer)
+
+    for _ in range(2):
+        assert asyncio.run(cloud_tick(sessions, None, 120, ResumeCollector,
+            prefetch_limits={'google_aio': 2}))
+    assert ResumeCollector.calls == ['q1']
+    with sessions() as db:
+        assert db.get(ControlRun, run['id']).state == 'done'
+        assert len(db.scalars(select(CloudResult)).all()) == 2
+        assert db.get(Wallet, user_id).balance_kopeks == 260
+        assert len(db.scalars(select(LedgerEntry).where(LedgerEntry.kind == 'check')).all()) == 2
