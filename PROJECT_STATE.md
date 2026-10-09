@@ -1,5 +1,31 @@
 # AIRate current project state
 
+## XMLRiver speed and error follow-up ready for CI (2026-10-09)
+
+Branch `codex/xmlriver-throughput`, server source `b7b4c8d`, shared source
+`53034b1`, adds parallel collection within confirmed account limits (10 per
+engine), immediate independent capture saves and six bounded server attempts.
+An empty first Yandex AI item no longer hides later content. Legacy agent
+collection keeps three attempts. No schema, price or frontend change is needed.
+
+Stop/pause/shutdown preserve returned answers and once-only settlement. An
+unexpected task/save failure drains siblings and pauses instead of losing the
+whole batch. XML 115/HTTP 429 sets a worker-wide 600-second engine cooldown;
+blocked Yandex runs do not starve Google. Analysis remains sequential. Account
+limits are read at startup and cooldown resets on process restart; multiple
+workers would require a shared limiter.
+
+Final local checks: 124 server tests, 65 XMLRiver tests, 33 rules/LLM/clarification,
+52 pipeline/durable/billing/storage and 46 watchdog/readiness/timing checks passed;
+benchmark self-check passed. New batch checks use SQLite and fake providers,
+not live PostgreSQL. Independent final re-review and exact-SHA CI are pending.
+
+Live SDK follow-up on the two reported Yandex queries returned valid absence of
+AI in 3.781s for one; the other exhausted six attempts after 230.609s. This is
+provider availability evidence, not a successful production scan or a measured
+throughput improvement. Production remains `09df3b7` until deployment succeeds.
+See [the follow-up brief](docs/tasks/xmlriver-throughput.md).
+
 ## XMLRiver server collection deployed (2026-10-09)
 
 The user selected server collection and text analysis for `google_aio` and
