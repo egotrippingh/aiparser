@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import logging
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -102,6 +103,162 @@ def test_transient_xml_retries_and_secret_never_enters_error(monkeypatch, caplog
     with pytest.raises(AdapterError) as error:
         asyncio.run(adapter.ask(None, "вопрос", "213"))
     assert "synthetic-secret" not in str(error.value)
+
+
+@pytest.fixture
+def provider_replies(monkeypatch):
+    monkeypatch.setenv("AIPARSER_XMLRIVER_USER", "synthetic-user")
+    monkeypatch.setenv("AIPARSER_XMLRIVER_KEY", "synthetic-secret")
+    client = httpx.AsyncClient
+    calls, waits = [], []
+
+    def install(responses):
+        def reply(request):
+            calls.append(request)
+            return responses[min(len(calls) - 1, len(responses) - 1)]
+        monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: client(transport=httpx.MockTransport(reply), **kwargs))
+
+    async def no_wait(delay):
+        waits.append(delay)
+    monkeypatch.setattr("app.scanner.adapters.xmlriver.asyncio", SimpleNamespace(sleep=no_wait))
+    return install, calls, waits
+
+
+@pytest.mark.parametrize("service", ["google_aio", "yandex_neuro"])
+@pytest.mark.parametrize("bad", [
+    b"<broken", b"<yandexsearch><response/></yandexsearch>",
+    b"<yandexsearch><response><ai><present>1</present></ai></response></yandexsearch>",
+    b"<yandexsearch><response><ai><answer>%%%bad</answer><item><content>%%%bad</content></item></ai></response></yandexsearch>",
+])
+def test_invalid_response_is_recollected_before_returning(service, bad, provider_replies):
+    install, calls, waits = provider_replies
+    install([httpx.Response(200, content=bad), httpx.Response(200, content=_xml(service, "<p>Корректный совет</p>"))])
+    adapter = XMLRiverAdapter(service, geography(service, "213"))
+    asyncio.run(adapter.ask(None, "вопрос", "213"))
+    assert len(calls) == 2 and waits == [1]
+    assert adapter.html == "<p>Корректный совет</p>"
+    assert calls[0].url == calls[1].url
+
+
+def test_repeated_invalid_response_stops_after_three_attempts(provider_replies):
+    install, calls, waits = provider_replies
+    install([httpx.Response(200, content=b"<broken")])
+    adapter = XMLRiverAdapter("google_aio", geography("google_aio", "213"))
+    with pytest.raises(AdapterError, match="повреждённый XML"):
+        asyncio.run(adapter.ask(None, "вопрос", "213"))
+    assert len(calls) == 3 and waits == [1, 2]
+    assert adapter.html is None and adapter.cards == []
+
+
+@pytest.mark.parametrize("response", [
+    httpx.Response(429), httpx.Response(400),
+    httpx.Response(200, content=b"<yandexsearch><error code='200'/></yandexsearch>"),
+    httpx.Response(200, content=b"<yandexsearch><error code='31'/></yandexsearch>"),
+])
+def test_access_and_quota_errors_do_not_retry(response, provider_replies):
+    install, calls, waits = provider_replies
+    install([response])
+    adapter = XMLRiverAdapter("google_aio", geography("google_aio", "213"))
+    with pytest.raises(AdapterError):
+        asyncio.run(adapter.ask(None, "вопрос", "213"))
+    assert len(calls) == 1 and waits == []
+
+
+def test_retry_wait_is_cancellable(provider_replies, monkeypatch):
+    install, calls, _ = provider_replies
+    install([httpx.Response(200, content=b"<broken")])
+    async def check():
+        waiting = asyncio.Event()
+        async def blocked(_):
+            waiting.set()
+            await asyncio.Event().wait()
+        monkeypatch.setattr("app.scanner.adapters.xmlriver.asyncio.sleep", blocked)
+        adapter = XMLRiverAdapter("google_aio", geography("google_aio", "213"))
+        task = asyncio.create_task(adapter.ask(None, "вопрос", "213"))
+        try:
+            await asyncio.wait_for(waiting.wait(), 1)
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        assert len(calls) == 1
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize("stop_at", ["capture", "retry_wait"])
+def test_stop_prevents_recollection_of_empty_capture(stop_at, provider_replies, monkeypatch):
+    from app.scanner import orchestrator as scan
+    from app.scanner.adapters.xmlriver import XMLRiverResponseError
+
+    install, calls, _ = provider_replies
+    install([httpx.Response(200, content=_xml("google_aio", "<p>Ответ</p>"))])
+    async def check():
+        ctl = scan.ScanController(1, 1, 1, "2026-10-09")
+        adapter = XMLRiverAdapter("google_aio", geography("google_aio", "213"))
+        waiting = asyncio.Event()
+        async def empty(_):
+            if stop_at == "capture":
+                ctl.stop()
+            raise XMLRiverResponseError("XMLRiver: AI-блок есть, но основной текст пуст")
+        async def blocked(_):
+            assert ctl.browser_phase["google_aio"]["phase"] == "ask"
+            waiting.set()
+            await asyncio.Event().wait()
+        monkeypatch.setattr(adapter, "capture", empty)
+        monkeypatch.setattr("app.scanner.adapters.xmlriver.asyncio.sleep", blocked)
+        task = asyncio.create_task(scan._ask_and_capture(adapter, None, {"region_code": "213"},
+                                                         {"id": 1, "text": "вопрос"}, "google_aio", 1, ctl))
+        try:
+            if stop_at == "retry_wait":
+                await asyncio.wait_for(waiting.wait(), 1)
+                ctl.stop()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 1)
+            assert len(calls) == 1
+        finally:
+            task.cancel()
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize("service", ["google_aio", "yandex_neuro"])
+@pytest.mark.parametrize("ending", ["valid", "invalid", "absent"])
+def test_empty_main_recollection_shares_request_budget(service, ending, provider_replies):
+    from camoufox import pkgman
+    from playwright.async_api import async_playwright
+    from app.scanner.browser_install import available_browser
+    from app.scanner import orchestrator as scan
+
+    binary = available_browser()
+    if binary is None:
+        pytest.skip("Camoufox binary is not installed")
+    install, calls, waits = provider_replies
+    empty = _xml(service, "<aside data-xid='aim-aside-1' class='FuturisOrgCard'>Только карточка</aside>")
+    last = {"valid": _xml(service, "<p>Основной совет</p>"), "invalid": empty,
+            "absent": b"<yandexsearch><response><found>0</found><results/></response></yandexsearch>"}[ending]
+    install([httpx.Response(503), httpx.Response(200, content=empty), httpx.Response(200, content=last)])
+
+    async def check():
+        async with async_playwright() as playwright:
+            browser = await playwright.firefox.launch(executable_path=str(pkgman.launch_path(binary)), headless=True)
+            try:
+                page = await browser.new_page()
+                adapter = XMLRiverAdapter(service, geography(service, "213"))
+                ctl = scan.ScanController(1, 1, 1, "2026-10-09")
+                async def collect():
+                    return await scan._ask_and_capture(adapter, page, {"region_code": "213"},
+                                                       {"id": 1, "text": "вопрос"}, service, 1, ctl)
+                if ending == "invalid":
+                    with pytest.raises(AdapterError, match="основной текст пуст"):
+                        await collect()
+                else:
+                    captured = await collect()
+                    assert captured.shown == (ending == "valid")
+                    assert captured.answer_text == ("Основной совет" if ending == "valid" else "")
+                assert len(calls) == 3 and waits == [1, 2]
+                assert len({str(call.url) for call in calls}) == 1
+            finally:
+                await browser.close()
+    asyncio.run(check())
 
 
 def test_offline_browser_capture_separates_cards_and_blocks_provider_resources():

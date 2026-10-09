@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
+import httpx
 from fastapi import HTTPException
 
 from app import billing, config
@@ -140,6 +141,35 @@ def test_raw_capture_survives_export_failure_and_retries_analysis(tmp_path, monk
     assert repo.capture(ctl.scan_id, items[0]['id'], 'chatgpt')['screenshot_bytes'] == b'image'
     monkeypatch.setattr(scan.imaging, 'to_webp', lambda raw: raw)
     assert asyncio.run(one()) == 'found' and asked == ['question 0']
+
+
+@pytest.mark.parametrize('recovered', [True, False])
+def test_xmlriver_invalid_response_is_not_published_before_retries(tmp_path, monkeypatch, recovered):
+    import base64
+    from app.scanner.adapters.xmlriver import XMLRiverAdapter, geography
+
+    monkeypatch.setenv('AIPARSER_XMLRIVER_USER', 'synthetic-user')
+    monkeypatch.setenv('AIPARSER_XMLRIVER_KEY', 'synthetic-secret')
+    project, items, settings, ctl, _, prototype = setup(tmp_path, monkeypatch, count=1, services=('google_aio',))
+    client = httpx.AsyncClient
+    calls = []
+    answer = base64.b64encode(b'<p>Brand answer</p>').decode()
+    valid = f'<yandexsearch><response><ai><answer>{answer}</answer></ai></response></yandexsearch>'.encode()
+    def reply(request):
+        calls.append(request)
+        assert repo.results_for_scan(ctl.scan_id) == []
+        return httpx.Response(200, content=valid if recovered and len(calls) == 2 else b'<broken')
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: client(transport=httpx.MockTransport(reply), **kwargs))
+    async def no_wait(_): pass
+    from app.scanner.adapters import xmlriver
+    monkeypatch.setattr(xmlriver, 'asyncio', SimpleNamespace(sleep=no_wait))
+    adapter = XMLRiverAdapter('google_aio', geography('google_aio', '213'))
+    monkeypatch.setattr(adapter, 'capture', prototype.capture)
+    outcome = asyncio.run(scan._run_one(project, items[0], 'google_aio', adapter, None, settings,
+                                       0, '', 'fake', 'never', ctl))
+    assert outcome == ('found' if recovered else 'error')
+    assert len(calls) == (2 if recovered else 3)
+    assert [row['status'] for row in repo.results_for_scan(ctl.scan_id)] == [outcome]
 
 
 def test_skipped_capture_finishes_and_deletion_protects_errors(tmp_path, monkeypatch):

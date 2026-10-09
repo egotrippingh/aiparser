@@ -18,7 +18,9 @@
 - Provider HTML must not execute scripts or fetch network resources; do not use
   real profiles/DBs/credentials in deterministic tests. Never log credential URLs.
 - No change to detector/LLM/arbiter/deep-check semantics, pricing or migrations.
-- API absence -> existing skipped; invalid/partial response or API error -> error.
+- API absence -> existing skipped; invalid/partial response retries automatically
+  within the same three-request budget as HTTP/network/XML failures. Only
+  exhausted/permanent failures become recoverable errors, never negative results.
 - Preserve capture-before-analysis, stop/pause/cancel, outbox and once-only settlement.
 - Freeze backend and nonsecret geographic settings. Old snapshots use browser Google.
 - Project region is a Yandex code, not Google loc. Moscow mapping is verified;
@@ -89,3 +91,29 @@ No live model/payment tests, release or migration planned.
 - Remaining limits: local representation instead of native SERP screenshot;
   Moscow verified, other Google locations require explicit matching configuration.
   No production deployment, installer qualification or real workload benchmark.
+
+## Invalid-answer retry follow-up (2026-10-09)
+
+- Base: local `5bc61e3`, clean tree. User requests automatic recollection of
+  malformed XML and incomplete AI blocks before displaying a query error.
+- One three-HTTP-request budget covers network/HTTP/XML errors and empty
+  extracted main text. Backoff remains 1/2 seconds; valid absence, auth/quota,
+  unsafe oversized/DTD payloads and saved-analysis behavior stay unchanged.
+- Watchdog returns to ask phase before recollection; stop/cancel must prevent
+  another provider request. Intermediate attempts must not write result rows.
+- Regression on the unchanged implementation: 16 failed, 17 passed in
+  `tests/test_xmlriver.py`, covering malformed/partial recovery and empty main.
+- Acceptance includes mixed HTTP failure + cards-only block + valid/absent
+  response, exhausted retries, identical query/geo, cancellation and stop,
+  and no intermediate database result.
+- Final scoped checks: XMLRiver/pipeline 62 passed; readiness/watchdog 46
+  passed; pipeline/durable/billing/storage 52 passed (133 distinct tests).
+  Benchmark self-check and diff check passed. Independent Sol review: no blockers.
+- The first post-fix browser checks exposed a test fixture patching global
+  asyncio.sleep and counting Playwright's own zero-delay waits. The fixture now
+  replaces only the adapter's asyncio namespace; behavior assertions remain.
+- Follow-up evidence summaries:
+  `~/.codex/tmp/xmlriver-retries-20261009/report.json`.
+  Fake providers and temporary databases only; no live provider/model/payment,
+  production or installer check. After three failures the existing recoverable
+  error remains visible; absolute absence of user-visible errors is not guaranteed.

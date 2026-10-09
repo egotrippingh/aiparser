@@ -27,6 +27,10 @@ _CARD_SELECTOR = ("[data-xid^='aim-aside'], .FuturisGPTMessage-SourcesItem, "
                   "[class*='Promo'], [class*='promo']")
 
 
+class XMLRiverResponseError(AdapterError):
+    """Transient provider failure or unusable answer eligible for recollection."""
+
+
 class _RedactXMLRiver(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if "xmlriver.com/" in record.getMessage().lower():
@@ -137,7 +141,7 @@ def _parse_xml(payload: bytes, service_id: str) -> tuple[str | None, list[tuple[
     try:
         root = ET.fromstring(payload)
     except ET.ParseError as exc:
-        raise AdapterError("XMLRiver: повреждённый XML") from exc
+        raise XMLRiverResponseError("XMLRiver: повреждённый XML") from exc
     error = root.find(".//error")
     if error is not None:
         code = error.get("code") or error.findtext("code") or ""
@@ -147,36 +151,38 @@ def _parse_xml(payload: bytes, service_id: str) -> tuple[str | None, list[tuple[
             raise ProviderQuotaError("XMLRiver: временная блокировка из-за частоты запросов")
         if code in _AUTH_CODES:
             raise AdapterError(f"XMLRiver: ошибка доступа {code}")
+        if code in _RETRY_CODES:
+            raise XMLRiverResponseError(f"XMLRiver: ошибка API {code}")
         raise AdapterError(f"XMLRiver: ошибка API {code or 'unknown'}")
     if root.tag != "yandexsearch" or root.find("response") is None:
-        raise AdapterError("XMLRiver: неполный ответ")
+        raise XMLRiverResponseError("XMLRiver: неполный ответ")
     response = root.find("response")
     ai = response.find("ai")
     if ai is None or ai.findtext("present") == "0":
         results = response.find("results")
         if results is None or (results.find(".//doc") is None and response.findtext("found") != "0"):
-            raise AdapterError("XMLRiver: неполная поисковая выдача без AI-блока")
+            raise XMLRiverResponseError("XMLRiver: неполная поисковая выдача без AI-блока")
         return None, []
     cards: list[tuple[str, str, str]] = []
     if service_id == "google_aio":
         encoded = ai.findtext("answer")
         if not encoded:
-            raise AdapterError("XMLRiver: AI-блок есть, но ответ отсутствует")
+            raise XMLRiverResponseError("XMLRiver: AI-блок есть, но ответ отсутствует")
         for item in ai.findall("item"):
             cards.append((item.findtext("title") or "", item.findtext("snippet") or "", item.findtext("url") or ""))
     else:
         items = ai.findall("item")
         if not items:
-            raise AdapterError("XMLRiver: AI-блок есть, но содержимое отсутствует")
+            raise XMLRiverResponseError("XMLRiver: AI-блок есть, но содержимое отсутствует")
         encoded = items[0].findtext("content")
         if not encoded:
-            raise AdapterError("XMLRiver: AI-блок есть, но содержимое отсутствует")
+            raise XMLRiverResponseError("XMLRiver: AI-блок есть, но содержимое отсутствует")
     try:
         html = base64.b64decode(encoded.strip(), validate=True).decode("utf-8")
     except (binascii.Error, UnicodeError) as exc:
-        raise AdapterError("XMLRiver: некорректный HTML ответа") from exc
+        raise XMLRiverResponseError("XMLRiver: некорректный HTML ответа") from exc
     if not html.strip():
-        raise AdapterError("XMLRiver: пустой HTML ответа")
+        raise XMLRiverResponseError("XMLRiver: пустой HTML ответа")
     return _safe_html(html), cards
 
 
@@ -189,6 +195,8 @@ class XMLRiverAdapter:
         self.geo = geo
         self.html: str | None = None
         self.cards: list[tuple[str, str, str]] = []
+        self._query: str | None = None
+        self._attempts = 0
 
     async def ensure_ready(self, page) -> ReadyState:
         if not configured():
@@ -198,34 +206,43 @@ class XMLRiverAdapter:
     async def ask(self, page, query: str, region: str | None, *, speed: float = 1.0) -> None:
         self.html = None
         self.cards = []
-        params = {**self.geo, "query": query, "ai": "1", "device": "desktop", "groupby": "10",
+        self._query = query
+        self._attempts = 0
+        await self._request()
+
+    async def retry(self) -> bool:
+        # Capture validation and HTTP/XML failures share one paid-request budget.
+        if self._query is None or self._attempts >= 3:
+            return False
+        self.html, self.cards = None, []
+        await asyncio.sleep(self._attempts)
+        await self._request()
+        return True
+
+    async def _request(self) -> None:
+        params = {**self.geo, "query": self._query, "ai": "1", "device": "desktop", "groupby": "10",
                   "user": os.environ["AIPARSER_XMLRIVER_USER"], "key": os.environ["AIPARSER_XMLRIVER_KEY"]}
         endpoint = GOOGLE_URL if self.service_id == "google_aio" else YANDEX_URL
-        for attempt in range(3):
+        while self._attempts < 3:
+            self._attempts += 1
             try:
                 async with httpx.AsyncClient(timeout=90, follow_redirects=False) as client:
                     response = await client.get(endpoint, params=params)
                 if response.status_code == 429:
                     raise ProviderQuotaError("XMLRiver: временная блокировка из-за частоты запросов")
                 if response.status_code in (500, 502, 503, 504):
-                    if attempt < 2:
-                        await asyncio.sleep(attempt + 1)
-                        continue
-                    raise AdapterError(f"XMLRiver: HTTP {response.status_code}")
+                    raise XMLRiverResponseError(f"XMLRiver: HTTP {response.status_code}")
                 if response.status_code != 200:
                     raise AdapterError(f"XMLRiver: HTTP {response.status_code}")
-                try:
-                    self.html, self.cards = _parse_xml(response.content, self.service_id)
-                    return
-                except AdapterError as exc:
-                    if str(exc).removeprefix("XMLRiver: ошибка API ") in _RETRY_CODES and attempt < 2:
-                        await asyncio.sleep(attempt + 1)
-                        continue
+                self.html, self.cards = _parse_xml(response.content, self.service_id)
+                return
+            except XMLRiverResponseError:
+                if self._attempts >= 3:
                     raise
-            except (httpx.TransportError, httpx.TimeoutException) as exc:
-                if attempt == 2:
+            except (httpx.TransportError, httpx.TimeoutException):
+                if self._attempts >= 3:
                     raise AdapterError("XMLRiver: ошибка сети или таймаут") from None
-                await asyncio.sleep(attempt + 1)
+            await asyncio.sleep(self._attempts)
 
     async def capture(self, page) -> Capture:
         if self.html is None:
@@ -279,7 +296,7 @@ class XMLRiverAdapter:
                     const text = clone.innerText.trim(); clone.remove(); return text; }).filter(Boolean)""", _CARD_SELECTOR)).strip()
             cards = "\n\n".join(filter(None, [cards, *["\n".join(filter(None, (t, s))) for t, s, _ in self.cards]]))
         if not main:
-            raise AdapterError("XMLRiver: AI-блок есть, но основной текст пуст")
+            raise XMLRiverResponseError("XMLRiver: AI-блок есть, но основной текст пуст")
         sources = list(dict.fromkeys(filter(None, [*await answer.locator("a[href]").evaluate_all("els => els.map(a => a.href)"),
                                                  *[_safe_url(url) for _, _, url in self.cards]])))
         sources = [url for url in sources if _safe_url(url)]

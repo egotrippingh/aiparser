@@ -1001,10 +1001,18 @@ async def _ask_and_capture(adapter, page, project: dict, query: dict, service_id
         if aborted or ctl.stop_requested:
             raise asyncio.CancelledError
         await adapter.ask(page, query["text"], project.get("region_code"), speed=speed)
-        if aborted or ctl.stop_requested:
-            raise asyncio.CancelledError
-        phase.update(phase="capture", started=time.monotonic())
-        return await adapter.capture(page)
+        while True:
+            if aborted or ctl.stop_requested:
+                raise asyncio.CancelledError
+            phase.update(phase="capture", started=time.monotonic())
+            try:
+                return await adapter.capture(page)
+            except xmlriver.XMLRiverResponseError:
+                if aborted or ctl.stop_requested:
+                    raise asyncio.CancelledError
+                phase.update(phase="ask", started=time.monotonic())
+                if not await adapter.retry():
+                    raise
 
     task = asyncio.create_task(work())
     ctl.browser_tasks.add(task)
