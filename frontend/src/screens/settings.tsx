@@ -58,7 +58,7 @@ function authBadge(a: ServiceAuth | undefined): {
   if (!a) return { tone: "off", label: "вход не выполнен", sub: "" }
   if (a.api_backend) return a.api_configured
     ? { tone: a.last_scan_state === "ok" ? "ok" : "warn", label: "API настроен", sub: a.last_scan_state === "ok" ? "Последний запрос успешен" : a.last_scan_state === "error" ? "Последний запрос завершился ошибкой" : "Доступ ещё не подтверждён запросом" }
-    : { tone: "warn", label: "API не настроен", sub: "Укажите доступ XMLRiver на этом компьютере" }
+    : { tone: "warn", label: "API не настроен", sub: "Настройте доступ к сбору ответов на этом компьютере" }
   if (a.login_open) return { tone: "busy", label: "окно входа открыто", sub: "" }
 
   const checked = a.last_scan_at ? `последняя проверка: ${fmtWhen(a.last_scan_at)}` : ""
@@ -279,7 +279,7 @@ function ProjectForm({
             <Label htmlFor="f_parallel">Проверять ИИ-системы параллельно</Label>
             <p className="text-muted-foreground text-xs">
               Выбранные системы проверяются одновременно. Для каждого источника используется
-              отдельный браузерный контекст; XMLRiver получает ответ по API и показывает его локально.
+              отдельный браузерный контекст; Google и Яндекс получают ответы на сервере.
               Внутри одной системы запросы идут по одному. На каждый контекст требуется память.
             </p>
           </div>

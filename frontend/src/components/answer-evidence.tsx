@@ -1,7 +1,7 @@
 import { createElement, Fragment, useRef, useState, type ReactNode } from "react"
 import { ChevronLeft, ChevronRight, ImageOff } from "lucide-react"
 import { sourcesOf } from "./answer-content"
-import "./xmlriver-answer.css"
+import "./answer-evidence.css"
 
 export type BrandHighlight = { names: string[]; domains: string[] }
 export type AnswerNode = string | { tag: string; href?: string; children: AnswerNode[] }
@@ -60,13 +60,13 @@ function ProductPhoto({ url, title }: { url: string; title: string }) {
   return src && !failed ? <img src={src} alt={title} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)}/> : <div className="answer-product-no-photo"><ImageOff size={24} aria-hidden="true"/><span>Фото недоступно</span></div>
 }
 
-export function XMLRiverAnswer({ evidence, brand }: { evidence: AnswerEvidence; brand?: BrandHighlight }) {
+export function AnswerEvidenceView({ evidence, brand }: { evidence: AnswerEvidence; brand?: BrandHighlight }) {
   const rail = useRef<HTMLUListElement>(null)
   const move = (direction: number) => {
     const el = rail.current
     if (el) el.scrollBy({left:direction * el.clientWidth * .85, behavior:window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth"})
   }
-  return <div className="xmlriver-answer"><p className="answer-note">Сохранённый ответ XMLRiver. Выделены название бренда и ссылки на его сайт.</p><div className="answer-content">{answerNodes(evidence.content, brand)}</div>
+  return <div className="answer-evidence"><p className="answer-note">Сохранённый ответ ИИ. Выделены название бренда и ссылки на его сайт.</p><div className="answer-content">{answerNodes(evidence.content, brand)}</div>
     {evidence.products.length > 0 && <section className="answer-products" aria-label="Товары из ответа"><div className="answer-products-heading"><h3>Товары из ответа <small>{evidence.products.length}</small></h3><div><button type="button" className="cc-button icon" aria-label="Предыдущие товары" onClick={() => move(-1)}><ChevronLeft size={18}/></button><button type="button" className="cc-button icon" aria-label="Следующие товары" onClick={() => move(1)}><ChevronRight size={18}/></button></div></div><ul ref={rail} className="answer-product-rail" tabIndex={0} aria-label="Карточки товаров; листайте стрелками" onKeyDown={e => { if (e.target === e.currentTarget && ["ArrowLeft","ArrowRight"].includes(e.key)) {e.preventDefault();move(e.key === "ArrowLeft" ? -1 : 1)} }}>{evidence.products.map((p,i) => <li key={`${p.url}-${i}`}><ProductPhoto key={p.image_url} url={p.image_url} title={p.title}/><div><AnswerLink href={p.url} brand={brand}>{highlightedText(p.title, brand)}</AnswerLink>{p.price && <p className="answer-product-price">{p.price}</p>}</div></li>)}</ul></section>}
     {evidence.source_cards.length > 0 && <section className="answer-source-cards" aria-label="Карточки ответа"><h3>Карточки ответа</h3><ul>{evidence.source_cards.map((s,i) => <li key={`${s.url}-${i}`}><AnswerLink href={s.url} brand={brand}>{highlightedText(s.title || s.url, brand)}</AnswerLink>{s.text && s.text !== s.title && <p>{highlightedText(s.text, brand)}</p>}</li>)}</ul></section>}
   </div>

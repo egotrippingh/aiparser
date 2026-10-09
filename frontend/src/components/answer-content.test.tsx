@@ -2,6 +2,12 @@ import { expect, it } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
 import { AnswerContent, ResultIssue, SourceList, sourcesOf } from "./answer-content"
 
+it("keeps collection suppliers private in historical errors", () => {
+  const html = renderToStaticMarkup(<ResultIssue status="error" error="XMLRiver: ошибка API 500"/>)
+  expect(html).not.toMatch(/xmlriver/i)
+  expect(html).toContain("ошибка API 500")
+})
+
 it("renders paragraphs, real lists and safe links while keeping HTML literal", () => {
   const html = renderToStaticMarkup(<AnswerContent text={'Intro <script>alert(1)</script>\r\n\r\n- One\n- Two https://example.test/a.\n\n3. Three\n4. Four\n\nEnd'}/>)
   expect(html).toContain('&lt;script&gt;')
