@@ -153,6 +153,7 @@ def test_repeated_invalid_response_stops_after_three_attempts(provider_replies):
 @pytest.mark.parametrize("response", [
     httpx.Response(429), httpx.Response(400),
     httpx.Response(200, content=b"<yandexsearch><error code='200'/></yandexsearch>"),
+    httpx.Response(200, content=b"<yandexsearch><error code='115'/></yandexsearch>"),
     httpx.Response(200, content=b"<yandexsearch><error code='31'/></yandexsearch>"),
 ])
 def test_access_and_quota_errors_do_not_retry(response, provider_replies):
@@ -161,6 +162,22 @@ def test_access_and_quota_errors_do_not_retry(response, provider_replies):
     adapter = XMLRiverAdapter("google_aio", geography("google_aio", "213"))
     with pytest.raises(AdapterError):
         asyncio.run(adapter.ask(None, "вопрос", "213"))
+    assert len(calls) == 1 and waits == []
+
+
+@pytest.mark.parametrize("response", [
+    httpx.Response(429),
+    httpx.Response(200, content=b"<yandexsearch><error code='115'/></yandexsearch>"),
+])
+def test_throttle_has_ten_minute_cooldown_without_retry(response, provider_replies):
+    from shared.xmlriver import ProviderThrottleError
+    install, calls, waits = provider_replies
+    install([response])
+    adapter = XMLRiverAdapter("google_aio", geography("google_aio", "213"))
+    with pytest.raises(ProviderThrottleError) as failure:
+        asyncio.run(adapter.ask(None, "вопрос", "213"))
+    assert isinstance(failure.value, ProviderQuotaError)
+    assert failure.value.retry_after == 600
     assert len(calls) == 1 and waits == []
 
 
