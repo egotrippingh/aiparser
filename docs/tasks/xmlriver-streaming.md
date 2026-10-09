@@ -19,7 +19,8 @@ Acceptance:
 - Fast response analyzed/published while another collection remains blocked.
 - Collection continues while models run; models overlap within shared limit.
 - Separate Google/Yandex limits replenished continuously; no unbounded task creation.
-- Stop/pause/shutdown block new paid calls and drain already-started responses/models.
+- Stop/pause/shutdown block new admissions and drain already-admitted responses/models.
+  Model admission is the fresh owner/state read after obtaining the Check lock.
 - Lease heartbeat survives slow calls; stale owner cannot publish/charge after takeover.
 - Same check settles once; cached analysis survives recovery; errors preserve siblings.
 - Historical supplier errors hidden without altering saved answer/evidence.
@@ -31,4 +32,20 @@ Acceptance:
 Steps: interface confidentiality first (root sole writer); server pipeline second
 (builder sole writer); independent review; authorized production release.
 Evidence: historical supplier error regression failed on initial tree before fix.
-Remaining: pipeline implementation, concurrency gates, reviews and release.
+Implemented source: `3e84bd5` (pipeline `d9b57ee`, confidentiality `ac1ac31`).
+Final review fixes: cached verdict remains usable after Stop; one throttled engine
+does not pause the healthy engine until its queue drains. Both regressions failed
+before the fixes and passed after. Unexpected task/save failures still pause at once.
+
+Checks: initial full disposable PostgreSQL-enabled server suite 140 passed; final
+two regressions added, final suite pending. PostgreSQL 16 uses isolated schemas,
+fake providers and a loopback-only disposable instance. Frontend 58 tests passed,
+lint has existing warnings/no errors, build passed. Desktop and 390px fake browser
+checks passed: carousel/highlights, image/API failures, no overflow or console errors.
+Sol correctness and Astra risk reviews are rechecking the final two fixes.
+
+Limits: one cloud run is drained at a time; different projects remain sequential.
+Multiple worker processes require a shared account limiter. Account-limit discovery
+failure preserves the existing one-slot-per-engine fallback. No live provider load
+test or authenticated production scan has been performed for this change.
+Remaining: final server/client checks, final reviews, exact-SHA CI and release.
