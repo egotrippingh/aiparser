@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import load_only
 
-from server.models import Check, CloudResult, ControlProject, Screenshot, User, utcnow
+from server.models import Check, CloudResult, ControlProject, Screenshot, ServerCapture, User, utcnow
 from server.storage import StorageError
 
 KEY = "scan_feedback"
@@ -55,11 +55,22 @@ def result_detail(db, row):
     visible_feedback = ({k: feedback[k] for k in ("label", "comment", "updated_at")} |
                         {"active": feedback["label"] != "correct" and feedback["identity"] == identity(project)}) if feedback else None
     check = db.scalar(select(Check).where(Check.user_id == row.user_id, Check.client_check_id == row.check_id)) if row.check_id else None
+    capture = db.scalar(select(ServerCapture).where(ServerCapture.run_id == row.run_id,
+        ServerCapture.check_id == row.check_id)) if row.run_id and row.check_id else None
+    evidence = json.loads(capture.answer_json) if capture else None
+    if (not isinstance(evidence, dict) or evidence.get("shown") is not True
+            or any(not isinstance(evidence.get(field), list)
+                   for field in ("content", "products", "source_cards"))):
+        evidence = None
+    has_screenshot = bool(check and db.get(Screenshot, check.id))
     return {"id": row.id, "query_text": row.query_text, "service": row.service, "scan_date": row.scan_date,
             "status": row.status, "answer_text": row.answer_text, "error_message": row.error_message,
             "evidence_quote": row.evidence_quote, "sources": json.loads(row.sources_json or "[]"),
             "mention_types": json.loads(row.mention_types_json or "[]"), "check_id": row.check_id,
             "feedback": visible_feedback,
+            "answer_evidence": evidence,
+            "highlight": {"names": evidence.get("brand_names", []), "domains": evidence.get("brand_domains", [])} if evidence else None,
+            "has_screenshot": has_screenshot,
             "analysis": json.loads(check.analysis_json) if check and check.analysis_json else None,
             "analysis_model": check.analysis_model if check else None,
             "arbitration": json.loads(check.arbitration_json) if check and check.arbitration_json else None,

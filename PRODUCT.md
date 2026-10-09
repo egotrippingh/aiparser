@@ -9,8 +9,9 @@ They work through project lists, query groups, schedules and visibility reports 
 
 ## Product Purpose
 Measure brand mentions in AI answers. A website manages work and stores shared reports;
-desktop agents execute assigned checks using local browser sessions. Users must always
-understand which computer is assigned and why a scan is running, waiting or stopped.
+Google/Yandex checks run on the server through XMLRiver; desktop agents execute
+the other assigned checks using local browser sessions. Users must understand
+whether a check runs on the server or waits for its assigned computer.
 
 ## Brand Personality
 Clear, calm and precise. Russian interface. Preserve the user's dark violet visual direction.

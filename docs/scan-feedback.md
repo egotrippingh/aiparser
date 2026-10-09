@@ -1,6 +1,8 @@
 # Project feedback and scan review
 
-Prepared 2026-10-08; not published or verified against live provider answers.
+Published 2026-10-08 through [PR #33](https://github.com/egotrippingh/aiparser/pull/33),
+promoting the original [PR #32](https://github.com/egotrippingh/aiparser/pull/32).
+Live provider accuracy remains unverified.
 
 The report answer dialog accepts `correct`, `false_positive` and `missed` labels,
 an optional 400-character explanation, and removal. Original answers, statuses,
@@ -67,6 +69,21 @@ accuracy remain unverified. The supplied Neighbours Expert screenshot shows gene
 design roles rather than identifiable brand evidence in the visible answer/links;
 the saved analysis/arbiter records are still needed to establish its original cause.
 
-Delivery follows [DELIVERY.md](../deploy/DELIVERY.md): PR into `production`, CI,
-backup/isolated restore, readiness and application rollback. Existing production
-data is preserved; no historical statuses are automatically rewritten.
+## Production release evidence (2026-10-08)
+
+- Production commit: `656099acfbb41d29c30261620023143e443aad1c`; its complete tree
+  matches the reviewed PR #32 head `27db8df6a23a3328622470ebd5f2f094980aefef`.
+- Release PR checks and [production CI/deploy](https://github.com/egotrippingh/aiparser/actions/runs/37759036779)
+  passed. Deployment logs confirm verified image upload, successful isolated restore,
+  `backups/aiparser-20261008T094958Z-2335772.dump`, and activation at 12:50 Moscow time.
+- Public `/api/v1/ready` returned `ok: true` with that exact release SHA;
+  `/api/v1/pricing` still reports 120 kopeks. `/cabinet/` returns 200 and serves
+  `cabinet-DE3Z3r4m.js` containing the new feedback labels/admin-review API.
+- Unauthenticated `/api/v1/admin/scan-results` returns 401. No authenticated
+  production mutation, paid scan or live model/S3 accuracy test was performed.
+- No migration or Windows agent artifact was published. The backup remains only on
+  the VPS: deployment logs confirm the separate backup S3 bucket is not configured.
+
+Delivery used [DELIVERY.md](../deploy/DELIVERY.md) with the existing gates. No
+historical statuses were rewritten as part of this release. Record of this deployment
+is maintained on `main`; updating these notes does not redeploy `production`.

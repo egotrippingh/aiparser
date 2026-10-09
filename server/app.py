@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import hmac
 import logging
@@ -22,7 +23,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server.agent_schemas import AgentHeartbeatIn, CloudResultsIn, ScanPreferencesIn
-from server.ai import AIError, AIResult, OpenRouterAI
+from server.ai import OpenRouterAI
+from server.checks import reserve_checks, analyze_check, arbitrate_check, complete_check, settle_check
 from server.auth_limit import clear as clear_auth_failures
 from server.auth_limit import email_key, guard as guard_auth, record as record_auth, source_key
 from server.coinso import CoinsoClient, CoinsoError, kopeks, payment_options, valid_payment_currency, verify_webhook
@@ -75,12 +77,6 @@ def _validate_ai_content(content: list[dict]) -> None:
                    or not str(part["image_url"].get("url", "")).startswith("data:image/webp;base64,")
                    for part in content[1:])):
         raise HTTPException(422, "Неверные или слишком большие данные для анализа")
-
-
-def _ai_payload(result: AIResult | str, fallback_model: str) -> tuple[str, str, str]:
-    if isinstance(result, AIResult):
-        return result.raw, result.model, json.dumps(result.usage)
-    return result, fallback_model, "{}"
 
 
 class TicketIn(BaseModel):
@@ -321,7 +317,8 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         snap = json.loads(run.snapshot_json)
         if (run.user_id != grant.user_id or run.device_id != grant.device_id
                 or parts[1] not in {q["id"] for q in snap["queries"]}
-                or parts[2] not in snap["config"]["services"]):
+                or parts[2] not in snap["config"]["services"]
+                or parts[2] in snap.get("cloud_services", [])):
             raise HTTPException(403, "Проверка не назначена этому компьютеру")
         until = run.lease_until
         if until and until.tzinfo is None:
@@ -557,7 +554,8 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
                     raise HTTPException(403, "Результат не соответствует заданию устройства")
                 snap = json.loads(run.snapshot_json)
                 query = next((q for q in snap["queries"] if q["id"] == item.query_id), None)
-                if not query or item.service not in snap["config"]["services"] or query["text"] != item.query_text:
+                if (not query or item.service not in snap["config"]["services"]
+                        or item.service in snap.get("cloud_services", []) or query["text"] != item.query_text):
                     raise HTTPException(422, "Запрос отсутствует в задании")
                 expected_check = f"{run.id}:{item.query_id}:{item.service}"
                 if item.check_id and item.check_id != expected_check:
@@ -1090,40 +1088,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         if grant:
             for check_id in ids:
                 assigned_check(db, grant, check_id, live=True, new=True)
-        effective_price = 0 if user.is_admin else price
-        if len(ids) != len(set(ids)) or any(not 1 <= len(i) <= 100 for i in ids):
-            raise HTTPException(422, "Идентификаторы проверок должны быть уникальными")
-        wallet_row = _locked_wallet(db, user.id)
-        existing = {
-            check.client_check_id: check for check in db.scalars(
-                select(Check).where(Check.user_id == user.id, Check.client_check_id.in_(ids))
-            )
-        }
-        reused = [check for check in existing.values() if check.status == "released"
-                  and (check.analysis_attempts or check.arbitration_attempts
-                       or check.analysis_json or check.arbitration_json)]
-        if reused:
-            raise HTTPException(409, "Проверка с начатым анализом не может быть зарезервирована повторно")
-        pending = [check_id for check_id in ids if check_id not in existing or existing[check_id].status == "released"]
-        available = wallet_row.balance_kopeks - _held(db, user.id)
-        if len(pending) * effective_price > available:
-            raise HTTPException(402, "Недостаточно средств для выбранных проверок")
-        for check_id in pending:
-            if check_id in existing:
-                existing[check_id].status = "reserved"
-                existing[check_id].result_status = None
-                existing[check_id].price_kopeks = effective_price
-                existing[check_id].analysis_json = None
-                existing[check_id].analysis_model = None
-                existing[check_id].analysis_usage_json = None
-                existing[check_id].analysis_attempts = 0
-                existing[check_id].arbitration_json = None
-                existing[check_id].arbitration_model = None
-                existing[check_id].arbitration_usage_json = None
-                existing[check_id].arbitration_attempts = 0
-            else:
-                db.add(Check(user_id=user.id, client_check_id=check_id, price_kopeks=effective_price))
-        db.commit()
+        effective_price = reserve_checks(db, user, ids, price, ai_client)
         return {"price_kopeks": effective_price, "checks": ids,
                 "managed_detection": ai_client is not None,
                 "detection_model": ai_client.model if ai_client else None,
@@ -1133,97 +1098,21 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
     @app.post("/api/v1/checks/{check_id}/analyze")
     def analyze(check_id: str, body: AnalyzeIn, user: User = Depends(current_user),
                 db: Session = Depends(db_session)) -> dict:
-        if not ai_client:
-            raise HTTPException(503, "Серверный анализ пока не настроен")
         _validate_ai_content(body.content)
-        check = db.execute(
-            select(Check).where(Check.user_id == user.id, Check.client_check_id == check_id).with_for_update()
-        ).scalar_one_or_none()
-        if not check:
-            raise HTTPException(404, "Проверка не зарезервирована")
-        if check.analysis_json:
-            return {"raw": check.analysis_json, "model": check.analysis_model or ai_client.model}
-        if check.status != "reserved":
-            raise HTTPException(409, "Проверка уже закрыта")
-        if check.analysis_attempts >= (4 if body.retry_saved else 2):
-            raise HTTPException(409, "Лимит попыток анализа исчерпан")
-        check.analysis_attempts += 1
-        try:
-            from server.scan_feedback import analysis_content
-            raw, model, usage = _ai_payload(ai_client.analyze(body.system, analysis_content(db, check, body.content)), ai_client.model)
-        except AIError as exc:
-            telemetry.capture(exc, component="server", operation="ai_analyze", user_id=user.id, run_id=check_id.split(":", 1)[0])
-            db.commit()
-            raise HTTPException(502, str(exc)) from exc
-        check.analysis_json = raw
-        check.analysis_model = model
-        check.analysis_usage_json = usage
-        db.commit()
-        return {"raw": raw, "model": model}
+        return analyze_check(db, user, check_id, body.system, body.content, ai_client,
+                             retry_saved=body.retry_saved)
 
     @app.post("/api/v1/checks/{check_id}/arbitrate")
     def arbitrate(check_id: str, body: AnalyzeIn, user: User = Depends(current_user),
                   db: Session = Depends(db_session)) -> dict:
-        if not ai_client:
-            raise HTTPException(503, "Серверный арбитр пока не настроен")
         _validate_ai_content(body.content)
-        check = db.execute(
-            select(Check).where(Check.user_id == user.id, Check.client_check_id == check_id).with_for_update()
-        ).scalar_one_or_none()
-        if not check:
-            raise HTTPException(404, "Проверка не зарезервирована")
-        if check.arbitration_json:
-            return {"raw": check.arbitration_json,
-                    "model": check.arbitration_model or getattr(ai_client, "arbiter_model", ai_client.model)}
-        if not check.analysis_json or not json.loads(check.analysis_json).get("found"):
-            raise HTTPException(409, "Арбитр доступен только после положительного первого анализа")
-        if check.status not in ("reserved", "settled"):
-            raise HTTPException(409, "Проверка закрыта без оплаты")
-        if check.arbitration_attempts >= (4 if body.retry_saved else 2):
-            raise HTTPException(409, "Лимит попыток арбитра исчерпан")
-        check.arbitration_attempts += 1
-        try:
-            fallback = getattr(ai_client, "arbiter_model", ai_client.model)
-            from server.scan_feedback import analysis_content
-            raw, model, usage = _ai_payload(ai_client.arbitrate(body.system, analysis_content(db, check, body.content)), fallback)
-        except AIError as exc:
-            telemetry.capture(exc, component="server", operation="ai_arbitrate", user_id=user.id, run_id=check_id.split(":", 1)[0])
-            db.commit()
-            raise HTTPException(502, str(exc)) from exc
-        check.arbitration_json = raw
-        check.arbitration_model = model
-        check.arbitration_usage_json = usage
-        db.commit()
-        return {"raw": raw, "model": model}
-
-    def settle_check(db: Session, wallet_row: Wallet, check: Check, result_status: str) -> None:
-        check.status = "settled"
-        check.result_status = result_status
-        if check.price_kopeks:
-            wallet_row.balance_kopeks -= check.price_kopeks
-            db.add(LedgerEntry(
-                user_id=check.user_id, amount_kopeks=-check.price_kopeks,
-                kind="check", reference=f"check:{check.user_id}:{check.client_check_id}",
-            ))
+        return arbitrate_check(db, user, check_id, body.system, body.content, ai_client,
+                               retry_saved=body.retry_saved)
 
     @app.post("/api/v1/checks/{check_id}/complete")
     def complete(check_id: str, body: CompleteIn, user: User = Depends(current_user),
                  db: Session = Depends(db_session)) -> dict:
-        wallet_row = _locked_wallet(db, user.id)
-        check = db.execute(
-            select(Check).where(Check.user_id == user.id, Check.client_check_id == check_id).with_for_update()
-        ).scalar_one_or_none()
-        if not check:
-            raise HTTPException(404, "Проверка не зарезервирована")
-        if check.status != "reserved":
-            return {"status": check.status, **_wallet_payload(db, user.id)}
-        if body.status in ("found", "not_found") or check.analysis_json:
-            settle_check(db, wallet_row, check, body.status)
-        else:
-            check.status = "released"
-            check.result_status = body.status
-        db.commit()
-        return {"status": check.status, **_wallet_payload(db, user.id)}
+        return {"status": complete_check(db, user, check_id, body.status), **_wallet_payload(db, user.id)}
 
     @app.put("/api/v1/checks/{check_id}/screenshot")
     async def upload_screenshot(check_id: str, request: Request,
@@ -1354,11 +1243,18 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
     async def service_lifespan(_app):
         async with existing_lifespan(_app):
             reconciler = PaymentReconciler(SessionLocal, confirm_payment) if PaymentReconciler else None
+            from server.cloud_scans import worker as cloud_worker
+            cloud_task = asyncio.create_task(cloud_worker(SessionLocal, ai_client, price))
             if reconciler:
                 reconciler.thread.start()
             try:
                 yield
             finally:
+                cloud_task.cancel()
+                try:
+                    await cloud_task
+                except asyncio.CancelledError:
+                    pass
                 if reconciler:
                     await run_in_threadpool(reconciler.close)
                 close_ai = getattr(ai_client, "close", None)

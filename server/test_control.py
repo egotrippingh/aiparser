@@ -61,11 +61,55 @@ def test_device_assignment_ownership_and_durable_queue(tmp_path):
     assert client.get('/api/v1/control/runs', headers=owner).json()[0]['state'] == 'done'
 
 
+def test_yandex_run_uses_server_without_device_capability(tmp_path, monkeypatch):
+    client, owner, _, devices, _ = setup(tmp_path)
+    project = client.post('/api/v1/control/projects', headers=owner, json={
+        'name': 'SERP', 'brand_name': 'Brand', 'device_id': 'a'*32,
+        'queries': [{'text': 'question'}], 'config': {'services': ['yandex_neuro']},
+    }).json()
+    endpoint = f"/api/v1/control/projects/{project['id']}/runs"
+    assert client.post(endpoint, headers=owner, json={'request_id': uuid.uuid4().hex}).status_code == 422
+    monkeypatch.setenv('AIPARSER_XMLRIVER_USER', 'test-user')
+    monkeypatch.setenv('AIPARSER_XMLRIVER_KEY', 'test-key')
+    run = client.post(endpoint, headers=owner, json={'request_id': uuid.uuid4().hex})
+    assert run.status_code == 201, run.text
+    assert run.json()['phase'] == 'cloud'
+    assert run.json()['device_id'] is None
+    assert client.post('/api/v1/control/agent/poll', headers=devices[0], json={}).json()['run'] is None
+
+
+def test_legacy_yandex_run_remains_agent_owned(tmp_path):
+    import json
+    client, owner, _, devices, url = setup(tmp_path)
+    project = client.post('/api/v1/control/projects', headers=owner, json={
+        'name': 'Legacy', 'brand_name': 'Brand', 'device_id': 'a'*32,
+        'queries': [{'text': 'question'}], 'config': {'services': ['yandex_neuro']},
+    }).json()
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        run = ControlRun(id=uuid.uuid4().hex, user_id=client.get('/api/v1/me', headers=owner).json()['id'],
+            project_id=project['id'], device_id='a'*32, phase='agent', active_project_key=project['id'],
+            request_key='legacy:' + uuid.uuid4().hex, snapshot_json=json.dumps(project),
+            progress_json='{}')
+        db.add(run)
+        db.commit()
+        run_id = run.id
+    capabilities = {'capture_backends': {'yandex_neuro': 'xmlriver'},
+                    'provider_configured': {'yandex_neuro': True}}
+    job = client.post('/api/v1/control/agent/poll', headers=devices[0],
+                      json={'capabilities': capabilities}).json()['run']
+    assert job['id'] == run_id and job['snapshot']['config']['services'] == ['yandex_neuro']
+    key = f"{run_id}:{project['queries'][0]['id']}:yandex_neuro"
+    assert client.post('/api/v1/checks/reserve', headers=devices[0],
+                       json={'check_ids': [key]}).status_code == 402
+
+
 def test_schedule_uses_selected_pc_timezone_and_deduplicates(tmp_path):
     client, owner, _, devices, url = setup(tmp_path)
     project = client.post('/api/v1/control/projects', headers=owner, json={
         'name': 'Scheduled', 'brand_name': 'Brand', 'device_id': 'a'*32,
-        'queries': [{'text': 'question'}], 'schedule': {'enabled': True, 'device_id': 'b'*32,
+        'queries': [{'text': 'question'}], 'config': {'services': ['chatgpt']},
+        'schedule': {'enabled': True, 'device_id': 'b'*32,
             'month_days': [1, 15, 31], 'time': '12:30', 'timezone': 'Europe/Moscow'},
     }).json()
     _, sessions = make_session_factory(url)
@@ -131,7 +175,7 @@ def test_website_to_desktop_and_shared_report(tmp_path, monkeypatch):
     project = client.post('/api/v1/control/projects', headers=owner, json={
         'name':'geosoft-dent.ru', 'brand_name':'ESTUS', 'device_id':'a'*32,
         'queries':[{'text':'Где купить ESTUS?', 'group_tag':'Общие'}],
-        'config':{'services':['google_aio'],'browser_mode':'headless'},
+        'config':{'services':['chatgpt'],'browser_mode':'headless'},
     }).json()
     run = client.post(f"/api/v1/control/projects/{project['id']}/runs", headers=owner,
         json={'request_id':uuid.uuid4().hex}).json()
@@ -143,7 +187,7 @@ def test_website_to_desktop_and_shared_report(tmp_path, monkeypatch):
     assert repo.get_project(local_id)['deep_check_depth'] == 0
     qid = repo.list_queries(local_id, only_active=True)[0]['id']
     query_id = managed['query_map'][str(qid)]
-    check_id = f"{run['id']}:{query_id}:google_aio"
+    check_id = f"{run['id']}:{query_id}:chatgpt"
     assert client.post('/api/v1/checks/reserve',headers=devices[1],json={'check_ids':[check_id]}).status_code == 403
     assert client.post('/api/v1/checks/reserve',headers=devices[0],json={'check_ids':['arbitrary']}).status_code == 403
     res = client.post('/api/v1/checks/reserve',headers=devices[0],json={'check_ids':[check_id]})
@@ -151,10 +195,10 @@ def test_website_to_desktop_and_shared_report(tmp_path, monkeypatch):
     assert res.json()['price_kopeks'] == 0
     assert client.post(f'/api/v1/checks/{check_id}/complete',headers=devices[1],json={'status':'found'}).status_code == 403
     assert client.post(f'/api/v1/checks/{check_id}/complete',headers=devices[0],json={'status':'found'}).status_code == 200
-    scan_id = repo.create_scan(local_id, ['google_aio'], {
+    scan_id = repo.create_scan(local_id, ['chatgpt'], {
         'billing_run_id':run['id'],'billing_user_id':user_id,'cloud_job_id':run['id'],
         'cloud_project_id':project['id'],'cloud_query_map':managed['query_map'],'cloud_queries':managed['queries']})
-    repo.save_result(scan_id,qid,'google_aio','found',answer_text='ESTUS',mention_types=['text'])
+    repo.save_result(scan_id,qid,'chatgpt','found',answer_text='ESTUS',mention_types=['text'])
     row = repo.cloud_results_after(0)[0]
     row['query_text'] = 'later edited text'
     payload = agent._payload(row)

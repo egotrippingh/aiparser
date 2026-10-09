@@ -87,6 +87,14 @@ Only do this when the selected image supports the current database schema.
 
 ## Windows download
 
+For a release, dispatch **Build and publish Windows agent** on `production`
+with `publish=true` after the website/API deployment succeeds. The workflow
+uses the dedicated `AIRATE_AGENT_PUBLISH_KEY`, `AIRATE_AGENT_KNOWN_HOSTS` and
+`AIRATE_AGENT_PUBLISH_HOST` from the production environment. It verifies the
+live site revision, runs the isolated installer lifecycle test and checks the
+public metadata plus complete artifact hashes after publication. Feature
+branches can build but cannot enter the production publish job.
+
 Build on Windows with `scripts/build-exe.ps1 -AccountUrl https://airate.tech`.
 The script builds the frontend, bundles the AIRate icon, runs EXE self-tests,
 removes the self-test database and produces `dist/AI-Mentions-Windows-latest.zip`.

@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from app import __version__, billing, secrets_store, updates, window_control
 from app.db import repo
 from app.scanner import orchestrator
+from app.scanner.adapters import xmlriver
 from app.agent import device_id, _sync_results
 
 log = logging.getLogger(__name__)
@@ -191,6 +192,8 @@ async def run_agent():
                     ctl = orchestrator.active_controller()
                     browser = browser_status()
                     capabilities = {"services": browser["services"], "installed": browser["installed"],
+                                    "capture_backends": {"yandex_neuro": "xmlriver"},
+                                    "provider_configured": {"yandex_neuro": xmlriver.configured()},
                                     "paused": paused(), "active_scan": bool(ctl or starting and not starting.done()
                                                                              or browser["logins_in_progress"]),
                                     "brand_clarification": True, "agent_version": __version__}

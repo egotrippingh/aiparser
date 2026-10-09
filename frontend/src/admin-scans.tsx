@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react"
 import { accountRequest } from "./account-api"
 import { AnswerContent, ResultIssue, SourceList } from "./components/answer-content"
+import { XMLRiverAnswer, HighlightedSources, type AnswerEvidence, type BrandHighlight } from "./components/xmlriver-answer"
 import type { ScanFeedback } from "./scan-feedback"
 
 type Row = { id: number; email: string; project_name: string; brand_name: string; query_text: string; service: string; scan_date: string; status: string; mention_types: string[] }
-type Detail = { check_id: string | null; id: number; answer_text: string | null; evidence_quote: string | null; error_message: string | null; sources: string[]; status: string; service: string; feedback: ScanFeedback | null; analysis: { reasoning?: string } | null; arbitration: { reasoning?: string } | null; analysis_model: string | null; arbitration_model: string | null }
+type Detail = { check_id: string | null; id: number; answer_text: string | null; evidence_quote: string | null; error_message: string | null; sources: string[]; status: string; service: string; feedback: ScanFeedback | null; analysis: { reasoning?: string } | null; arbitration: { reasoning?: string } | null; analysis_model: string | null; arbitration_model: string | null; answer_evidence?: AnswerEvidence | null; highlight?: BrandHighlight; has_screenshot?: boolean }
 const statuses: Record<string, string> = { found: "Упоминание", not_found: "Нет упоминания", error: "Ошибка", skipped: "Нет AI-блока", captcha: "Капча", auth_required: "Нужен вход", limit_reached: "Лимит сервиса" }
 const labels = { correct: "Верно", false_positive: "Ложное срабатывание", missed: "Пропущено упоминание" }
 
@@ -39,9 +40,9 @@ export function AdminScans({ token }: { token: string }) {
         {detail.feedback && <p>Отметка пользователя: <b>{labels[detail.feedback.label]}</b>{detail.feedback.comment && ` · ${detail.feedback.comment}`}</p>}
         {detail.evidence_quote && <blockquote>{detail.evidence_quote}</blockquote>}
         {detail.analysis?.reasoning && <p>Анализ ({detail.analysis_model}): {detail.analysis.reasoning}</p>}{detail.arbitration?.reasoning && <p>Арбитр ({detail.arbitration_model}): {detail.arbitration.reasoning}</p>}
-        {detail.answer_text && <AnswerContent text={detail.answer_text} service={detail.service} sources={detail.sources} />}<ResultIssue status={detail.status} error={detail.error_message} answer={detail.answer_text} />
-        <h3>Источники</h3><SourceList sources={detail.sources} />
-        {detail.check_id && <button className="cc-button" disabled={shot?.id === row.id && shot.loading} onClick={() => {
+        {detail.answer_evidence ? <XMLRiverAnswer key={detail.id} evidence={detail.answer_evidence} brand={detail.highlight}/> : detail.answer_text && <AnswerContent text={detail.answer_text} service={detail.service} sources={detail.sources} />}<ResultIssue status={detail.status} error={detail.error_message} answer={detail.answer_text} />
+        <h3>Источники</h3>{detail.answer_evidence ? <HighlightedSources sources={detail.sources} brand={detail.highlight}/> : <SourceList sources={detail.sources} />}
+        {detail.check_id && detail.has_screenshot !== false && !detail.answer_evidence && <button className="cc-button" disabled={shot?.id === row.id && shot.loading} onClick={() => {
           setShot({ id: row.id, loading: true })
           accountRequest<{ url: string }>(`/admin/scan-results/${row.id}/screenshot`, token).then(d => setShot(current => current?.id === row.id ? { id: row.id, url: d.url } : current)).catch(e => setShot(current => current?.id === row.id ? { id: row.id, error: e.message } : current))
         }}>Открыть скриншот</button>}

@@ -12,7 +12,7 @@ export const MONTH_DAYS = Array.from({ length: 31 }, (_, index) => index + 1)
 export const SCAN_SERVICES = [
   { id: "perplexity", label: "Perplexity" },
   { id: "chatgpt", label: "ChatGPT" },
-  { id: "yandex_neuro", label: "Яндекс Нейро (скоро)", available: false },
+  { id: "yandex_neuro", label: "Яндекс Нейро" },
   { id: "alice", label: "Алиса AI" },
   { id: "google_aio", label: "Google AI Overview" },
 ]

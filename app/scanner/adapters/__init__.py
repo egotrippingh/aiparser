@@ -5,13 +5,12 @@ from app.scanner.adapters.base import SearchAdapter
 from app.scanner.adapters.chatgpt import ChatGPTAdapter
 from app.scanner.adapters.google_aio import GoogleAIOAdapter
 from app.scanner.adapters.perplexity import PerplexityAdapter
+from app.scanner.adapters.xmlriver import XMLRiverAdapter
 
 ADAPTERS: dict[str, SearchAdapter] = {
-    a.service_id: a for a in [PerplexityAdapter(), AliceAdapter(), ChatGPTAdapter(), GoogleAIOAdapter()]
+    a.service_id: a for a in [PerplexityAdapter(), AliceAdapter(), ChatGPTAdapter(), GoogleAIOAdapter(),
+                              XMLRiverAdapter("yandex_neuro", {})]
 }
-
-# Заполняется по мере готовности остальных адаптеров (этап 5 плана):
-# from app.scanner.adapters.yandex_neuro import YandexNeuroAdapter
 
 
 def get_adapter(service_id: str) -> SearchAdapter:

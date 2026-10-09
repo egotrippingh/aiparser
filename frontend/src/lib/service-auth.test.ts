@@ -24,3 +24,9 @@ it("removes the ready mark when a saved session is rejected or expires, until a 
   expect(sessionReady({...rejected,cookie_state:"expired",last_scan_state:"ok"})).toBe(false)
   expect(sessionReady({...rejected,last_scan_state:"ok",login_open:true})).toBe(false)
 })
+it("shows API configuration separately from a proven successful request", () => {
+  expect(sessionLabel({cookie_state:"none",api_backend:true,api_configured:false,last_scan_state:null})).toContain("Укажите доступ")
+  expect(sessionLabel({cookie_state:"none",api_backend:true,api_configured:true,last_scan_state:null})).toContain("ещё не подтверждён")
+  expect(sessionLabel({cookie_state:"none",api_backend:true,api_configured:true,last_scan_state:"ok"})).toContain("последний запрос успешен")
+  expect(sessionLabel({cookie_state:"none",api_backend:true,api_configured:true,last_scan_state:"error"})).toContain("завершился ошибкой")
+})

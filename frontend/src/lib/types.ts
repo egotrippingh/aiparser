@@ -250,6 +250,8 @@ export interface ReviewResolved {
 
 export interface ServiceAuth {
   cookie_state: "ok" | "expired" | "none" | string
+  api_backend?: boolean
+  api_configured?: boolean
   expires_at: number | null
   last_scan_state: string | null
   last_scan_at: string | null
