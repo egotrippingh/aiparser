@@ -327,6 +327,7 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
     providers = {}
     analyses = {}
     blocked = set()
+    quota_message = None
     model_slots = asyncio.Semaphore(20)
     last_heartbeat = time.monotonic()
 
@@ -436,8 +437,10 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
                 except Exception as exc:
                     logging.getLogger(__name__).error("Cloud collection task failed (%s)", type(exc).__name__)
                     payload, failed, message = None, True, "Сбор части ответов прервался"
-                if failed or message:
+                if failed:
                     pause(message or "Сбор части ответов прервался")
+                elif message:
+                    quota_message = message
                 if payload is None:
                     if not (shutdown_event and shutdown_event.is_set()):
                         _release_unstarted(sessions, run_id, token, check_id, snapshot,
@@ -465,6 +468,8 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
 
     if shutdown_event and shutdown_event.is_set():
         return _yield_shutdown(sessions, run_id, token)
+    if quota_message:
+        pause(quota_message)
     with sessions() as db:
         run = _owned_locked(db, run_id, token)
         if not run:
@@ -579,7 +584,7 @@ async def _model_response(fn, sessions, run_id, token, check_id, content, ai_cli
     async def invoke():
         if shutdown_event and shutdown_event.is_set():
             return None
-        if not _renew(sessions, run_id, token, need_running=True):
+        if not _renew(sessions, run_id, token):
             return None
         return await run_in_threadpool(fn, sessions, run_id, token, check_id, content, ai_client)
 

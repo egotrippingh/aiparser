@@ -715,6 +715,43 @@ def test_crash_after_capture_reuses_answer_and_charges_once(tmp_path, monkeypatc
         assert len(entries) == 1 and entries[0].amount_kopeks == -120
 
 
+def test_stop_reuses_cached_verdict_without_another_model_or_charge(tmp_path, monkeypatch):
+    import server.cloud_scans as scans
+    ai = FakeAI()
+    client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, ai=ai, admin=False)
+    _, run = project_and_run(client, owner)
+    with sessions() as db:
+        db.get(Wallet, user_id).balance_kopeks = 500
+        query_id = json.loads(db.get(ControlRun, run['id']).snapshot_json)['queries'][0]['id']
+        key = f"{run['id']}:{query_id}:google_aio"
+        db.add(Check(user_id=user_id, client_check_id=key, price_kopeks=120,
+            analysis_attempts=1, analysis_json='{"found": false, "confidence": 0.9}',
+            analysis_model=ai.model))
+        payload = {**Collector.answer, 'main_text': 'No name', 'answer_text': 'No name'}
+        db.add(ServerCapture(run_id=run['id'], query_id=query_id, service='google_aio',
+            check_id=key, answer_json=json.dumps(payload)))
+        db.commit()
+    original = scans._process_saved_pair
+    async def stop_before_drain(*args, **kwargs):
+        assert client.post(f"/api/v1/control/runs/{run['id']}/command", headers=owner,
+            json={'action': 'stop'}).status_code == 200
+        return await original(*args, **kwargs)
+    monkeypatch.setattr(scans, '_process_saved_pair', stop_before_drain)
+    def no_model(*args):
+        raise AssertionError('cached verdict must not call a model')
+    ai.analyze = ai.arbitrate = no_model
+    assert asyncio.run(cloud_tick(sessions, ai, 120, Collector,
+        prefetch_limits={'google_aio': 10}))
+    assert not tick(sessions, ai)
+    assert Collector.calls == []
+    with sessions() as db:
+        assert db.scalar(select(CloudResult)).status == 'not_found'
+        assert db.scalar(select(Check)).analysis_attempts == 1
+        assert db.get(ControlRun, run['id']).state == 'cancelled'
+        assert db.get(Wallet, user_id).balance_kopeks == 380
+        assert len(db.scalars(select(LedgerEntry).where(LedgerEntry.kind == 'check')).all()) == 1
+
+
 def test_stale_provider_response_cannot_save_capture(tmp_path, monkeypatch):
     client, owner, _, _, sessions = setup(tmp_path, monkeypatch)
     Collector.calls = []
@@ -1180,6 +1217,30 @@ def test_batch_commits_first_response_while_last_request_waits(tmp_path, monkeyp
             release.set()
         assert await task
     asyncio.run(scenario())
+
+
+def test_throttled_engine_does_not_stop_healthy_engine_refill(tmp_path, monkeypatch):
+    client, owner, _, _, sessions = setup(tmp_path, monkeypatch)
+    _, run = project_and_run(client, owner, services=('yandex_neuro', 'google_aio'),
+        queries=[{'text': f'q{i}'} for i in range(3)])
+    class ThrottleCollector(Collector):
+        calls = []
+        def __init__(self, service, geo, *, max_attempts):
+            super().__init__(service, geo)
+        async def collect(self, query, *, should_continue=None):
+            self.calls.append((self.service, query))
+            if self.service == 'yandex_neuro':
+                raise ProviderThrottleError('test throttle')
+            await asyncio.sleep(0.01)
+            return dict(self.answer)
+    assert asyncio.run(cloud_tick(sessions, None, 120, ThrottleCollector,
+        prefetch_limits={'google_aio': 1, 'yandex_neuro': 1}, cooldowns={}))
+    assert [q for service, q in ThrottleCollector.calls if service == 'google_aio'] == ['q0', 'q1', 'q2']
+    assert [q for service, q in ThrottleCollector.calls if service == 'yandex_neuro'] == ['q0']
+    with sessions() as db:
+        assert db.get(ControlRun, run['id']).state == 'paused'
+        results = db.scalars(select(CloudResult).where(CloudResult.service == 'google_aio')).all()
+        assert len(results) == 3 and all(result.status == 'found' for result in results)
 
 
 def test_throttled_engine_cools_down_across_runs_without_blocking_other_engine(tmp_path, monkeypatch):
