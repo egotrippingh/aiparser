@@ -131,7 +131,7 @@ def _analyze_saved(sessions, run_id, token, check_id, content, ai_client):
         if run.desired_state != "running" and not (check and check.analysis_json):
             return None
         return analyze_check(db, user, check_id, "", content, ai_client,
-            retry_saved=bool(check and check.analysis_attempts))
+            retry_saved=bool(check and check.analysis_attempts), accumulate_usage=True)
 
 
 def _arbitrate_saved(sessions, run_id, token, check_id, content, ai_client):
@@ -145,7 +145,7 @@ def _arbitrate_saved(sessions, run_id, token, check_id, content, ai_client):
         if run.desired_state != "running" and not (check and check.arbitration_json):
             return None
         return arbitrate_check(db, user, check_id, "", content, ai_client,
-            retry_saved=bool(check and check.arbitration_attempts))
+            retry_saved=bool(check and check.arbitration_attempts), accumulate_usage=True)
 
 
 def _clear_invalid_verdict(sessions, run_id, token, check_id, stage, raw):
@@ -163,6 +163,13 @@ def _clear_invalid_verdict(sessions, run_id, token, check_id, stage, raw):
             return
         setattr(check, field, None)
         db.commit()
+
+
+def _parse_cloud_verdict(response):
+    try:
+        return parse_verdict(response["raw"], response["model"])
+    except (TypeError, ValueError):
+        return None
 
 
 def _release_unstarted(sessions, run_id, token, check_id, snapshot):
@@ -191,6 +198,29 @@ def _defer_or_cancel(sessions, run_id, token, snapshot, query, service, check_id
         else:
             run.state = "paused"
             run.lease_token = run.lease_until = None
+        db.commit()
+        return True
+
+
+def _finish_exhausted(sessions, run_id, token, snapshot, query, service, check_id, payload, stage):
+    """Turn an exhausted model budget into one durable error and settled/released check."""
+    with sessions() as db:
+        run = _owned_locked(db, run_id, token)
+        if not run:
+            return False
+        check = db.execute(select(Check).where(Check.user_id == run.user_id,
+            Check.client_check_id == check_id).with_for_update()).scalar_one_or_none()
+        if not check:
+            return False
+        attempts = check.analysis_attempts if stage == "analysis" else check.arbitration_attempts
+        cached = check.analysis_json if stage == "analysis" else check.arbitration_json
+        if attempts < 4 or cached:
+            return None
+        complete_check(db, db.get(User, run.user_id), check_id, "error", commit=False)
+        error = ("Не удалось проанализировать ответ: исчерпан лимит попыток" if stage == "analysis"
+                 else "Не удалось разрешить спорный результат: исчерпан лимит попыток")
+        _record(db, run, snapshot, query, service, check_id, payload, status="error", error=error)
+        _finish_item(db, run, snapshot)
         db.commit()
         return True
 
@@ -299,7 +329,7 @@ async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClien
             response = await run_in_threadpool(_analyze_saved, sessions, run_id, token, check_id, content, ai_client)
             if response is None:
                 return _defer_or_cancel(sessions, run_id, token, snapshot, query, service, check_id, payload) or False
-            llm = parse_verdict(response["raw"], response["model"])
+            llm = _parse_cloud_verdict(response)
             if llm is None:
                 _clear_invalid_verdict(sessions, run_id, token, check_id, "analysis", response["raw"])
                 raise ValueError("Модель вернула неполное решение")
@@ -307,6 +337,10 @@ async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClien
             disposition = _defer_or_cancel(sessions, run_id, token, snapshot, query, service, check_id, payload)
             if disposition is not None:
                 return disposition
+            exhausted = _finish_exhausted(sessions, run_id, token, snapshot, query, service,
+                check_id, payload, "analysis")
+            if exhausted is not None:
+                return exhausted
             with sessions() as db:
                 run = _owned_locked(db, run_id, token)
                 if run:
@@ -325,7 +359,7 @@ async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClien
                 [{"type": "text", "text": text}], ai_client)
             if response is None:
                 return _defer_or_cancel(sessions, run_id, token, snapshot, query, service, check_id, payload) or False
-            arbiter = parse_verdict(response["raw"], response["model"])
+            arbiter = _parse_cloud_verdict(response)
             if arbiter is None:
                 _clear_invalid_verdict(sessions, run_id, token, check_id, "arbitration", response["raw"])
                 raise ValueError("Арбитр вернул неполное решение")
@@ -334,6 +368,10 @@ async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClien
             disposition = _defer_or_cancel(sessions, run_id, token, snapshot, query, service, check_id, payload)
             if disposition is not None:
                 return disposition
+            exhausted = _finish_exhausted(sessions, run_id, token, snapshot, query, service,
+                check_id, payload, "arbitration")
+            if exhausted is not None:
+                return exhausted
             with sessions() as db:
                 run = _owned_locked(db, run_id, token)
                 if run:

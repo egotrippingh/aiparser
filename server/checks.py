@@ -51,7 +51,23 @@ def _ai_payload(result: AIResult | str, fallback_model: str):
     return result, fallback_model, "{}"
 
 
-def analyze_check(db, user, check_id, system, content, ai_client, *, retry_saved=False):
+def _usage_with_previous(previous, current):
+    if not previous:
+        return current
+    old, new = json.loads(previous), json.loads(current)
+    if not isinstance(old, dict) or not isinstance(new, dict):
+        return current
+    merged = {**old, **new}
+    for key in ("cost", "prompt_tokens", "completion_tokens", "total_tokens"):
+        before, after = old.get(key), new.get(key)
+        if (isinstance(before, (int, float)) and not isinstance(before, bool)
+                and isinstance(after, (int, float)) and not isinstance(after, bool)):
+            merged[key] = before + after
+    return json.dumps(merged)
+
+
+def analyze_check(db, user, check_id, system, content, ai_client, *, retry_saved=False,
+                  accumulate_usage=False):
     if not ai_client:
         raise HTTPException(503, "Серверный анализ пока не настроен")
     check = db.execute(select(Check).where(Check.user_id == user.id,
@@ -72,12 +88,15 @@ def analyze_check(db, user, check_id, system, content, ai_client, *, retry_saved
         telemetry.capture(exc, component="server", operation="ai_analyze", user_id=user.id, run_id=check_id.split(":", 1)[0])
         db.commit()
         raise HTTPException(502, str(exc)) from exc
+    if accumulate_usage:
+        usage = _usage_with_previous(check.analysis_usage_json, usage)
     check.analysis_json, check.analysis_model, check.analysis_usage_json = raw, model, usage
     db.commit()
     return {"raw": raw, "model": model}
 
 
-def arbitrate_check(db, user, check_id, system, content, ai_client, *, retry_saved=False):
+def arbitrate_check(db, user, check_id, system, content, ai_client, *, retry_saved=False,
+                    accumulate_usage=False):
     if not ai_client:
         raise HTTPException(503, "Серверный арбитр пока не настроен")
     check = db.execute(select(Check).where(Check.user_id == user.id,
@@ -101,6 +120,8 @@ def arbitrate_check(db, user, check_id, system, content, ai_client, *, retry_sav
         telemetry.capture(exc, component="server", operation="ai_arbitrate", user_id=user.id, run_id=check_id.split(":", 1)[0])
         db.commit()
         raise HTTPException(502, str(exc)) from exc
+    if accumulate_usage:
+        usage = _usage_with_previous(check.arbitration_usage_json, usage)
     check.arbitration_json, check.arbitration_model, check.arbitration_usage_json = raw, model, usage
     db.commit()
     return {"raw": raw, "model": model}

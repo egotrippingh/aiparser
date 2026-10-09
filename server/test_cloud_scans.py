@@ -4,6 +4,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.exc import StatementError
@@ -43,6 +44,15 @@ class FakeAI:
 
     def arbitrate(self, system, content):
         return AIResult('{"found": false, "confidence": 0.9}', self.arbiter_model, {})
+
+
+@pytest.fixture(autouse=True)
+def reset_collector(monkeypatch):
+    monkeypatch.setattr(Collector, 'answer', {
+        'shown': True, 'main_text': 'Brand is recommended', 'cards_text': '',
+        'answer_text': 'Brand is recommended', 'html': '<p>Brand is recommended</p>',
+        'content': ['Brand is recommended'], 'sources': [], 'source_cards': [], 'products': []})
+    monkeypatch.setattr(Collector, 'calls', [])
 
 
 def setup(tmp_path, monkeypatch, *, ai=None, admin=True):
@@ -177,7 +187,9 @@ def test_malformed_primary_verdict_retries_saved_answer_once(tmp_path, monkeypat
     def analyze(system, content):
         calls.append('analyze')
         raw = 'malformed' if len(calls) == 1 else '{"found": false, "confidence": 0.9}'
-        return AIResult(raw, ai.model, {})
+        n = len(calls)
+        return AIResult(raw, ai.model, {'cost': n / 10000, 'prompt_tokens': 10 * n,
+            'completion_tokens': 5 * n, 'total_tokens': 15 * n})
     ai.analyze = analyze
     assert tick(sessions, ai)
     with sessions() as db:
@@ -190,7 +202,10 @@ def test_malformed_primary_verdict_retries_saved_answer_once(tmp_path, monkeypat
     assert calls == ['analyze', 'analyze']
     assert Collector.calls == [('google_aio', 'question')]
     with sessions() as db:
-        assert db.scalar(select(Check)).analysis_attempts == 2
+        check = db.scalar(select(Check))
+        assert check.analysis_attempts == 2
+        assert json.loads(check.analysis_usage_json) == {'cost': pytest.approx(0.0003),
+            'prompt_tokens': 30, 'completion_tokens': 15, 'total_tokens': 45}
         assert db.get(Wallet, user_id).balance_kopeks == 380
         assert len(db.scalars(select(LedgerEntry).where(LedgerEntry.kind == 'check')).all()) == 1
     Collector.answer = answer
@@ -213,7 +228,9 @@ def test_malformed_arbiter_verdict_retries_saved_answer_once(tmp_path, monkeypat
     def arbitrate(system, content):
         calls.append('arbitrate')
         raw = 'malformed' if calls.count('arbitrate') == 1 else '{"found": false, "confidence": 0.9}'
-        return AIResult(raw, ai.arbiter_model, {})
+        n = calls.count('arbitrate')
+        return AIResult(raw, ai.arbiter_model, {'cost': n / 10000, 'prompt_tokens': 10 * n,
+            'completion_tokens': 5 * n, 'total_tokens': 15 * n})
     ai.analyze, ai.arbitrate = analyze, arbitrate
     assert tick(sessions, ai)
     with sessions() as db:
@@ -229,9 +246,94 @@ def test_malformed_arbiter_verdict_retries_saved_answer_once(tmp_path, monkeypat
     with sessions() as db:
         check = db.scalar(select(Check))
         assert check.analysis_attempts == 1 and check.arbitration_attempts == 2
+        assert json.loads(check.arbitration_usage_json) == {'cost': pytest.approx(0.0003),
+            'prompt_tokens': 30, 'completion_tokens': 15, 'total_tokens': 45}
         assert db.get(Wallet, user_id).balance_kopeks == 380
         assert len(db.scalars(select(LedgerEntry).where(LedgerEntry.kind == 'check')).all()) == 1
     Collector.answer = answer
+
+
+@pytest.mark.parametrize('failure', ['malformed', 'bad_schema', 'ai_error'])
+def test_primary_attempt_budget_finishes_error_without_charge(tmp_path, monkeypatch, failure):
+    ai = FakeAI()
+    client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, ai=ai, admin=False)
+    monkeypatch.setattr(Collector, 'answer', {**Collector.answer,
+        'main_text': 'No name', 'answer_text': 'No name'})
+    Collector.calls = []
+    _, run = project_and_run(client, owner)
+    with sessions() as db:
+        db.get(Wallet, user_id).balance_kopeks = 500
+        db.commit()
+    calls = []
+    def fail_analyze(system, content):
+        calls.append('analyze')
+        if failure == 'ai_error':
+            raise AIError('unavailable')
+        raw = '{"found": false, "mention_types": 7}' if failure == 'bad_schema' else 'malformed'
+        return AIResult(raw, ai.model, {'cost': 0.0001})
+    ai.analyze = fail_analyze
+    for attempt in range(4):
+        if attempt:
+            assert client.post(f"/api/v1/control/runs/{run['id']}/command", headers=owner,
+                json={'action': 'resume'}).status_code == 200
+        assert tick(sessions, ai)
+        with sessions() as db:
+            assert db.get(ControlRun, run['id']).state == ('done' if attempt == 3 else 'paused')
+    assert len(calls) == 4 and Collector.calls == [('google_aio', 'question')]
+    assert client.post(f"/api/v1/control/runs/{run['id']}/command", headers=owner,
+        json={'action': 'resume'}).status_code == 409
+    assert not tick(sessions, ai)
+    with sessions() as db:
+        check = db.scalar(select(Check))
+        assert check.analysis_attempts == 4 and check.status == 'released'
+        assert db.scalar(select(CloudResult)).status == 'error'
+        assert len(db.scalars(select(ServerCapture)).all()) == 1
+        assert db.get(Wallet, user_id).balance_kopeks == 500
+        assert db.scalar(select(LedgerEntry).where(LedgerEntry.kind == 'check')) is None
+
+
+@pytest.mark.parametrize('failure', ['malformed', 'bad_schema', 'ai_error'])
+def test_arbiter_attempt_budget_finishes_error_with_one_charge(tmp_path, monkeypatch, failure):
+    ai = FakeAI()
+    client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, ai=ai, admin=False)
+    monkeypatch.setattr(Collector, 'answer', {**Collector.answer,
+        'main_text': 'No name', 'answer_text': 'No name'})
+    Collector.calls = []
+    _, run = project_and_run(client, owner)
+    with sessions() as db:
+        db.get(Wallet, user_id).balance_kopeks = 500
+        db.commit()
+    calls = []
+    def found_analyze(system, content):
+        calls.append('analyze')
+        return AIResult('{"found": true, "confidence": 0.9}', ai.model, {})
+    def fail_arbitrate(system, content):
+        calls.append('arbitrate')
+        if failure == 'ai_error':
+            raise AIError('unavailable')
+        raw = '{"found": false, "mention_types": 7}' if failure == 'bad_schema' else 'malformed'
+        return AIResult(raw, ai.arbiter_model, {'cost': 0.0001})
+    ai.analyze, ai.arbitrate = found_analyze, fail_arbitrate
+    for attempt in range(4):
+        if attempt:
+            assert client.post(f"/api/v1/control/runs/{run['id']}/command", headers=owner,
+                json={'action': 'resume'}).status_code == 200
+        assert tick(sessions, ai)
+        with sessions() as db:
+            assert db.get(ControlRun, run['id']).state == ('done' if attempt == 3 else 'paused')
+    assert calls == ['analyze', 'arbitrate', 'arbitrate', 'arbitrate', 'arbitrate']
+    assert Collector.calls == [('google_aio', 'question')]
+    assert client.post(f"/api/v1/control/runs/{run['id']}/command", headers=owner,
+        json={'action': 'resume'}).status_code == 409
+    assert not tick(sessions, ai)
+    with sessions() as db:
+        check = db.scalar(select(Check))
+        assert check.analysis_attempts == 1 and check.arbitration_attempts == 4
+        assert check.status == 'settled'
+        assert db.scalar(select(CloudResult)).status == 'error'
+        assert len(db.scalars(select(ServerCapture)).all()) == 1
+        assert db.get(Wallet, user_id).balance_kopeks == 380
+        assert len(db.scalars(select(LedgerEntry).where(LedgerEntry.kind == 'check')).all()) == 1
 
 
 def test_mixed_waits_for_cloud_then_assigns_only_agent_services(tmp_path, monkeypatch):
