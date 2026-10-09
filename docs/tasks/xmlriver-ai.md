@@ -117,3 +117,17 @@ No live model/payment tests, release or migration planned.
   Fake providers and temporary databases only; no live provider/model/payment,
   production or installer check. After three failures the existing recoverable
   error remains visible; absolute absence of user-visible errors is not guaranteed.
+
+## Production release (authorized 2026-10-09)
+
+- User authorized production rollout to test XMLRiver and retries. The agent
+  must be released as well as the website/API; target version `2026.10.9.1`.
+- Current PC lacks local publisher credentials/build tools. Reuse the prepared
+  Windows workflow/helper and pinned-host/public-verification publisher from
+  `origin/codex/windows-agent-release`, without merging that unrelated PR.
+- Add XMLRiver checks to delivery CI and the Windows release against the clean
+  pinned browser. Dedicated production environment credentials are configured.
+- Gates: feature CI, independent release risk review, production PR CI/deploy,
+  Windows EXE/browser/install/upgrade/uninstall and atomic publish/full HTTPS
+  checks. No production database migration or real user-profile test.
+- Release progress and final SHAs/links will be recorded after verification.

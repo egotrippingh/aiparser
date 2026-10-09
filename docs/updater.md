@@ -12,6 +12,12 @@ A successful next launch records and consumes its matching ASCII result marker, 
 
 After the installer and portable ZIP are built, `build-installer.ps1` runs `write-release-metadata.ps1` and writes `dist/agent-release.json` with their sizes and SHA-256 values. Publish with `python scripts/publish-agent.py --host root@45.146.90.88 --key C:/Users/ego/.ssh/airvision_aeza_ed25519 --dist dist`.
 
+The cloud release path is the **Build and publish Windows agent** workflow,
+dispatched on `production` with `publish=true` after the same site revision is
+live. It uses a dedicated non-root publisher and pinned SSH host key, and
+verifies both complete HTTPS downloads. The Windows job also runs XMLRiver
+offline render checks with the freshly prepared pinned browser.
+
 The publisher uses a Linux flock, unique upload stages, immutable version directories, and an atomic `agent-current` pointer. `agent-previous` points to one coherent earlier release. Version folders stay available for rollback; prune old folders manually when storage requires it. Agents released before this updater need one manual upgrade: installer for installed mode, ZIP for portable mode. Quit through the tray menu before replacing portable files and preserve `data`.
 
 The public update endpoint exposes a release only when the manifest has the required shape and both fixed artifacts match its recorded sizes. Desktop agents use fixed HTTPS download URLs and never read URLs from the manifest.
