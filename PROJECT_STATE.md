@@ -1,5 +1,44 @@
 # AIRate current project state
 
+## Continuous collection and analysis deployed (2026-10-09)
+
+Source `3e84bd5` on `codex/xmlriver-streaming` independently refills Google and
+Yandex collection slots (up to 10 each). Durable responses immediately enter a
+shared 20-slot primary/arbiter queue. No batch barrier or sequential model drain.
+The supplier is confidential in interface copy, DOM/CSS names, built JavaScript
+and public errors, including historical errors; original evidence/history is kept.
+
+Model admission is the fresh owner/state read after acquiring the Check lock.
+Already-admitted calls drain after Stop; cached verdicts remain usable without a
+new call. A throttled engine lets its healthy sibling finish before the run pauses.
+Fencing, frozen price, bounded retries and once-only settlement are retained.
+Long cloud ledger references use a deterministic hash within the existing column
+limit; no schema, Compose, price or installer change was required.
+
+Final local checks: 142 server tests passed with all three disposable PostgreSQL 16
+concurrency/fencing/Stop checks enabled; 52 client pipeline/billing/storage tests,
+benchmark self-check, 58 frontend tests, lint (existing warnings)/build and fake
+desktop/390px browser smoke passed. Two final review regressions failed before
+their fixes and passed after. Sol correctness and Astra risk reviews on `3e84bd5`
+found no remaining P1/P2. The loopback-only disposable PostgreSQL instance stopped.
+
+Implementation [PR #39](https://github.com/egotrippingh/aiparser/pull/39) and
+release [PR #40](https://github.com/egotrippingh/aiparser/pull/40) are merged.
+Feature `6645c36` CI passed (`37933910809`). Main `285fc55` has the same tree;
+push and release-PR CI passed (`37934396859`, `37934441616`). Production
+`202b2fe8873be11706ac943615d40de494a80c49` has the same tree; its Tests/build
+and Deploy jobs passed (`37934883974`). Normal backup/isolated restore,
+migration-head and readiness gates remain intact. Public HTTPS readiness
+confirmed the exact production SHA, pricing 120 kopeks and private projects 401.
+Independent smoke fetched landing/cabinet entry bundles and their preloads;
+supplier names were absent from both pages and all fetched JavaScript files.
+Evidence is outside Git under `~/.codex/tmp/xmlriver-release-20261009/`.
+
+Limits: different project runs remain sequential; multiple workers require a
+shared account limiter. Failed account-limit discovery keeps the existing one-slot
+fallback. Live-provider throughput and an authenticated production scan were not
+measured. See [the streaming brief](docs/tasks/xmlriver-streaming.md).
+
 ## XMLRiver speed and error follow-up deployed (2026-10-09)
 
 Branch `codex/xmlriver-throughput`, server source `b7b4c8d`, shared source
