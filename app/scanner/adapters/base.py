@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
+from shared.errors import AdapterError, ServiceUnavailableError, ProviderQuotaError
+
 _SELECTORS_PATH = Path(__file__).with_name("selectors.json")
 _log = logging.getLogger("aiparser.adapters")
 
@@ -279,10 +281,6 @@ class SearchAdapter(Protocol):
         ...
 
 
-class AdapterError(RuntimeError):
-    """Адаптер не смог довести шаг до конца — техническая ошибка, не капча и не авторизация."""
-
-
 class AuthRequiredError(AdapterError):
     """Стена логина обнаружена уже ПОСЛЕ ensure_ready — например, инлайн-плейсхолдер
     в самом контейнере ответа вместо отдельного модального окна (у Perplexity
@@ -290,25 +288,6 @@ class AuthRequiredError(AdapterError):
     результат как status="auth_required", а не "error" — это не сбой, а
     честный сигнал «нужно перелогиниться», который иначе тихо просочился бы
     в статистику как not_found и занизил бы видимость бренда."""
-
-
-class ServiceUnavailableError(AdapterError):
-    """Сервис сейчас не принимает запросы — чаще всего упёрлись в лимит тарифа.
-
-    Наблюдаемый признак, по которому это ловится: поле ввода исчезает со
-    страницы. Именно так это выглядело в реальном прогоне 28.08.2026 —
-    Perplexity отдал 44 ответа, ChatGPT 41, после чего оба показывали страницу
-    без поля ввода до конца прогона (56 и 59 подряд одинаковых таймаутов по
-    30 секунд каждый). Через три дня квота сбросилась сама и поле вернулось —
-    то есть стена временная, а не поломка.
-
-    Оркестратор, поймав это подряд несколько раз, прекращает сервис целиком:
-    смысла добивать оставшиеся запросы нет, а стоит это полчаса таймаутов.
-    """
-
-
-class ProviderQuotaError(ServiceUnavailableError):
-    """A provider showed its explicit quota wall; absence of UI remains unexpected."""
 
 
 class CaptchaError(AdapterError):

@@ -2,6 +2,15 @@
 **
 !server/
 !server/**
+!shared/
+!shared/*.py
+!app/
+!app/__init__.py
+!app/detect/
+!app/detect/__init__.py
+!app/detect/brand.py
+!app/detect/rules.py
+!app/detect/merge.py
 server/.env
 server/.env.*
 server/__pycache__/

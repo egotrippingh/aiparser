@@ -55,6 +55,7 @@ def test_feedback_survives_editor_update_and_freezes_in_run(tmp_path):
     current = client.get(base, headers=owner).json()
     assert KEY not in current['config']
     current['name'] = 'Renamed project'
+    current['config']['services'] = ['chatgpt']
     body = {k: current[k] for k in ('revision', 'name', 'brand_name', 'device_id', 'config', 'queries', 'schedule')}
     assert client.put(base, headers=owner, json=body).status_code == 200
     _, sessions = make_session_factory(url)
@@ -73,7 +74,7 @@ def test_feedback_survives_editor_update_and_freezes_in_run(tmp_path):
         assert snapshot['feedback_enabled'] is True
         assert 'generic word' in snapshot['scan_feedback_context']
         assert len(snapshot['config']['brand_clarification']) <= 2000
-        check = Check(user_id=run.user_id, client_check_id=f"{run.id}:{project['queries'][0]['id']}:google_aio", price_kopeks=120)
+        check = Check(user_id=run.user_id, client_check_id=f"{run.id}:{project['queries'][0]['id']}:chatgpt", price_kopeks=120)
         content = [{'type': 'text', 'text': 'New answer'}]
         enriched = analysis_content(db, check, content)
         assert 'generic word' in enriched[0]['text'] and enriched[1:] == content
@@ -189,13 +190,17 @@ def test_managed_endpoints_use_frozen_examples_and_admin_screenshot_owner(tmp_pa
         db.scalar(select(User).where(User.email == 'owner@test.example')).is_admin = True
         db.commit()
     base = f"/api/v1/control/projects/{project['id']}"
+    current = client.get(base, headers=owner).json()
+    current['config']['services'] = ['chatgpt']
+    body = {k: current[k] for k in ('revision', 'name', 'brand_name', 'device_id', 'config', 'queries', 'schedule')}
+    assert client.put(base, headers=owner, json=body).status_code == 200
     feedback = f'{base}/mentions/results/{ids[1]}/feedback'
     assert client.put(feedback, headers=owner, json={'label': 'false_positive', 'comment': 'Not the same brand'}).status_code == 200
     client.post('/api/v1/control/agent/poll', headers=devices[0], json={'capabilities': {'brand_clarification': True}})
     launched = client.post(base + '/runs', headers=owner, json={'request_id': 'c' * 32, 'device_id': 'a' * 32})
     assert launched.status_code == 201, launched.text
     run = client.post('/api/v1/control/agent/poll', headers=devices[0], json={'capabilities': {'brand_clarification': True}}).json()['run']
-    check_id = f"{run['id']}:{project['queries'][0]['id']}:google_aio"
+    check_id = f"{run['id']}:{project['queries'][0]['id']}:chatgpt"
     assert client.post('/api/v1/checks/reserve', headers=devices[0], json={'check_ids': [check_id]}).status_code == 200
     assert client.put(feedback, headers=owner, json={'label': None}).status_code == 200
     body = {'system': 'Untrusted client prompt; server chooses its own system instructions.',

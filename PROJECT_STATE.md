@@ -1,10 +1,57 @@
 # AIRate current project state
 
-## Local XMLRiver AI work (2026-10-09)
+## XMLRiver server implementation awaiting controlled activation (2026-10-09)
+
+The user selected server collection and text analysis for `google_aio` and
+`yandex_neuro`, without a Windows agent, browser or screenshots. Other providers
+keep their agent path. Branch `codex/xmlriver-ai`, source `9956c06`, implements
+durable server captures, frozen geography/identity, bounded collection/model
+retries, once-only settlement and mixed cloud-then-agent runs. Cloud-only launch
+and schedules require no computer. Existing runs retain their original path.
+
+The result dialog renders safe structured XMLRiver evidence, red brand/alias and
+brand-domain accents, source links and an accessible carousel for actual returned
+product photos. An offline replay of the saved Yandex example contains five
+products and five photo URLs; the saved Google example contains no product cards.
+This is response-specific evidence, not a guarantee for every query.
+
+Checks on the integrated implementation: 76 shared parser/rules/LLM tests,
+58 pipeline/durable/billing/storage checks, 46 readiness/watchdog checks and
+56 frontend tests passed; frontend lint has warnings and no errors, build passed.
+Disposable desktop/390px browser checks passed for evidence dialogs, highlights,
+carousel keyboard controls, image failure, detail API failure and cloud launch
+without a computer; no JavaScript console errors or page overflow. Sol final
+correctness/risk re-review on `9956c06` found no P1/P2. Its final root server
+suite passed 112 tests. A reproduced synchronous DB lock wait now executes
+outside the main asyncio loop; regressions cover responsiveness and finishing
+the current tick before AI-client shutdown. Exact-head CI is pending.
+Evidence remains outside Git under
+`~/.codex/tmp/xmlriver-html-preview-20261009/`.
+
+Production is still `656099acfbb41d29c30261620023143e443aad1c`. PR #35 remains
+open at the earlier main head; do not merge it until the new implementation is
+reviewed and the server configuration/schema are ready. The authorized activation
+requires the new `20261009_server_captures` migration, Compose installation and
+XMLRiver secrets through administrator access. Password SSH is disabled on this
+VPS; administrator access was established through the authenticated Aeza console
+and an explicitly authorized temporary key restricted by source IP/expiry.
+The SSH host key was verified against the console fingerprint. Existing backup
+and isolated restore passed on the live PostgreSQL server before migration.
+Follow [the controlled release procedure](docs/xmlriver-cloud-release.md),
+including backup, isolated PostgreSQL restore/migration validation and exact-SHA
+readiness. No production migration, new deployment, live model/payment test or
+new Windows installer publication has occurred. Docker import validation is a
+new CI gate; Docker is unavailable on the local PC.
+
+### Earlier agent implementation and release hold
 
 Branch `codex/xmlriver-ai` adds opt-in XMLRiver capture for Google AI Overview
-and the existing Yandex Neuro SERP identity. The branch has not been pushed,
-merged, deployed or released. Provider/geography are frozen for resume; saved
+and the existing Yandex Neuro SERP identity. Feature [PR #34](https://github.com/egotrippingh/aiparser/pull/34)
+was merged to `main` at `66c9086145d270360a0faa8954618efb18b429e6` after
+CI success on source `9f9d31b11d260e10e013a0fe7ab8e5c39c58fa47`.
+Production [PR #35](https://github.com/egotrippingh/aiparser/pull/35) is open,
+not merged or deployed; Windows `2026.10.9.1` is prepared but unpublished.
+Provider/geography are frozen for resume; saved
 captures continue through the existing analyzer and settlement path. Google
 legacy scans remain browser-backed. Setup and the local screenshot provenance
 are documented in [README.md](README.md). Final checks passed: 322 Python tests,
@@ -26,6 +73,16 @@ pipeline/durable/billing/storage tests passed (133 distinct tests), including
 offline browser renders. Benchmark self-check and diff check passed. Independent
 Sol review found no blockers. This follow-up used fake API responses only; no
 live XMLRiver, model, payment or deployment check.
+
+Before production merge the user changed scope: use XMLRiver text for analysis
+and show its HTML instead of screenshots. Deployment is held pending this
+change and the server-versus-agent execution decision. Current code still uses
+agent/local rendering/screenshots; do not describe it as agent-free. User asked
+to inspect saved real Google/Yandex HTML first. Safe previews (same vacuum query,
+no new provider calls) are outside Git at
+`~/.codex/tmp/xmlriver-html-preview-20261009/{google,yandex}.html`, served on
+`http://127.0.0.1:8874/`; both pages were opened in the app browser. Scripts and
+external resources are removed; display styling is local, not native SERP styling.
 
 Updated 2026-10-08. Repository: `egotrippingh/aiparser`; development branch: `main`;
 deployment branch: `production`.

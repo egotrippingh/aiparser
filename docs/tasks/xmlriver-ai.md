@@ -1,5 +1,45 @@
 # XMLRiver AI capture
 
+## Active scope: server execution and structured answers (2026-10-09)
+
+- User chose server collection/analysis for Google and Yandex without Windows
+  agent, browser or screenshot. Other providers keep their agent path.
+- Show the saved XMLRiver answer through the existing mention/result dialog;
+  preserve prose structure and source links, accent brand/aliases/domain links
+  in red, and show actual product photo cards in a keyboard-accessible carousel.
+- One frozen run executes server services before agent services. Cloud-only
+  launch/schedule requires no device; old runs keep their original execution.
+- Save capture before AI, stable check IDs, bounded provider retries, wallet
+  reserve before provider, idempotent settlement, stop/pause/resume, owner scope.
+- Shared parser/prompt helpers and UI are written in the original checkout.
+  Server builder is sole writer in managed `xmlriver-cloud-worker` checkout;
+  Terra unavailable, Sol used as builder per skill fallback.
+- Integrated source: `9956c06`. Checks: 76 parser/rules/LLM tests; 58
+  pipeline/durable/billing/storage checks; 46 readiness/watchdog checks; 56
+  frontend tests. Build passes; lint has warnings, no errors. Desktop/390px
+  disposable browser smoke passes for structured evidence, red highlights,
+  carousel keyboard/image errors, detail API errors and launch without a PC.
+- Builder and root final server suites: 112 passed. Sol/Astra final re-review
+  found no P1/P2 on `9956c06`. Reproduced DB wait blocking is fixed by executing
+  one cloud tick in a thread; responsiveness/shutdown regressions pass.
+  Local reports: `~/.codex/tmp/xmlriver-html-preview-20261009/`.
+- Malformed verdict retries preserve attempt budgets and accumulate returned
+  usage. Four failed model attempts produce one durable terminal error; valid
+  saved primary analysis settles once, absent valid analysis releases once.
+- Remaining: exact-head CI/Docker gate, administrator access, PostgreSQL
+  isolated restore/migration validation, production activation and live pilot.
+  Root password SSH is disabled; Aeza console established administrator access.
+  Host fingerprint verified; explicitly authorized temporary key is restricted
+  by IP/expiry. Existing live backup/isolated PostgreSQL restore passed.
+  No production schema or application change yet.
+- Production needs reviewed schema migration and server XMLRiver environment;
+  Compose changes are not installed by the existing application deploy gate.
+  Follow `docs/xmlriver-cloud-release.md`. Production remains `656099a`;
+  PR #35 must not merge at its old main head. Windows publication is not required
+  for the new server collection path and remains unperformed.
+
+The sections below record the earlier agent implementation and release hold.
+
 ## Outcome and base
 
 - Request: collect Google/Yandex AI blocks through XMLRiver on a separate branch;
@@ -131,3 +171,16 @@ No live model/payment tests, release or migration planned.
   Windows EXE/browser/install/upgrade/uninstall and atomic publish/full HTTPS
   checks. No production database migration or real user-profile test.
 - Release progress and final SHAs/links will be recorded after verification.
+
+### Scope changed before production merge
+
+- PR #34 merged to main (`66c9086145d270360a0faa8954618efb18b429e6`);
+  feature CI passed on `9f9d31b11d260e10e013a0fe7ab8e5c39c58fa47`.
+  PR #35 into production remains open; no deploy or agent publication.
+- User now requests text analysis without screenshots and HTML evidence display.
+  Server-versus-agent execution was asked; user wants to inspect an HTML example
+  before choosing. Hold production merge and Windows dispatch until scope resolved.
+- Existing saved real API responses decoded into safe local Google/Yandex HTML
+  examples for the same query. Preview/evidence outside Git:
+  `~/.codex/tmp/xmlriver-html-preview-20261009/`; localhost port 8874. No new paid
+  API calls, no screenshot generated, no external render requests or secrets.

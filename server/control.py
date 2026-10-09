@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from server.agent_schemas import SCHEDULABLE_IDS
 from server.ai import AIError
-from server.models import (AgentDevice, Check, CloudResult, ControlLink, ControlProject, ControlRun,
+from server.models import (AgentDevice, Check, CloudResult, ControlLink, ControlProject, ControlRun, ServerCapture,
                            DeviceConnect, DeviceGrant, LedgerEntry, Screenshot, SessionToken, User, Wallet, utcnow)
 from server.reporting import SERVICES
 from server.scan_feedback import KEY as FEEDBACK_KEY, learning_context
@@ -28,6 +28,11 @@ from server.storage import StorageError
 
 log = logging.getLogger(__name__)
 TERMINAL = {"done", "failed", "cancelled", "missed"}
+CLOUD_SERVICES = {"google_aio", "yandex_neuro"}
+
+
+def agent_services(config):
+    return [service for service in config["services"] if service not in CLOUD_SERVICES]
 
 
 def aware(value):
@@ -189,15 +194,20 @@ def project_payload(row, detail=True, brand_clarifications_enabled=False):
 
 def run_payload(row, device=None):
     state = row.state
-    if state == "queued" and (not device or device.revoked or
+    if row.phase == "agent" and state == "queued" and (not device or device.revoked or
                               utcnow() - aware(device.last_seen_at) > timedelta(seconds=90)):
         state = "waiting_device"
     elif state in ("running", "paused") and row.lease_until and aware(row.lease_until) < utcnow():
         state = "connection_lost"
     snap = json.loads(row.snapshot_json)
+    progress = json.loads(row.progress_json)
+    cloud_total = len(snap["queries"]) * len(snap.get("cloud_services", []))
+    if cloud_total:
+        progress = {**progress, "cloud_done": progress.get("cloud_done", 0), "cloud_total": cloud_total,
+                    "done": progress.get("cloud_done", 0) + progress.get("agent_done", 0)}
     return {"id": row.id, "project_id": row.project_id, "project_name": snap["name"],
-            "device_id": row.device_id, "device_name": device.name if device else row.device_id[-6:],
-            "state": state, "desired_state": row.desired_state, "progress": json.loads(row.progress_json),
+            "device_id": row.device_id, "device_name": device.name if device else (row.device_id[-6:] if row.device_id else "Сервер"),
+            "phase": row.phase, "state": state, "desired_state": row.desired_state, "progress": progress,
             "error": row.error, "total": len(snap["queries"]) * len(snap["config"]["services"]),
             "created_at": aware(row.created_at).isoformat(),
             "scheduled_for": aware(row.scheduled_for).isoformat() if row.scheduled_for else None}
@@ -214,27 +224,34 @@ def create_run(db, project, device_id, key, scheduled_for=None, brand_clarificat
     existing = db.scalar(select(ControlRun).where(ControlRun.request_key == key))
     if existing:
         return existing
-    device = device_for(db, project.user_id, device_id)
     snap = project_payload(project, brand_clarifications_enabled=brand_clarifications_enabled)
+    cloud = [s for s in snap["config"]["services"] if s in CLOUD_SERVICES]
+    agent = agent_services(snap["config"])
+    device = device_for(db, project.user_id, device_id) if agent else None
+    if cloud:
+        from shared.xmlriver import configured, geography
+        if not configured():
+            raise HTTPException(422, "Серверный XMLRiver не настроен для выбранного региона")
+        try:
+            snap["cloud_geography"] = {service: geography(service, snap["config"].get("region_code", "213"))
+                                       for service in cloud}
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+    snap["cloud_services"] = cloud
     examples = learning_context(project)
     if examples:
         snap["config"]["brand_clarification"] = (snap["config"].get("brand_clarification", "") +
             "\nУчитывай размеченные владельцем примеры идентификации бренда, приложенные сервером.").strip()
         snap["scan_feedback_context"] = examples
         snap["feedback_enabled"] = True
-    if snap["config"].get("brand_clarification") and not json.loads(device.capabilities_json).get("brand_clarification"):
+    if device and snap["config"].get("brand_clarification") and not json.loads(device.capabilities_json).get("brand_clarification"):
         raise HTTPException(422, "Обновите агент AIRate, чтобы использовать уточнения по бренду")
-    capabilities = json.loads(device.capabilities_json)
-    backends = capabilities.get("capture_backends")
-    configured = capabilities.get("provider_configured")
-    if "yandex_neuro" in snap["config"]["services"] and not (isinstance(backends, dict) and backends.get("yandex_neuro") == "xmlriver" and
-                                                               isinstance(configured, dict) and configured.get("yandex_neuro") is True):
-        raise HTTPException(422, "Обновите агент и настройте XMLRiver на выбранном компьютере для Яндекс Нейро")
     snap["queries"] = [q for q in snap["queries"] if q["active"]]
     if not snap["queries"]:
         raise HTTPException(422, "Добавьте активные запросы в проект")
     row = ControlRun(id=uuid.uuid4().hex, user_id=project.user_id, project_id=project.id,
-                     device_id=device_id, active_project_key=project.id, request_key=key,
+                     device_id=device_id if agent else None, phase="cloud" if cloud else "agent",
+                     active_project_key=project.id, request_key=key,
                      snapshot_json=json.dumps(snap, ensure_ascii=False), scheduled_for=scheduled_for)
     db.add(row)
     db.flush()
@@ -253,7 +270,7 @@ def schedule_tick(sessions, now=None, feature_user_id=""):
         projects = db.scalars(select(ControlProject).where(ControlProject.archived.is_(False))).all()
         for project in projects:
             schedule = Schedule.model_validate(json.loads(project.schedule_json))
-            if not schedule.enabled or not schedule.device_id:
+            if not schedule.enabled:
                 continue
             local = now.astimezone(ZoneInfo(schedule.timezone))
             for day_offset in (1, 0):
@@ -272,7 +289,7 @@ def schedule_tick(sessions, now=None, feature_user_id=""):
                 try:
                     with db.begin_nested():
                         user = db.get(User, project.user_id)
-                        create_run(db, project, schedule.device_id, key, slot,
+                        create_run(db, project, schedule.device_id or project.device_id, key, slot,
                                    brand_clarifications_enabled=bool(feature_user_id and user and user.is_admin and user.id == feature_user_id))
                     db.commit()
                 except (IntegrityError, HTTPException):
@@ -345,10 +362,18 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
                 types = []
             proof = (row.evidence_quote or "").strip()
             stored = (row.answer_text or "") + " " + (row.sources_json or "")
+            capture = db.scalar(select(ServerCapture).where(ServerCapture.run_id == row.run_id,
+                ServerCapture.check_id == row.check_id)) if row.run_id and row.check_id else None
+            if capture:
+                evidence = json.loads(capture.answer_json)
+                stored += " " + str(evidence.get("cards_text") or "") + " " + json.dumps(
+                    evidence.get("products", []) + evidence.get("source_cards", []), ensure_ascii=False)
             missing_positive_evidence = row.status == "found" and screenshot is None and not previous_text_only and (
                 not proof or proof.casefold() not in stored.casefold())
-            if ((not (row.answer_text or "").strip() and screenshot is None)
-                    or ("card" in types and screenshot is None and not previous_text_only)
+            has_saved_answer = bool((row.answer_text or "").strip() or
+                (capture and (evidence.get("cards_text") or evidence.get("products") or evidence.get("source_cards"))))
+            if ((not has_saved_answer and screenshot is None)
+                    or ("card" in types and screenshot is None and capture is None and not previous_text_only)
                     or "source" in types or missing_positive_evidence):
                 skipped += 1
             else:
@@ -384,11 +409,12 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         return row
 
     def validate_assignment(db, user_id, body):
-        if body.device_id:
+        needs_agent = bool(agent_services(body.config.model_dump()))
+        if needs_agent and body.device_id:
             device_for(db, user_id, body.device_id)
-        if body.schedule.device_id:
+        if needs_agent and body.schedule.device_id:
             device_for(db, user_id, body.schedule.device_id)
-        if body.schedule.enabled and not body.schedule.device_id:
+        if body.schedule.enabled and needs_agent and not (body.schedule.device_id or body.device_id):
             raise HTTPException(422, "Выберите компьютер для расписания")
 
     def validate_clarification(user, body):
@@ -474,7 +500,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             run = db.scalar(select(ControlRun).where(ControlRun.request_key == f"manual:{row.id}:{body.request_id}"))
             if run is None:
                 raise HTTPException(409, "У проекта уже есть проверка в очереди или в работе")
-        return run_payload(run, device_for(db, user.id, run.device_id))
+        return run_payload(run, device_for(db, user.id, run.device_id) if run.device_id else None)
 
     @router.get("/projects/{project_id}/recompute/quote")
     def recompute_quote(project_id: str, from_date: str, user=Depends(web_user), db=Depends(db_session)):
@@ -548,6 +574,13 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             f"Сохранённый ответ:\n{result.answer_text or ''}\n\n"
             f"Сохранённые источники:\n{json.dumps(sources, ensure_ascii=False)}"
         )}]
+        capture = db.scalar(select(ServerCapture).where(ServerCapture.run_id == result.run_id,
+            ServerCapture.check_id == result.check_id)) if result.run_id and result.check_id else None
+        if capture:
+            evidence = json.loads(capture.answer_json)
+            content[0]["text"] += "\n\nСохранённые карточки:\n" + str(evidence.get("cards_text") or "")[:3000]
+            content[0]["text"] += "\n\nТовары и источники:\n" + json.dumps(
+                evidence.get("products", []) + evidence.get("source_cards", []), ensure_ascii=False)[:3000]
         if image is not None:
             content.append({"type": "image_url", "image_url": {"url": "data:image/webp;base64," + base64.b64encode(image).decode("ascii")}})
         try:
@@ -602,7 +635,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             raise HTTPException(409, "Проверка уже завершена")
         row.desired_state = {"pause": "paused", "resume": "running", "stop": "cancelled"}[body.action]
         if body.action == "stop" and (row.state == "queued" or
-                (row.lease_until and aware(row.lease_until) < utcnow())):
+                (row.phase == "agent" and row.lease_until and aware(row.lease_until) < utcnow())):
             row.state = "cancelled"
             row.active_project_key = row.active_device_key = None
             row.lease_token = None
@@ -628,6 +661,9 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         for run in db.scalars(select(ControlRun).where(ControlRun.user_id == user.id,
                 ControlRun.device_id == device_id, ControlRun.active_project_key.is_not(None))):
             run.desired_state = "cancelled"
+            if run.phase == "cloud":
+                # The server worker must drain any reserved check or current answer.
+                continue
             run.state = "cancelled"
             run.active_project_key = run.active_device_key = run.lease_token = None
         db.commit(); return {"ok": True}
@@ -729,7 +765,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         def supported(candidate, *, active=False):
             snapshot = json.loads(candidate.snapshot_json)
             note = snapshot.get("config", {}).get("brand_clarification")
-            if "yandex_neuro" in snapshot.get("config", {}).get("services", []):
+            if "yandex_neuro" in snapshot.get("config", {}).get("services", []) and "cloud_services" not in snapshot:
                 backends = body.capabilities.get("capture_backends")
                 if not isinstance(backends, dict) or backends.get("yandex_neuro") != "xmlriver":
                     return False
@@ -738,7 +774,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
                     return False
             return not note or bool(body.capabilities.get("brand_clarification") and
                                    (snapshot.get("feedback_enabled") or brand_enabled(db.get(User, grant.user_id))))
-        run = db.scalar(select(ControlRun).where(ControlRun.active_device_key == key))
+        run = db.scalar(select(ControlRun).where(ControlRun.active_device_key == key, ControlRun.phase == "agent"))
         if run and not supported(run, active=True):
             device.active_scan = False
             db.commit()
@@ -747,7 +783,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
                 and body.capabilities.get("installed") is not False):
             queued = db.scalars(select(ControlRun).where(ControlRun.user_id == grant.user_id,
                 ControlRun.device_id == grant.device_id, ControlRun.state == "queued",
-                ControlRun.desired_state == "running").order_by(ControlRun.created_at)).all()
+                ControlRun.desired_state == "running", ControlRun.phase == "agent").order_by(ControlRun.created_at)).all()
             run = next((candidate for candidate in queued if supported(candidate)), None)
             if run:
                 run.active_device_key = key; run.lease_token = new_token(); run.state = "running"
@@ -759,13 +795,17 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             db.commit()
         except IntegrityError:
             db.rollback(); return {"run": None}
+        if run:
+            snapshot = json.loads(run.snapshot_json)
+            if "cloud_services" in snapshot:
+                snapshot["config"]["services"] = agent_services(snapshot["config"])
         return {"run": None if not run else {**run_payload(run, device),
-                "snapshot": json.loads(run.snapshot_json), "lease_token": run.lease_token}, "name": device.name}
+                "snapshot": snapshot, "lease_token": run.lease_token}, "name": device.name}
 
     @router.post("/agent/runs/{run_id}")
     def progress(run_id: str, body: ProgressIn, grant=Depends(device_user), db=Depends(db_session)):
         row = db.get(ControlRun, run_id)
-        if not row or row.user_id != grant.user_id or row.device_id != grant.device_id:
+        if not row or row.user_id != grant.user_id or row.device_id != grant.device_id or row.phase != "agent":
             raise HTTPException(404, "Задание не найдено")
         if row.state == body.state and row.state in TERMINAL and row.lease_token == body.lease_token:
             return {"desired_state": row.desired_state}
@@ -773,7 +813,12 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             raise HTTPException(409, "Задание больше не принадлежит этому агенту")
         if len(json.dumps(body.progress)) > 20000:
             raise HTTPException(422, "Слишком большой прогресс")
-        row.state = body.state; row.progress_json = json.dumps(body.progress); row.error = body.error
+        old_progress = json.loads(row.progress_json)
+        progress = body.progress
+        if "cloud_services" in json.loads(row.snapshot_json):
+            progress = {**body.progress, "cloud_done": old_progress.get("cloud_done", 0),
+                        "agent_done": body.progress.get("done", 0)}
+        row.state = body.state; row.progress_json = json.dumps(progress); row.error = body.error
         if (body.state == 'paused' and body.error and body.progress.get('pending_analysis')
                 and row.desired_state == 'running'):
             # Retain the lease while an explicitly resumed agent retries saved analysis.
@@ -786,7 +831,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
     @router.get("/agent/runs/{run_id}/status")
     def run_status(run_id: str, grant=Depends(device_user), db=Depends(db_session)):
         row = db.get(ControlRun, run_id)
-        if not row or row.user_id != grant.user_id or row.device_id != grant.device_id:
+        if not row or row.user_id != grant.user_id or row.device_id != grant.device_id or row.phase != "agent":
             raise HTTPException(404, "Задание не найдено")
         return {"state": row.state}
 

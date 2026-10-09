@@ -89,7 +89,7 @@ def test_transient_xml_retries_and_secret_never_enters_error(monkeypatch, caplog
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: client(transport=httpx.MockTransport(reply), **kwargs))
     caplog.set_level(logging.INFO, logger="httpx")
     async def no_wait(_): pass
-    monkeypatch.setattr("app.scanner.adapters.xmlriver.asyncio.sleep", no_wait)
+    monkeypatch.setattr("shared.xmlriver.asyncio.sleep", no_wait)
     adapter = XMLRiverAdapter("google_aio", geography("google_aio", "213"))
     asyncio.run(adapter.ask(None, "вопрос", "213"))
     assert len(seen) == 3 and adapter.html == "<p>Основной совет</p>"
@@ -120,7 +120,7 @@ def provider_replies(monkeypatch):
 
     async def no_wait(delay):
         waits.append(delay)
-    monkeypatch.setattr("app.scanner.adapters.xmlriver.asyncio", SimpleNamespace(sleep=no_wait))
+    monkeypatch.setattr("shared.xmlriver.asyncio", SimpleNamespace(sleep=no_wait))
     return install, calls, waits
 
 
@@ -172,7 +172,7 @@ def test_retry_wait_is_cancellable(provider_replies, monkeypatch):
         async def blocked(_):
             waiting.set()
             await asyncio.Event().wait()
-        monkeypatch.setattr("app.scanner.adapters.xmlriver.asyncio.sleep", blocked)
+        monkeypatch.setattr("shared.xmlriver.asyncio.sleep", blocked)
         adapter = XMLRiverAdapter("google_aio", geography("google_aio", "213"))
         task = asyncio.create_task(adapter.ask(None, "вопрос", "213"))
         try:
@@ -205,7 +205,7 @@ def test_stop_prevents_recollection_of_empty_capture(stop_at, provider_replies, 
             waiting.set()
             await asyncio.Event().wait()
         monkeypatch.setattr(adapter, "capture", empty)
-        monkeypatch.setattr("app.scanner.adapters.xmlriver.asyncio.sleep", blocked)
+        monkeypatch.setattr("shared.xmlriver.asyncio.sleep", blocked)
         task = asyncio.create_task(scan._ask_and_capture(adapter, None, {"region_code": "213"},
                                                          {"id": 1, "text": "вопрос"}, "google_aio", 1, ctl))
         try:
