@@ -167,5 +167,3 @@ async def _ask_model(system: str, content: list[dict], *, api_key: str, model: s
                                     timeout=timeout, retry=False, managed_check_id=managed_check_id,
                                     managed_arbiter=managed_arbiter, retry_saved=retry_saved)
         return LLMVerdict(found=False, model=model, error=str(exc))
-
-

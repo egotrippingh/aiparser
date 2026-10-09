@@ -20,5 +20,3 @@ class ServiceUnavailableError(AdapterError):
 
 class ProviderQuotaError(ServiceUnavailableError):
     """A provider showed its explicit quota wall; absence of UI remains unexpected."""
-
-

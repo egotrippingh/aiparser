@@ -12,6 +12,7 @@ import os
 import re
 import ipaddress
 from dataclasses import dataclass, field
+from typing import Callable
 from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 
@@ -31,6 +32,10 @@ _CARD_SELECTOR = ("[data-xid^='aim-aside'], .FuturisGPTMessage-SourcesItem, "
 
 class XMLRiverResponseError(AdapterError):
     """Transient provider failure or unusable answer eligible for recollection."""
+
+
+class CollectionCancelled(AdapterError):
+    """The owning run stopped before the next paid provider request."""
 
 
 class _RedactXMLRiver(logging.Filter):
@@ -106,7 +111,10 @@ class _SafeHTML(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
-        hidden = (tag in self._blocked or "hidden" in values or values.get("aria-hidden") == "true" or
+        # Yandex marks visible product thumbnails as decorative for screen readers.
+        decorative_photo = self.include_images and ("EProductSnippet-Thumb" in (values.get("class") or "").split() or
+                                                   (tag == "img" and "EThumb-Image" in (values.get("class") or "").split()))
+        hidden = (tag in self._blocked or "hidden" in values or (values.get("aria-hidden") == "true" and not decorative_photo) or
                   bool(set((values.get("class") or "").split()) & {"bNg8Rb", "MheKwc"}) or
                   bool(re.search(r"(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)", values.get("style") or "", re.I)) or
                   self.blocked > 0)
@@ -342,6 +350,9 @@ def evidence(markup: str | None, cards: list[tuple[str, str, str]], service_id: 
         url = next((_safe_url(n.attrs.get("href")) for n in nodes if n.tag == "a" and _safe_url(n.attrs.get("href"))), "")
         image = next((_image_url(n.attrs.get("src")) for n in nodes if n.tag == "img" and _image_url(n.attrs.get("src"))), "")
         price = next((_plain(n) for n in nodes if "EPrice-Value" in n.classes), "")
+        currency = next((_plain(n) for n in nodes if "EPrice-Currency" in n.classes), "")
+        if price and currency and currency not in price:
+            price += " " + currency
         title = title or _plain(node)
         item = {"title": title[:2000], "url": url, "image_url": image, "price": price[:100]}
         if item not in products:
@@ -351,6 +362,10 @@ def evidence(markup: str | None, cards: list[tuple[str, str, str]], service_id: 
         if "EProductSnippet" in node.classes or _outer(node, lambda n: "EProductSnippet" in n.classes):
             continue
         links = [n for n in _walk(node) if n.tag == "a" and _safe_url(n.attrs.get("href"))]
+        if not links:
+            text = _plain(node)
+            if text:
+                source_cards.append({"title": text, "text": "", "url": ""})
         for link in links:
             item = {"title": _plain(link), "text": _plain(node), "url": _safe_url(link.attrs["href"])}
             if item not in source_cards:
@@ -377,17 +392,26 @@ class XMLRiverClient:
         self.cards: list[tuple[str, str, str]] = []
         self._query: str | None = None
         self._attempts = 0
+        self._should_continue: Callable[[], bool] | None = None
 
-    async def collect(self, query: str) -> dict:
+    def _check_continue(self) -> None:
+        if self._should_continue is not None and not self._should_continue():
+            raise CollectionCancelled("XMLRiver: сбор приостановлен")
+
+    async def collect(self, query: str, *, should_continue: Callable[[], bool] | None = None) -> dict:
         if not configured():
             raise AdapterError("XMLRiver: доступ к API не настроен")
-        await self.ask(None, query, None)
-        while True:
-            try:
-                return evidence(self.html, self.cards, self.service_id)
-            except XMLRiverResponseError:
-                if not await self.retry():
-                    raise
+        self._should_continue = should_continue
+        try:
+            await self.ask(None, query, None)
+            while True:
+                try:
+                    return evidence(self.html, self.cards, self.service_id)
+                except XMLRiverResponseError:
+                    if not await self.retry():
+                        raise
+        finally:
+            self._should_continue = None
 
     async def ask(self, page, query: str, region: str | None, *, speed: float = 1.0) -> None:
         self.html = None
@@ -400,6 +424,7 @@ class XMLRiverClient:
         # Capture validation and HTTP/XML failures share one paid-request budget.
         if self._query is None or self._attempts >= 3:
             return False
+        self._check_continue()
         self.html, self.cards = None, []
         await asyncio.sleep(self._attempts)
         await self._request()
@@ -410,6 +435,7 @@ class XMLRiverClient:
                   "user": os.environ["AIPARSER_XMLRIVER_USER"], "key": os.environ["AIPARSER_XMLRIVER_KEY"]}
         endpoint = GOOGLE_URL if self.service_id == "google_aio" else YANDEX_URL
         while self._attempts < 3:
+            self._check_continue()
             self._attempts += 1
             try:
                 async with httpx.AsyncClient(timeout=90, follow_redirects=False) as client:
@@ -429,4 +455,3 @@ class XMLRiverClient:
                 if self._attempts >= 3:
                     raise AdapterError("XMLRiver: ошибка сети или таймаут") from None
             await asyncio.sleep(self._attempts)
-

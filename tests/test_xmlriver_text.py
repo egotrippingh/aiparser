@@ -20,7 +20,7 @@ def test_yandex_products_have_real_photos_and_stay_separate_from_prose():
     html = """<div class='FuturisMarkdown'><h2>Выбор</h2><p>Полезный совет.</p>
       <span class='FuturisFootnoteGroup'><a href='https://source.test'>Источник</a></span></div>
       <div class='EProductSnippet'><a href='https://shop.test/tuvio'><div class='EProductSnippet-Title'>Tuvio пылесос</div>
-      <img class='EThumb-Image' src='https://yastatic.net/photo.jpg' onerror='bad()'><span class='EPrice-Value'>23 455</span></a></div>"""
+      <span class='EProductSnippet-Thumb' aria-hidden='true'><img class='EThumb-Image' aria-hidden='true' src='https://yastatic.net/photo.jpg' onerror='bad()'></span><span class='EPrice-Value'>23 455</span></a></div>"""
     markup, cards = xmlriver._parse_xml(payload("yandex_neuro", html), "yandex_neuro", include_images=True)
     result = xmlriver.evidence(markup, cards, "yandex_neuro")
     assert result["shown"] and result["main_text"] == "Выбор\n\nПолезный совет."
@@ -81,3 +81,31 @@ def test_absence_and_empty_main_are_distinct():
     assert xmlriver.evidence(None, [], "google_aio")["shown"] is False
     with pytest.raises(xmlriver.XMLRiverResponseError):
         xmlriver.evidence("<div class='EProductSnippet'>Карточка</div>", [], "yandex_neuro")
+
+
+def test_organization_card_without_link_is_preserved_for_viewer():
+    result = xmlriver.evidence("<div class='FuturisMarkdown'>Основной ответ</div><div class='FuturisOrgCard'>Клиника Brand</div>", [], "yandex_neuro")
+    assert result["source_cards"] == [{"title": "Клиника Brand", "text": "", "url": ""}]
+    assert "Клиника Brand" in result["cards_text"] and "Клиника Brand" not in result["main_text"]
+
+
+def test_run_stop_blocks_provider_retry_and_preserves_completed_answer(monkeypatch):
+    monkeypatch.setenv("AIPARSER_XMLRIVER_USER", "test-user")
+    monkeypatch.setenv("AIPARSER_XMLRIVER_KEY", "test-key")
+    original = httpx.AsyncClient
+    calls, running = [], [True]
+    def reply(request):
+        calls.append(request)
+        running[0] = False
+        return httpx.Response(503)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(transport=httpx.MockTransport(reply), **kw))
+    with pytest.raises(xmlriver.CollectionCancelled):
+        asyncio.run(xmlriver.XMLRiverClient("google_aio", {}).collect("Тест", should_continue=lambda: running[0]))
+    assert len(calls) == 1
+    running[0] = True
+    def complete(request):
+        running[0] = False
+        return httpx.Response(200, content=payload("google_aio", "<p>Сохранить ответ</p>"))
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(transport=httpx.MockTransport(complete), **kw))
+    result = asyncio.run(xmlriver.XMLRiverClient("google_aio", {}).collect("Тест", should_continue=lambda: running[0]))
+    assert result["main_text"] == "Сохранить ответ"

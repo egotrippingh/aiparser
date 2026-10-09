@@ -1,5 +1,28 @@
 # XMLRiver AI capture
 
+## Active scope: server execution and structured answers (2026-10-09)
+
+- User chose server collection/analysis for Google and Yandex without Windows
+  agent, browser or screenshot. Other providers keep their agent path.
+- Show the saved XMLRiver answer through the existing mention/result dialog;
+  preserve prose structure and source links, accent brand/aliases/domain links
+  in red, and show actual product photo cards in a keyboard-accessible carousel.
+- One frozen run executes server services before agent services. Cloud-only
+  launch/schedule requires no device; old runs keep their original execution.
+- Save capture before AI, stable check IDs, bounded provider retries, wallet
+  reserve before provider, idempotent settlement, stop/pause/resume, owner scope.
+- Shared parser/prompt helpers and UI are written in the original checkout.
+  Server builder is sole writer in managed `xmlriver-cloud-worker` checkout;
+  Terra unavailable, Sol used as builder per skill fallback.
+- Checks so far: 74 parser/rules/LLM tests; 58 pipeline/durable/billing/identity
+  tests; 55 frontend tests. Build passes; lint has warnings, no errors.
+- Remaining: server/migration gates, final integration/review, disposable UI
+  desktop/narrow smoke and release setup. Previous release is still held.
+- Production needs reviewed schema migration and server XMLRiver environment;
+  Compose changes are not installed by the existing application deploy gate.
+
+The sections below record the earlier agent implementation and release hold.
+
 ## Outcome and base
 
 - Request: collect Google/Yandex AI blocks through XMLRiver on a separate branch;
