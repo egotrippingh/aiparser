@@ -14,12 +14,29 @@
 - Shared parser/prompt helpers and UI are written in the original checkout.
   Server builder is sole writer in managed `xmlriver-cloud-worker` checkout;
   Terra unavailable, Sol used as builder per skill fallback.
-- Checks so far: 74 parser/rules/LLM tests; 58 pipeline/durable/billing/identity
-  tests; 55 frontend tests. Build passes; lint has warnings, no errors.
-- Remaining: server/migration gates, final integration/review, disposable UI
-  desktop/narrow smoke and release setup. Previous release is still held.
+- Integrated source: `9956c06`. Checks: 76 parser/rules/LLM tests; 58
+  pipeline/durable/billing/storage checks; 46 readiness/watchdog checks; 56
+  frontend tests. Build passes; lint has warnings, no errors. Desktop/390px
+  disposable browser smoke passes for structured evidence, red highlights,
+  carousel keyboard/image errors, detail API errors and launch without a PC.
+- Builder and root final server suites: 112 passed. Sol/Astra final re-review
+  found no P1/P2 on `9956c06`. Reproduced DB wait blocking is fixed by executing
+  one cloud tick in a thread; responsiveness/shutdown regressions pass.
+  Local reports: `~/.codex/tmp/xmlriver-html-preview-20261009/`.
+- Malformed verdict retries preserve attempt budgets and accumulate returned
+  usage. Four failed model attempts produce one durable terminal error; valid
+  saved primary analysis settles once, absent valid analysis releases once.
+- Remaining: exact-head CI/Docker gate, administrator access, PostgreSQL
+  isolated restore/migration validation, production activation and live pilot.
+  Root password SSH is disabled; Aeza console established administrator access.
+  Host fingerprint verified; explicitly authorized temporary key is restricted
+  by IP/expiry. Existing live backup/isolated PostgreSQL restore passed.
+  No production schema or application change yet.
 - Production needs reviewed schema migration and server XMLRiver environment;
   Compose changes are not installed by the existing application deploy gate.
+  Follow `docs/xmlriver-cloud-release.md`. Production remains `656099a`;
+  PR #35 must not merge at its old main head. Windows publication is not required
+  for the new server collection path and remains unperformed.
 
 The sections below record the earlier agent implementation and release hold.
 
