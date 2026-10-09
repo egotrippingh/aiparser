@@ -1,10 +1,10 @@
 # AIRate current project state
 
-## XMLRiver server implementation awaiting controlled activation (2026-10-09)
+## XMLRiver server collection deployed (2026-10-09)
 
 The user selected server collection and text analysis for `google_aio` and
 `yandex_neuro`, without a Windows agent, browser or screenshots. Other providers
-keep their agent path. Branch `codex/xmlriver-ai`, source `9956c06`, implements
+keep their agent path. Branch `codex/xmlriver-ai`, tested source `d9c1687`, implements
 durable server captures, frozen geography/identity, bounded collection/model
 retries, once-only settlement and mixed cloud-then-agent runs. Cloud-only launch
 and schedules require no computer. Existing runs retain their original path.
@@ -24,24 +24,42 @@ without a computer; no JavaScript console errors or page overflow. Sol final
 correctness/risk re-review on `9956c06` found no P1/P2. Its final root server
 suite passed 112 tests. A reproduced synchronous DB lock wait now executes
 outside the main asyncio loop; regressions cover responsiveness and finishing
-the current tick before AI-client shutdown. Exact-head CI is pending.
+the current tick before AI-client shutdown. Exact-source CI passed, including
+the Docker build/import gate; `.dockerignore` includes only required shared and
+pure detection files. Main/production trees matched the tested source.
 Evidence remains outside Git under
 `~/.codex/tmp/xmlriver-html-preview-20261009/`.
 
-Production is still `656099acfbb41d29c30261620023143e443aad1c`. PR #35 remains
-open at the earlier main head; do not merge it until the new implementation is
-reviewed and the server configuration/schema are ready. The authorized activation
-requires the new `20261009_server_captures` migration, Compose installation and
-XMLRiver secrets through administrator access. Password SSH is disabled on this
-VPS; administrator access was established through the authenticated Aeza console
-and an explicitly authorized temporary key restricted by source IP/expiry.
-The SSH host key was verified against the console fingerprint. Existing backup
-and isolated restore passed on the live PostgreSQL server before migration.
-Follow [the controlled release procedure](docs/xmlriver-cloud-release.md),
-including backup, isolated PostgreSQL restore/migration validation and exact-SHA
-readiness. No production migration, new deployment, live model/payment test or
-new Windows installer publication has occurred. Docker import validation is a
-new CI gate; Docker is unavailable on the local PC.
+Implementation [PR #36](https://github.com/egotrippingh/aiparser/pull/36) and
+release [PR #35](https://github.com/egotrippingh/aiparser/pull/35) are merged.
+Production is `09df3b744164bc3ed7d67ad4066928e369566a9d`; its Tests/build and
+Deploy production jobs passed. Public HTTPS readiness reports that exact SHA;
+the current cabinet bundle is served and private API access without auth is 401.
+Administrator installation added only the reviewed XMLRiver Compose/env fields.
+Authenticated Aeza console verified the SSH host fingerprint; the temporary
+root key was explicitly authorized with source-IP/expiry restrictions.
+After verification it was removed, authentication with that key was denied,
+and its local private/public files were deleted. Other authorized keys remain.
+
+Controlled PostgreSQL 16 activation followed
+[the release procedure](docs/xmlriver-cloud-release.md). Backup/isolated restore,
+isolated migration and PostgreSQL uniqueness/nullability checks passed. The live
+head is `20261009_server_captures`; fingerprints of all 22 pre-existing tables
+matched before/after migration, preserving existing results, wallets and reserves.
+The fresh verified pre-migration archive is retained privately on the VPS.
+Offsite backup storage remains unconfigured; this is an existing recovery limit.
+
+Three production checks (one Google, two Yandex) completed with durable captures,
+text-model analysis, once-only settlement, no device or screenshot. Answers were
+2427/3575/3196 characters with 8/12/12 sources. All three returned `not_found`
+for the pilot brand Tuvio and no product cards. The XMLRiver account balance delta
+was 0.105 RUB; returned model usage cost total was USD 0.0017895. These admin-owned
+pilot checks have zero account price; normal public price remains 120 kopeks.
+Pilot projects are retained in the cabinet as `XMLRiver — проверка серверного
+сбора` and `XMLRiver — товары`. Saved-response carousel evidence above does not
+establish current live photo availability for every query. Live non-admin billing,
+payment webhooks, arbitration and other providers were not exercised by this pilot.
+No new Windows installer publication is required or performed.
 
 ### Earlier agent implementation and release hold
 
@@ -49,8 +67,8 @@ Branch `codex/xmlriver-ai` adds opt-in XMLRiver capture for Google AI Overview
 and the existing Yandex Neuro SERP identity. Feature [PR #34](https://github.com/egotrippingh/aiparser/pull/34)
 was merged to `main` at `66c9086145d270360a0faa8954618efb18b429e6` after
 CI success on source `9f9d31b11d260e10e013a0fe7ab8e5c39c58fa47`.
-Production [PR #35](https://github.com/egotrippingh/aiparser/pull/35) is open,
-not merged or deployed; Windows `2026.10.9.1` is prepared but unpublished.
+At the earlier agent release hold, production PR #35 was open; the server release
+above supersedes that hold. Windows `2026.10.9.1` remains prepared but unpublished.
 Provider/geography are frozen for resume; saved
 captures continue through the existing analyzer and settlement path. Google
 legacy scans remain browser-backed. Setup and the local screenshot provenance

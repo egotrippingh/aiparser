@@ -14,7 +14,7 @@
 - Shared parser/prompt helpers and UI are written in the original checkout.
   Server builder is sole writer in managed `xmlriver-cloud-worker` checkout;
   Terra unavailable, Sol used as builder per skill fallback.
-- Integrated source: `9956c06`. Checks: 76 parser/rules/LLM tests; 58
+- Integrated source: `d9c1687` (Docker context fix after `9956c06`). Checks: 76 parser/rules/LLM tests; 58
   pipeline/durable/billing/storage checks; 46 readiness/watchdog checks; 56
   frontend tests. Build passes; lint has warnings, no errors. Desktop/390px
   disposable browser smoke passes for structured evidence, red highlights,
@@ -26,17 +26,29 @@
 - Malformed verdict retries preserve attempt budgets and accumulate returned
   usage. Four failed model attempts produce one durable terminal error; valid
   saved primary analysis settles once, absent valid analysis releases once.
-- Remaining: exact-head CI/Docker gate, administrator access, PostgreSQL
-  isolated restore/migration validation, production activation and live pilot.
-  Root password SSH is disabled; Aeza console established administrator access.
-  Host fingerprint verified; explicitly authorized temporary key is restricted
-  by IP/expiry. Existing live backup/isolated PostgreSQL restore passed.
-  No production schema or application change yet.
-- Production needs reviewed schema migration and server XMLRiver environment;
-  Compose changes are not installed by the existing application deploy gate.
-  Follow `docs/xmlriver-cloud-release.md`. Production remains `656099a`;
-  PR #35 must not merge at its old main head. Windows publication is not required
-  for the new server collection path and remains unperformed.
+- Exact-source CI, Docker build/import, PR #36 main merge, main CI and PR #35
+  release merge passed. Production SHA is `09df3b744164bc3ed7d67ad4066928e369566a9d`;
+  its tests/build/deploy jobs and public exact-SHA readiness passed.
+- Root password SSH is disabled; authenticated Aeza console established approved
+  temporary access restricted by source IP/expiry. Console verified host fingerprint.
+  Reviewed Compose/env installation preserved unrelated configuration.
+  Temporary key removed after release; authentication denial verified and local
+  key files deleted. Other authorized keys are preserved.
+- Isolated PostgreSQL 16 backup/restore/migration, nullable columns and uniqueness
+  constraints passed. Controlled live migration to `20261009_server_captures`
+  preserved fingerprints of 22 existing tables. A fresh verified pre-migration
+  dump remains privately on the VPS. Offsite backups remain unconfigured.
+- Production pilot: three actual server-only checks, two durable runs, no device,
+  screenshot or duplicate settlement. Google/Yandex answers have 2427/3575/3196
+  characters and 8/12/12 sources. Text analysis completed once per check; Tuvio
+  was `not_found` in all three. No live product cards returned, including the
+  previously successful product query; saved-response photo/carousel proof remains
+  response-specific. Pilot projects are retained for the owner in the cabinet.
+- Actual account delta: XMLRiver 0.105 RUB; returned model cost USD 0.0017895.
+  Admin checks have zero account price; public price is unchanged at 120 kopeks.
+  Live non-admin billing, payment, arbitration and other agent providers were
+  not tested; deterministic ownership/billing/retry checks passed.
+- Windows publication is not required for server collection and remains unperformed.
 
 The sections below record the earlier agent implementation and release hold.
 
