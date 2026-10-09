@@ -4,21 +4,23 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
+import time
 import uuid
 from datetime import timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import or_, select, update
+from sqlalchemy import and_, or_, select, update
 
 from app.detect import rules
 from app.detect.merge import merge, with_arbiter
 from server.checks import analyze_check, arbitrate_check, complete_check, reserve_checks
 from server.models import Check, CloudResult, ControlRun, ServerCapture, User, utcnow
 from shared.detection import _build_prompt, parse_verdict
-from shared.xmlriver import XMLRiverClient, AdapterError, XMLRiverResponseError, ProviderQuotaError, CollectionCancelled, account_limits
+from shared.xmlriver import XMLRiverClient, AdapterError, XMLRiverResponseError, ProviderQuotaError, ProviderThrottleError, CollectionCancelled, account_limits
 
 CLOUD = {"google_aio", "yandex_neuro"}
 LEASE = timedelta(minutes=5)
@@ -28,27 +30,47 @@ def _pairs(snapshot):
     return [(q, s) for s in snapshot["cloud_services"] for q in snapshot["queries"]]
 
 
-def _claim(sessions):
+def _claim(sessions, blocked_services=()):
     """A bounded lease with a token CAS; another worker may safely take an expired run."""
     with sessions() as db:
         now = utcnow()
-        runs = db.scalars(select(ControlRun).where(ControlRun.phase == "cloud",
+        base = (select(ControlRun).where(ControlRun.phase == "cloud",
             ControlRun.state.in_(("queued", "running", "paused")),
             ControlRun.desired_state != "paused",
             or_(ControlRun.lease_until.is_(None), ControlRun.lease_until < now))
-            .order_by(ControlRun.created_at).limit(20)).all()
-        for run in runs:
-            snap = json.loads(run.snapshot_json)
-            token = uuid.uuid4().hex
-            result = db.execute(update(ControlRun).where(ControlRun.id == run.id,
-                ControlRun.phase == "cloud", ControlRun.state.in_(("queued", "running", "paused")),
-                or_(ControlRun.lease_until.is_(None), ControlRun.lease_until < now))
-                .values(lease_token=token, lease_until=now + LEASE, state="running", updated_at=now)
-                .execution_options(synchronize_session=False))
-            if result.rowcount == 1:
-                db.commit()
-                return run.id, token, snap
-            db.rollback()
+            .order_by(ControlRun.created_at, ControlRun.id))
+        cursor = None
+        while True:
+            page = base
+            if cursor is not None:
+                created, run_id = cursor
+                page = page.where(or_(ControlRun.created_at > created,
+                    and_(ControlRun.created_at == created, ControlRun.id > run_id)))
+            runs = db.scalars(page.limit(20)).all()
+            next_cursor = (runs[-1].created_at, runs[-1].id) if runs else None
+            for run in runs:
+                snap = json.loads(run.snapshot_json)
+                if blocked_services and run.desired_state == "running":
+                    done = set(db.execute(select(CloudResult.query_id, CloudResult.service).where(
+                        CloudResult.run_id == run.id, CloudResult.user_id == run.user_id)).all())
+                    saved = set(db.execute(select(ServerCapture.query_id, ServerCapture.service).where(
+                        ServerCapture.run_id == run.id)).all())
+                    pending = [(q["id"], s) for q, s in _pairs(snap) if (q["id"], s) not in done]
+                    if pending and not any(pair in saved or pair[1] not in blocked_services for pair in pending):
+                        continue
+                token = uuid.uuid4().hex
+                result = db.execute(update(ControlRun).where(ControlRun.id == run.id,
+                    ControlRun.phase == "cloud", ControlRun.state.in_(("queued", "running", "paused")),
+                    or_(ControlRun.lease_until.is_(None), ControlRun.lease_until < now))
+                    .values(lease_token=token, lease_until=now + LEASE, state="running", updated_at=now)
+                    .execution_options(synchronize_session=False))
+                if result.rowcount == 1:
+                    db.commit()
+                    return run.id, token, snap
+                db.rollback()
+            if not blocked_services or len(runs) < 20:
+                break
+            cursor = next_cursor
     return None
 
 
@@ -247,7 +269,7 @@ def _yield_shutdown(sessions, run_id, token):
 
 def _provider_error(exc, snapshot):
     name = type(exc).__name__
-    status = "limit_reached" if name == "ProviderQuotaError" else "auth_required" if "Auth" in name else "error"
+    status = "limit_reached" if isinstance(exc, ProviderQuotaError) else "auth_required" if "Auth" in name else "error"
     return {"shown": False, "answer_text": "", "sources": [], "error_status": status,
             "error_message": str(exc)[:1000],
             "brand_names": [snapshot["brand_name"], *snapshot["config"].get("brand_aliases", [])],
@@ -255,7 +277,7 @@ def _provider_error(exc, snapshot):
 
 
 async def _prefetch_batch(sessions, run_id, token, snapshot, ai_client, price,
-                          collector_factory, limits, shutdown_event):
+                          collector_factory, limits, shutdown_event, cooldowns, clock):
     """Reserve a bounded affordable set, then commit each returned answer independently."""
     selected = []
     counts = {service: 0 for service in snapshot["cloud_services"]}
@@ -274,6 +296,8 @@ async def _prefetch_batch(sessions, run_id, token, snapshot, ai_client, price,
         for query, service in pending:
             if shutdown_event and shutdown_event.is_set():
                 break
+            if cooldowns and cooldowns.get(service, 0) > clock():
+                continue
             if counts[service] >= max(1, min(int(limits.get(service, 1)), 10)):
                 continue
             run = _owned_locked(db, run_id, token)
@@ -301,9 +325,9 @@ async def _prefetch_batch(sessions, run_id, token, snapshot, ai_client, price,
                     and _renew(sessions, run_id, token, need_running=True)
                     and not (shutdown_event and shutdown_event.is_set()) and service not in blocked)
 
-        if not may_continue():
-            return query, service, check_id, None
         try:
+            if not may_continue():
+                return query, service, check_id, None, False
             geo = snapshot["cloud_geography"][service]
             payload = await collector_factory(service, geo, max_attempts=6).collect(
                 query["text"], should_continue=may_continue)
@@ -314,25 +338,52 @@ async def _prefetch_batch(sessions, run_id, token, snapshot, ai_client, price,
             payload = None
         except ProviderQuotaError as exc:
             blocked.add(service)
+            if isinstance(exc, ProviderThrottleError) and cooldowns is not None:
+                cooldowns[service] = max(cooldowns.get(service, 0), clock() + exc.retry_after)
             payload = _provider_error(exc, snapshot)
         except (AdapterError, XMLRiverResponseError) as exc:
             payload = _provider_error(exc, snapshot)
-        return query, service, check_id, payload
+        except Exception as exc:
+            logging.getLogger(__name__).error("Cloud batch collection failed (%s)", type(exc).__name__)
+            return query, service, check_id, None, True
+        return query, service, check_id, payload, False
 
     tasks = [asyncio.create_task(collect_one(*item)) for item in selected]
+    failed = False
     for task in asyncio.as_completed(tasks):
-        query, service, check_id, payload = await task
+        try:
+            query, service, check_id, payload, collection_failed = await task
+        except Exception as exc:
+            logging.getLogger(__name__).error("Cloud batch task failed (%s)", type(exc).__name__)
+            failed = True
+            continue
+        failed |= collection_failed
+        if collection_failed:
+            continue  # Keep the reservation for an explicit retry; never record false absence.
+        try:
+            with sessions() as db:
+                run = _owned_locked(db, run_id, token)
+                if not run:
+                    continue
+                if payload is None:
+                    if not (shutdown_event and shutdown_event.is_set()):
+                        complete_check(db, db.get(User, run.user_id), check_id, "skipped", commit=False)
+                else:
+                    db.add(ServerCapture(run_id=run_id, query_id=query["id"], service=service,
+                        check_id=check_id, answer_json=json.dumps(payload, ensure_ascii=False)))
+                db.commit()
+        except Exception as exc:
+            logging.getLogger(__name__).error("Cloud batch save failed (%s)", type(exc).__name__)
+            failed = True
+    if failed:
         with sessions() as db:
             run = _owned_locked(db, run_id, token)
-            if not run:
-                continue
-            if payload is None:
-                if not (shutdown_event and shutdown_event.is_set()):
-                    complete_check(db, db.get(User, run.user_id), check_id, "skipped", commit=False)
-            else:
-                db.add(ServerCapture(run_id=run_id, query_id=query["id"], service=service,
-                    check_id=check_id, answer_json=json.dumps(payload, ensure_ascii=False)))
-            db.commit()
+            if run and run.desired_state == "running":
+                run.state = run.desired_state = "paused"
+                run.error = "Сбор части ответов прервался; сохранённые ответы доступны после возобновления"
+                run.lease_token = run.lease_until = None
+                db.commit()
+        return
     if blocked:
         with sessions() as db:
             run = _owned_locked(db, run_id, token)
@@ -343,9 +394,10 @@ async def _prefetch_batch(sessions, run_id, token, snapshot, ai_client, price,
 
 
 async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClient,
-                     *, prefetch_limits=None, shutdown_event=None):
+                     *, prefetch_limits=None, shutdown_event=None, cooldowns=None, clock=time.monotonic):
     """Process one saved or fresh answer. Returns whether a cloud run was advanced."""
-    claim = _claim(sessions)
+    blocked_services = {service for service, until in (cooldowns or {}).items() if until > clock()}
+    claim = _claim(sessions, blocked_services)
     if not claim:
         return False
     run_id, token, snapshot = claim
@@ -353,7 +405,7 @@ async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClien
         return _yield_shutdown(sessions, run_id, token)
     if prefetch_limits:
         await _prefetch_batch(sessions, run_id, token, snapshot, ai_client, price,
-                              collector_factory, prefetch_limits, shutdown_event)
+                              collector_factory, prefetch_limits, shutdown_event, cooldowns, clock)
     if shutdown_event and shutdown_event.is_set():
         return _yield_shutdown(sessions, run_id, token)
     with sessions() as db:
@@ -373,8 +425,13 @@ async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClien
         # after a partial batch crash that saved only a later pair.
         item = next(((q, s) for q, s in pending if (q["id"], s) in saved), None)
         if item is None and run.desired_state == "running":
-            item = pending[0]
+            item = next(((q, s) for q, s in pending if not cooldowns or
+                cooldowns.get(s, 0) <= clock()), None)
         if item is None:
+            if run.desired_state == "running":
+                run.lease_token = run.lease_until = None
+                db.commit()
+                return False
             for check in db.scalars(select(Check).where(Check.user_id == run.user_id,
                     Check.client_check_id.startswith(run.id + ":"), Check.status == "reserved")):
                 complete_check(db, db.get(User, run.user_id), check.client_check_id, "skipped", commit=False)
@@ -527,19 +584,21 @@ async def cloud_tick(sessions, ai_client, price, collector_factory=XMLRiverClien
     return True
 
 
-def _run_tick_in_thread(sessions, ai_client, price, limits=None, shutdown_event=None):
+def _run_tick_in_thread(sessions, ai_client, price, limits=None, shutdown_event=None,
+                        cooldowns=None):
     # The tick contains synchronous SQLAlchemy calls and must not block uvicorn's loop.
     return asyncio.run(cloud_tick(sessions, ai_client, price,
-        prefetch_limits=limits, shutdown_event=shutdown_event))
+        prefetch_limits=limits, shutdown_event=shutdown_event, cooldowns=cooldowns))
 
 
 async def worker(sessions, ai_client, price, *, prefetch_limits=None):
     if prefetch_limits is None:
         prefetch_limits = await account_limits()
     shutdown_event = threading.Event()
+    cooldowns = {}
     while True:
         current = asyncio.create_task(asyncio.to_thread(_run_tick_in_thread, sessions, ai_client,
-            price, prefetch_limits, shutdown_event))
+            price, prefetch_limits, shutdown_event, cooldowns))
         try:
             advanced = await asyncio.shield(current)
         except asyncio.CancelledError:
