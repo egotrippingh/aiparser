@@ -109,3 +109,74 @@ def test_run_stop_blocks_provider_retry_and_preserves_completed_answer(monkeypat
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(transport=httpx.MockTransport(complete), **kw))
     result = asyncio.run(xmlriver.XMLRiverClient("google_aio", {}).collect("Тест", should_continue=lambda: running[0]))
     assert result["main_text"] == "Сохранить ответ"
+
+
+def test_yandex_empty_first_item_does_not_hide_later_answer():
+    encoded = base64.b64encode(b'<p>Complete answer</p>').decode()
+    data = (f'<yandexsearch><response><ai><item><content/></item>'
+            f'<item><content>{encoded}</content></item></ai></response></yandexsearch>').encode()
+    markup, cards = xmlriver._parse_xml(data, 'yandex_neuro')
+    assert xmlriver.evidence(markup, cards, 'yandex_neuro')['main_text'] == 'Complete answer'
+
+
+def test_all_yandex_answer_items_are_preserved_without_duplicates():
+    contents = [base64.b64encode(html.encode()).decode() for html in ('<p>First answer</p>', '<p>Second answer</p>')]
+    data = ('<yandexsearch><response><ai>' + ''.join(f'<item><content>{c}</content></item>'
+            for c in [contents[0], contents[0], contents[1]]) + '</ai></response></yandexsearch>').encode()
+    markup, cards = xmlriver._parse_xml(data, 'yandex_neuro')
+    assert xmlriver.evidence(markup, cards, 'yandex_neuro')['main_text'] == 'First answer\n\nSecond answer'
+
+
+@pytest.mark.parametrize('successful', [True, False])
+def test_server_retry_budget_covers_http_xml_and_empty_ai(monkeypatch, successful):
+    monkeypatch.setenv('AIPARSER_XMLRIVER_USER', 'test-user')
+    monkeypatch.setenv('AIPARSER_XMLRIVER_KEY', 'test-key')
+    original = httpx.AsyncClient
+    calls = []
+    async def no_wait(_): pass
+    monkeypatch.setattr(xmlriver, 'asyncio', SimpleNamespace(sleep=no_wait))
+    def reply(request):
+        calls.append(request)
+        if successful and len(calls) == 6:
+            return httpx.Response(200, content=payload('yandex_neuro', '<p>Recovered answer</p>'))
+        failures = [b'<yandexsearch><error code="500"/></yandexsearch>', b'<broken',
+                    b'<yandexsearch><response><ai><item><content/></item></ai></response></yandexsearch>']
+        return httpx.Response(200, content=failures[(len(calls)-1) % 3])
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kw: original(transport=httpx.MockTransport(reply), **kw))
+    client = xmlriver.XMLRiverClient('yandex_neuro', {}, max_attempts=6)
+    if successful:
+        assert asyncio.run(client.collect('question'))['main_text'] == 'Recovered answer'
+    else:
+        with pytest.raises(xmlriver.XMLRiverResponseError):
+            asyncio.run(client.collect('question'))
+    assert len(calls) == 6 and len({str(r.url) for r in calls}) == 1
+
+
+@pytest.mark.parametrize('bad', [0, 7, True, '6'])
+def test_invalid_retry_budget_is_rejected(bad):
+    with pytest.raises(ValueError):
+        xmlriver.XMLRiverClient('yandex_neuro', {}, max_attempts=bad)
+
+
+@pytest.mark.parametrize('data,expected', [
+    ({'threads': {'google': 10, 'yandex': 10}}, {'google_aio': 10, 'yandex_neuro': 10}),
+    ({'threads': {'google': 50, 'yandex': 3}}, {'google_aio': 10, 'yandex_neuro': 3}),
+    ({'threads': {'google': True, 'yandex': 'oops'}}, {'google_aio': 1, 'yandex_neuro': 1}),
+    ({'threads': None}, {'google_aio': 1, 'yandex_neuro': 1}),
+])
+def test_account_limits_validate_provider_data(monkeypatch, data, expected):
+    monkeypatch.setenv('AIPARSER_XMLRIVER_USER', 'test-user')
+    monkeypatch.setenv('AIPARSER_XMLRIVER_KEY', 'test-key')
+    original = httpx.AsyncClient
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kw: original(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, json=data)), **kw))
+    assert asyncio.run(xmlriver.account_limits()) == expected
+
+
+def test_account_limits_fail_closed_when_api_is_unavailable(monkeypatch):
+    monkeypatch.setenv('AIPARSER_XMLRIVER_USER', 'test-user')
+    monkeypatch.setenv('AIPARSER_XMLRIVER_KEY', 'test-key')
+    original = httpx.AsyncClient
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kw: original(transport=httpx.MockTransport(
+        lambda request: httpx.Response(503)), **kw))
+    assert asyncio.run(xmlriver.account_limits()) == {'google_aio': 1, 'yandex_neuro': 1}
