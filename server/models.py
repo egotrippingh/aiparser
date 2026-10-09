@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 
@@ -196,13 +196,16 @@ class CloudResult(Base):
     """A local scan result mirrored to the account for browser reports."""
 
     __tablename__ = "cloud_results"
-    __table_args__ = (UniqueConstraint("user_id", "device_id", "local_result_id"),)
+    __table_args__ = (UniqueConstraint("user_id", "device_id", "local_result_id"),
+        Index("uq_cloud_server_result", "run_id", "query_id", "service", unique=True,
+              sqlite_where=text("device_id IS NULL AND run_id IS NOT NULL"),
+              postgresql_where=text("device_id IS NULL AND run_id IS NOT NULL")))
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
-    device_id: Mapped[str] = mapped_column(String(64))
-    local_result_id: Mapped[int] = mapped_column(Integer)
-    local_project_id: Mapped[int] = mapped_column(Integer)
+    device_id: Mapped[str | None] = mapped_column(String(64))
+    local_result_id: Mapped[int | None] = mapped_column(Integer)
+    local_project_id: Mapped[int | None] = mapped_column(Integer)
     project_name: Mapped[str] = mapped_column(String(120))
     brand_name: Mapped[str] = mapped_column(String(120))
     query_text: Mapped[str] = mapped_column(Text)
@@ -243,7 +246,8 @@ class ControlRun(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("control_projects.id"), index=True)
-    device_id: Mapped[str] = mapped_column(String(64))
+    device_id: Mapped[str | None] = mapped_column(String(64))
+    phase: Mapped[str] = mapped_column(String(16), default="agent", server_default="agent")
     state: Mapped[str] = mapped_column(String(24), default="queued")
     desired_state: Mapped[str] = mapped_column(String(24), default="running")
     # Nullable unique keys serialize projects and execution on each device.
@@ -258,6 +262,21 @@ class ControlRun(Base):
     scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ServerCapture(Base):
+    """Durable provider answer, committed before any model analysis."""
+
+    __tablename__ = "server_captures"
+    __table_args__ = (UniqueConstraint("run_id", "query_id", "service"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("control_runs.id"), index=True)
+    query_id: Mapped[str] = mapped_column(String(32))
+    service: Mapped[str] = mapped_column(String(40))
+    check_id: Mapped[str] = mapped_column(String(100), unique=True)
+    answer_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class ControlLink(Base):

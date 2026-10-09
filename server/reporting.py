@@ -242,12 +242,14 @@ def register_reports(app, db_session, current_user):
         return data
 
     @router.get("/results/{result_id}")
-    def detail(project_id: str, result_id: int, user=Depends(current_user), db=Depends(db_session)):
+    def detail(project_id: str, result_id: int, response: Response,
+               user=Depends(current_user), db=Depends(db_session)):
         owned_project(db, user.id, project_id)
         row = db.get(CloudResult, result_id)
         if not row or row.user_id != user.id or row.project_id != project_id:
             raise HTTPException(404, "Результат не найден")
         from server.scan_feedback import result_detail
+        response.headers["Cache-Control"] = "no-store"
         return result_detail(db, row)
 
     @router.get("/export/{kind}")
