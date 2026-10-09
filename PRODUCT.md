@@ -20,7 +20,8 @@ Topvisor is the user's reference for shared projects and scheduled checks.
 ## Anti-references
 Avoid duplicated controls between the website and desktop, decorative dashboard metrics,
 and statuses that disappear when a service fails. Do not expose AI model selection or deep
-source checking as user settings.
+source checking as user settings. Do not disclose collection supplier names in interface
+copy or diagnostics.
 
 ## Design Principles
 - Projects belong to the account; computers are replaceable executors.

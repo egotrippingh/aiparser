@@ -1,6 +1,6 @@
 # AIRate current project state
 
-## XMLRiver speed and error follow-up ready for CI (2026-10-09)
+## XMLRiver speed and error follow-up deployed (2026-10-09)
 
 Branch `codex/xmlriver-throughput`, server source `b7b4c8d`, shared source
 `53034b1`, adds parallel collection within confirmed account limits (10 per
@@ -18,12 +18,25 @@ workers would require a shared limiter.
 Final local checks: 124 server tests, 65 XMLRiver tests, 33 rules/LLM/clarification,
 52 pipeline/durable/billing/storage and 46 watchdog/readiness/timing checks passed;
 benchmark self-check passed. New batch checks use SQLite and fake providers,
-not live PostgreSQL. Independent final re-review and exact-SHA CI are pending.
+not live PostgreSQL. Sol correctness and Astra risk re-reviews found no remaining
+P1/P2; independently selected regressions passed. Astra's first quiet test run
+hung and was terminated; its diagnostic repeat passed 13 tests in 18.05s.
+
+Implementation [PR #37](https://github.com/egotrippingh/aiparser/pull/37) and
+release [PR #38](https://github.com/egotrippingh/aiparser/pull/38) are merged.
+Feature `638044f` CI passed (run `37924537314`). Updated main `7fe3724` has the
+same source tree; push and release-PR CI passed (`37925035604`, `37925040270`).
+Production `803101980710fee1f3e794789449207f2c41895f` has the same source tree;
+its Tests/build and Deploy jobs passed (run `37925393802`). Independent public
+HTTPS smoke reports that exact SHA, price 120 kopeks, private projects API 401,
+and a served JavaScript bundle. Normal backup/restore/migration-head gates were
+retained; no administrator key, migration or installer publication was needed.
 
 Live SDK follow-up on the two reported Yandex queries returned valid absence of
 AI in 3.781s for one; the other exhausted six attempts after 230.609s. This is
 provider availability evidence, not a successful production scan or a measured
-throughput improvement. Production remains `09df3b7` until deployment succeeds.
+throughput improvement. A fresh authenticated production scan after this
+follow-up was not exercised; historical results/errors were not rewritten.
 See [the follow-up brief](docs/tasks/xmlriver-throughput.md).
 
 ## XMLRiver server collection deployed (2026-10-09)

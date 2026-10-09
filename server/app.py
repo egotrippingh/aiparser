@@ -37,6 +37,7 @@ from server.security import hash_password, new_token, token_hash, verify_passwor
 from server.storage import ScreenshotStorage, StorageError
 from server.yandex import YandexError, YandexOAuth
 from server.models import ControlProject, ControlRun, ControlLink, DeviceGrant
+from server.public_errors import public_error
 from server.control import register_control
 from server.device_login import pending_connect, approve_login_connect
 from server.browser_sessions import COOKIE_NAME, request_token, web_session_response, register_browser_login
@@ -649,7 +650,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
                     "status": row.status, "counts_as_found": _counts_as_found(row, include_cards=include_cards),
                     "mention_types": json.loads(row.mention_types_json or "[]"),
                     "evidence_quote": row.evidence_quote, "answer_text": row.answer_text,
-                    "error_message": row.error_message,
+                    "error_message": public_error(row.error_message),
                     "sources": json.loads(row.sources_json or "[]"),
                     "check_id": row.check_id,
                 } for row in page]}

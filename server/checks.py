@@ -2,11 +2,12 @@
 
 import json
 import os
+import hashlib
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
 
-from server.ai import AIError, AIResult
+from server.ai import AIError, AIResult, AIRetryAfter
 from server.models import Check, LedgerEntry, Wallet
 from server.scan_feedback import analysis_content
 
@@ -86,8 +87,11 @@ def analyze_check(db, user, check_id, system, content, ai_client, *, retry_saved
     except AIError as exc:
         import telemetry
         telemetry.capture(exc, component="server", operation="ai_analyze", user_id=user.id, run_id=check_id.split(":", 1)[0])
+        if isinstance(exc, AIRetryAfter) and not exc.sent:
+            check.analysis_attempts -= 1
         db.commit()
-        raise HTTPException(502, str(exc)) from exc
+        raise HTTPException(429 if isinstance(exc, AIRetryAfter) and exc.retryable else 502, str(exc),
+            headers={"Retry-After": str(exc.seconds)} if isinstance(exc, AIRetryAfter) else None) from exc
     if accumulate_usage:
         usage = _usage_with_previous(check.analysis_usage_json, usage)
     check.analysis_json, check.analysis_model, check.analysis_usage_json = raw, model, usage
@@ -118,8 +122,11 @@ def arbitrate_check(db, user, check_id, system, content, ai_client, *, retry_sav
     except AIError as exc:
         import telemetry
         telemetry.capture(exc, component="server", operation="ai_arbitrate", user_id=user.id, run_id=check_id.split(":", 1)[0])
+        if isinstance(exc, AIRetryAfter) and not exc.sent:
+            check.arbitration_attempts -= 1
         db.commit()
-        raise HTTPException(502, str(exc)) from exc
+        raise HTTPException(429 if isinstance(exc, AIRetryAfter) and exc.retryable else 502, str(exc),
+            headers={"Retry-After": str(exc.seconds)} if isinstance(exc, AIRetryAfter) else None) from exc
     if accumulate_usage:
         usage = _usage_with_previous(check.arbitration_usage_json, usage)
     check.arbitration_json, check.arbitration_model, check.arbitration_usage_json = raw, model, usage
@@ -131,8 +138,12 @@ def settle_check(db, wallet, check, status):
     check.status, check.result_status = "settled", status
     if check.price_kopeks:
         wallet.balance_kopeks -= check.price_kopeks
+        reference = f"check:{check.user_id}:{check.client_check_id}"
+        if len(reference) > 100:
+            reference = "check:" + hashlib.sha256(
+                f"{check.user_id}:{check.client_check_id}".encode()).hexdigest()
         db.add(LedgerEntry(user_id=check.user_id, amount_kopeks=-check.price_kopeks,
-            kind="check", reference=f"check:{check.user_id}:{check.client_check_id}"))
+            kind="check", reference=reference))
 
 
 def complete_check(db, user, check_id, status, *, commit=True):

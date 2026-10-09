@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from "react"
+import { publicError } from "../lib/public-error"
 import "./answer-content.css"
 
 function safeUrl(value: string) {
@@ -253,5 +254,5 @@ export function errorHint(status: string, error: string | null, answer: string |
 
 export function ResultIssue({ status, error, answer }: { status: string; error?: string | null; answer?: string | null }) {
   const hint = errorHint(status, error || null, answer || null)
-  return <>{error && <div className="answer-error"><b>Причина</b><p>{error}</p></div>}{hint && <p className="answer-note">{hint}</p>}</>
+  return <>{error && <div className="answer-error"><b>Причина</b><p>{publicError(error)}</p></div>}{hint && <p className="answer-note">{hint}</p>}</>
 }

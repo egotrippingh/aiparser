@@ -20,7 +20,7 @@ export function sessionLabel(s?: ServiceSession): string {
   if (!s) return "Состояние ещё не получено"
   if (s.api_backend) return s.api_configured
     ? s.last_scan_state === "ok" ? "API настроен · последний запрос успешен" : s.last_scan_state === "error" ? "API настроен · последний запрос завершился ошибкой" : "API настроен · запрос ещё не подтверждён"
-    : "Укажите доступ XMLRiver на агенте"
+    : "Укажите доступ к сбору ответов на агенте"
   if (s.login_state === "starting") return "Открываем браузер…"
   if (s.login_open) return "Окно входа открыто"
   if (s.login_state === "error") return "Не удалось открыть окно"
