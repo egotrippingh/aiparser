@@ -1,10 +1,14 @@
 # AIRate current project state
 
-## Local XMLRiver AI work (2026-10-09)
+## XMLRiver rollout held for text/HTML scope change (2026-10-09)
 
 Branch `codex/xmlriver-ai` adds opt-in XMLRiver capture for Google AI Overview
-and the existing Yandex Neuro SERP identity. The branch has not been pushed,
-merged, deployed or released. Provider/geography are frozen for resume; saved
+and the existing Yandex Neuro SERP identity. Feature [PR #34](https://github.com/egotrippingh/aiparser/pull/34)
+was merged to `main` at `66c9086145d270360a0faa8954618efb18b429e6` after
+CI success on source `9f9d31b11d260e10e013a0fe7ab8e5c39c58fa47`.
+Production [PR #35](https://github.com/egotrippingh/aiparser/pull/35) is open,
+not merged or deployed; Windows `2026.10.9.1` is prepared but unpublished.
+Provider/geography are frozen for resume; saved
 captures continue through the existing analyzer and settlement path. Google
 legacy scans remain browser-backed. Setup and the local screenshot provenance
 are documented in [README.md](README.md). Final checks passed: 322 Python tests,
@@ -26,6 +30,16 @@ pipeline/durable/billing/storage tests passed (133 distinct tests), including
 offline browser renders. Benchmark self-check and diff check passed. Independent
 Sol review found no blockers. This follow-up used fake API responses only; no
 live XMLRiver, model, payment or deployment check.
+
+Before production merge the user changed scope: use XMLRiver text for analysis
+and show its HTML instead of screenshots. Deployment is held pending this
+change and the server-versus-agent execution decision. Current code still uses
+agent/local rendering/screenshots; do not describe it as agent-free. User asked
+to inspect saved real Google/Yandex HTML first. Safe previews (same vacuum query,
+no new provider calls) are outside Git at
+`~/.codex/tmp/xmlriver-html-preview-20261009/{google,yandex}.html`, served on
+`http://127.0.0.1:8874/`; both pages were opened in the app browser. Scripts and
+external resources are removed; display styling is local, not native SERP styling.
 
 Updated 2026-10-08. Repository: `egotrippingh/aiparser`; development branch: `main`;
 deployment branch: `production`.

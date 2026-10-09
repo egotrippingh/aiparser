@@ -131,3 +131,16 @@ No live model/payment tests, release or migration planned.
   Windows EXE/browser/install/upgrade/uninstall and atomic publish/full HTTPS
   checks. No production database migration or real user-profile test.
 - Release progress and final SHAs/links will be recorded after verification.
+
+### Scope changed before production merge
+
+- PR #34 merged to main (`66c9086145d270360a0faa8954618efb18b429e6`);
+  feature CI passed on `9f9d31b11d260e10e013a0fe7ab8e5c39c58fa47`.
+  PR #35 into production remains open; no deploy or agent publication.
+- User now requests text analysis without screenshots and HTML evidence display.
+  Server-versus-agent execution was asked; user wants to inspect an HTML example
+  before choosing. Hold production merge and Windows dispatch until scope resolved.
+- Existing saved real API responses decoded into safe local Google/Yandex HTML
+  examples for the same query. Preview/evidence outside Git:
+  `~/.codex/tmp/xmlriver-html-preview-20261009/`; localhost port 8874. No new paid
+  API calls, no screenshot generated, no external render requests or secrets.
