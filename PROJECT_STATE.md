@@ -1,5 +1,21 @@
 # AIRate current project state
 
+## Local XMLRiver AI work (2026-10-09)
+
+Branch `codex/xmlriver-ai` adds opt-in XMLRiver capture for Google AI Overview
+and the existing Yandex Neuro SERP identity. The branch has not been pushed,
+merged, deployed or released. Provider/geography are frozen for resume; saved
+captures continue through the existing analyzer and settlement path. Google
+legacy scans remain browser-backed. Setup and the local screenshot provenance
+are documented in [README.md](README.md). Final checks passed: 322 Python tests,
+51 frontend tests, lint/build, benchmark self-check and diff check. Two Linux-only
+publication tests were skipped on Windows. Sol/Astra re-review found no remaining
+blockers. Fresh-context UI smoke passed at desktop/narrow widths, including
+keyboard selection, save errors and API readiness. Two final live XMLRiver calls
+returned Google/Yandex AI captures with valid images and no render requests or
+credential logs. This verifies capture, not live model/payment or load behavior.
+Local evidence: `~/.codex/tmp/xmlriver-ai-20261009/checks-100338/report.json`.
+
 Updated 2026-10-08. Repository: `egotrippingh/aiparser`; development branch: `main`;
 deployment branch: `production`.
 

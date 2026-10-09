@@ -50,6 +50,7 @@ from app.detect import rules
 from app.detect.merge import merge, should_call_llm, with_arbiter, with_deep
 from app.scanner import humanize
 from app.scanner.adapters import ADAPTERS, get_adapter
+from app.scanner.adapters import xmlriver
 from app.scanner.adapters.base import (
     AdapterError,
     AuthRequiredError,
@@ -349,14 +350,14 @@ def _settings_snapshot(services: list[str] | None = None) -> dict:
     }
 
 
-def _record_auth_state(service_id: str, state: str) -> None:
+def _record_auth_state(service_id: str, state: str, *, backend: str = "browser") -> None:
     """Запоминает, что сервис ответил на попытку входа — для статуса в настройках.
 
     Cookie в профиле говорит «сессия на диске есть», а принял ли её сервис —
     знает только фактический прогон. Храним обе половины.
     """
     repo.set_setting(
-        f"auth_state:{service_id}",
+        f"{'xmlriver_state' if backend == 'xmlriver' else 'auth_state'}:{service_id}",
         json.dumps({"state": state, "at": datetime.now().isoformat(timespec="seconds")}),
     )
 
@@ -435,6 +436,10 @@ async def _start_scan_unlocked(project_id: int, service_ids: list[str], *, resum
     if plan["continue_scan_id"]:
         old_scan = repo.get_scan(plan["continue_scan_id"])
         old_settings = json.loads(old_scan["settings_snapshot_json"] or "{}")
+        if "xmlriver" in old_settings:
+            snapshot["xmlriver"] = old_settings["xmlriver"]
+        else:
+            snapshot.pop("xmlriver", None)
         for key in ("speed_profile", "delay_min_sec", "delay_max_sec", "break_every_n", "typing_speed"):
             if key in old_settings:
                 snapshot[key] = old_settings[key]
@@ -447,6 +452,14 @@ async def _start_scan_unlocked(project_id: int, service_ids: list[str], *, resum
             snapshot["adaptive_pacing"] = old_settings["adaptive_pacing"]
         else:
             snapshot.pop("adaptive_pacing", None)
+    elif xmlriver.configured():
+        region = str(project.get("region_code") or "213")
+        snapshot["xmlriver"] = {service: xmlriver.geography(service, region)
+                                for service in known if service in ("google_aio", "yandex_neuro")}
+    needs_api = any((q["id"], svc) not in saved_pairs and
+                    (svc == "yandex_neuro" or svc in snapshot.get("xmlriver", {})) for svc, q in work)
+    if needs_api and not xmlriver.configured():
+        raise ValueError("Для API-источников настройте AIPARSER_XMLRIVER_USER и AIPARSER_XMLRIVER_KEY")
     # В снимок настроек скана, а не в отдельный аргумент: так задним числом
     # видно, в каком режиме собирались данные — это важно при разборе капч.
     snapshot["headless"] = headless
@@ -798,6 +811,8 @@ async def _run_service(
     ходом, их это не касается.
     """
     adapter = get_adapter(service_id)
+    if settings.get("xmlriver", {}).get(service_id):
+        adapter = xmlriver.XMLRiverAdapter(service_id, settings["xmlriver"][service_id])
     headless = bool(settings.get("headless"))
     queue = [q for q in pending if (q['id'], service_id) not in ctl.admitted_pairs]
     done = 0
@@ -827,8 +842,14 @@ async def _run_service(
         async with service_context(service_id, headless=headless) as context:
             page = context.pages[0] if context.pages else await context.new_page()
 
-            ready = await adapter.ensure_ready(page)
-            _record_auth_state(service_id, "ok" if ready.ok else (ready.reason or "error"))
+            try:
+                ready = await adapter.ensure_ready(page)
+            except AdapterError:
+                if isinstance(adapter, xmlriver.XMLRiverAdapter):
+                    _record_auth_state(service_id, "error", backend="xmlriver")
+                raise
+            if not isinstance(adapter, xmlriver.XMLRiverAdapter):
+                _record_auth_state(service_id, "ok" if ready.ok else (ready.reason or "error"))
 
             if not ready.ok:
                 # Сессия не открылась — записываем причину сразу всем запросам
@@ -1046,6 +1067,10 @@ async def _run_one(
 ) -> str:
     """Одна пара «запрос × сервис». Возвращает записанный статус."""
     started = time.monotonic()
+    capture_attempted = False
+    def record_api_failure() -> None:
+        if capture_attempted and isinstance(adapter, xmlriver.XMLRiverAdapter):
+            _record_auth_state(service_id, "error", backend="xmlriver")
     def retain_capture_error(exc: Exception) -> None:
         # A capture may not exist yet (browser-side failure); updating zero rows
         # is intentional.  Once it exists, ordinary analysis failures stay for
@@ -1071,7 +1096,11 @@ async def _run_one(
         browser_capture = cap is None
         if cap is None:
             capture_started = time.monotonic()
+            capture_attempted = True
             cap = await _ask_and_capture(adapter, page, project, query, service_id, speed, ctl)
+            capture_attempted = False
+            if isinstance(adapter, xmlriver.XMLRiverAdapter):
+                _record_auth_state(service_id, "ok", backend="xmlriver")
             ctl.timing("browser_capture", time.monotonic() - capture_started,
                        query_id=query["id"], service=service_id)
         check_id = (stored['check_id'] if stored else
@@ -1221,11 +1250,13 @@ async def _run_one(
         return result.status
 
     except ProviderQuotaError as exc:
+        record_api_failure()
         retain_capture_error(exc)
         repo.save_result(ctl.scan_id, query["id"], service_id, "limit_reached", error_message=str(exc))
         ctl.emit("query_result", query_id=query["id"], service=service_id, status="limit_reached")
         return "quota"
     except ServiceUnavailableError as exc:
+        record_api_failure()
         retain_capture_error(exc)
         import telemetry
         telemetry.capture(exc, component="agent", operation="scan_query", provider=service_id,
@@ -1234,21 +1265,25 @@ async def _run_one(
         ctl.emit("query_result", query_id=query["id"], service=service_id, status="limit_reached")
         return "unavailable"
     except AuthRequiredError as exc:
+        record_api_failure()
         retain_capture_error(exc)
         _record_auth_state(service_id, "auth_required")
         repo.save_result(ctl.scan_id, query["id"], service_id, "auth_required", error_message=str(exc))
         ctl.emit("query_result", query_id=query["id"], service=service_id, status="auth_required")
         return "auth_required"
     except CaptchaError as exc:
+        record_api_failure()
         retain_capture_error(exc)
         repo.save_result(ctl.scan_id, query["id"], service_id, "captcha", error_message=str(exc))
         ctl.emit("query_result", query_id=query["id"], service=service_id, status="captcha")
         return "captcha"
     except BrowserTaskTimeout as exc:
+        record_api_failure()
         repo.save_result(ctl.scan_id, query["id"], service_id, "error", error_message=str(exc))
         ctl.emit("query_result", query_id=query["id"], service=service_id, status="browser_timeout")
         return "browser_timeout"
     except AdapterError as exc:
+        record_api_failure()
         retain_capture_error(exc)
         # The detailed exception can contain answer excerpts; it belongs in the private result only.
         import telemetry
@@ -1259,6 +1294,7 @@ async def _run_one(
         ctl.emit("query_result", query_id=query["id"], service=service_id, status="error")
         return "error"
     except Exception as exc:
+        record_api_failure()
         if "Target page, context or browser has been closed" in str(exc):
             # Весь браузер умер: внешний цикл поднимет новый профиль и
             # повторит текущий запрос. Не записываем ложный результат.

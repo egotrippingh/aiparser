@@ -56,6 +56,9 @@ function authBadge(a: ServiceAuth | undefined): {
   sub: string
 } {
   if (!a) return { tone: "off", label: "вход не выполнен", sub: "" }
+  if (a.api_backend) return a.api_configured
+    ? { tone: a.last_scan_state === "ok" ? "ok" : "warn", label: "API настроен", sub: a.last_scan_state === "ok" ? "Последний запрос успешен" : a.last_scan_state === "error" ? "Последний запрос завершился ошибкой" : "Доступ ещё не подтверждён запросом" }
+    : { tone: "warn", label: "API не настроен", sub: "Укажите доступ XMLRiver на этом компьютере" }
   if (a.login_open) return { tone: "busy", label: "окно входа открыто", sub: "" }
 
   const checked = a.last_scan_at ? `последняя проверка: ${fmtWhen(a.last_scan_at)}` : ""
@@ -275,10 +278,9 @@ function ProjectForm({
           <div className="space-y-0.5">
             <Label htmlFor="f_parallel">Проверять ИИ-системы параллельно</Label>
             <p className="text-muted-foreground text-xs">
-              Выбранные системы сканируются одновременно, каждая в своём окне браузера со своим
-              аккаунтом, — скан идёт во столько раз быстрее, сколько систем выбрано. Внутри одной
-              системы запросы по-прежнему идут по одному. Нужно больше памяти: примерно 0,5–1 ГБ на
-              каждое окно.
+              Выбранные системы проверяются одновременно. Для каждого источника используется
+              отдельный браузерный контекст; XMLRiver получает ответ по API и показывает его локально.
+              Внутри одной системы запросы идут по одному. На каждый контекст требуется память.
             </p>
           </div>
         </div>
@@ -396,7 +398,7 @@ function BrowserPanel({
   return (
     <Panel>
       <PanelHead
-        title="Браузер и аккаунты"
+        title="Браузер и источники"
         hint={browser.installed ? "Camoufox установлен" : "Camoufox не установлен"}
       >
         {!browser.installed ? (
@@ -438,7 +440,7 @@ function BrowserPanel({
               >
                 {st.label}
               </span>
-              <Button
+              {!browser.services?.[s.id]?.api_backend && <Button
                 size="sm"
                 variant="outline"
                 disabled={!browser.installed || st.tone === "busy"}
@@ -446,7 +448,7 @@ function BrowserPanel({
               >
                 <LogIn />
                 {st.tone === "ok" ? "Перевойти" : "Войти"}
-              </Button>
+              </Button>}
             </div>
           )
         })}

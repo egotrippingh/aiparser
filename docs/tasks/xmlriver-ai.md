@@ -1,0 +1,91 @@
+# XMLRiver AI capture
+
+## Outcome and base
+
+- Request: collect Google/Yandex AI blocks through XMLRiver on a separate branch;
+  retain existing answer analysis, reports and settlement.
+- Branch: `codex/xmlriver-ai`; base `36066f50d66e0a193b86130b1ecb04a4be77b02d`.
+- Base worktree clean; no release, push or production changes authorized.
+- Use `google_aio` and the existing `yandex_neuro` SERP identity. Preserve `alice` chat.
+
+## Scope and invariants
+
+- Agent: configuration/secret references, adapter registry, XMLRiver adapter,
+  provider snapshots/resume and readiness. Existing Capture/analysis contracts stay.
+- Server/UI: enable existing Yandex SERP option and prevent unsupported old-agent jobs.
+- Render a safe local representation for the existing screenshot/LLM pipeline;
+  browser still required, provider login not required for API sources.
+- Provider HTML must not execute scripts or fetch network resources; do not use
+  real profiles/DBs/credentials in deterministic tests. Never log credential URLs.
+- No change to detector/LLM/arbiter/deep-check semantics, pricing or migrations.
+- API absence -> existing skipped; invalid/partial response or API error -> error.
+- Preserve capture-before-analysis, stop/pause/cancel, outbox and once-only settlement.
+- Freeze backend and nonsecret geographic settings. Old snapshots use browser Google.
+- Project region is a Yandex code, not Google loc. Moscow mapping is verified;
+  other Google locations require explicit matching configuration, no silent fallback.
+
+## Acceptance
+
+1. Fake Google/Yandex API responses become Capture with main/cards/plain/display,
+   deduplicated sources and a valid image usable by the unchanged analyzer.
+2. Hidden UI/query/source titles never become main recommendations. Yandex goods,
+   prices and promo remain cards; Google source objects remain cards.
+3. Empty/present-only AI, invalid XML/base64, HTTP/XML errors cannot become not_found;
+   transient failures have bounded cancellable retries and timeout, no secret logs.
+4. Resume preserves provider/geography; saved captures never trigger recollection.
+5. Yandex can be selected in manual/scheduled UI; old agents cannot receive it.
+   API readiness shows configuration separately from successful provider access.
+6. Deterministic scoped agent checks, server suite and frontend test/lint/build pass;
+   disposable browser smoke checks verify extraction/screenshots/UI if available.
+
+## Work slices and evidence
+
+1. Inspect flow and write brief: completed; Astra planner found caller/readiness gates.
+2. One writer implements configuration, adapter and routing with regression checks.
+3. Enable Yandex in server/UI with capability and backwards-compatibility checks.
+4. Stop writing, run Sol correctness + Astra secret/data/settlement risk review.
+5. Repair verified findings, final checks/diff, document setup and remaining limits.
+
+Planner notes: API pilot 2026-10-08 had 6 successes/3 XML 500 failures, 0.21 RUB
+total, Moscow. Those were data availability tests, not evidence of this integration.
+Secrets and captures are outside Git; their contents must not enter this brief.
+Builder routing: Terra unavailable in tools, use available Sol and disclose substitution.
+No live model/payment tests, release or migration planned.
+
+## Builder evidence (2026-10-09)
+
+- Implemented API capture with opt-in environment credentials, frozen backend/geography,
+  safe local HTML rendering and independent main/cards/source fields. Existing
+  detector, billing and durable Capture contracts were left intact.
+- Added Yandex choice to account preferences and managed project UI; server
+  requires an explicit new-agent backend capability before creating or leasing
+  Yandex jobs. API configuration and last successful request are separate states.
+- Scoped checks after review repairs: `tests/test_scan_plan.py`,
+  `tests/test_xmlriver.py` (including an offline Camoufox render and rule
+  classification), and `tests/test_scan_pipeline.py`: 58 passed;
+  `server/test_control.py` and `server/test_agent_dashboard.py`: 6 passed;
+  focused frontend service-auth Vitest: 6 passed. Final evidence follows below.
+- XMLRiver HTML screenshots are local representations, not native SERP images.
+  Credentials and real provider answers remain outside Git. No provider,
+  model, payment, PostgreSQL or production call was used by builder checks.
+
+## Final delivery checks (2026-10-09)
+
+- Sol/Astra re-review: all confirmed findings repaired; no remaining blockers.
+- Root matrix: 322 Python tests passed; two existing Linux publication tests
+  skipped on Windows. Frontend: 51 tests passed, lint/build passed. Benchmark
+  self-check and `git diff --check` passed. Generated `web/` assets included.
+- Reproducible command/exit/time/base-revision logs:
+  `~/.codex/tmp/xmlriver-ai-20261009/checks-100338/report.json`.
+- Offline fresh-browser fixture confirms organizations, source groups and goods
+  remain cards; the unchanged detector returns `card`. No provider scripts or
+  resource requests executed. Five saved real responses were also replayed.
+- Final live neutral query through both adapters: Google/Yandex AI shown,
+  valid JPEG, sources captured; zero render network requests and no credentials
+  in INFO logs. No AIRate model call, payment or production database used.
+- Disposable UI smoke: desktop and 390px width, keyboard Yandex selection,
+  successful/failed saves, configured/unconfigured/successful/failed API state;
+  no page or console errors and no horizontal overflow.
+- Remaining limits: local representation instead of native SERP screenshot;
+  Moscow verified, other Google locations require explicit matching configuration.
+  No production deployment, installer qualification or real workload benchmark.

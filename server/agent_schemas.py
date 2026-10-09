@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field, field_validator
 
 SERVICE_IDS = {"perplexity", "chatgpt", "yandex_neuro", "alice", "google_aio"}
-SCHEDULABLE_IDS = SERVICE_IDS - {"yandex_neuro"}
+SCHEDULABLE_IDS = SERVICE_IDS
 RESULT_STATUSES = {"found", "not_found", "skipped", "error", "auth_required", "captcha", "limit_reached"}
 
 

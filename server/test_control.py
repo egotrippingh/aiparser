@@ -61,6 +61,34 @@ def test_device_assignment_ownership_and_durable_queue(tmp_path):
     assert client.get('/api/v1/control/runs', headers=owner).json()[0]['state'] == 'done'
 
 
+def test_yandex_run_requires_explicit_agent_backend_at_creation_and_lease(tmp_path):
+    client, owner, _, devices, _ = setup(tmp_path)
+    project = client.post('/api/v1/control/projects', headers=owner, json={
+        'name': 'SERP', 'brand_name': 'Brand', 'device_id': 'a'*32,
+        'queries': [{'text': 'question'}], 'config': {'services': ['yandex_neuro']},
+    }).json()
+    endpoint = f"/api/v1/control/projects/{project['id']}/runs"
+    assert client.post(endpoint, headers=owner, json={'request_id': uuid.uuid4().hex}).status_code == 422
+    capability = {'capture_backends': {'yandex_neuro': 'xmlriver'},
+                  'provider_configured': {'yandex_neuro': True}}
+    assert client.post('/api/v1/control/agent/poll', headers=devices[0],
+                       json={'capabilities': capability}).status_code == 200
+    run = client.post(endpoint, headers=owner, json={'request_id': uuid.uuid4().hex})
+    assert run.status_code == 201, run.text
+    assert client.post('/api/v1/control/agent/poll', headers=devices[0], json={}).json()['run'] is None
+    assert client.post('/api/v1/control/agent/poll', headers=devices[0],
+                       json={'capabilities': {'capture_backends': {'yandex_neuro': 'xmlriver'},
+                                              'provider_configured': {'yandex_neuro': False}}}).json()['run'] is None
+    claimed = client.post('/api/v1/control/agent/poll', headers=devices[0],
+                          json={'capabilities': capability}).json()['run']
+    assert claimed['id'] == run.json()['id']
+    resumed = client.post('/api/v1/control/agent/poll', headers=devices[0],
+                          json={'capabilities': {'capture_backends': {'yandex_neuro': 'xmlriver'},
+                                                 'provider_configured': {'yandex_neuro': False}}}).json()['run']
+    assert resumed['id'] == claimed['id']
+    assert client.post('/api/v1/control/agent/poll', headers=devices[0], json={}).json()['run'] is None
+
+
 def test_schedule_uses_selected_pc_timezone_and_deduplicates(tmp_path):
     client, owner, _, devices, url = setup(tmp_path)
     project = client.post('/api/v1/control/projects', headers=owner, json={

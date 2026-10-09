@@ -177,6 +177,72 @@ def test_continuation_reuses_saved_timing_only(monkeypatch):
     assert seen["headless"] is True
 
 
+@pytest.mark.parametrize("frozen", [None, {"google_aio": {"loc": "1011969", "country": "2643", "domain": "143", "lr": "RU", "page": "1"}}])
+def test_google_resume_keeps_frozen_backend_and_geo(monkeypatch, frozen):
+    monkeypatch.setattr(orchestrator.billing, "enabled", lambda: False)
+    monkeypatch.setenv("AIPARSER_XMLRIVER_USER", "synthetic")
+    monkeypatch.setenv("AIPARSER_XMLRIVER_KEY", "synthetic")
+    monkeypatch.delenv("AIPARSER_XMLRIVER_GOOGLE_LOC", raising=False)
+    pid, _ = _project(1)
+    repo.update_project(pid, region_code="54")
+    old = _scan(pid, ["google_aio"], {}, status="stopped")
+    repo._exec("UPDATE scans SET settings_snapshot_json = ? WHERE id = ?",
+               (json.dumps({"xmlriver": frozen} if frozen else {}), old))
+    seen = {}
+
+    async def run(_project, _services, _queries, _done, settings, ctl):
+        seen.update(settings)
+        orchestrator._active.pop(ctl.scan_id, None)
+
+    monkeypatch.setattr(orchestrator, "_run_scan", run)
+
+    async def start():
+        scan_id = await orchestrator._start_scan_unlocked(pid, ["google_aio"], resume=True, headless=True)
+        await asyncio.sleep(0)
+        return scan_id
+
+    assert asyncio.run(start()) == old
+    assert seen.get("xmlriver") == frozen
+
+
+@pytest.mark.parametrize("drain_only", [False, True])
+def test_saved_xmlriver_capture_resumes_without_credentials(monkeypatch, drain_only):
+    monkeypatch.setattr(orchestrator.billing, "enabled", lambda: False)
+    monkeypatch.delenv("AIPARSER_XMLRIVER_USER", raising=False)
+    monkeypatch.delenv("AIPARSER_XMLRIVER_KEY", raising=False)
+    pid, _ = _project(1)
+    project, query = repo.get_project(pid), repo.list_queries(pid)[0]
+    frozen = {"xmlriver": {"yandex_neuro": {"lr": "213", "domain": "ru", "lang": "ru", "page": "0"}},
+              "llm_mode": "never"}
+    old = repo.create_scan(pid, ["yandex_neuro"], frozen)
+    repo.save_capture(old, query["id"], "yandex_neuro", project=project, query=query,
+                      settings=frozen, check_id=None, payer_id=None, shown=True,
+                      answer_text="сохранённый ответ", sources=[], extra={"main_text": "сохранённый ответ"},
+                      screenshot_bytes=b"synthetic-image", screenshot_path=None)
+    repo.set_scan_status(old, "failed")
+    managed_job = None
+    if drain_only:
+        managed_job = {"id": "synthetic-drain", "date": TODAY, "project_id": "synthetic-project",
+                       "query_map": {}, "queries": [], "drain_only": True}
+        repo.set_setting("managed_scan:synthetic-drain", str(old))
+    seen = {}
+
+    async def run(_project, _services, _queries, _done, settings, ctl):
+        seen.update(settings)
+        orchestrator._active.pop(ctl.scan_id, None)
+
+    monkeypatch.setattr(orchestrator, "_run_scan", run)
+
+    async def start():
+        scan_id = await orchestrator._start_scan_unlocked(pid, ["yandex_neuro"], resume=True,
+                                                           headless=True, managed_job=managed_job)
+        await asyncio.sleep(0)
+        return scan_id
+
+    assert asyncio.run(start()) == old
+    assert seen["xmlriver"] == frozen["xmlriver"]
+
+
 def test_plan_endpoint():
     pid, q = _project()
     _scan(pid, ["perplexity"], {"perplexity": q[:1]})
@@ -283,6 +349,33 @@ def test_llm_error_is_saved_with_result(monkeypatch, tmp_path):
     assert status == result["status"] == "error"
     assert result["error_message"] == "Сервер анализа вернул HTTP 422"
     assert result["answer_text"] == capture.answer_text
+
+
+def test_xmlriver_last_request_state_changes_after_capture_failure(monkeypatch):
+    from app.scanner.adapters.base import AdapterError, Capture
+    from app.scanner.adapters.xmlriver import XMLRiverAdapter, geography
+    pid, _ = _project(2)
+    queries = repo.list_queries(pid)
+    sid = repo.create_scan(pid, ["yandex_neuro"], {})
+    controller = orchestrator.ScanController(sid, pid, 2, TODAY)
+    adapter = XMLRiverAdapter("yandex_neuro", geography("yandex_neuro", "213"))
+
+    async def capture(_adapter, _page, _project, query, *_args):
+        if query["id"] == queries[1]["id"]:
+            raise AdapterError("XMLRiver: неполный ответ")
+        return Capture(screenshot_bytes=b"synthetic-image", answer_text="совет", extra={"main_text": "совет"})
+
+    monkeypatch.setattr(orchestrator, "_ask_and_capture", capture)
+    settings = {"llm_mode": "never"}
+    async def run(query):
+        return await orchestrator._run_one(repo.get_project(pid), query, "yandex_neuro", adapter,
+                                           object(), settings, 1, "", "", "never", controller,
+                                           capture_only=True)
+
+    assert asyncio.run(run(queries[0])) == "captured"
+    assert json.loads(repo.get_setting("xmlriver_state:yandex_neuro"))["state"] == "ok"
+    assert asyncio.run(run(queries[1])) == "error"
+    assert json.loads(repo.get_setting("xmlriver_state:yandex_neuro"))["state"] == "error"
 
 
 def test_display_links_do_not_change_rules_primary_or_arbiter_input(monkeypatch, tmp_path):

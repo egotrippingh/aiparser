@@ -56,14 +56,7 @@ SERVICES: tuple[ServiceInfo, ...] = (
         requires_auth=False,
         login_url="https://ya.ru/",
         color="--c3",
-        note=(
-            "Блок нейроответа в выдаче ya.ru. Регион — параметром lr. "
-            "28.08.2026: даже с Яндекс-логином через Алису (разные домены, "
-            "кука не переехала) hasSearchNeuroTab оставался false — похоже, "
-            "тег нужен именно логин НА ya.ru, а не любой Яндекс-аккаунт. "
-            "Если после входа тег не появляется — это не баг адаптера, а "
-            "показ блока сам по себе; статус будет skipped, как у Google AIO."
-        ),
+        note="AI-блок выдачи Яндекса через XMLRiver. Доступ API настраивается на агенте; регион — код Яндекса.",
     ),
     ServiceInfo(
         id="alice",
@@ -81,7 +74,7 @@ SERVICES: tuple[ServiceInfo, ...] = (
         requires_auth=False,
         login_url="https://www.google.com/",
         color="--c5",
-        note="AI-блок в выдаче Google. Показывается не по всем запросам; из РФ обычно нужен VPN.",
+        note="AI-блок Google. При настроенном XMLRiver используется API; без него — браузер.",
     ),
 )
 
