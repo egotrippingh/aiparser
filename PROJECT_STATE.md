@@ -1,6 +1,24 @@
 # AIRate current project state
 
-## Project interface fixes verified locally (2026-10-12)
+## Project report preferences verified locally (2026-10-12)
+
+Branch codex/project-report-services restricts report choices, graph, service stats,
+overview requests and XLSX to current project.config.services. Saved choices that
+were disabled fall back to the current configuration. Empty configuration skips
+the report request and prompts for project settings. Historical data/API remain.
+Calendar ranges persist in localStorage per globally unique owner project ID;
+malformed/nonexistent dates, reverse ranges and periods over 366 days fall back.
+Homepage Gemini uses the existing Gemini logo instead of Google's G.
+Checks: 77 frontend tests, lint exit 0 with warnings, TypeScript/Vite build; Sol
+independent review without blockers. Browser checked two-system legend/stats,
+disabled saved selection after config save, restored range in a new tab, separate
+second-project range/Gemini legend, keyboard and narrow viewport without overflow
+or console errors/warnings. Evidence: C:/codex-tmp/airate-project-services-20261012/.
+Publication authorized; exact-SHA CI/deploy/public verification pending. No backend,
+schema, provider/payment/S3 change. Browser data clearing removes saved ranges;
+private browsing can disable persistent storage without breaking the report.
+
+## Project interface fixes published (2026-10-12)
 
 Branch codex/chart-gaps: sparse measurement points are joined by dashed guides across
 unmeasured days, without invented zeroes/tooltips or extending to empty endpoints.
@@ -22,8 +40,14 @@ matching XLSX fixes. Sol/Astra review corrections applied. Browser fixture at
 keyboard, report failure/recovery, favicon failure/domain change and current marks.
 Actual root favicons for geosoft-dent.ru and neighbors-expert.ru returned 200.
 Evidence: C:/codex-tmp/airate-prototype-qa/project-fixes-*; task docs/tasks/project-ui-fixes.md.
-Publication authorized, exact release verification pending. No schema/config/price
-change, real provider scan/payment/S3 exercise needed for this UI bugfix.
+PRs #45/#46 merged; production 488d5f3baa9fcb8d42897f4e8ab39e40700cc7f3
+passed CI/deploy run 38248217391. Public readiness matched that SHA; 11 fetched
+assets matched the tested web tree and anonymous private routes returned 401.
+Public home/cabinet loaded the new bundles without console errors/warnings;
+versioned GPT/Perplexity icons loaded. Release evidence:
+C:/codex-tmp/airate-project-fixes-release-20261012/.
+No schema/config/price change. No real provider scan/payment/S3 exercise was
+performed for this UI bugfix; authenticated project flows used disposable fixtures.
 
 ## Prototype app published (2026-10-12)
 

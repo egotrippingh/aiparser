@@ -24,7 +24,7 @@ const APP_URL = import.meta.env.VITE_APP_URL || "/cabinet/"
 const services = [
   ["ChatGPT", "/assets/services/chatgpt.svg?v=20261012"],
   ["Perplexity", "/assets/services/perplexity.svg?v=20261012"],
-  ["Gemini", "/assets/services/google.svg"],
+  ["Gemini", "/assets/services/gemini.png"],
   ["Яндекс Поиск с Алисой", "/assets/services/alice.svg"],
   ["Google AI Overview", "/assets/services/google.svg"],
 ]

@@ -35,4 +35,11 @@ favicons returned 200. Downloaded XLSX must contain the same current service sub
 as the displayed report (regression caught extra blank Gemini columns before fix).
 No-current-services exports are disabled rather than issuing an invalid request.
 All active runs remain visible alongside 100 recent finished runs (103-row regression).
-Sol/Astra findings fixed and rechecked. Publication/exact-SHA evidence pending.
+Sol/Astra findings fixed and rechecked. Published through feature PR #45 and release
+PR #46: production 488d5f3baa9fcb8d42897f4e8ab39e40700cc7f3, CI/deploy run
+38248217391 succeeded. Public readiness matched the production SHA; 11 referenced
+assets matched the tested web tree; anonymous private routes returned 401. Public
+home/cabinet loaded the new bundles without console errors/warnings; versioned
+GPT/Perplexity icons loaded. Evidence:
+C:/codex-tmp/airate-project-fixes-release-20261012/.
+Authenticated project acceptance used disposable fixtures, not production data.
