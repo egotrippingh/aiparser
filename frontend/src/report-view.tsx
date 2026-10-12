@@ -40,23 +40,40 @@ function Rate({ trend, from, to }: { trend: Trend; from: string; to: string }) {
   return <div className={`rate-wrap ${trendTone(trend.delta)}`}><span className="rate-number">{trend.delta === null || trend.delta === 0 ? "" : trend.delta > 0 ? "↑ " : "↓ "}{pct(trend.current.visibility_pct)}</span><span className="rate-hover" tabIndex={0} aria-label={text} onFocus={event => { const rect = event.currentTarget.getBoundingClientRect(); setPosition({left:Math.max(10,Math.min(rect.left,innerWidth-290)),top:Math.max(10,rect.top-110)}) }} onMouseEnter={event => { const rect = event.currentTarget.getBoundingClientRect(); setPosition({left:Math.max(10,Math.min(rect.left,innerWidth-290)),top:Math.max(10,rect.top-110)}) }}><span className="table-progress"><span style={{width:`${trend.current.visibility_pct || 0}%`}}/></span><span className="trend-tooltip" role="tooltip" style={position}><strong>{text}</strong><span>{trend.baseline_from && trend.baseline_to ? `${shortDate(trend.baseline_from)} — ${shortDate(trend.baseline_to)}: ${pct(trend.previous.visibility_pct)}` : "Предыдущий период недоступен"}</span><span>{shortDate(from)} — {shortDate(to)}: {pct(trend.current.visibility_pct)}</span></span></span></div>
 }
 
-export function reportSelection(saved: unknown) {
+export function reportRange(saved: unknown): {from:string;to:string}|null {
+  if (!saved || typeof saved !== "object") return null
+  const {from,to} = saved as {from:unknown;to:unknown}
+  const validDate = (value: unknown): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !value.startsWith("0000") && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0,10) === value
+  if (!validDate(from) || !validDate(to) || from > to || (Date.parse(to)-Date.parse(from))/86400000 > 365) return null
+  return {from,to}
+}
+export function reportSelection(saved: unknown, allowed = SCAN_SERVICES.map(service=>service.id)) {
   if (!Array.isArray(saved) || !saved.every(id=>typeof id === "string")) return null
-  const services = [...new Set(saved.filter(isCurrentService))]
+  const services = [...new Set(saved.filter(id=>isCurrentService(id) && allowed.includes(id)))]
   return services.length ? services : null
 }
-export function ReportView({ token, projectId, sourcesOnly = false }: {token:string;projectId:string;sourcesOnly?:boolean}) {
-  const [range,setRange] = useState<{from:string;to:string}|null>(null)
+export function ReportView({ token, projectId, projectServices, sourcesOnly = false }: {token:string;projectId:string;projectServices:string[];sourcesOnly?:boolean}) {
+  const availableServices = [...new Set(projectServices.filter(isCurrentService))]
+  const rangeKey = `aimt.report.range.${projectId}`
+  const [range,setRange] = useState<{from:string;to:string}|null>(() => {
+    try { return reportRange(JSON.parse(localStorage.getItem(rangeKey) || "null")) } catch { return null }
+  })
+  function chooseRange(from: string, to: string) {
+    const next = {from,to}; setRange(next)
+    try { localStorage.setItem(rangeKey,JSON.stringify(next)) } catch { /* Private browsing may disable storage. */ }
+  }
   const [compare,setCompare] = useState(false), [cards,setCards] = useState(true)
   const serviceKey = `aimt.report.services.${projectId}`
   const [selectedServices,setSelectedServices] = useState<string[]|null>(() => {
     try { return reportSelection(JSON.parse(sessionStorage.getItem(serviceKey) || "null")) } catch { return null }
   })
+  const selection = reportSelection(selectedServices, availableServices)
   const [group,setGroup] = useState("*"), [querySearch,setQuerySearch] = useState(""), [status,setStatus] = useState(""), [sort,setSort] = useState(false)
   const [sourceSearch,setSourceSearch] = useState("")
   const [search,setSearch] = sourcesOnly ? [sourceSearch,setSourceSearch] : [querySearch,setQuerySearch]
   const [sourceKind,setSourceKind] = useState("all"), [expandedSource,setExpandedSource] = useState("")
-  const [report,setReport] = useState<Report|null>(null), [error,setError] = useState("")
+  const [loadedReport,setReport] = useState<Report|null>(null), [error,setError] = useState("")
+  const report = loadedReport && {...loadedReport,services:loadedReport.services.filter(id=>availableServices.includes(id))}
   const [loading,setLoading] = useState(true), [tick,setTick] = useState(0), [exporting,setExporting] = useState("")
   const [detail,setDetail] = useState<Detail|null>(null), [detailError,setDetailError] = useState(""), [shot,setShot] = useState("")
   const dialog = useRef<HTMLDialogElement>(null), detailRequest = useRef(0), mounted = useRef(true)
@@ -64,24 +81,25 @@ export function ReportView({ token, projectId, sourcesOnly = false }: {token:str
   const base = `/control/projects/${encodeURIComponent(projectId)}/mentions`
   const params = new URLSearchParams({include_cards:String(cards),compare:String(compare && !sourcesOnly),date_to:range?.to||today()})
   if (!sourcesOnly) params.set("search",search)
-  params.set("services",(selectedServices || SCAN_SERVICES.map(service=>service.id)).join(","))
+  params.set("services",(selection || availableServices).join(","))
   if (range?.from) params.set("date_from",range.from)
   if (group !== "*") params.set("group",group)
   const filters = params.toString()
+  const hasServices = availableServices.length > 0
   const stale = loadedFilters !== filters
   function chooseServices(next: string[]|null) {
     setSelectedServices(next); setLoading(true)
     try { if(next)sessionStorage.setItem(serviceKey,JSON.stringify(next));else sessionStorage.removeItem(serviceKey) } catch { /* Private browsing may disable storage. */ }
   }
-  const availableServices = report?.available_services.filter(isCurrentService) || []
   useEffect(() => {
     let alive = true
+    if (!hasServices) {setReport(null);setLoadedFilters(filters);setLoading(false);setError("");return}
     setLoading(true)
     const timer = setTimeout(() => {
       accountRequest<Report>(`${base}/overview?${filters}`,token).then(data => { if(alive){setLoadedFilters(filters);setReport({...data,services:data.services.filter(id=>data.available_services.includes(id))});setError("")} }).catch(e => {if(alive)setError(e.message)}).finally(() => {if(alive)setLoading(false)})
     },180)
     return () => {alive=false;clearTimeout(timer)}
-  },[base,filters,tick,token])
+  },[base,filters,hasServices,tick,token])
   useEffect(() => { const timer=setInterval(() => {if(document.visibilityState === "visible")setTick(n => n+1)},20000);return () => clearInterval(timer) },[])
   useEffect(() => () => {mounted.current=false;detailRequest.current++},[])
   function closeDetail() { detailRequest.current++; dialog.current?.close() }
@@ -107,8 +125,8 @@ export function ReportView({ token, projectId, sourcesOnly = false }: {token:str
     return <button disabled={!cell || loading || stale} className={cell?.found?"found":""} title={cell ? cellLabel(cell) : "Не проверялось"} aria-label={`${query.text} · ${name(id)} · ${day || cell?.date || ""} · ${cell ? cellLabel(cell) : "Не проверялось"}`} onClick={() => cell && openResult(cell.id)}>{cell?.found?"✓":cell?.status==="skipped"?"н/д":cell && !["found","not_found"].includes(cell.status)?"!":"—"}</button>
   }
   return <section aria-busy={loading}>
-    <div className="filterbar">{report && <ReportCalendar from={range?.from||report.date_from} to={range?.to||report.date_to} available={report.available_dates} change={(from,to) => setRange({from,to})}/>}
-      <AppChoice label="Системы в отчёте" value={selectedServices?.length === 1 ? selectedServices[0] : selectedServices ? "custom" : "all"} options={[{value:"all",label:"Все ИИ-системы"},...availableServices.map(id => ({value:id,label:name(id)})),...(selectedServices && selectedServices.length > 1 ? [{value:"custom",label:"Выбрано несколько"}] : [])]} change={value => {if(value!=="custom")chooseServices(value==="all"?null:[value])}}/>
+    <div className="filterbar">{report && <ReportCalendar from={range?.from||report.date_from} to={range?.to||report.date_to} available={report.available_dates} change={chooseRange}/>}
+      <AppChoice label="Системы в отчёте" value={selection?.length === 1 ? selection[0] : selection ? "custom" : "all"} options={[{value:"all",label:"Все ИИ-системы"},...availableServices.map(id => ({value:id,label:name(id)})),...(selection && selection.length > 1 ? [{value:"custom",label:"Выбрано несколько"}] : [])]} change={value => {if(value!=="custom")chooseServices(value==="all"?null:[value])}}/>
       <AppChoice label="Группа запросов" value={group} searchable options={[{value:"*",label:"Все группы"},{value:"",label:"Без группы"},...(report?.groups || []).map(label => ({value:label,label}))]} change={setGroup}/>
       <label className="check-control"><input type="checkbox" checked={cards} onChange={e => setCards(e.target.checked)}/>Учитывать карточки</label>
       {!sourcesOnly && <AppChoice label="Режим отчёта" value={compare?"compare":"period"} options={[{value:"period",label:"За период"},{value:"compare",label:"Сравнить даты"}]} change={value => setCompare(value==="compare")}/>}
@@ -116,7 +134,7 @@ export function ReportView({ token, projectId, sourcesOnly = false }: {token:str
     </div>
     {error && <p className="cc-alert" role="alert">{error}<button className="btn" onClick={() => setTick(n=>n+1)}>Повторить</button></p>}
     {report && stale && <p className="notice" role="status">По выбранным фильтрам данных ещё нет. Ниже показан предыдущий отчёт.</p>}
-    {!report ? <p className="empty-state" role="status">{loading ? "Загрузка отчёта…" : "Отчёт недоступен"}</p> : sourcesOnly ? <>
+    {!report ? <p className="empty-state" role="status">{loading ? "Загрузка отчёта…" : !availableServices.length ? "Выберите ИИ-системы в настройках проекта." : "Отчёт недоступен"}</p> : sourcesOnly ? <>
       <div className="stat-inline"><span><strong>{sources.length}</strong> источников</span><span>Учитываются ответы с упоминанием бренда</span></div><section className="panel"><div className="table-toolbar"><label className="search-box"><Search size={14}/><input aria-label="Поиск источника" placeholder="Найти домен" value={search} onChange={e => setSearch(e.target.value)}/></label><AppChoice label="Тип источника" value={sourceKind} options={[{value:"all",label:"Все источники"},{value:"own",label:"Сайт бренда"},{value:"external",label:"Внешние источники"}]} change={setSourceKind}/></div><div className="table-wrap"><table><thead><tr><th>Домен</th><th>Тип</th><th>Ответов со ссылкой</th><th>Запросы</th><th>ИИ-системы</th><th/></tr></thead>{sources.map(source => <tbody key={source.domain}><tr><td><a href={source.urls[0]} target="_blank" rel="noopener noreferrer">{source.domain} ↗</a></td><td><span className={`badge ${source.own?"blue":""}`}>{source.own?"Сайт бренда":"Внешний источник"}</span></td><td>{source.count}</td><td>{source.queries}</td><td><div className="system-marks">{source.services.map(id => <span key={id} title={name(id)}><ServiceMark id={id}/></span>)}</div></td><td><button className="text-link" aria-expanded={expandedSource === source.domain} onClick={() => setExpandedSource(expandedSource === source.domain ? "" : source.domain)}>Ответы →</button></td></tr>{expandedSource === source.domain && <tr><td colSpan={6}><div className="source-answers"><small>Последние {source.results.length} ответов со ссылкой</small>{source.results.map(result => <button className="btn" key={result.id} disabled={loading || stale} onClick={() => openResult(result.id)}>{shortDate(result.date)} · {name(result.service)} · {result.query_text}</button>)}</div></td></tr>}</tbody>)}</table>{!sources.length && <div className="empty-state">Источников по выбранным фильтрам нет.</div>}</div></section><p className="page-note">Число ответов со ссылкой на домен; несколько ссылок из одного ответа считаются один раз. Источники показываются только в ответах с упоминанием бренда. XLSX содержит домены и показатели с учётом выбранного типа источника и поиска.</p>
     </> : <>
       <section className="metrics" aria-label="Основные показатели">

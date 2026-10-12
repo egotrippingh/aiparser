@@ -1,5 +1,23 @@
 # AIRate current project state
 
+## Project report preferences verified locally (2026-10-12)
+
+Branch codex/project-report-services restricts report choices, graph, service stats,
+overview requests and XLSX to current project.config.services. Saved choices that
+were disabled fall back to the current configuration. Empty configuration skips
+the report request and prompts for project settings. Historical data/API remain.
+Calendar ranges persist in localStorage per globally unique owner project ID;
+malformed/nonexistent dates, reverse ranges and periods over 366 days fall back.
+Homepage Gemini uses the existing Gemini logo instead of Google's G.
+Checks: 77 frontend tests, lint exit 0 with warnings, TypeScript/Vite build; Sol
+independent review without blockers. Browser checked two-system legend/stats,
+disabled saved selection after config save, restored range in a new tab, separate
+second-project range/Gemini legend, keyboard and narrow viewport without overflow
+or console errors/warnings. Evidence: C:/codex-tmp/airate-project-services-20261012/.
+Publication authorized; exact-SHA CI/deploy/public verification pending. No backend,
+schema, provider/payment/S3 change. Browser data clearing removes saved ranges;
+private browsing can disable persistent storage without breaking the report.
+
 ## Project interface fixes published (2026-10-12)
 
 Branch codex/chart-gaps: sparse measurement points are joined by dashed guides across
