@@ -1,6 +1,6 @@
 import { createElement, Fragment, useRef, useState, type ReactNode } from "react"
 import { ChevronLeft, ChevronRight, ImageOff } from "lucide-react"
-import { AnswerContent, sourcesOf } from "./answer-content"
+import { AnswerContent, renderedSources, sourcesOf } from "./answer-content"
 import { highlightedText, brandLink, type BrandHighlight } from "./brand-highlight"
 import "./answer-evidence.css"
 
@@ -39,19 +39,35 @@ function ProductPhoto({ url, title }: { url: string; title: string }) {
   return src && !failed ? <img src={src} alt={title} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)}/> : <div className="answer-product-no-photo"><ImageOff size={24} aria-hidden="true"/><span>Фото недоступно</span></div>
 }
 
-export function AnswerEvidenceView({ evidence, brand }: { evidence: AnswerEvidence; brand?: BrandHighlight }) {
+export function AnswerEvidenceView({ evidence, brand, sources = [], service }: { evidence: AnswerEvidence; brand?: BrandHighlight; sources?: string[]; service?: string }) {
   const rail = useRef<HTMLUListElement>(null)
   const move = (direction: number) => {
     const el = rail.current
     if (el) el.scrollBy({left:direction * el.clientWidth * .85, behavior:window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth"})
   }
-  return <div className="answer-evidence"><p className="answer-note">Сохранённый ответ ИИ. Выделены название бренда и ссылки на его сайт.</p><div className="answer-content">{evidence.format === "markdown" ? <AnswerContent text={evidence.answer_text || ""} brand={brand}/> : answerNodes(evidence.content, brand)}</div>
+  return <div className="answer-evidence"><p className="answer-note">Сохранённый ответ ИИ. Выделены название бренда и ссылки на его сайт.</p><div className="answer-content">{evidence.format === "markdown" ? <AnswerContent text={evidence.answer_text || ""} service={service} sources={sources} brand={brand}/> : answerNodes(evidence.content, brand)}</div>
     {evidence.products.length > 0 && <section className="answer-products" aria-label="Товары из ответа"><div className="answer-products-heading"><h3>Товары из ответа <small>{evidence.products.length}</small></h3><div><button type="button" className="cc-button icon" aria-label="Предыдущие товары" onClick={() => move(-1)}><ChevronLeft size={18}/></button><button type="button" className="cc-button icon" aria-label="Следующие товары" onClick={() => move(1)}><ChevronRight size={18}/></button></div></div><ul ref={rail} className="answer-product-rail" tabIndex={0} aria-label="Карточки товаров; листайте стрелками" onKeyDown={e => { if (e.target === e.currentTarget && ["ArrowLeft","ArrowRight"].includes(e.key)) {e.preventDefault();move(e.key === "ArrowLeft" ? -1 : 1)} }}>{evidence.products.map((p,i) => <li key={`${p.url}-${i}`}><ProductPhoto key={p.image_url} url={p.image_url} title={p.title}/><div><AnswerLink href={p.url} brand={brand}>{highlightedText(p.title, brand)}</AnswerLink>{p.price && <p className="answer-product-price">{p.price}</p>}</div></li>)}</ul></section>}
-    {evidence.source_cards.length > 0 && <section className="answer-source-cards" aria-label="Карточки ответа"><h3>Карточки ответа</h3><ul>{evidence.source_cards.map((s,i) => <li key={`${s.url}-${i}`}><AnswerLink href={s.url} brand={brand}>{highlightedText(s.title || s.url, brand)}</AnswerLink>{s.text && s.text !== s.title && <p>{highlightedText(s.text, brand)}</p>}</li>)}</ul></section>}
+    {evidence.format !== "markdown" && evidence.source_cards.length > 0 && <div className="answer-source-details">{evidence.source_cards.map((s,i) => <p key={`${s.url}-${i}`}>{s.url ? <AnswerLink href={s.url} brand={brand}>{highlightedText(s.title || s.url, brand)}</AnswerLink> : highlightedText(s.title, brand)}{s.text && s.text !== s.title && <> — {highlightedText(s.text, brand)}</>}</p>)}</div>}
   </div>
+}
+
+export function evidenceSources(evidence: AnswerEvidence, sources: string[], service?: string) {
+  const rendered = new Set<string>()
+  const add = (value?: string) => { const safe = sourcesOf(value ? [value] : [])[0]; if (safe) rendered.add(new URL(safe).href) }
+  const walk = (nodes: AnswerNode[]) => nodes.forEach(node => { if (typeof node !== "string") { if (node.tag === "a") add(node.href); walk(node.children) } })
+  if (evidence.format === "markdown") return renderedSources(evidence.answer_text || "", sources, service)
+  walk(evidence.content)
+  evidence.products.forEach(product => add(product.url))
+  evidence.source_cards.forEach(card => add(card.url))
+  return sourcesOf(sources).filter(source => !rendered.has(new URL(source).href))
 }
 
 export function HighlightedSources({ sources, brand }: { sources: string[]; brand?: BrandHighlight }) {
   const values = sourcesOf(sources)
   return values.length ? <ol className="answer-sources">{values.map(value => <li key={value}><AnswerLink href={value} brand={brand}>{highlightedText(value, brand)}</AnswerLink></li>)}</ol> : <p className="answer-note">Сохранённых ссылок на источники нет.</p>
+}
+
+export function EvidenceSources({ evidence, sources, answerText, service, brand }: { evidence?: AnswerEvidence | null; sources: string[]; answerText?: string | null; service?: string; brand?: BrandHighlight }) {
+  const remaining = evidence ? evidenceSources(evidence, sources, service) : answerText ? renderedSources(answerText, sources, service) : sources
+  return remaining.length ? <><h3>Источники</h3><HighlightedSources sources={remaining} brand={brand}/></> : null
 }

@@ -1,6 +1,6 @@
 /** Карточка запроса: что именно ответил каждый сервис в выбранный день. */
 
-import { AnswerContent, SourceList, ResultIssue } from "./answer-content"
+import { AnswerContent, SourceList, ResultIssue, renderedSources } from "./answer-content"
 import { useEffect, useState } from "react"
 import { ImageOff } from "lucide-react"
 
@@ -188,9 +188,7 @@ export function QuerySheet({
                       </Section>
                     ) : null}
 
-                    <Section title={`Источники${info.sources?.length ? ` (${info.sources.length})` : ""}`}>
-                      <SourceList sources={info.sources || []}/>
-                    </Section>
+                    {(() => { const remaining = renderedSources(info.answer_text || "", info.sources || [], s.id); return remaining.length ? <Section title={`Источники (${remaining.length})`}><SourceList sources={remaining}/></Section> : null })()}
 
                     {info.history?.length ? (
                       <Section title="История по дням">

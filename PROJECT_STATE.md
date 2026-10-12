@@ -22,5 +22,13 @@ checks, readiness and rollback gates.
 
 ## Open checks and next action
 
-Complete independent review and CI, including disposable PostgreSQL concurrency checks,
-then create the combined production PR. Do not deploy the prepared branch directly.
+PR #51 contains the first feature. The full server suite passed with disposable
+PostgreSQL (194 tests); retained shared CI checks passed without the retired browser
+runtime (66 tests). Complete renderer review and stacked PR, then combined CI,
+restored-copy migration/rollback verification and production activation.
+## Prepared answer display
+
+`codex/answer-display` renders reference citations, removes synthetic answer tiles
+and suppresses duplicate source footers. Its 83 frontend tests, lint/build and
+desktop/mobile fixture checks passed. Both changes await the same production
+activation. See [answer-display.md](docs/tasks/answer-display.md).
