@@ -3,6 +3,7 @@ import { accountRequest } from "./account-api"
 import { AnswerContent, ResultIssue, SourceList } from "./components/answer-content"
 import { AnswerEvidenceView, HighlightedSources, type AnswerEvidence, type BrandHighlight } from "./components/answer-evidence"
 import type { ScanFeedback } from "./scan-feedback"
+import { SCAN_SERVICES } from "./lib/scan-preferences"
 
 type Row = { id: number; email: string; project_name: string; brand_name: string; query_text: string; service: string; scan_date: string; status: string; mention_types: string[] }
 type Detail = { check_id: string | null; id: number; answer_text: string | null; evidence_quote: string | null; error_message: string | null; sources: string[]; status: string; service: string; feedback: ScanFeedback | null; analysis: { reasoning?: string } | null; arbitration: { reasoning?: string } | null; analysis_model: string | null; arbitration_model: string | null; answer_evidence?: AnswerEvidence | null; highlight?: BrandHighlight; has_screenshot?: boolean }
@@ -34,7 +35,7 @@ export function AdminScans({ token }: { token: string }) {
     <div className="cc-two"><label>Пользователь, проект, бренд или запрос<input value={search} onChange={e => { setSearch(e.target.value); setOffset(0); setSelected(null) }} /></label><label>Результат<select value={status} onChange={e => { setStatus(e.target.value); setOffset(0); setSelected(null) }}><option value="">Все результаты</option>{Object.entries(statuses).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div>
     {error && <p role="alert">{error}</p>}{loading && <p role="status">Загружаем сканы…</p>}
     {data && <><p>{data.total} результатов</p><div className="admin-scan-list">{data.results.map(row => <article key={row.id}>
-      <p className="ws-note">{row.email} · {row.project_name} · {row.scan_date} · {row.service}</p><h3>{row.query_text}</h3><p>Бренд: {row.brand_name} · {statuses[row.status] || row.status} · {row.mention_types.join(", ")}</p>
+      <p className="ws-note">{row.email} · {row.project_name} · {row.scan_date} · {SCAN_SERVICES.find(s => s.id === row.service)?.label || (row.service === "alice" ? "Алиса AI" : row.service)}</p><h3>{row.query_text}</h3><p>Бренд: {row.brand_name} · {statuses[row.status] || row.status} · {row.mention_types.join(", ")}</p>
       <button className="cc-button" aria-expanded={selected === row.id} onClick={() => setSelected(selected === row.id ? null : row.id)}>{selected === row.id ? "Скрыть ответ" : "Ответ и причина"}</button>
       {selected === row.id && <div className="admin-scan-detail">{detailError?.id === row.id && <p role="alert">{detailError.message}</p>}{detail?.id !== row.id && detailError?.id !== row.id && <p role="status">Загружаем ответ…</p>}{detail?.id === row.id && <>
         {detail.feedback && <p>Отметка пользователя: <b>{labels[detail.feedback.label]}</b>{detail.feedback.comment && ` · ${detail.feedback.comment}`}</p>}

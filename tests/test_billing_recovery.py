@@ -251,7 +251,7 @@ def test_real_server_settlement_after_old_local_id_repair_is_charged_once(tmp_pa
     import threading
     import uuid
     from sqlalchemy import select
-    from server.test_control import setup
+    from server.test_control import setup, seed_legacy_run
     from server.models import Wallet, LedgerEntry, make_session_factory
     from app import control_agent
     client, owner, _, devices, url = setup(tmp_path)
@@ -264,8 +264,10 @@ def test_real_server_settlement_after_old_local_id_repair_is_charged_once(tmp_pa
         "name": "Recovery", "brand_name": "Brand", "device_id": "a"*32,
         "queries": [{"text": "query"}], "config": {"services": ["chatgpt"]}}).json()
     def launch():
+        request_id = uuid.uuid4().hex
+        seed_legacy_run(client, owner, project, request_id)
         response = client.post(f"/api/v1/control/projects/{project['id']}/runs", headers=owner,
-                               json={"request_id": uuid.uuid4().hex})
+                               json={"request_id": request_id})
         assert response.status_code == 201, response.text
         return client.post("/api/v1/control/agent/poll", headers=devices[0], json={}).json()["run"]
     job = launch()

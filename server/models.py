@@ -259,6 +259,7 @@ class ControlRun(Base):
     error: Mapped[str | None] = mapped_column(String(1000))
     lease_token: Mapped[str | None] = mapped_column(String(64))
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -277,6 +278,31 @@ class ServerCapture(Base):
     check_id: Mapped[str] = mapped_column(String(100), unique=True)
     answer_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ProviderAccount(Base):
+    """A database mutex and shared cooldown for each server collection engine."""
+    __tablename__ = "provider_accounts"
+    service: Mapped[str] = mapped_column(String(40), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    cooldown_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ProviderTask(Base):
+    """Submission intent survives a crash before the upstream task handle arrives."""
+    __tablename__ = "provider_tasks"
+    check_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("control_runs.id"), index=True)
+    query_id: Mapped[str] = mapped_column(String(32))
+    service: Mapped[str] = mapped_column(String(40), index=True)
+    submission_token: Mapped[str] = mapped_column(String(32))
+    state: Mapped[str] = mapped_column(String(24), index=True)
+    task_id: Mapped[str | None] = mapped_column(String(200))
+    answer_json: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    history_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class ControlLink(Base):

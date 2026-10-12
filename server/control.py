@@ -29,7 +29,7 @@ from server.storage import StorageError
 
 log = logging.getLogger(__name__)
 TERMINAL = {"done", "failed", "cancelled", "missed"}
-CLOUD_SERVICES = {"google_aio", "yandex_neuro"}
+CLOUD_SERVICES = {"google_aio", "yandex_neuro", "chatgpt", "perplexity", "gemini"}
 
 
 def agent_services(config):
@@ -180,6 +180,7 @@ class ImportIn(BaseModel):
 def project_payload(row, detail=True, brand_clarifications_enabled=False):
     queries = json.loads(row.queries_json)
     config = json.loads(row.config_json)
+    config["services"] = [s for s in config.get("services", ["google_aio"]) if s != "alice"]
     config.pop(FEEDBACK_KEY, None)
     if not brand_clarifications_enabled:
         config.pop("brand_clarification", None)
@@ -226,19 +227,27 @@ def create_run(db, project, device_id, key, scheduled_for=None, brand_clarificat
     if existing:
         return existing
     snap = project_payload(project, brand_clarifications_enabled=brand_clarifications_enabled)
+    if not snap["config"]["services"]:
+        raise HTTPException(422, "Выберите доступный ИИ-сервис в настройках проекта")
     cloud = [s for s in snap["config"]["services"] if s in CLOUD_SERVICES]
     agent = agent_services(snap["config"])
     device = device_for(db, project.user_id, device_id) if agent else None
     if cloud:
         from shared.xmlriver import configured, geography
-        if not configured():
+        from server import scrapeless
+        xml_services = [s for s in cloud if s not in scrapeless.SERVICES]
+        if xml_services and not configured():
             raise HTTPException(422, "Серверный сбор не настроен для выбранного региона")
+        if set(cloud) & scrapeless.SERVICES and not scrapeless.configured():
+            raise HTTPException(422, "Серверный сбор выбранных ИИ-сервисов не настроен")
         try:
             snap["cloud_geography"] = {service: geography(service, snap["config"].get("region_code", "213"))
-                                       for service in cloud}
+                                       for service in xml_services}
+            snap["cloud_geography"].update({s: {"country": "US"} for s in cloud if s in scrapeless.SERVICES})
         except ValueError as exc:
             raise HTTPException(422, public_error(str(exc))) from exc
     snap["cloud_services"] = cloud
+    snap["collection_policy"] = "complete"
     examples = learning_context(project)
     if examples:
         snap["config"]["brand_clarification"] = (snap["config"].get("brand_clarification", "") +
@@ -262,8 +271,9 @@ def create_run(db, project, device_id, key, scheduled_for=None, brand_clarificat
 def schedule_tick(sessions, now=None, feature_user_id=""):
     now = now or utcnow()
     with sessions() as db:
-        # Expired queued scheduled work must never create a backlog on an offline PC.
+        # Only historical agent work depends on PC availability.
         for run in db.scalars(select(ControlRun).where(ControlRun.state == "queued",
+                                                      ControlRun.phase == "agent",
                                                       ControlRun.scheduled_for.is_not(None))):
             if now - aware(run.scheduled_for) > timedelta(hours=24):
                 run.state, run.active_project_key = "missed", None
@@ -799,7 +809,8 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         if run:
             snapshot = json.loads(run.snapshot_json)
             if "cloud_services" in snapshot:
-                snapshot["config"]["services"] = agent_services(snapshot["config"])
+                snapshot["config"]["services"] = [s for s in snapshot["config"]["services"]
+                    if s not in snapshot["cloud_services"]]
         return {"run": None if not run else {**run_payload(run, device),
                 "snapshot": snapshot, "lease_token": run.lease_token}, "name": device.name}
 

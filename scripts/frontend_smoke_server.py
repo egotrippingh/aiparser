@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # Fixture processes must never inherit production database or provider access.
 for key in ('DATABASE_URL', 'COINSO_SECRET_KEY', 'COINSO_PROJECT_ID', 'OPENROUTER_API_KEY',
+            'OPENROUTER_MANAGEMENT_KEY', 'SCRAPELESS_API_KEY', 'AIPARSER_XMLRIVER_USER', 'AIPARSER_XMLRIVER_KEY',
             'S3_SCREENSHOTS_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY',
             'YANDEX_CLIENT_ID', 'YANDEX_CLIENT_SECRET', 'SMTP_HOST'):
     os.environ.pop(key, None)

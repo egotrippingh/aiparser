@@ -1,5 +1,77 @@
 # AIRate current project state
 
+## Scrapeless server collection ready locally (2026-10-12)
+
+`codex/scrapeless-server` adds server collection for ChatGPT, Perplexity and separate
+Gemini alongside Google AI Overview / Яндекс Поиск с Алисой. New scans/schedules no
+longer require a PC; standalone Alice is removed from new choices and historical
+runs/reports remain intact. Alice-only projects explicitly require another choice.
+
+Paid submission intent and provider task IDs survive restart; SQL account admission
+shares caps/cooldowns across owners and workers. Default Scrapeless caps are 100 per
+actor, four concurrent runs per process and one running project per owner. Answers
+commit before analysis, Stop/Pause drain accepted tasks, charges remain once-only.
+New incomplete checks produce no error rows in reports. Unknown POST outcome, expired
+result and exhausted analysis budget require operator reconciliation, without blind resubmission.
+
+Admin-only users/wallets include users with no scans. Supplier balance cards provide
+OpenRouter/Scrapeless/XMLRiver cabinet links; unavailable balances are explicit.
+Scrapeless Credits and subscription remain separate, without an incorrect USD label.
+Markdown answers retain headings, lists, tables, safe links and brand highlighting.
+
+Final local evidence: 175 server tests with disposable PostgreSQL checks, 52 client
+pipeline/billing/storage, 98 XMLRiver/detection, 33 agent contract and 61 frontend tests
+passed; benchmark self-check, lint (warnings), build and desktop/390px fixture browser
+smoke passed. Final Sol/Astra reviews have no confirmed P1/P2. Live Scrapeless: two
+synthetic owners, 300 POSTs -> 300 saved formatted answers, no invalid report rows;
+peaks ChatGPT 100, Perplexity 100, Gemini 89. Analysis was deterministic fake, with
+300 settled checks / exactly 300 ledger debits in temporary PostgreSQL.
+
+Not deployed or pushed. Release requires separately installing reviewed Compose/env
+changes, setting SCRAPELESS_API_KEY (OPENROUTER_MANAGEMENT_KEY for account credit view)
+and additive migration `20261012_provider_tasks` through the normal backup/isolated
+restore/head/readiness procedure. Live OpenRouter/XMLRiver balances, S3/payments and
+installer were not exercised. See [task evidence](docs/tasks/scrapeless-server.md).
+
+## Continuous collection and analysis deployed (2026-10-09)
+
+Source `3e84bd5` on `codex/xmlriver-streaming` independently refills Google and
+Yandex collection slots (up to 10 each). Durable responses immediately enter a
+shared 20-slot primary/arbiter queue. No batch barrier or sequential model drain.
+The supplier is confidential in interface copy, DOM/CSS names, built JavaScript
+and public errors, including historical errors; original evidence/history is kept.
+
+Model admission is the fresh owner/state read after acquiring the Check lock.
+Already-admitted calls drain after Stop; cached verdicts remain usable without a
+new call. A throttled engine lets its healthy sibling finish before the run pauses.
+Fencing, frozen price, bounded retries and once-only settlement are retained.
+Long cloud ledger references use a deterministic hash within the existing column
+limit; no schema, Compose, price or installer change was required.
+
+Final local checks: 142 server tests passed with all three disposable PostgreSQL 16
+concurrency/fencing/Stop checks enabled; 52 client pipeline/billing/storage tests,
+benchmark self-check, 58 frontend tests, lint (existing warnings)/build and fake
+desktop/390px browser smoke passed. Two final review regressions failed before
+their fixes and passed after. Sol correctness and Astra risk reviews on `3e84bd5`
+found no remaining P1/P2. The loopback-only disposable PostgreSQL instance stopped.
+
+Implementation [PR #39](https://github.com/egotrippingh/aiparser/pull/39) and
+release [PR #40](https://github.com/egotrippingh/aiparser/pull/40) are merged.
+Feature `6645c36` CI passed (`37933910809`). Main `285fc55` has the same tree;
+push and release-PR CI passed (`37934396859`, `37934441616`). Production
+`202b2fe8873be11706ac943615d40de494a80c49` has the same tree; its Tests/build
+and Deploy jobs passed (`37934883974`). Normal backup/isolated restore,
+migration-head and readiness gates remain intact. Public HTTPS readiness
+confirmed the exact production SHA, pricing 120 kopeks and private projects 401.
+Independent smoke fetched landing/cabinet entry bundles and their preloads;
+supplier names were absent from both pages and all fetched JavaScript files.
+Evidence is outside Git under `~/.codex/tmp/xmlriver-release-20261009/`.
+
+Limits: different project runs remain sequential; multiple workers require a
+shared account limiter. Failed account-limit discovery keeps the existing one-slot
+fallback. Live-provider throughput and an authenticated production scan were not
+measured. See [the streaming brief](docs/tasks/xmlriver-streaming.md).
+
 ## XMLRiver speed and error follow-up deployed (2026-10-09)
 
 Branch `codex/xmlriver-throughput`, server source `b7b4c8d`, shared source

@@ -46,7 +46,7 @@ def test_generic_design_roles_are_not_neighbours_expert_mentions():
         assert positive.found and 'text' in positive.mention_types
 
 
-def test_feedback_survives_editor_update_and_freezes_in_run(tmp_path):
+def test_feedback_survives_editor_update_and_freezes_in_run(tmp_path, monkeypatch):
     client, owner, _, devices, project, ids, url = seed_report(tmp_path)
     base = f"/api/v1/control/projects/{project['id']}"
     response = client.put(f'{base}/mentions/results/{ids[1]}/feedback', headers=owner,
@@ -63,6 +63,7 @@ def test_feedback_survives_editor_update_and_freezes_in_run(tmp_path):
         assert len(json.loads(db.get(ControlProject, project['id']).config_json)[KEY]) == 1
     launch = client.post(base + '/runs', headers=owner, json={'request_id': 'a' * 32, 'device_id': 'a' * 32})
     assert launch.status_code == 422
+    monkeypatch.setenv('SCRAPELESS_API_KEY', 'fake-key')
     heartbeat = {'capabilities': {'brand_clarification': True}, 'local_time_zone': 'Europe/Moscow'}
     res = client.post('/api/v1/control/agent/poll', headers=devices[0], json=heartbeat)
     assert res.status_code == 200, res.text
@@ -85,7 +86,7 @@ def test_feedback_survives_editor_update_and_freezes_in_run(tmp_path):
         assert 'generic word' in json.loads(db.get(ControlRun, launch.json()['id']).snapshot_json)['scan_feedback_context']
     res = client.post('/api/v1/control/agent/poll', headers=devices[0], json=heartbeat)
     assert res.status_code == 200, res.text
-    assert res.json()['run']['id'] == launch.json()['id']
+    assert res.json()['run'] is None  # New runs execute on the server.
 
 
 def test_admin_review_all_accounts_without_disclosing_credentials(tmp_path):
@@ -197,6 +198,8 @@ def test_managed_endpoints_use_frozen_examples_and_admin_screenshot_owner(tmp_pa
     feedback = f'{base}/mentions/results/{ids[1]}/feedback'
     assert client.put(feedback, headers=owner, json={'label': 'false_positive', 'comment': 'Not the same brand'}).status_code == 200
     client.post('/api/v1/control/agent/poll', headers=devices[0], json={'capabilities': {'brand_clarification': True}})
+    from server.test_control import seed_legacy_run
+    seed_legacy_run(client, owner, current, 'c' * 32)
     launched = client.post(base + '/runs', headers=owner, json={'request_id': 'c' * 32, 'device_id': 'a' * 32})
     assert launched.status_code == 201, launched.text
     run = client.post('/api/v1/control/agent/poll', headers=devices[0], json={'capabilities': {'brand_clarification': True}}).json()['run']

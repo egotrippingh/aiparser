@@ -5,7 +5,6 @@ import {
   Check,
   ChevronDown,
   CircleHelp,
-  Download,
   Link2,
   ListFilter,
   MessageSquareText,
@@ -25,7 +24,8 @@ const APP_URL = import.meta.env.VITE_APP_URL || "/cabinet/"
 const services = [
   ["ChatGPT", "/assets/services/chatgpt.svg"],
   ["Perplexity", "/assets/services/perplexity.svg"],
-  ["Алиса AI", "/assets/services/alice.svg"],
+  ["Gemini", "/assets/services/google.svg"],
+  ["Яндекс Поиск с Алисой", "/assets/services/alice.svg"],
   ["Google AI Overview", "/assets/services/google.svg"],
 ]
 
@@ -59,7 +59,7 @@ function InterfaceDemo() {
 }
 
 function ParsingDemo() {
-  return <div className="parsing-demo"><div className="parsing-head"><div><span>СКАН / В ПРОЦЕССЕ</span><h4>Проверяем запросы</h4></div><strong>03 / 04</strong></div><div className="parsing-progress"><span /></div><div className="parsing-events"><div><span className="parsing-dot is-done" /><span>ChatGPT</span><em>Ответ сохранён</em><Check size={15} /></div><div><span className="parsing-dot is-done" /><span>Perplexity</span><em>Источник найден</em><Check size={15} /></div><div className="is-current"><span className="parsing-dot" /><span>Алиса AI</span><em>Читаем ответ…</em><span className="typing-dots"><i /><i /><i /></span></div><div><span className="parsing-dot" /><span>Google AI Overview</span><em>Ожидает</em></div></div></div>
+  return <div className="parsing-demo"><div className="parsing-head"><div><span>СКАН / В ПРОЦЕССЕ</span><h4>Проверяем запросы</h4></div><strong>03 / 04</strong></div><div className="parsing-progress"><span /></div><div className="parsing-events"><div><span className="parsing-dot is-done" /><span>ChatGPT</span><em>Ответ сохранён</em><Check size={15} /></div><div><span className="parsing-dot is-done" /><span>Perplexity</span><em>Источник найден</em><Check size={15} /></div><div className="is-current"><span className="parsing-dot" /><span>Gemini</span><em>Читаем ответ…</em><span className="typing-dots"><i /><i /><i /></span></div><div><span className="parsing-dot" /><span>Google AI Overview</span><em>Ожидает</em></div></div></div>
 }
 
 function ReportPreview() {
@@ -101,7 +101,7 @@ function ReportPreview() {
         <div className="report-table-title"><strong>Поисковые запросы</strong><span>Найдено / проверено</span></div>
         <div className="report-table" role="table" aria-label="Пример результатов по запросам">
           <div className="report-row report-row-head" role="row">
-            <span role="columnheader">Запрос</span><span role="columnheader">ChatGPT</span><span role="columnheader">Perplexity</span><span role="columnheader">Алиса AI</span>
+            <span role="columnheader">Запрос</span><span role="columnheader">ChatGPT</span><span role="columnheader">Perplexity</span><span role="columnheader">Gemini</span>
           </div>
           <div className="report-row" role="row">
             <span role="cell">Как выбрать уход для кожи?</span><span role="cell" className="status-found"><Check size={13} /> Найдено</span><span role="cell" className="status-found"><Check size={13} /> Найдено</span><span role="cell" className="status-empty">—</span>
@@ -128,7 +128,7 @@ export function LandingPage() {
             <a href="#faq">Вопросы</a>
             <a href={APP_URL}>Личный кабинет</a>
           </nav>
-          <a className="header-cta" href={downloadUrl}>Скачать для Windows <Download size={16} aria-hidden="true" /></a>
+          <a className="header-cta" href={APP_URL}>Открыть кабинет <ArrowUpRight size={16} aria-hidden="true" /></a>
           <details className="mobile-nav">
             <summary>Меню <ChevronDown size={16} aria-hidden="true" /></summary>
             <nav aria-label="Мобильная навигация">
@@ -148,12 +148,12 @@ export function LandingPage() {
           <div className="site-container hero-inner">
             <div className="hero-copy">
               <h1 id="hero-title">Смотрите, где ИИ упоминает <span>ваш бренд.</span></h1>
-              <p>Проверяйте свои запросы в четырёх ИИ-системах. Сохраняйте ответы, смотрите источник каждого упоминания и сравнивайте видимость по датам.</p>
+              <p>Проверяйте свои запросы в пяти ИИ-системах. Сохраняйте ответы, смотрите источник каждого упоминания и сравнивайте видимость по датам.</p>
               <div className="hero-actions">
-                <a className="button button-primary" href={downloadUrl}>Скачать агент для Windows <Download size={18} aria-hidden="true" /></a>
+                <a className="button button-primary" href={APP_URL}>Начать проверку <ArrowUpRight size={18} aria-hidden="true" /></a>
                 <a className="text-link" href={APP_URL}>Войти в кабинет <ArrowUpRight size={17} aria-hidden="true" /></a>
               </div>
-              <p className="hero-setup">Установите агент, войдите в аккаунт и подтвердите подключение компьютера. Проектами и проверками управляйте в кабинете.</p>
+              <p className="hero-setup">Войдите в кабинет, создайте проект и добавьте запросы. Проверки выполняются на сервере без установки программы.</p>
               <div className="hero-services">{services.map(([name, src]) => <img key={name} src={src} alt={name} title={name} />)}</div>
             </div>
           </div>
@@ -199,13 +199,13 @@ export function LandingPage() {
         </section>
 
         <section className="faq-section" id="faq" aria-labelledby="faq-title"><div className="site-container faq-layout"><div><h2 id="faq-title">Перед первым сканом.</h2><p>Коротко о том, что проверяет текущая версия.</p></div><div className="faq-list">
-          <details><summary><span>Какие ИИ-системы доступны?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Сейчас работают ChatGPT, Perplexity, Алиса AI и Google AI Overview.</p></details>
+          <details><summary><span>Какие ИИ-системы доступны?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Сейчас работают ChatGPT, Perplexity, Gemini, Яндекс Поиск с Алисой и Google AI Overview. Проверки выполняются на сервере.</p></details>
           <details><summary><span>Что считается упоминанием?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Отчёт различает бренд в тексте ответа, ссылку на ваш сайт, карточку и упоминания в сторонних источниках. На дашборде можно выбрать, какие типы учитывать.</p></details>
-          <details><summary><span>Нужен ли вход в ИИ-сервисы?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Некоторые сервисы могут запросить вход или показать капчу. Парсер работает через браузерные сессии на вашем компьютере.</p></details>
-          <details><summary><span>Где хранятся результаты?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Проекты, настройки и отчёты синхронизируются с аккаунтом и доступны в кабинете. Профили браузера остаются на вашем ПК. Приватные копии скриншотов хранятся в облаке 90 дней. Для анализа упоминаний текст ответа и снимок передаются ИИ-моделям через сервер сервиса.</p></details>
+          <details><summary><span>Нужен ли вход в ИИ-сервисы?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Достаточно войти в аккаунт AIRate. Сбор ответов выполняется на сервере, входить в ИИ-сервисы на своём компьютере не нужно.</p></details>
+          <details><summary><span>Где хранятся результаты?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Проекты, настройки и ответы хранятся в аккаунте и доступны в кабинете. Сохранённый текст ответа передаётся ИИ-моделям через сервер для анализа упоминаний. Скриншоты исторических проверок доступны 90 дней.</p></details>
         </div></div></section>
 
-        <section className="bottom-cta" aria-labelledby="cta-title"><div className="site-container cta-inner"><div><h2 id="cta-title">Проверьте, что ИИ уже говорит о вашем бренде.</h2></div><a className="button button-primary" href={downloadUrl}>Скачать агент <Download size={18} aria-hidden="true" /></a><ArrowDownRight className="cta-decoration" size={210} strokeWidth={.5} aria-hidden="true" /></div></section>
+        <section className="bottom-cta" aria-labelledby="cta-title"><div className="site-container cta-inner"><div><h2 id="cta-title">Проверьте, что ИИ уже говорит о вашем бренде.</h2></div><a className="button button-primary" href={APP_URL}>Начать проверку <ArrowUpRight size={18} aria-hidden="true" /></a><ArrowDownRight className="cta-decoration" size={210} strokeWidth={.5} aria-hidden="true" /></div></section>
       </main>
 
       <SiteFooter />

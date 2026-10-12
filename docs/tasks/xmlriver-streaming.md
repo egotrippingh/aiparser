@@ -37,15 +37,23 @@ Final review fixes: cached verdict remains usable after Stop; one throttled engi
 does not pause the healthy engine until its queue drains. Both regressions failed
 before the fixes and passed after. Unexpected task/save failures still pause at once.
 
-Checks: initial full disposable PostgreSQL-enabled server suite 140 passed; final
-two regressions added, final suite pending. PostgreSQL 16 uses isolated schemas,
+Checks: final full disposable PostgreSQL-enabled server suite 142 passed.
+PostgreSQL 16 uses isolated schemas,
 fake providers and a loopback-only disposable instance. Frontend 58 tests passed,
 lint has existing warnings/no errors, build passed. Desktop and 390px fake browser
 checks passed: carousel/highlights, image/API failures, no overflow or console errors.
-Sol correctness and Astra risk reviews are rechecking the final two fixes.
+52 client pipeline/billing/storage tests and benchmark self-check passed.
+Sol correctness and Astra risk reviews on `3e84bd5` found no remaining P1/P2.
 
 Limits: one cloud run is drained at a time; different projects remain sequential.
 Multiple worker processes require a shared account limiter. Account-limit discovery
 failure preserves the existing one-slot-per-engine fallback. No live provider load
 test or authenticated production scan has been performed for this change.
-Remaining: final server/client checks, final reviews, exact-SHA CI and release.
+Delivery: PR #39 into main and release PR #40 into production are merged.
+Feature `6645c36` CI `37933910809` passed; identical main tree `285fc55` push
+and release-PR checks passed (`37934396859`, `37934441616`). Identical production
+tree `202b2fe8873be11706ac943615d40de494a80c49` passed Tests/build and Deploy
+(`37934883974`). Normal backup/isolated restore/migration-head gates retained;
+public HTTPS readiness confirmed this SHA, 120-kopek pricing and projects API 401.
+Live landing/cabinet HTML and served entry/preload bundles contain no supplier name.
+Disposable test PostgreSQL stopped; no production administrator key was needed.

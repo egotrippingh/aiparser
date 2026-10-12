@@ -12,6 +12,6 @@ it("pushes a fresh editor entry when a legacy target has no position", () => {
 
 it("requires a computer only when the project includes an agent service", () => {
   expect(needsAgent(["google_aio", "yandex_neuro"])).toBe(false)
-  expect(needsAgent(["google_aio", "chatgpt"])).toBe(true)
+  expect(needsAgent(["google_aio", "chatgpt", "perplexity", "gemini"])).toBe(false)
   expect(needsAgent(["alice"])).toBe(true)
 })

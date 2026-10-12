@@ -3,7 +3,7 @@
 import re
 
 
-_SUPPLIER = re.compile(r"xml\s*r(?:iver|eaver)", re.IGNORECASE)
+_SUPPLIER = re.compile(r"xml\s*r(?:iver|eaver)|scrapeless", re.IGNORECASE)
 
 
 def public_error(message):
