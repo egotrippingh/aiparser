@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from server.app import create_app
 from server.control import schedule_tick
-from server.models import AgentDevice, ControlRun, ControlProject, make_session_factory
+from server.models import AgentDevice, ControlRun, ControlProject, ProviderAccount, make_session_factory, utcnow
 
 
 @pytest.fixture(autouse=True)
@@ -187,6 +187,77 @@ def test_schedule_runs_on_server_and_deduplicates(tmp_path):
     with sessions() as db:
         assert len(list(db.scalars(select(ControlRun)))) == 1
         assert list(db.scalars(select(ControlRun)))[0].state == 'queued'
+
+
+def test_paused_services_consume_schedule_and_invalidate_quote(tmp_path):
+    client, owner, _, _, url = setup(tmp_path)
+    project = client.post('/api/v1/control/projects', headers=owner, json={
+        'name': 'Scheduled', 'brand_name': 'Brand', 'queries': [{'text': 'question'}],
+        'config': {'services': ['chatgpt']},
+        'schedule': {'enabled': True, 'month_days': [15], 'time': '12:30', 'timezone': 'Europe/Moscow'},
+    }).json()
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        db.get(ProviderAccount, 'chatgpt').paused = True
+        db.commit()
+    quote = client.get(f"/api/v1/control/projects/{project['id']}/quote", headers=owner).json()
+    assert quote['count'] == quote['total_kopeks'] == 0
+    with sessions() as db:
+        db.get(ProviderAccount, 'chatgpt').paused = False
+        db.get(ProviderAccount, 'chatgpt').revision += 1
+        db.commit()
+    assert client.post(f"/api/v1/control/projects/{project['id']}/runs", headers=owner,
+        json={'request_id': uuid.uuid4().hex, 'revision': quote['revision'], 'provider_state': quote['provider_state']}).status_code == 409
+    with sessions() as db:
+        db.get(ProviderAccount, 'chatgpt').paused = True
+        db.commit()
+    due = datetime(datetime.now(timezone.utc).year + 1, 4, 15, 9, 30, tzinfo=timezone.utc)
+    schedule_tick(sessions, due)
+    with sessions() as db:
+        run = db.scalar(select(ControlRun))
+        assert run.state == 'done' and run.active_project_key is None
+        assert json.loads(run.progress_json)['skipped'] == 1
+
+
+def test_schedule_slot_during_offline_pause_is_consumed_after_resume(tmp_path):
+    client, owner, _, _, url = setup(tmp_path)
+    project = client.post('/api/v1/control/projects', headers=owner, json={
+        'name': 'Offline pause', 'brand_name': 'Brand', 'queries': [{'text': 'question'}],
+        'config': {'services': ['chatgpt']},
+        'schedule': {'enabled': True, 'month_days': [15], 'time': '12:30', 'timezone': 'Europe/Moscow'},
+    }).json()
+    due = datetime(datetime.now(timezone.utc).year + 1, 4, 15, 9, 30, tzinfo=timezone.utc)
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        account = db.get(ProviderAccount, 'chatgpt')
+        account.paused, account.last_paused_at = True, due - timedelta(minutes=1)
+        db.commit()
+        account.paused, account.last_paused_at = False, due + timedelta(minutes=1)
+        db.commit()
+    schedule_tick(sessions, due + timedelta(minutes=2))
+    with sessions() as db:
+        run = db.scalar(select(ControlRun).where(ControlRun.project_id == project['id']))
+        assert run.state == 'done' and run.active_project_key is None
+        assert json.loads(run.progress_json)['skipped'] == 1
+        assert json.loads(run.snapshot_json)['cloud_services'] == []
+
+
+def test_launch_requires_provider_quote_after_pause_history(tmp_path):
+    client, owner, _, _, url = setup(tmp_path)
+    project = client.post('/api/v1/control/projects', headers=owner, json={
+        'name': 'Fresh quote', 'brand_name': 'Brand', 'queries': [{'text': 'question'}],
+        'config': {'services': ['chatgpt']},
+    }).json()
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        account = db.get(ProviderAccount, 'chatgpt')
+        account.paused, account.last_paused_at = True, utcnow()
+        db.commit()
+        account.paused, account.last_paused_at = False, utcnow()
+        db.commit()
+    response = client.post(f"/api/v1/control/projects/{project['id']}/runs", headers=owner,
+        json={'request_id': uuid.uuid4().hex})
+    assert response.status_code == 409
 
 
 @pytest.mark.parametrize('year,month,last,numbered', [

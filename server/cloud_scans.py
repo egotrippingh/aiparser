@@ -36,6 +36,11 @@ def _pairs(snapshot):
     return [(q, s) for s in snapshot["cloud_services"] for q in snapshot["queries"]]
 
 
+def _skipped_pairs(db, run_id):
+    return set(db.execute(select(ProviderTask.query_id, ProviderTask.service).where(
+        ProviderTask.run_id == run_id, ProviderTask.state == "skipped")).all())
+
+
 def _claim(sessions, blocked_services=()):
     """A bounded lease with a token CAS; another worker may safely take an expired run."""
     with sessions() as db:
@@ -126,9 +131,11 @@ def _finish_item(db, run, snapshot, *, keep_lease=False):
     db.flush()
     complete = db.execute(select(CloudResult.query_id, CloudResult.service).where(
         CloudResult.run_id == run.id, CloudResult.user_id == run.user_id)).all()
-    count = len(set(complete))
+    skipped = _skipped_pairs(db, run.id)
+    count = len(set(complete)) + len(skipped)
     progress = json.loads(run.progress_json)
     progress["cloud_done"] = count
+    progress["skipped"] = len(skipped)
     run.progress_json = json.dumps(progress)
     if keep_lease:
         return
@@ -262,6 +269,17 @@ def _release_unstarted(sessions, run_id, token, check_id, snapshot, *, keep_leas
     return True
 
 
+def _finish_skipped(sessions, run_id, token, snapshot):
+    """Refresh progress after a pause skip; its reservation was released atomically."""
+    with sessions() as db:
+        run = _owned_locked(db, run_id, token)
+        if not run:
+            return False
+        _finish_item(db, run, snapshot, keep_lease=True)
+        db.commit()
+    return True
+
+
 def _defer_or_cancel(sessions, run_id, token, snapshot, query, service, check_id, payload,
                      *, keep_lease=False):
     with sessions() as db:
@@ -346,6 +364,7 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
             return False
         done = set(db.execute(select(CloudResult.query_id, CloudResult.service).where(
             CloudResult.run_id == run_id, CloudResult.user_id == run.user_id)).all())
+        done |= _skipped_pairs(db, run_id)
         captures = set(db.execute(select(ServerCapture.query_id, ServerCapture.service).where(
             ServerCapture.run_id == run_id)).all())
         accepted = set(db.execute(select(ProviderTask.query_id, ProviderTask.service).where(
@@ -467,6 +486,10 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
                        sum(s == service for _, s, _ in providers.values()) < capacity):
                     query = queue[0]
                     check_id = f"{run_id}:{query['id']}:{service}"
+                    if provider_tasks.skip_if_paused(sessions, run_id, token, query["id"], service):
+                        queue.popleft()
+                        _finish_skipped(sessions, run_id, token, snapshot)
+                        continue
                     reserve_error = None
                     with sessions() as db:
                         run = _owned_locked(db, run_id, token)
@@ -480,14 +503,14 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
                         reserve_failure = reserve_error
                         break
                     queue.popleft()
-                    task = asyncio.create_task(collect(query, service, check_id))
-                    providers[task] = (query, service, check_id)
+                    pending = asyncio.create_task(collect(query, service, check_id))
+                    providers[pending] = (query, service, check_id)
                 if reserve_failure or desired() != "running":
                     break
-            if reserve_failure:
-                # Give all affordable reservations one event-loop turn to enter
-                # their HTTP call before pausing the unaffordable remainder.
-                await asyncio.sleep(0)
+            if reserve_failure and not (providers or analyses or ready):
+                # A late provider pause may turn an already-reserved collection
+                # into a release.  Drain that owned work before deciding that the
+                # remaining 402 is persistent.
                 pause(reserve_failure)
         state = desired()
         while ready and len(analyses) < 20 and state is not None and not (shutdown_event and shutdown_event.is_set()):
@@ -608,6 +631,7 @@ async def _cloud_tick(sessions, ai_client, price, collector_factory,
             return False
         done = {(q, s) for q, s in db.execute(select(CloudResult.query_id, CloudResult.service).where(
             CloudResult.run_id == run.id, CloudResult.user_id == run.user_id))}
+        done |= _skipped_pairs(db, run.id)
         saved = {(c.query_id, c.service): c for c in db.scalars(select(ServerCapture).where(
             ServerCapture.run_id == run.id))}
         pending = [(q, s) for q, s in _pairs(snapshot) if (q["id"], s) not in done]

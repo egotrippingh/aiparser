@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { ControlCenter, RunProgress, runStatus } from "./control-center"
 import { ProjectIcon, projectFavicon } from "./project-icon"
 import { choiceIndex } from "./app-choice"
-import { ReportChart, chartIndex, linePath } from "./report-chart"
+import { ReportChart, chartDays, chartIndex, linePath } from "./report-chart"
 import { reportRange, reportRows, reportSelection, trendText, trendTone, type Trend } from "./report-view"
 import { isCurrentService } from "./service-mark"
 import { LandingPage } from "./landing-page"
@@ -104,21 +104,32 @@ it("supports chart keyboard boundaries, empty days and Escape", () => {
 
 it("shows isolated measurements even when surrounding dates have no answers", () => {
   const html = renderToStaticMarkup(<ReportChart days={[
-    {date:"2026-09-01",services:{chatgpt:{visibility_pct:75}}},
-    {date:"2026-09-02",services:{chatgpt:{visibility_pct:null}}},
-    {date:"2026-09-03",services:{chatgpt:{visibility_pct:0}}},
+    {date:"2026-09-01",checked:1,issues:0,skipped:0,services:{chatgpt:{visibility_pct:75}}},
+    {date:"2026-09-02",checked:0,issues:0,skipped:0,services:{chatgpt:{visibility_pct:null}}},
+    {date:"2026-09-03",checked:1,issues:0,skipped:0,services:{chatgpt:{visibility_pct:0}}},
   ]} services={["chatgpt"]} available={["chatgpt"]} choose={()=>{}}/> )
   expect(html.match(/<circle /g)).toHaveLength(2)
 })
 
-it("connects sparse measurements with a dashed guide and marks only actual data", () => {
-  expect(linePath([null,0,null,60,null], i=>i,v=>v,true).replace(/\s+/g," ").trim()).toBe("M1.0,0.0 L3.0,60.0")
-  expect(linePath([null,null], i=>i,v=>v,true).trim()).toBe("")
-  expect(linePath([null,25,null], i=>i,v=>v,true).trim()).toBe("M1.0,25.0")
-  const html = renderToStaticMarkup(<ReportChart days={[0,25,null,75].map((value,i)=>({date:`2026-09-0${i+1}`,services:{chatgpt:{visibility_pct:value}}}))} services={["chatgpt"]} available={["chatgpt"]} choose={()=>{}}/> )
-  expect(html).toContain('stroke-dasharray="4 4"')
+it("shows only actual scan dates and never adds a dashed interpolation", () => {
+  expect(linePath([null,0,null,60,null], i=>i,v=>v).replace(/\s+/g," ").trim()).toBe("M1.0,0.0 M3.0,60.0")
+  expect(linePath([null,null], i=>i,v=>v).trim()).toBe("")
+  expect(linePath([null,25,null], i=>i,v=>v).trim()).toBe("M1.0,25.0")
+  const html = renderToStaticMarkup(<ReportChart days={[0,25,null,75].map((value,i)=>({date:`2026-09-0${i+1}`,checked:value === null ? 0 : 1,issues:0,skipped:0,services:{chatgpt:{visibility_pct:value}}}))} services={["chatgpt"]} available={["chatgpt"]} choose={()=>{}}/> )
+  expect(html).not.toContain('stroke-dasharray="4 4"')
   expect(html.match(/<circle /g)).toHaveLength(3)
-  expect(html).toContain("пунктир — промежутки без проверок")
+  expect(html).not.toContain("пунктир")
+})
+
+it("keeps failed and skipped scan dates while omitting calendar placeholders", () => {
+  const days = chartDays([
+    {date:"2026-10-10",checked:1,issues:0,skipped:0,services:{chatgpt:{visibility_pct:0}}},
+    {date:"2026-10-11",checked:0,issues:0,skipped:0,services:{chatgpt:{visibility_pct:null}}},
+    {date:"2026-10-12",checked:0,issues:1,skipped:1,services:{chatgpt:{visibility_pct:null}}},
+  ])
+  expect(days.map(day => day.date)).toEqual(["2026-10-10", "2026-10-12"])
+  expect(chartIndex(null, "Home", days.length)).toBe(0)
+  expect(chartIndex(0, "ArrowRight", days.length)).toBe(1)
 })
 
 it("keeps missing/zero baselines neutral and distinguishes points from relative percent", () => {

@@ -91,14 +91,13 @@ python -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -r scripts/requirements-ci.txt
 ```
 
-Use that interpreter for root Python checks. This is test setup; it does not fetch
-Camoufox or install full Windows desktop dependencies. Desktop/manual execution follows
-`README.md`. The full CI commands and process grouping are defined ONLY in
-`.github/workflows/delivery.yml`; nested instructions are focused local gates, not a
-replacement CI specification. Keep its separate agent test processes: broad collection
-has previously reproduced baseline API smoke failures. Record a newly encountered
-failure with a bounded reproduction on the base; never label it baseline by assumption.
-Do not run tests against a real `DATABASE_URL`, production credentials or profiles.
+Use that interpreter for root Python checks. The delivery workflow validates the server,
+shared parsing/rules/telemetry and frontend; Windows-agent/browser suites remain manual.
+The full CI commands are defined ONLY in `.github/workflows/delivery.yml`; nested
+instructions are focused local gates, not a replacement CI specification. Record a newly
+encountered failure with a bounded reproduction on the base; never label it baseline by
+assumption. Do not run tests against a real `DATABASE_URL`, production credentials or
+profiles.
 
 ## 4. Review according to risk
 

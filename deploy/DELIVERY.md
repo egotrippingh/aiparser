@@ -85,79 +85,8 @@ backup, set `AIRATE_IMAGE` and `AIRATE_RELEASE` in the server `.env`, then run
 `docker compose up -d --no-build --no-deps --wait web` and verify `/api/v1/ready`.
 Only do this when the selected image supports the current database schema.
 
-## Windows download
+## Retired Windows download
 
-For a release, dispatch **Build and publish Windows agent** on `production`
-with `publish=true` after the website/API deployment succeeds. The workflow
-uses the dedicated `AIRATE_AGENT_PUBLISH_KEY`, `AIRATE_AGENT_KNOWN_HOSTS` and
-`AIRATE_AGENT_PUBLISH_HOST` from the production environment. It verifies the
-live site revision, runs the isolated installer lifecycle test and checks the
-public metadata plus complete artifact hashes after publication. Feature
-branches can build but cannot enter the production publish job.
-
-Build on Windows with `scripts/build-exe.ps1 -AccountUrl https://airate.tech`.
-The script builds the frontend, bundles the AIRate icon, runs EXE self-tests,
-removes the self-test database and produces `dist/AI-Mentions-Windows-latest.zip`.
-Check the archive's `account-url.txt` and ensure no user data or `.env` is present.
-Upload to a temporary file in `/opt/airate/deploy/downloads`, compare SHA-256,
-then atomically rename it to `AI-Mentions-Windows-latest.zip`.
-Do not restart the application just to publish a new ZIP.
-
-### Single-file installer (primary download)
-
-Install Inno Setup 6.7.3 from JRSoftware (winget package `JRSoftware.InnoSetup`).
-After the verified portable build, compile its clean release directory:
-
-```powershell
-./.venv/Scripts/python.exe scripts/prepare-browser.py
-./scripts/build-installer.ps1 -BundleDir ./dist/AI-Mentions-Windows-YYYYMMDD-HHMMSS -BrowserDir ./build/browser-runtime/camoufox-152.0.4-beta.30 -Version 2026.9.28.1
-```
-
-The installer includes the official Windows x64 Camoufox distribution. The
-preparation script pins its release and verifies the publisher's SHA-256 before
-extracting it; it never reads browser profiles from the builder's PC. Browser
-files install under `{app}/browser`, along with the agent, with wizard progress.
-The agent validates and uses that browser immediately, with an explicit Firefox
-version, even when the user's Camoufox cache is empty. No separate browser install
-button is needed on a healthy installation. The existing download/repair path
-remains available for portable builds or a damaged browser installation.
-
-This produces `dist/AIRate-Setup-latest.exe` and a versioned installer. Upload
-using a temporary filename, verify SHA-256, then atomically rename to
-`/opt/airate/deploy/downloads/AIRate-Setup-latest.exe` **before** deploying a
-homepage that links to it. The API discovers it beside `AGENT_DOWNLOAD_FILE`,
-or at the optional `AGENT_INSTALLER_FILE` path. No restart is needed for later
-installer updates. Keep the previous installer for rollback.
-
-Primary public download: https://airate.tech/downloads/AIRate-Setup.exe.
-The cabinet download API prefers the installer when present. The portable ZIP
-URL remains available for existing users.
-
-The per-user installer allows choosing a directory (default
-`%LOCALAPPDATA%\Programs\AIRate`), creates Start menu/optional desktop shortcuts
-and an uninstaller. `installed-mode.txt` selects `%LOCALAPPDATA%\AIParser` for
-account data and profiles; updates/uninstall do not erase that directory or the
-separate Camoufox cache. Existing portable ZIP data remains in its old location;
-users switching from portable to installed should close the old agent and sign
-in again. Projects/reports remain in their website account. Close the running
-agent via the tray before updating. Autostart remains opt-in inside the agent;
-uninstall removes only an autostart entry pointing at this installation.
-
-Use `build-exe.ps1 -TestBrowser` to exercise both frozen browser launch paths
-against a disposable addon cache with a missing manifest. AIRate deliberately
-excludes Camoufox's optional default extensions; no addon download is required.
-
-Windows signing is not configured; the installer and agent are unsigned.
-
-Before publishing, run the Windows installer lifecycle test (requires no AIRate
-installer already registered on that Windows account):
-
-```powershell
-./.venv/Scripts/python.exe -X utf8 scripts/test-installer.py --installer ./dist/AIRate-Setup-latest.exe --bundle ./dist/AI-Mentions-Windows-YYYYMMDD-HHMMSS --browser ./build/browser-runtime/camoufox-152.0.4-beta.30
-```
-
-It checks every installed agent/browser file against the clean bundles, runs
-the installed EXE and bundled browser with isolated app data, reinstalls,
-uninstalls, and verifies that the test data survived. It creates no shortcuts
-or agent windows; a disposable browser test window briefly opens. Test logs
-remain under `build/installer-smoke-*`.
+The Windows agent is retired. Website/API releases do not build, publish or test
+an installer; keep shared server deployment backup, restore, migration-head,
+readiness and rollback gates intact.
