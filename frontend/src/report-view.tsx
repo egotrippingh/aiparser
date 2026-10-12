@@ -25,8 +25,11 @@ export function trendText(trend: Trend) {
   const delta = trend.delta
   return delta === null ? "Нет полных данных для сравнения" : `${delta > 0 ? "Рост" : delta < 0 ? "Снижение" : "Без изменения"}: ${delta > 0 ? "+" : ""}${delta} п.п.${trend.relative === null ? "" : ` (${trend.relative > 0 ? "+" : ""}${trend.relative}%)`}`
 }
-export function reportRows(rows: Query[], status: string, sort: boolean) {
-  const filtered = rows.filter(query => !status || Object.values(query.latest).some(cell => status === "found" ? cell.found : cell.status === "not_found"))
+export function reportRows(rows: Query[], status: string, sort: boolean, dates?: string[]) {
+  const filtered = rows.filter(query => {
+    const cells = dates ? dates.flatMap(day => Object.values(query.cells[day] || {})) : Object.values(query.latest)
+    return !status || cells.some(cell => status === "found" ? cell.found : cell.status === "not_found")
+  })
   return sort ? [...filtered].sort((a,b) => (b.trend.current.visibility_pct ?? -1) - (a.trend.current.visibility_pct ?? -1)) : filtered
 }
 
@@ -89,7 +92,7 @@ export function ReportView({ token, projectId, sourcesOnly = false }: {token:str
     finally {if(mounted.current)setExporting("")}
   }
   async function openShot(id:string) {const requestId=detailRequest.current;setShot("");try{const data=await accountRequest<{url:string}>(`/screenshots/${encodeURIComponent(id)}/url`,token);if(mounted.current && requestId===detailRequest.current && dialog.current?.open)setShot(data.url)}catch(e){if(mounted.current && requestId===detailRequest.current && dialog.current?.open)setDetailError(e instanceof Error?e.message:"Не удалось открыть снимок")}}
-  const rows = report ? reportRows(report.rows,status,sort) : []
+  const rows = report ? reportRows(report.rows,status,sort,compare ? [report.date_from,report.date_to] : undefined) : []
   const groups = [...new Set(rows.map(query => query.group_tag))]
   const sources = report?.sources.filter(source => (sourceKind === "all" || source.own === (sourceKind === "own")) && source.domain.toLowerCase().includes(search.toLowerCase())) || []
   function cellButton(cell:Cell|undefined, query:Query, id:string, day?:string) {

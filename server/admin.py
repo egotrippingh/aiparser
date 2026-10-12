@@ -22,7 +22,7 @@ def amount(value):
 async def provider_balances(client):
     async def fetch(provider):
         row = {"id": provider, "name": {"openrouter": "OpenRouter", "scrapeless": "Scrapeless", "xmlriver": "XMLRiver"}[provider],
-            "currency": "RUB" if provider == "xmlriver" else "CREDITS" if provider == "scrapeless" else "USD", "balance": None, "details": [],
+            "currency": "RUB" if provider == "xmlriver" else "USD", "balance": None, "details": [],
             "status": "unavailable", "message": None, "checked_at": utcnow().isoformat(),
             "topup_url": {"openrouter": "https://openrouter.ai/settings/credits",
                 "scrapeless": "https://app.scrapeless.com/", "xmlriver": "https://xmlriver.com/account/"}[provider]}
@@ -51,6 +51,7 @@ async def provider_balances(client):
                 row["balance"] = amount(Decimal(amount(data["total_credits"])) - Decimal(amount(data["total_usage"])))
             else:
                 data = response.json()
+                # Dashboard formatCredits uses USD; /teams/current and /subscriptions/current confirm the same amounts.
                 row["balance"] = amount(data["credits"])
                 row["details"] = [{"label": "Credits", "amount": row["balance"]}]
                 plan = data.get("plan")
@@ -58,7 +59,7 @@ async def provider_balances(client):
                     row["details"].append({"label": "Остаток подписки", "amount": amount(plan["credits"]),
                         "expires_at": plan.get("endAt")})
                 if data.get("excessCredits") is not None:
-                    row["details"].append({"label": "Excess Credits", "amount": amount(data["excessCredits"])})
+                    row["details"].append({"label": "Excess Credits", "amount": amount(data["excessCredits"]), "currency": "CREDITS"})
             row["status"] = "ok"
         except httpx.HTTPStatusError as exc:
             row["message"] = ("Для баланса аккаунта нужен management key" if provider == "openrouter" and

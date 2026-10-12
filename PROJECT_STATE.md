@@ -1,6 +1,6 @@
 # AIRate current project state
 
-## Prototype app ready locally (2026-10-12)
+## Prototype app verified for publication (2026-10-12)
 
 Branch `codex/prototype-frontend` follows the supplied white/navy/orange prototype:
 shared logo/service marks, nine account sections, calendar/choices/chart, grouped
@@ -10,10 +10,10 @@ New checks and schedules remain server-only. Legacy desktop `connect/provider`
 browser login is intentionally retired per the user's removal of the website agent;
 historical answers and execution APIs remain. No schema or price change.
 
-Final gates: 67 frontend tests, lint exit 0 with warnings (including new warnings),
-TypeScript/Vite build, 178 server tests. Five PostgreSQL-only concurrency tests were
-skipped in this run because AIRATE_TEST_POSTGRES_URL was unset; separate integration
-release evidence below includes PostgreSQL and live Scrapeless validation.
+Final gates: 68 frontend tests, lint exit 0 with warnings (including new warnings),
+TypeScript/Vite build, 183 server tests including five disposable PostgreSQL
+concurrency checks with no skips. Separate integration release evidence below
+includes live Scrapeless validation.
 Regression checks failed before fixes for isolated chart measurements and source
 export mode. Sol/Astra reviews found no remaining defect in the requested website flow.
 Disposable browser checks at 1440x950 and 390x844 covered keyboard/mobile, missing
@@ -21,7 +21,11 @@ dates, comparison, sources/export, dirty guards, failure/hold/recovery, answer
 formatting, project navigation, wallet refresh and legacy URL ordinary login.
 Fixture console had no errors/warnings. Evidence: C:/codex-tmp/airate-prototype-qa/.
 
-Built assets are included; redesign is local only, awaiting frontend publication.
+Built assets are included; the user authorized immediate publication after checks.
+Comparison filters use only displayed dates. Scrapeless main and subscription
+balances are USD separately, confirmed against the official dashboard/backend;
+Excess Credits retains its original unit. Admin desktop/mobile failure/recovery
+and separate-currency smoke passed. Exact-SHA release verification is pending.
 No real payment, S3 or authenticated production scan was exercised for the redesign.
 See [prototype task evidence](docs/tasks/prototype-frontend.md).
 
@@ -41,7 +45,8 @@ result and exhausted analysis budget require operator reconciliation, without bl
 
 Admin-only users/wallets include users with no scans. Supplier balance cards provide
 OpenRouter/Scrapeless/XMLRiver cabinet links; unavailable balances are explicit.
-Scrapeless Credits and subscription remain separate, without an incorrect USD label.
+Scrapeless main balance and subscription remain separate. Their USD units were
+subsequently confirmed against the official dashboard/backend for the redesign release.
 Markdown answers retain headings, lists, tables, safe links and brand highlighting.
 
 Final local evidence: 175 server tests with disposable PostgreSQL checks, 52 client

@@ -18,7 +18,9 @@ safe source links; keyboard/mobile/late-response checks; npm test/lint/build,
 server suite, independent review and git diff --check.
 
 Steps: shell/assets; management/account; report contract and presentation; gates.
-Publication: local commit only; no push, migration or deployment authorized.
+Publication: user explicitly authorized immediate deployment after final checks on
+2026-10-12; use feature PR into main, then reviewed release into production.
+No schema change or installer release is required.
 
 Completed 2026-10-12: nine real-data sections, shared prototype logo/palette/service
 marks, grouped report with compact owner-scoped data, chart keyboard/crosshair,
@@ -31,10 +33,10 @@ now open ordinary account login without authorizing a computer. Re-login from an
 old desktop agent through those URLs is intentionally discontinued. Historical
 results and server execution APIs were retained; no installer was published.
 
-Final checks: 67 frontend tests / 12 files, lint exit 0 (including new warnings),
-TypeScript/Vite build; 178 server tests passed, five disposable-PostgreSQL checks
-skipped because AIRATE_TEST_POSTGRES_URL was unset. Integration-release PostgreSQL
-and live-provider evidence is recorded separately in scrapeless-server.md.
+Final checks: 68 frontend tests / 12 files, lint exit 0 (including new warnings),
+TypeScript/Vite build; 183 server tests passed with disposable PostgreSQL,
+including all five PostgreSQL-only concurrency checks (no skips). Integration
+release live-provider evidence is recorded separately in scrapeless-server.md.
 New regressions for isolated chart points and source-export mode failed before
 their fixes and passed afterward. Sol/Astra independently reviewed the changes;
 no unresolved defect remains in the requested server-only website flow.
@@ -48,4 +50,15 @@ and password; fixture developer console had no errors/warnings. Screenshots and
 private QA evidence: C:/codex-tmp/airate-prototype-qa/ (excluded from Git).
 
 Limits: no authenticated production browser scan, live payment, S3 or installer
-check for this redesign. No frontend publication was performed.
+check for this redesign. Publication follows the passed final gates; release evidence will be recorded
+after exact-SHA CI and public readiness verification.
+
+Final review regression: comparison filters now use the two displayed boundary
+dates, excluding intermediate-only verdicts; the check failed before and passed
+after the fix. Scrapeless main and subscription balances use USD without scaling
+or summing. Official dashboard formatCredits and authenticated read-only backend
+responses confirmed the same amounts: main 10, subscription 3.145. Excess Credits
+keeps its original unit because its monetary meaning is unconfirmed. Server
+regression failed before the currency fix. Independent Sol/Astra reviews found
+no defect; desktop/mobile admin smoke checked separate currencies, all users,
+provider failure/recovery and no console errors. All browser data was synthetic.

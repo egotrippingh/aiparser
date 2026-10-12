@@ -69,3 +69,16 @@ it("filters the observable verdict, without counting excluded product cards as a
   expect(reportRows(rows,"",true)[0]).toBe(rows[1])
   expect(rows[0].trend.current.visibility_pct).toBe(0)
 })
+
+it("filters comparison rows only by the two displayed dates", () => {
+  const absent = {status:"not_found",found:false}, found = {status:"found",found:true}
+  const rows = [
+    {latest:{google_aio:found},cells:{"2026-09-01":{google_aio:absent},"2026-09-02":{google_aio:found},"2026-09-03":{google_aio:absent}}},
+    {latest:{google_aio:absent},cells:{"2026-09-01":{google_aio:found},"2026-09-03":{google_aio:absent}}},
+    {latest:{},cells:{}},
+  ] as unknown as Parameters<typeof reportRows>[0]
+  const dates = ["2026-09-01","2026-09-03"]
+  expect(reportRows(rows,"found",false,dates)).toEqual([rows[1]])
+  expect(reportRows(rows,"not_found",false,dates)).toEqual([rows[0],rows[1]])
+  expect(reportRows(rows,"found",false)).toEqual([rows[0]])
+})

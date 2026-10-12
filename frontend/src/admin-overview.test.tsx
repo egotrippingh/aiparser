@@ -6,6 +6,7 @@ it("distinguishes an unavailable supplier balance from zero", () => {
   expect(balanceLabel(null, "USD")).toBe("Недоступен")
   expect(balanceLabel("0", "USD")).not.toBe("Недоступен")
   expect(balanceLabel("3.705", "USD")).toContain("3,705")
+  expect(balanceLabel("10", "USD")).toContain("$")
   expect(balanceLabel("3.705", "CREDITS")).toBe("3,705 credits")
   expect(balanceLabel("10", "CREDITS")).not.toContain("$")
 })

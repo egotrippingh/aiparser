@@ -3,7 +3,7 @@ import { ExternalLink } from "lucide-react"
 import { accountRequest } from "./account-api"
 import "./admin-overview.css"
 
-type Provider = { id: string; name: string; currency: string; balance: string | null; status: string; message: string | null; checked_at: string; topup_url: string; details: { label: string; amount: string; expires_at?: string }[] }
+type Provider = { id: string; name: string; currency: string; balance: string | null; status: string; message: string | null; checked_at: string; topup_url: string; details: { label: string; amount: string; currency?: string; expires_at?: string }[] }
 type User = { id: string; email: string; is_admin: boolean; created_at: string; wallet: { balance_kopeks: number; reserved_kopeks: number; available_kopeks: number } }
 export const balanceLabel = (value: string | null, currency: string) => value === null ? "Недоступен" : currency === "CREDITS" ? new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 6 }).format(Number(value)) + " credits" : new Intl.NumberFormat("ru-RU", { style: "currency", currency, maximumFractionDigits: 4 }).format(Number(value))
 const rubles = (value: number) => balanceLabel(String(value / 100), "RUB")
@@ -35,7 +35,7 @@ export function AdminOverview({ token }: { token: string }) {
     <section className="cab-panel admin-overview"><div className="cab-section-head"><div><h1>Администрирование</h1><p>Пользователи и остатки средств у поставщиков.</p></div><button className="cc-button" disabled={balanceLoading} onClick={() => setBalanceTick(n => n + 1)}>Обновить балансы</button></div>
       {balanceLoading && <p role="status">Получаем актуальные балансы…</p>}{balanceError && <p role="alert">{balanceError}</p>}
       {providers && <ul className="admin-balances">{providers.map(p => <li key={p.id}><div><h2>{p.name}</h2><strong>{balanceLabel(p.balance, p.currency)}</strong>
-        {p.details.filter(d => d.label !== "Credits").map(d => <p key={d.label}>{d.label}: {balanceLabel(d.amount, p.currency)}{d.expires_at && <small>До {new Date(d.expires_at).toLocaleString("ru-RU")}</small>}</p>)}
+        {p.details.filter(d => d.label !== "Credits").map(d => <p key={d.label}>{d.label}: {balanceLabel(d.amount, d.currency || p.currency)}{d.expires_at && <small>До {new Date(d.expires_at).toLocaleString("ru-RU")}</small>}</p>)}
         {p.message && <p role="status">{p.message}</p>}<small>Проверено {new Date(p.checked_at).toLocaleString("ru-RU")}</small></div><a className="cc-button" href={p.topup_url} target="_blank" rel="noopener noreferrer">Открыть {p.name} <ExternalLink size={14} aria-hidden="true"/></a></li>)}</ul>}
     </section>
     <section className="cab-panel admin-overview"><div className="cab-section-head"><h2>Все пользователи{users && ` · ${users.total}`}</h2><button className="cc-button" disabled={loading} onClick={() => setTick(n => n + 1)}>Обновить список</button></div>
