@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import calendar
 import hashlib
 import json
 import logging
@@ -12,7 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import func, select, update, delete, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -88,7 +89,8 @@ class ScanConfig(BaseModel):
 class Schedule(BaseModel):
     enabled: bool = False
     device_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
-    month_days: list[int] = Field(default_factory=lambda: [1], min_length=1, max_length=31)
+    month_days: list[int] = Field(default_factory=lambda: [1], max_length=31)
+    last_day: bool = False
     time: str = Field(default="09:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
     timezone: str = "Europe/Moscow"
 
@@ -98,6 +100,12 @@ class Schedule(BaseModel):
         if any(day < 1 or day > 31 for day in value) or len(value) != len(set(value)):
             raise ValueError("Выберите числа месяца от 1 до 31 без повторов")
         return sorted(value)
+
+    @model_validator(mode="after")
+    def selected_days(self):
+        if self.enabled and not self.month_days and not self.last_day:
+            raise ValueError("Выберите число месяца или последний день месяца")
+        return self
 
     @field_validator("timezone")
     @classmethod
@@ -286,7 +294,9 @@ def schedule_tick(sessions, now=None, feature_user_id=""):
             local = now.astimezone(ZoneInfo(schedule.timezone))
             for day_offset in (1, 0):
                 day = (local - timedelta(days=day_offset)).date()
-                if day.day not in schedule.month_days:
+                if day.day not in schedule.month_days and not (
+                    schedule.last_day and day.day == calendar.monthrange(day.year, day.month)[1]
+                ):
                     continue
                 slot = datetime.combine(day, datetime.strptime(schedule.time, "%H:%M").time(),
                                         ZoneInfo(schedule.timezone)).astimezone(timezone.utc)
@@ -435,7 +445,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
     def project_values(body, old_schedule=None):
         schedule = body.schedule.model_dump()
         old = json.loads(old_schedule or "{}")
-        if schedule == {k: v for k, v in old.items() if k != "effective_from"}:
+        if schedule == Schedule.model_validate(old).model_dump():
             schedule["effective_from"] = old.get("effective_from", utcnow().isoformat())
         else:
             schedule["effective_from"] = utcnow().isoformat()

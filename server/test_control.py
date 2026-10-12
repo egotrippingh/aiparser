@@ -189,6 +189,71 @@ def test_schedule_runs_on_server_and_deduplicates(tmp_path):
         assert list(db.scalars(select(ControlRun)))[0].state == 'queued'
 
 
+@pytest.mark.parametrize('year,month,last,numbered', [
+    (2028, 2, 29, []), (2029, 2, 28, [28]), (2028, 4, 30, []), (2028, 12, 31, []),
+])
+def test_last_day_schedule_uses_local_month_and_deduplicates(tmp_path, year, month, last, numbered):
+    client, owner, _, _, url = setup(tmp_path)
+    response = client.post('/api/v1/control/projects', headers=owner, json={
+        'name': 'Last day', 'brand_name': 'Brand', 'queries': [{'text': 'question'}],
+        'config': {'services': ['chatgpt']},
+        'schedule': {'enabled': True, 'month_days': numbered, 'last_day': True,
+                     'time': '00:30', 'timezone': 'Asia/Vladivostok'},
+    })
+    assert response.status_code == 201, response.text
+    project = response.json()
+    assert project['schedule']['last_day'] is True
+    _, sessions = make_session_factory(url)
+    due = datetime(year, month, last - 1, 14, 30, tzinfo=timezone.utc)
+    schedule_tick(sessions, due - timedelta(minutes=1))
+    assert client.get('/api/v1/control/runs', headers=owner).json() == []
+    # The first tick may occur the next local day/month; still execute the due slot.
+    catch_up = due + timedelta(hours=23, minutes=45)
+    schedule_tick(sessions, catch_up)
+    with sessions() as db:
+        rows = list(db.scalars(select(ControlRun)))
+        assert len(rows) == 1
+        assert rows[0].project_id == project['id']
+        assert rows[0].scheduled_for.replace(tzinfo=timezone.utc) == due
+        assert json.loads(rows[0].snapshot_json)['schedule']['last_day'] is True
+        # Release the active-project lock so it cannot mask duplicate slot creation.
+        rows[0].state, rows[0].active_project_key = 'done', None
+        db.commit()
+    schedule_tick(sessions, catch_up)
+    schedule_tick(sessions, due + timedelta(hours=24))
+    with sessions() as db:
+        assert len(list(db.scalars(select(ControlRun)))) == 1
+
+
+def test_schedule_choice_validation_and_legacy_effective_from(tmp_path):
+    client, owner, _, _, url = setup(tmp_path)
+    body = {'name': 'Legacy schedule', 'brand_name': 'Brand', 'config': {'services': ['chatgpt']},
+            'schedule': {'enabled': True, 'month_days': [31]}}
+    project = client.post('/api/v1/control/projects', headers=owner, json=body).json()
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        row = db.get(ControlProject, project['id'])
+        schedule = json.loads(row.schedule_json)
+        schedule.pop('last_day', None)
+        schedule['effective_from'] = '2020-01-01T00:00:00+00:00'
+        row.schedule_json = json.dumps(schedule)
+        db.commit()
+    body.update(revision=project['revision'], name='Renamed')
+    assert client.put(f"/api/v1/control/projects/{project['id']}", headers=owner, json=body).status_code == 200
+    with sessions() as db:
+        schedule = json.loads(db.get(ControlProject, project['id']).schedule_json)
+        assert schedule['effective_from'] == '2020-01-01T00:00:00+00:00'
+        assert schedule['month_days'] == [31] and schedule['last_day'] is False
+    for schedule in ({'enabled': True, 'month_days': []},
+                     {'last_day': True, 'month_days': [0]},
+                     {'last_day': True, 'month_days': [32]},
+                     {'last_day': True, 'month_days': [1, 1]}):
+        assert client.post('/api/v1/control/projects', headers=owner,
+                           json={**body, 'schedule': schedule}).status_code == 422
+    assert client.post('/api/v1/control/projects', headers=owner,
+                       json={**body, 'schedule': {'enabled': False, 'month_days': []}}).status_code == 201
+
+
 def test_browser_device_login_one_use_and_revocation(tmp_path):
     client, owner, _, _, _ = setup(tmp_path)
     res = client.post('/api/v1/control/connect/start', json={'device_id': 'd'*32, 'name': 'New PC'})
