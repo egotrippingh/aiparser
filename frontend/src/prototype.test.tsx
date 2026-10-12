@@ -1,11 +1,54 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
-import { ControlCenter } from "./control-center"
+import { ControlCenter, RunProgress, runStatus } from "./control-center"
+import { ProjectIcon, projectFavicon } from "./project-icon"
 import { choiceIndex } from "./app-choice"
 import { ReportChart, chartIndex, linePath } from "./report-chart"
-import { reportRows, trendText, trendTone, type Trend } from "./report-view"
+import { reportRows, reportSelection, trendText, trendTone, type Trend } from "./report-view"
+import { isCurrentService } from "./service-mark"
 
 afterEach(() => vi.unstubAllGlobals())
+
+it("shows automatic retries as processing but preserves explicit pauses and terminal states", () => {
+  expect(runStatus({state:"paused",desired_state:"running",phase:"cloud"})).toBe("В процессе")
+  expect(runStatus({state:"running",desired_state:"running",phase:"cloud"})).toBe("В процессе")
+  expect(runStatus({state:"paused",desired_state:"paused",phase:"cloud"})).toBe("На паузе")
+  expect(runStatus({state:"paused",desired_state:"running",phase:"agent"})).toBe("На паузе")
+  expect(runStatus({state:"running",desired_state:"cancelled",phase:"cloud"})).toBe("Останавливается")
+  expect(runStatus({state:"done",desired_state:"paused",phase:"cloud"})).toBe("Завершено")
+})
+
+it("renders current project progress including zero and safe totals", () => {
+  const run = {state:"paused",desired_state:"running",phase:"cloud",project_name:"Test",total:20,progress:{done:7},error:null}
+  const html = renderToStaticMarkup(<RunProgress run={run} details={()=>{}}/>)
+  expect(html).toContain("В процессе")
+  expect(html).toContain("7 / 20")
+  expect(html).toMatch(/<progress[^>]*max="20"[^>]*value="7"/)
+  expect(html).toContain('aria-label="Прогресс Test"')
+  expect(renderToStaticMarkup(<RunProgress run={{...run,total:0,progress:{done:0}}} details={()=>{}}/>)).toContain('max="1" value="0"')
+})
+
+it("loads project icons only from the first brand domain with safe fallback", () => {
+  expect(projectFavicon(["example.ru","second.test"])).toBe("https://example.ru/favicon.ico")
+  expect(projectFavicon(["https://пример.рф/path?q=1"])).toBe("https://xn--e1afmkfd.xn--p1ai/favicon.ico")
+  for (const domain of ["javascript:alert(1)","data:image/svg+xml,x","https://user:pass@example.ru","", "bad domain"]) expect(projectFavicon([domain,"second.test"])).toBeNull()
+  expect(projectFavicon([])).toBeNull()
+  expect(renderToStaticMarkup(<ProjectIcon name="Test" domains={[]}/>)).toContain(">T</span>")
+  const html = renderToStaticMarkup(<ProjectIcon name="Test" domains={["example.ru"]}/> )
+  expect(html).toContain('src="https://example.ru/favicon.ico"')
+  expect(html).toContain('referrerPolicy="no-referrer"')
+})
+
+it("keeps Yandex Search with Alice while hiding the retired standalone Alice", () => {
+  expect(["alice","yandex_neuro","chatgpt","perplexity"].filter(isCurrentService)).toEqual(["yandex_neuro","chatgpt","perplexity"])
+})
+
+it("preserves current saved report choices while removing retired or invalid choices", () => {
+  expect(reportSelection(["alice","chatgpt","chatgpt"])).toEqual(["chatgpt"])
+  expect(reportSelection(["alice"])).toBeNull()
+  expect(reportSelection([])).toBeNull()
+  expect(reportSelection(["chatgpt",{}])).toBeNull()
+})
 
 it("keeps all nine app sections and hides administration for an ordinary account", () => {
   vi.stubGlobal("location", {hash:"#/projects"})
@@ -45,6 +88,16 @@ it("shows isolated measurements even when surrounding dates have no answers", ()
     {date:"2026-09-03",services:{chatgpt:{visibility_pct:0}}},
   ]} services={["chatgpt"]} available={["chatgpt"]} choose={()=>{}}/> )
   expect(html.match(/<circle /g)).toHaveLength(2)
+})
+
+it("connects sparse measurements with a dashed guide and marks only actual data", () => {
+  expect(linePath([null,0,null,60,null], i=>i,v=>v,true).replace(/\s+/g," ").trim()).toBe("M1.0,0.0 L3.0,60.0")
+  expect(linePath([null,null], i=>i,v=>v,true).trim()).toBe("")
+  expect(linePath([null,25,null], i=>i,v=>v,true).trim()).toBe("M1.0,25.0")
+  const html = renderToStaticMarkup(<ReportChart days={[0,25,null,75].map((value,i)=>({date:`2026-09-0${i+1}`,services:{chatgpt:{visibility_pct:value}}}))} services={["chatgpt"]} available={["chatgpt"]} choose={()=>{}}/> )
+  expect(html).toContain('stroke-dasharray="4 4"')
+  expect(html.match(/<circle /g)).toHaveLength(3)
+  expect(html).toContain("пунктир — промежутки без проверок")
 })
 
 it("keeps missing/zero baselines neutral and distinguishes points from relative percent", () => {

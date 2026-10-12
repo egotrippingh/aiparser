@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import func, select, update, delete
+from sqlalchemy import func, select, update, delete, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -634,8 +634,11 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
     @router.get("/runs")
     def runs(user=Depends(web_user), db=Depends(db_session)):
         devices = {d.device_id: d for d in db.scalars(select(AgentDevice).where(AgentDevice.user_id == user.id))}
+        recent = select(ControlRun.id).where(ControlRun.user_id == user.id,
+            ControlRun.state.in_(TERMINAL)).order_by(ControlRun.created_at.desc()).limit(100)
         return [run_payload(r, devices.get(r.device_id)) for r in db.scalars(select(ControlRun).where(
-            ControlRun.user_id == user.id).order_by(ControlRun.created_at.desc()).limit(100))]
+            ControlRun.user_id == user.id,
+            or_(ControlRun.state.not_in(TERMINAL), ControlRun.id.in_(recent))).order_by(ControlRun.created_at.desc()))]
 
     @router.post("/runs/{run_id}/command")
     def command(run_id: str, body: CommandIn, user=Depends(web_user), db=Depends(db_session)):

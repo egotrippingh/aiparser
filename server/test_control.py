@@ -54,6 +54,32 @@ def setup(tmp_path):
     return client, owner, other, devices, url
 
 
+def test_runs_keep_old_active_checks_outside_recent_history_limit(tmp_path):
+    client, owner, other, devices, _ = setup(tmp_path)
+    project = client.post('/api/v1/control/projects', headers=owner, json={
+        'name': 'Project', 'brand_name': 'Brand', 'queries': [{'text': 'question'}],
+        'config': {'services': ['chatgpt']},
+    }).json()
+    with client.app.state.payment_sessions() as db:
+        source = db.get(ControlProject, project['id'])
+        for index in range(103):
+            db.add(ControlRun(id=f'{index:032x}', user_id=source.user_id, project_id=source.id,
+                phase='cloud', state='paused' if index < 2 else 'done', desired_state='running',
+                snapshot_json=json.dumps({**project, 'cloud_services': ['chatgpt']}),
+                request_key=f'history-{index}', progress_json='{"cloud_done":1}',
+                created_at=datetime(2026, 9, 1, tzinfo=timezone.utc) + timedelta(minutes=index)))
+        db.commit()
+    route = '/api/v1/control/runs'
+    rows = client.get(route, headers=owner).json()
+    assert {row['id'] for row in rows if row['state'] == 'paused'} == {f'{index:032x}' for index in range(2)}
+    assert len(rows) == 102 and len({row['id'] for row in rows}) == 102
+    assert len([row for row in rows if row['state'] == 'done']) == 100
+    assert all(row['progress']['done'] == 1 for row in rows)
+    assert client.get(route, headers=other).json() == []
+    assert client.get(route, headers=devices[0]).status_code == 403
+    assert client.get(route).status_code == 401
+
+
 def test_device_assignment_ownership_and_durable_queue(tmp_path):
     client, owner, other, devices, url = setup(tmp_path)
     body = {'name': 'Project', 'brand_name': 'Brand', 'device_id': 'a'*32,
