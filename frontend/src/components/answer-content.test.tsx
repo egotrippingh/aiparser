@@ -1,6 +1,6 @@
 import { expect, it } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
-import { AnswerContent, ResultIssue, SourceList, sourcesOf } from "./answer-content"
+import { AnswerContent, ResultIssue, SourceList, sourcesOf, renderedSources } from "./answer-content"
 import { publicError } from "../lib/public-error"
 
 it("keeps collection suppliers private in historical errors", () => {
@@ -148,4 +148,36 @@ it("preserves one-column tables and escaped backticks, code spaces and bold-code
   const single = renderToStaticMarkup(<AnswerContent text={'| Header |\n| --- |\n| Keep |\nAfter table'}/>)
   expect(single).toContain('</table></div><p>After table</p>')
   expect(single).not.toContain('>After table</td>')
+})
+
+it("resolves Markdown reference links without showing definitions", () => {
+  const text = "## Материалы [one][1]\n\n- **[two][ 2 ]**\n\n| Ссылка |\n| --- |\n| [one] |\n\n`[1]: https://literal.test`\n\n[1]: https://basicdecor.ru/a \"Статья\"\n[2]: <https://background-studio.ru/b> 'Дизайн'"
+  const html = renderToStaticMarkup(<AnswerContent text={text}/>)
+  expect(html).toContain('href="https://basicdecor.ru/a"')
+  expect(html).toContain('href="https://background-studio.ru/b"')
+  expect(html).not.toContain('[1]: https://basicdecor')
+  expect(html).toContain('[1]: https://literal.test')
+})
+
+it("keeps unsafe definitions and fenced reference text literal while filtering only rendered URL targets", () => {
+  const text = "[ok][ref] and [balanced](https://example.test/other?q=(x))\n\n[ref]: https://example.test/path?q=1#part\n[bad]: <javascript:alert(1)>\n\n````\n[inner]: https://code.test\n```\n````\n\n`[inline]: https://inline.test`"
+  const html = renderToStaticMarkup(<AnswerContent text={text}/>)
+  expect(html).toContain('href="https://example.test/path?q=1#part"')
+  expect(html).toContain('href="https://example.test/other?q=(x)"')
+  expect(html).toContain('[bad]: &lt;javascript:alert(1)&gt;')
+  expect(html).toContain('https://code.test')
+  expect(renderedSources(text, ['https://example.test/path?q=1#part', 'https://example.test/path?q=2', 'https://example.test/other?q=(x)', 'https://code.test'])).toEqual(['https://example.test/path?q=2', 'https://code.test'])
+})
+
+it("keeps definitions inside language fences and filters sources from the same cleaned ChatGPT text", () => {
+  const fenced = "```markdown\n[inside]: https://code.test/path\n```\n\n[shown][inside]"
+  expect(renderToStaticMarkup(<AnswerContent text={fenced}/>)).toContain('[inside]: https://code.test/path')
+  expect(renderedSources(fenced, ['https://code.test/path'])).toEqual(['https://code.test/path'])
+  const chatgpt = "4.9\nhttps://map.test\nUse two fingers to move the map\nPlace\nОставить отзыв\n\nAnswer https://shown.test/path"
+  expect(renderedSources(chatgpt, ['https://map.test/', 'https://shown.test/path'], "chatgpt")).toEqual(['https://map.test/'])
+})
+
+it("keeps an unused reference definition when it is the only source text", () => {
+  const html = renderToStaticMarkup(<AnswerContent text={"Независимый текст\n\n[unused]: https://unique.test/a"}/>)
+  expect(html).toContain('>unused</a>: <a href="https://unique.test/a"')
 })

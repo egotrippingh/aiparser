@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { accountRequest } from "./account-api"
-import { AnswerContent, ResultIssue, SourceList } from "./components/answer-content"
-import { AnswerEvidenceView, HighlightedSources, type AnswerEvidence, type BrandHighlight } from "./components/answer-evidence"
+import { AnswerContent, ResultIssue } from "./components/answer-content"
+import { AnswerEvidenceView, EvidenceSources, type AnswerEvidence, type BrandHighlight } from "./components/answer-evidence"
 import type { ScanFeedback } from "./scan-feedback"
 import { SCAN_SERVICES } from "./lib/scan-preferences"
 
@@ -41,8 +41,8 @@ export function AdminScans({ token }: { token: string }) {
         {detail.feedback && <p>Отметка пользователя: <b>{labels[detail.feedback.label]}</b>{detail.feedback.comment && ` · ${detail.feedback.comment}`}</p>}
         {detail.evidence_quote && <blockquote>{detail.evidence_quote}</blockquote>}
         {detail.analysis?.reasoning && <p>Анализ ({detail.analysis_model}): {detail.analysis.reasoning}</p>}{detail.arbitration?.reasoning && <p>Арбитр ({detail.arbitration_model}): {detail.arbitration.reasoning}</p>}
-        {detail.answer_evidence ? <AnswerEvidenceView key={detail.id} evidence={detail.answer_evidence} brand={detail.highlight}/> : detail.answer_text && <AnswerContent text={detail.answer_text} service={detail.service} sources={detail.sources} />}<ResultIssue status={detail.status} error={detail.error_message} answer={detail.answer_text} />
-        <h3>Источники</h3>{detail.answer_evidence ? <HighlightedSources sources={detail.sources} brand={detail.highlight}/> : <SourceList sources={detail.sources} />}
+        {detail.answer_evidence ? <AnswerEvidenceView key={detail.id} evidence={detail.answer_evidence} service={detail.service} sources={detail.sources} brand={detail.highlight}/> : detail.answer_text && <AnswerContent text={detail.answer_text} service={detail.service} sources={detail.sources} />}<ResultIssue status={detail.status} error={detail.error_message} answer={detail.answer_text} />
+        <EvidenceSources evidence={detail.answer_evidence} answerText={detail.answer_text} service={detail.service} sources={detail.sources} brand={detail.highlight}/>
         {detail.check_id && detail.has_screenshot !== false && !detail.answer_evidence && <button className="cc-button" disabled={shot?.id === row.id && shot.loading} onClick={() => {
           setShot({ id: row.id, loading: true })
           accountRequest<{ url: string }>(`/admin/scan-results/${row.id}/screenshot`, token).then(d => setShot(current => current?.id === row.id ? { id: row.id, url: d.url } : current)).catch(e => setShot(current => current?.id === row.id ? { id: row.id, error: e.message } : current))

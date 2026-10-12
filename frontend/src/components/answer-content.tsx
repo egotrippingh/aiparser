@@ -10,6 +10,29 @@ function safeUrl(value: string) {
   } catch { return null }
 }
 
+type References = Map<string, string>
+const refKey = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase()
+const fenceOpen = (line: string) => line.match(/^\s*(`{3,})(?:[^`]*)$/)?.[1] || ""
+const fenceClose = (line: string, fence: string) => line.trim() === fence
+
+function markdown(text: string) {
+  const references: References = new Map(), kept: { line: string; value?: string }[] = []
+  let fence = ""
+  for (const line of text.replace(/\r\n?/g, "\n").split("\n")) {
+    const marker = fenceOpen(line)
+    if (marker && !fence) { fence = marker; kept.push({ line }); continue }
+    if (fence) { kept.push({ line }); if (fenceClose(line, fence)) fence = ""; continue }
+    const definition = line.match(/^\s*\[([^\]]+)\]:\s*(?:<([^>]+)>|(https?:\/\/\S+))(?:\s+(?:["'(].*?["')]))?\s*$/i)
+    if (definition) {
+      const value = definition[2] || definition[3]
+      if (safeUrl(value)) { references.set(refKey(definition[1]), value); kept.push({ line, value }); continue }
+    }
+    kept.push({ line })
+  }
+  const targets = linkTargets(kept.filter(item => !item.value).map(item => item.line).join("\n"), references, [])
+  return { text: kept.filter(item => !item.value || !targets.has(safeUrl(item.value)!.href)).map(item => item.line).join("\n"), references }
+}
+
 export function sourcesOf(values: string[]) {
   const seen = new Set<string>()
   return values.filter(value => {
@@ -45,7 +68,70 @@ function inlineCode(text: string, index: number) {
   return end < 0 ? null : { value: text.slice(start, end).replace(/\\([\\`])/g, "$1"), end: end + ticks.length }
 }
 
-function linkedText(text: string, sources: string[], bold = true, brand?: BrandHighlight) {
+type ParsedLink = { label: string; url: URL; end: number }
+
+function parsedLink(text: string, index: number, references: References, saved: URL[]): ParsedLink | null {
+  const rest = text.slice(index)
+  const label = rest.match(/^\[((?:\\.|[^\]\\])*)\]\(/)
+  if (label) {
+    const start = index + label[0].length
+    let end = start, href = ""
+    if (text[start] === "<") {
+      end = text.indexOf(">)", start + 1)
+      if (end >= 0) { href = text.slice(start + 1, end); end += 2 }
+    } else {
+      let depth = 1
+      for (; end < text.length && depth; end++) {
+        if (text[end] === "(") depth++
+        if (text[end] === ")") depth--
+      }
+      if (!depth) href = text.slice(start, end - 1)
+    }
+    const url = safeUrl(href)
+    if (url) return { label: label[1].replace(/\\([\\[\]])/g, "$1"), url, end }
+    return null
+  }
+  const reference = rest.match(/^\[([^\]]+)\](?:\[([^\]]*)\])?/)
+  if (reference) {
+    const url = safeUrl(references.get(refKey(reference[2] || reference[1])) || "")
+    if (url) return { label: reference[1], url, end: index + reference[0].length }
+  }
+  if (/^[\w.+-]+@[\w.-]+/.test(rest)) return null
+  const direct = rest.match(/^https?:\/\/[^\s<>]+/i)
+  if (direct) {
+    const value = trimUrlPunctuation(direct[0]), url = safeUrl(value)
+    if (url) return { label: value, url, end: index + value.length }
+    return null
+  }
+  const domain = !/[\w@]/.test(text[index - 1] || "") && rest.match(/^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:[/?#][^\s<>]*)?/i)
+  if (domain) {
+    const value = trimUrlPunctuation(domain[0]), url = safeUrl(`https://${value}`)
+    const hasPath = /[/?#]/.test(value)
+    const matches = url ? saved.filter(source => source.hostname.replace(/^www\./, "") === url.hostname.replace(/^www\./, "") && (!hasPath || source.pathname + source.search + source.hash === url.pathname + url.search + url.hash)) : []
+    if (matches.length === 1) return { label: value, url: matches[0], end: index + value.length }
+  }
+  return null
+}
+
+function linkTargets(text: string, references: References, saved: URL[]) {
+  const targets = new Set<string>()
+  let fence = ""
+  for (const line of text.split("\n")) {
+    const marker = fenceOpen(line)
+    if (marker && !fence) { fence = marker; continue }
+    if (fence) { if (fenceClose(line, fence)) fence = ""; continue }
+    for (let index = 0; index < line.length;) {
+      const code = line[index] === "`" && inlineCode(line, index)
+      if (code) { index = code.end; continue }
+      const link = parsedLink(line, index, references, saved)
+      if (link) { targets.add(link.url.href); index = link.end; continue }
+      index++
+    }
+  }
+  return targets
+}
+
+function linkedText(text: string, sources: string[], references: References, bold = true, brand?: BrandHighlight) {
   const saved = sourcesOf(sources).map(value => new URL(value)), output: ReactNode[] = []
   let index = 0, plain = ""
   const flush = () => { if (plain) { output.push(highlightedText(plain, brand)); plain = "" } }
@@ -62,7 +148,7 @@ function linkedText(text: string, sources: string[], bold = true, brand?: BrandH
       }
       if (end > index + 2 && text.startsWith("**", end)) {
         flush()
-        output.push(<strong key={output.length}>{linkedText(text.slice(index + 2, end), sources, false, brand)}</strong>)
+        output.push(<strong key={output.length}>{linkedText(text.slice(index + 2, end), sources, references, false, brand)}</strong>)
         index = end + 2; continue
       }
     }
@@ -74,44 +160,8 @@ function linkedText(text: string, sources: string[], bold = true, brand?: BrandH
         index = code.end; continue
       }
     }
-    const label = rest.match(/^\[((?:\\.|[^\]\\])*)\]\(/)
-    if (label) {
-      const start = index + label[0].length
-      let end = start, href = ""
-      if (text[start] === "<") {
-        end = text.indexOf(">)", start + 1)
-        if (end >= 0) { href = text.slice(start + 1, end); end += 2 }
-      } else {
-        let depth = 1
-        for (; end < text.length && depth; end++) {
-          if (text[end] === "(") depth++
-          if (text[end] === ")") depth--
-        }
-        if (!depth) href = text.slice(start, end - 1)
-      }
-      if (href) {
-        const url = safeUrl(href)
-        if (url) link(label[1].replace(/\\([\\\[\]])/g, "$1"), url)
-        else plain += text.slice(index, end)
-        index = end; continue
-      }
-    }
-    const email = rest.match(/^[\w.+-]+@[\w.-]+/)
-    if (email) { plain += email[0]; index += email[0].length; continue }
-    const direct = rest.match(/^https?:\/\/[^\s<>]+/i)
-    if (direct) {
-      const value = trimUrlPunctuation(direct[0]), url = safeUrl(value)
-      if (url) { link(value, url); index += value.length; continue }
-      plain += direct[0]; index += direct[0].length; continue
-    }
-    const domain = !/[\w@]/.test(text[index - 1] || "") && rest.match(/^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:[/?#][^\s<>]*)?/i)
-    if (domain) {
-      const value = trimUrlPunctuation(domain[0]), url = safeUrl(`https://${value}`)
-      const hasPath = /[/?#]/.test(value)
-      const matches = url ? saved.filter(source => source.hostname.replace(/^www\./, "") === url.hostname.replace(/^www\./, "") && (!hasPath || source.pathname + source.search + source.hash === url.pathname + url.search + url.hash)) : []
-      if (matches.length === 1) { link(value, matches[0]); index += value.length; continue }
-      plain += domain[0]; index += domain[0].length; continue
-    }
+    const parsed = parsedLink(text, index, references, saved)
+    if (parsed) { link(parsed.label, parsed.url); index = parsed.end; continue }
     plain += text[index++]
   }
   flush()
@@ -140,7 +190,7 @@ function tableCells(line: string) {
   return cells
 }
 
-function blocks(text: string, sources: string[], brand?: BrandHighlight) {
+function blocks(text: string, sources: string[], references: References, brand?: BrandHighlight) {
   const lines = text.replace(/\r\n?/g, "\n").split("\n"), output: ReactNode[] = []
   let index = 0, key = 0, cleaned = false
   // ponytail: only standalone source counters; ambiguous inline +N stays literal.
@@ -164,7 +214,7 @@ function blocks(text: string, sources: string[], brand?: BrandHighlight) {
   }
   const table = (data: NonNullable<ReturnType<typeof tableAt>>) => {
     index = data.end
-    return <div key={key++} className="answer-table-scroll" role="region" aria-label="Таблица ответа" tabIndex={0}><table className="answer-table">{data.headers.some(Boolean) && <thead><tr>{data.headers.map((cell, i) => <th key={i} scope="col" style={{textAlign:data.alignment[i]}}>{linkedText(cell, sources, true, brand)}</th>)}</tr></thead>}<tbody>{data.rows.map((row, r) => <tr key={r}>{row.map((cell, i) => <td key={i} style={{textAlign:data.alignment[i]}}>{linkedText(cell, sources, true, brand)}</td>)}</tr>)}</tbody></table></div>
+    return <div key={key++} className="answer-table-scroll" role="region" aria-label="Таблица ответа" tabIndex={0}><table className="answer-table">{data.headers.some(Boolean) && <thead><tr>{data.headers.map((cell, i) => <th key={i} scope="col" style={{textAlign:data.alignment[i]}}>{linkedText(cell, sources, references, true, brand)}</th>)}</tr></thead>}<tbody>{data.rows.map((row, r) => <tr key={r}>{row.map((cell, i) => <td key={i} style={{textAlign:data.alignment[i]}}>{linkedText(cell, sources, references, true, brand)}</td>)}</tr>)}</tbody></table></div>
   }
   const list = (indent: number, ordered: boolean): ReactNode => {
     const items: ReactNode[] = [], first = parseInt(listItem(lines[index])![2])
@@ -172,7 +222,7 @@ function blocks(text: string, sources: string[], brand?: BrandHighlight) {
       const item = listItem(lines[index])
       if (!item || item[1].length !== indent || /^\d/.test(item[2]) !== ordered) break
       index++
-      const content: ReactNode[] = [<Fragment key="text">{linkedText(item[3] || "", sources, true, brand)}</Fragment>]
+      const content: ReactNode[] = [<Fragment key="text">{linkedText(item[3] || "", sources, references, true, brand)}</Fragment>]
       while (index < lines.length) {
         if (sourceCounter(lines[index])) { cleaned = true; index++; continue }
         if (!lines[index].trim()) {
@@ -194,7 +244,7 @@ function blocks(text: string, sources: string[], brand?: BrandHighlight) {
         const nestedTable = lines[index].startsWith(" ".repeat(indent + 2)) && tableAt(index)
         if (nestedTable) { content.push(table(nestedTable)); continue }
         if (!child && lines[index].startsWith(" ".repeat(indent + 2))) {
-          content.push(<Fragment key={content.length}><br/>{linkedText(lines[index++].slice(indent + 2), sources, true, brand)}</Fragment>); continue
+          content.push(<Fragment key={content.length}><br/>{linkedText(lines[index++].slice(indent + 2), sources, references, true, brand)}</Fragment>); continue
         }
         break
       }
@@ -205,10 +255,10 @@ function blocks(text: string, sources: string[], brand?: BrandHighlight) {
   while (index < lines.length) {
     if (sourceCounter(lines[index])) { cleaned = true; index++; continue }
     if (!lines[index].trim() || lines[index].trim() === "•") { index++; continue }
-    const fence = lines[index].match(/^(`{3,})(?:[^`]*)$/)
+    const fence = fenceOpen(lines[index])
     if (fence) {
       const start = ++index
-      while (index < lines.length && lines[index] !== fence[1]) index++
+      while (index < lines.length && !fenceClose(lines[index], fence)) index++
       output.push(<pre key={key++}><code>{lines.slice(start, index).join("\n")}</code></pre>)
       if (index < lines.length) index++
       continue
@@ -218,21 +268,27 @@ function blocks(text: string, sources: string[], brand?: BrandHighlight) {
     const heading = lines[index].match(/^(#{1,6})\s+(.*)$/)
     if (heading) {
       const Tag = `h${heading[1].length}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
-      output.push(<Tag key={key++}>{linkedText(heading[2], sources, true, brand)}</Tag>); index++; continue
+      output.push(<Tag key={key++}>{linkedText(heading[2], sources, references, true, brand)}</Tag>); index++; continue
     }
     const item = listItem(lines[index])
     if (item) { output.push(list(item[1].length, /^\d/.test(item[2]))); continue }
     const paragraph: string[] = []
-    while (index < lines.length && lines[index].trim() && lines[index].trim() !== "•" && !sourceCounter(lines[index]) && !/^#{1,6}\s+/.test(lines[index]) && !/^(`{3,})(?:[^`]*)$/.test(lines[index]) && !listItem(lines[index]) && !tableAt(index)) paragraph.push(lines[index++])
-    output.push(<p key={key++}>{paragraph.map((line, i) => <Fragment key={i}>{i > 0 && <br/>}{linkedText(line, sources, true, brand)}</Fragment>)}</p>)
+    while (index < lines.length && lines[index].trim() && lines[index].trim() !== "•" && !sourceCounter(lines[index]) && !/^#{1,6}\s+/.test(lines[index]) && !fenceOpen(lines[index]) && !listItem(lines[index]) && !tableAt(index)) paragraph.push(lines[index++])
+    output.push(<p key={key++}>{paragraph.map((line, i) => <Fragment key={i}>{i > 0 && <br/>}{linkedText(line, sources, references, true, brand)}</Fragment>)}</p>)
   }
   return { output, cleaned }
 }
 
 export function AnswerContent({ text, service, sources = [], brand }: { text: string; service?: string; sources?: string[]; brand?: BrandHighlight }) {
   const fixed = service === "chatgpt" ? cleanChatGPTMap(text) : { text, changed: false }
-  const rendered = blocks(fixed.text, sources, brand)
+  const parsed = markdown(fixed.text), rendered = blocks(parsed.text, sources, parsed.references, brand)
   return <div className="answer-content">{rendered.output}{(fixed.changed || rendered.cleaned) && <details className="answer-original"><summary>Исходный текст</summary><pre>{text}</pre></details>}</div>
+}
+
+export function renderedSources(text: string, sources: string[], service?: string) {
+  const fixed = service === "chatgpt" ? cleanChatGPTMap(text) : { text, changed: false }
+  const parsed = markdown(fixed.text), targets = linkTargets(parsed.text, parsed.references, sourcesOf(sources).map(value => new URL(value)))
+  return sourcesOf(sources).filter(value => !targets.has(new URL(value).href))
 }
 
 export function SourceList({ sources }: { sources: string[] }) {
