@@ -4,10 +4,22 @@ import { ControlCenter, RunProgress, runStatus } from "./control-center"
 import { ProjectIcon, projectFavicon } from "./project-icon"
 import { choiceIndex } from "./app-choice"
 import { ReportChart, chartIndex, linePath } from "./report-chart"
-import { reportRows, reportSelection, trendText, trendTone, type Trend } from "./report-view"
+import { reportRange, reportRows, reportSelection, trendText, trendTone, type Trend } from "./report-view"
 import { isCurrentService } from "./service-mark"
+import { LandingPage } from "./landing-page"
 
 afterEach(() => vi.unstubAllGlobals())
+
+it("restores only valid calendar ranges within the report limit", () => {
+  expect(reportRange({from:"2026-09-01",to:"2026-09-30"})).toEqual({from:"2026-09-01",to:"2026-09-30"})
+  expect(reportRange({from:"2024-02-29",to:"2024-02-29"})).toEqual({from:"2024-02-29",to:"2024-02-29"})
+  for (const value of [null, [], "bad", {from:"2026-02-30",to:"2026-03-01"}, {from:"2026-10-02",to:"2026-10-01"}, {from:"2025-01-01",to:"2026-01-02"}, {from:"0000-01-01",to:"0000-01-01"}, {from:3,to:"2026-01-01"}]) expect(reportRange(value)).toBeNull()
+})
+
+it("uses the Gemini logo on the homepage", () => {
+  vi.stubGlobal("window", {matchMedia:()=>({matches:true})})
+  expect(renderToStaticMarkup(<LandingPage/>)).toMatch(/<img[^>]+src="\/assets\/services\/gemini\.png"[^>]+alt="Gemini"/)
+})
 
 it("shows automatic retries as processing but preserves explicit pauses and terminal states", () => {
   expect(runStatus({state:"paused",desired_state:"running",phase:"cloud"})).toBe("В процессе")
@@ -48,6 +60,15 @@ it("preserves current saved report choices while removing retired or invalid cho
   expect(reportSelection(["alice"])).toBeNull()
   expect(reportSelection([])).toBeNull()
   expect(reportSelection(["chatgpt",{}])).toBeNull()
+})
+
+it("limits saved report choices to the project's configured systems", () => {
+  const configured = ["chatgpt", "perplexity"]
+  expect(reportSelection(["google_aio", "chatgpt", "perplexity", "gemini"], configured)).toEqual(configured)
+  expect(reportSelection(["perplexity"], configured)).toEqual(["perplexity"])
+  expect(reportSelection(["gemini"], configured)).toBeNull()
+  expect(reportSelection(["chatgpt"], [])).toBeNull()
+  expect(reportSelection(null, configured)).toBeNull()
 })
 
 it("keeps all nine app sections and hides administration for an ordinary account", () => {
