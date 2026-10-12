@@ -53,6 +53,7 @@ class FakeAI:
 
 @pytest.fixture(autouse=True)
 def reset_collector(monkeypatch):
+    monkeypatch.setenv('SCRAPELESS_API_KEY', 'fake-key')
     async def fake_limits():
         return {'google_aio': 1, 'yandex_neuro': 1}
     monkeypatch.setattr('server.cloud_scans.account_limits', fake_limits)
@@ -100,7 +101,7 @@ def postgres_url():
         engine.dispose()
 
 
-def project_and_run(client, owner, *, services=('google_aio',), schedule=None, queries=None, device=None):
+def project_and_run(client, owner, *, services=('google_aio',), schedule=None, queries=None, device=None, legacy=True):
     body = {'name': 'Project', 'brand_name': 'Brand',
             'queries': queries or [{'text': 'question'}], 'config': {'services': list(services)}}
     if schedule:
@@ -113,6 +114,17 @@ def project_and_run(client, owner, *, services=('google_aio',), schedule=None, q
     launched = client.post(f"/api/v1/control/projects/{project['id']}/runs", headers=owner,
                            json={'request_id': uuid.uuid4().hex})
     assert launched.status_code == 201, launched.text
+    if legacy:
+        # Preserve pre-migration frozen runs for the existing recovery/agent contract checks.
+        with client.app.state.payment_sessions() as db:
+            row = db.get(ControlRun, launched.json()['id'])
+            snapshot = json.loads(row.snapshot_json)
+            snapshot.pop('collection_policy', None)
+            snapshot['cloud_services'] = [s for s in services if s in ('google_aio', 'yandex_neuro')]
+            row.snapshot_json = json.dumps(snapshot)
+            if set(services) - set(snapshot['cloud_services']):
+                row.device_id = device
+            db.commit()
     return project, launched.json()
 
 
@@ -959,6 +971,7 @@ def test_worker_database_wait_does_not_delay_server_heartbeat(monkeypatch):
         return None
 
     monkeypatch.setattr('server.cloud_scans._claim', blocked_claim)
+    monkeypatch.setattr('server.cloud_scans.provider_tasks.recover_xml', lambda sessions: None)
 
     async def scenario():
         task = asyncio.create_task(worker(None, None, 120))

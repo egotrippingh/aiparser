@@ -1,12 +1,41 @@
 import uuid
+import json
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
+import pytest
 from sqlalchemy import select
 
 from server.app import create_app
 from server.control import schedule_tick
-from server.models import ControlRun, make_session_factory
+from server.models import AgentDevice, ControlRun, ControlProject, make_session_factory
+
+
+@pytest.fixture(autouse=True)
+def provider_key(monkeypatch):
+    monkeypatch.setenv('SCRAPELESS_API_KEY', 'fake-key')
+
+
+def seed_legacy_run(client, owner, project, request_id):
+    """A frozen pre-migration agent run; new runs are deliberately server-only."""
+    from server.scan_feedback import learning_context
+    with client.app.state.payment_sessions() as db:
+        source = db.get(ControlProject, project['id'])
+        snapshot = json.loads(json.dumps(project))
+        snapshot['cloud_services'] = []
+        context = learning_context(source)
+        if context:
+            snapshot['feedback_enabled'] = True
+            snapshot['scan_feedback_context'] = context
+            snapshot['config']['brand_clarification'] = 'Учитывай размеченные владельцем примеры'
+        row = ControlRun(id=uuid.uuid4().hex, user_id=source.user_id, project_id=source.id,
+            device_id=source.device_id or db.scalar(select(AgentDevice.device_id).where(AgentDevice.user_id == source.user_id)),
+            phase='agent', active_project_key=source.id,
+            request_key=f"manual:{source.id}:{request_id}", snapshot_json=json.dumps(snapshot),
+            progress_json='{}')
+        db.add(row)
+        db.commit()
+        return row.id
 
 
 def setup(tmp_path):
@@ -35,8 +64,9 @@ def test_device_assignment_ownership_and_durable_queue(tmp_path):
     assert client.get('/api/v1/control/projects', headers=other).json() == []
     assert client.get('/api/v1/control/projects', headers=devices[0]).status_code == 403
     bad = {**body, 'device_id': 'c'*32}
-    assert client.post('/api/v1/control/projects', headers=owner, json=bad).status_code == 422
+    assert client.post('/api/v1/control/projects', headers=owner, json=bad).status_code == 201
     launch = {'request_id': uuid.uuid4().hex}
+    seed_legacy_run(client, owner, project, launch['request_id'])
     res = client.post(f"/api/v1/control/projects/{project['id']}/runs", headers=owner, json=launch)
     assert res.status_code == 201, res.text
     run = res.json()
@@ -104,7 +134,7 @@ def test_legacy_yandex_run_remains_agent_owned(tmp_path):
                        json={'check_ids': [key]}).status_code == 402
 
 
-def test_schedule_uses_selected_pc_timezone_and_deduplicates(tmp_path):
+def test_schedule_runs_on_server_and_deduplicates(tmp_path):
     client, owner, _, devices, url = setup(tmp_path)
     project = client.post('/api/v1/control/projects', headers=owner, json={
         'name': 'Scheduled', 'brand_name': 'Brand', 'device_id': 'a'*32,
@@ -123,13 +153,14 @@ def test_schedule_uses_selected_pc_timezone_and_deduplicates(tmp_path):
     with sessions() as db:
         rows = list(db.scalars(select(ControlRun)))
         assert len(rows) == 1
-        assert rows[0].device_id == 'b'*32
+        assert rows[0].device_id is None and rows[0].phase == 'cloud'
         assert rows[0].project_id == project['id']
     assert client.post('/api/v1/control/agent/poll', headers=devices[0], json={}).json()['run'] is None
-    # Offline work expires once; repeated ticks do not resurrect the same slot.
+    # Server work is independent of PC presence and is not marked missed.
     schedule_tick(sessions, due + timedelta(hours=25))
     with sessions() as db:
-        assert list(db.scalars(select(ControlRun)))[0].state == 'missed'
+        assert len(list(db.scalars(select(ControlRun)))) == 1
+        assert list(db.scalars(select(ControlRun)))[0].state == 'queued'
 
 
 def test_browser_device_login_one_use_and_revocation(tmp_path):
@@ -177,8 +208,10 @@ def test_website_to_desktop_and_shared_report(tmp_path, monkeypatch):
         'queries':[{'text':'Где купить ESTUS?', 'group_tag':'Общие'}],
         'config':{'services':['chatgpt'],'browser_mode':'headless'},
     }).json()
+    request_id = uuid.uuid4().hex
+    seed_legacy_run(client, owner, project, request_id)
     run = client.post(f"/api/v1/control/projects/{project['id']}/runs", headers=owner,
-        json={'request_id':uuid.uuid4().hex}).json()
+        json={'request_id':request_id}).json()
     assert client.post('/api/v1/control/agent/poll',headers=devices[0],
         json={'capabilities':{'installed':False}}).json()['run'] is None
     job = client.post('/api/v1/control/agent/poll',headers=devices[0],json={}).json()['run']

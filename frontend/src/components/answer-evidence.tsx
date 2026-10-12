@@ -1,34 +1,13 @@
 import { createElement, Fragment, useRef, useState, type ReactNode } from "react"
 import { ChevronLeft, ChevronRight, ImageOff } from "lucide-react"
-import { sourcesOf } from "./answer-content"
+import { AnswerContent, sourcesOf } from "./answer-content"
+import { highlightedText, brandLink, type BrandHighlight } from "./brand-highlight"
 import "./answer-evidence.css"
 
-export type BrandHighlight = { names: string[]; domains: string[] }
+export { highlightedText, brandLink } from "./brand-highlight"
+export type { BrandHighlight } from "./brand-highlight"
 export type AnswerNode = string | { tag: string; href?: string; children: AnswerNode[] }
-export type AnswerEvidence = { content: AnswerNode[]; products: { title: string; url: string; image_url: string; price: string }[]; source_cards: { title: string; text: string; url: string }[] }
-
-function brandPattern(brand?: BrandHighlight) {
-  const forms = [...new Set(brand?.names.map(n => n.trim()).filter(Boolean) || [])].sort((a,b) => b.length-a.length)
-  return forms.length ? new RegExp(`(?<![\\p{L}\\p{N}_])(${forms.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?![\\p{L}\\p{N}_])`, "giu") : null
-}
-
-export function highlightedText(text: string, brand?: BrandHighlight): ReactNode {
-  const pattern = brandPattern(brand)
-  if (!pattern) return text
-  return text.split(pattern).map((part,i) => i % 2 ? <mark className="answer-brand" key={i}>{part}</mark> : part)
-}
-
-export function brandLink(href: string, brand?: BrandHighlight) {
-  try {
-    const host = new URL(href).hostname.replace(/^www\./, "")
-    return brand?.domains.some(domain => {
-      try {
-        const value = new URL(domain.includes("://") ? domain : `https://${domain}`).hostname.replace(/^www\./, "")
-        return host === value || host.endsWith(`.${value}`)
-      } catch { return false }
-    }) || false
-  } catch { return false }
-}
+export type AnswerEvidence = { format?: "markdown"; answer_text?: string; content: AnswerNode[]; products: { title: string; url: string; image_url: string; price: string }[]; source_cards: { title: string; text: string; url: string }[] }
 
 function AnswerLink({ href, brand, children }: { href: string; brand?: BrandHighlight; children: ReactNode }) {
   const url = sourcesOf([href])[0]
@@ -66,7 +45,7 @@ export function AnswerEvidenceView({ evidence, brand }: { evidence: AnswerEviden
     const el = rail.current
     if (el) el.scrollBy({left:direction * el.clientWidth * .85, behavior:window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth"})
   }
-  return <div className="answer-evidence"><p className="answer-note">Сохранённый ответ ИИ. Выделены название бренда и ссылки на его сайт.</p><div className="answer-content">{answerNodes(evidence.content, brand)}</div>
+  return <div className="answer-evidence"><p className="answer-note">Сохранённый ответ ИИ. Выделены название бренда и ссылки на его сайт.</p><div className="answer-content">{evidence.format === "markdown" ? <AnswerContent text={evidence.answer_text || ""} brand={brand}/> : answerNodes(evidence.content, brand)}</div>
     {evidence.products.length > 0 && <section className="answer-products" aria-label="Товары из ответа"><div className="answer-products-heading"><h3>Товары из ответа <small>{evidence.products.length}</small></h3><div><button type="button" className="cc-button icon" aria-label="Предыдущие товары" onClick={() => move(-1)}><ChevronLeft size={18}/></button><button type="button" className="cc-button icon" aria-label="Следующие товары" onClick={() => move(1)}><ChevronRight size={18}/></button></div></div><ul ref={rail} className="answer-product-rail" tabIndex={0} aria-label="Карточки товаров; листайте стрелками" onKeyDown={e => { if (e.target === e.currentTarget && ["ArrowLeft","ArrowRight"].includes(e.key)) {e.preventDefault();move(e.key === "ArrowLeft" ? -1 : 1)} }}>{evidence.products.map((p,i) => <li key={`${p.url}-${i}`}><ProductPhoto key={p.image_url} url={p.image_url} title={p.title}/><div><AnswerLink href={p.url} brand={brand}>{highlightedText(p.title, brand)}</AnswerLink>{p.price && <p className="answer-product-price">{p.price}</p>}</div></li>)}</ul></section>}
     {evidence.source_cards.length > 0 && <section className="answer-source-cards" aria-label="Карточки ответа"><h3>Карточки ответа</h3><ul>{evidence.source_cards.map((s,i) => <li key={`${s.url}-${i}`}><AnswerLink href={s.url} brand={brand}>{highlightedText(s.title || s.url, brand)}</AnswerLink>{s.text && s.text !== s.title && <p>{highlightedText(s.text, brand)}</p>}</li>)}</ul></section>}
   </div>

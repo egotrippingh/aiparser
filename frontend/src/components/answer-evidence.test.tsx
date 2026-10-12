@@ -3,6 +3,16 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { AnswerEvidenceView, HighlightedSources, brandLink, safeProductImage } from "./answer-evidence"
 
 const brand = {names:["Tuvio","Тувио"],domains:["tuvio.test"]}
+it("formats supplier Markdown and highlights brand text and links safely", () => {
+  const text = "## Tuvio\n\n**Tuvio** [сайт](https://tuvio.test)\n\n| Бренд | Статус |\n| --- | --- |\n| Tuvio | найден |\n\n- Первый\n- Второй\n\n<script>alert(1)</script>"
+  const html = renderToStaticMarkup(<AnswerEvidenceView brand={brand} evidence={{format:"markdown",answer_text:text,content:[text],products:[],source_cards:[]}}/>)
+  expect(html).toContain('<h2><mark class="answer-brand">Tuvio</mark></h2>')
+  expect(html).toContain('<strong><mark class="answer-brand">Tuvio</mark></strong>')
+  expect(html).toContain('class="answer-brand-link"')
+  expect(html).toContain('<table')
+  expect(html).toContain('<ul>')
+  expect(html).not.toContain('<script>')
+})
 it("renders XML structure and red brand accents without injecting provider markup", () => {
   const html = renderToStaticMarkup(<AnswerEvidenceView brand={brand} evidence={{content:[{tag:"h2",children:["TUVIO и Тувио"]},{tag:"p",children:["Не tuvioshop. ",{tag:"a",href:"https://shop.tuvio.test/a",children:["Официальный сайт"]},{tag:"script",children:["alert(1)"]},{tag:"a",href:"javascript:alert(1)",children:["плохая ссылка"]}]}],products:[],source_cards:[]}}/> )
   expect(html).toContain('<h2><mark class="answer-brand">TUVIO</mark>')

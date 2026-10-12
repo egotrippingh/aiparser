@@ -1,5 +1,38 @@
 # AIRate current project state
 
+## Scrapeless server collection ready locally (2026-10-12)
+
+`codex/scrapeless-server` adds server collection for ChatGPT, Perplexity and separate
+Gemini alongside Google AI Overview / Яндекс Поиск с Алисой. New scans/schedules no
+longer require a PC; standalone Alice is removed from new choices and historical
+runs/reports remain intact. Alice-only projects explicitly require another choice.
+
+Paid submission intent and provider task IDs survive restart; SQL account admission
+shares caps/cooldowns across owners and workers. Default Scrapeless caps are 100 per
+actor, four concurrent runs per process and one running project per owner. Answers
+commit before analysis, Stop/Pause drain accepted tasks, charges remain once-only.
+New incomplete checks produce no error rows in reports. Unknown POST outcome, expired
+result and exhausted analysis budget require operator reconciliation, without blind resubmission.
+
+Admin-only users/wallets include users with no scans. Supplier balance cards provide
+OpenRouter/Scrapeless/XMLRiver cabinet links; unavailable balances are explicit.
+Scrapeless Credits and subscription remain separate, without an incorrect USD label.
+Markdown answers retain headings, lists, tables, safe links and brand highlighting.
+
+Final local evidence: 175 server tests with disposable PostgreSQL checks, 52 client
+pipeline/billing/storage, 98 XMLRiver/detection, 33 agent contract and 61 frontend tests
+passed; benchmark self-check, lint (warnings), build and desktop/390px fixture browser
+smoke passed. Final Sol/Astra reviews have no confirmed P1/P2. Live Scrapeless: two
+synthetic owners, 300 POSTs -> 300 saved formatted answers, no invalid report rows;
+peaks ChatGPT 100, Perplexity 100, Gemini 89. Analysis was deterministic fake, with
+300 settled checks / exactly 300 ledger debits in temporary PostgreSQL.
+
+Not deployed or pushed. Release requires separately installing reviewed Compose/env
+changes, setting SCRAPELESS_API_KEY (OPENROUTER_MANAGEMENT_KEY for account credit view)
+and additive migration `20261012_provider_tasks` through the normal backup/isolated
+restore/head/readiness procedure. Live OpenRouter/XMLRiver balances, S3/payments and
+installer were not exercised. See [task evidence](docs/tasks/scrapeless-server.md).
+
 ## Continuous collection and analysis deployed (2026-10-09)
 
 Source `3e84bd5` on `codex/xmlriver-streaming` independently refills Google and

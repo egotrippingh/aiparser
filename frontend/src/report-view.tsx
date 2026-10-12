@@ -13,9 +13,9 @@ type Stats = { found: number; checked: number; issues: number; skipped: number; 
 type Cell = { id: number; status: string; found: boolean }
 type Report = { date_from: string; date_to: string; available_dates: string[]; dates: string[]; visible_dates: string[]; services: string[]; available_services?: string[]; groups: string[]; summary: Stats; comparison: { from: Stats; to: Stats; delta: number | null }; timeline: (Stats & {date: string; services: Record<string, Stats>})[]; total: number; rows: {id:string;text:string;group_tag:string;cells:Record<string,Record<string,Cell>>}[] }
 type Detail = { id: number; feedback: ScanFeedback | null; mention_types: string[]; query_text: string; service: string; scan_date: string; status: string; answer_text: string | null; error_message?: string | null; evidence_quote: string | null; sources: string[]; check_id: string | null; answer_evidence?: AnswerEvidence | null; highlight?: BrandHighlight; has_screenshot?: boolean }
-const name = (id: string) => SCAN_SERVICES.find(s => s.id === id)?.label || id
-const shortNames: Record<string,string> = {google_aio:"Google",chatgpt:"ChatGPT",perplexity:"Perplexity",alice:"Алиса",yandex_neuro:"Нейро"}
-const colors: Record<string,string> = {google_aio:"#9eafbd",chatgpt:"#a8c2ad",perplexity:"#d5ba85",alice:"#b8b7a2",yandex_neuro:"#c79e91"}
+const name = (id: string) => SCAN_SERVICES.find(s => s.id === id)?.label || (id === "alice" ? "Алиса AI" : id)
+const shortNames: Record<string,string> = {google_aio:"Google AI Overview",chatgpt:"ChatGPT",perplexity:"Perplexity",alice:"Алиса",yandex_neuro:"Яндекс Поиск с Алисой",gemini:"Gemini"}
+const colors: Record<string,string> = {google_aio:"#9eafbd",chatgpt:"#a8c2ad",perplexity:"#d5ba85",alice:"#b8b7a2",yandex_neuro:"#c79e91",gemini:"#c2b5df"}
 const statuses: Record<string,string> = {found:"Упоминание",not_found:"Нет упоминания",skipped:"Нет AI-блока",error:"Ошибка",captcha:"Капча",auth_required:"Нужен вход",limit_reached:"Лимит сервиса"}
 const pct = (value: number | null) => value == null ? "—" : `${value}%`
 const cellLabel = (cell: Cell) => cell.status === "found" && !cell.found ? "Карточки исключены" : statuses[cell.status] || cell.status

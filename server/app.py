@@ -351,6 +351,8 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
     register_reports(app, db_session, current_user)
     from server.scan_feedback import register_scan_feedback
     register_scan_feedback(app, db_session, current_user, screenshot_storage)
+    from server.admin import register_admin
+    register_admin(app, db_session, current_user)
 
     @app.get("/api/v1/auth/connect/{identifier}")
     def connect_login_info(identifier: str, response: Response, db: Session = Depends(db_session)):

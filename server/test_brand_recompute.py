@@ -148,6 +148,8 @@ def test_guidance_is_frozen_only_for_an_agent_that_advertises_support(tmp_path, 
                        json={"request_id": "b" * 32, "revision": project["revision"]}).status_code == 422
     client.post("/api/v1/control/agent/poll", headers=agent_headers,
                 json={"capabilities": {"brand_clarification": True, "installed": False}})
+    from server.test_control import seed_legacy_run
+    seed_legacy_run(client, headers, project, "c" * 32)
     run = client.post(f"/api/v1/control/projects/{project['id']}/runs", headers=headers,
                       json={"request_id": "c" * 32, "revision": project["revision"]})
     assert run.status_code == 201 and run.json()["id"]
