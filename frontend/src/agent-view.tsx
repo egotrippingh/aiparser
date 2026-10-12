@@ -15,7 +15,7 @@ type State = { configured: boolean; connected: boolean; has_token: boolean; name
   scan: {done:number;total:number;state?:string}|null; job?: {project_name:string;desired_state?:string}|null;
   saved_scan?: {scan_id:number;saved_answers:number}|null;
   browser: {installed:boolean;installing:boolean;install_error:string|null;install_progress?:InstallProgress|null;services:Record<string,ServiceSession>}; update:UpdateStatus }
-const services: Record<string,string> = {google_aio:"Google AI Overview",yandex_neuro:"Яндекс Поиск с Алисой",gemini:"Gemini",chatgpt:"ChatGPT",perplexity:"Perplexity",alice:"Алиса AI"}
+const services: Record<string,string> = {google_aio:"Google AI Overview",yandex_neuro:"Яндекс Поиск с Алисой",gemini:"Gemini",chatgpt:"ChatGPT",perplexity:"Perplexity"}
 async function api<T>(path:string,body?:unknown,method?:string):Promise<T>{try{
   const r=await fetch(path,{method:method||(body===undefined?"GET":"POST"),headers:body===undefined?{}:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)})
   const data=await r.json();if(!r.ok){const error=Object.assign(new Error(typeof data.detail==="string"?data.detail:"Не удалось выполнить действие"),{status:r.status});throw error}return data

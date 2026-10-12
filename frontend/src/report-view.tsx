@@ -8,7 +8,8 @@ import { today } from "./lib/dates"
 import { ReportCalendar, shortDate } from "./report-calendar"
 import { AppChoice } from "./app-choice"
 import { ReportChart } from "./report-chart"
-import { ServiceMark, serviceColors, serviceName as name } from "./service-mark"
+import { ServiceMark, isCurrentService, serviceColors, serviceName as name } from "./service-mark"
+import { SCAN_SERVICES } from "./lib/scan-preferences"
 
 type Stats = { found: number; checked: number; issues: number; skipped: number; visibility_pct: number | null }
 export type Trend = { current: Stats; previous: Stats; delta: number | null; relative: number | null; baseline_complete: boolean; baseline_from: string | null; baseline_to: string | null }
@@ -39,12 +40,17 @@ function Rate({ trend, from, to }: { trend: Trend; from: string; to: string }) {
   return <div className={`rate-wrap ${trendTone(trend.delta)}`}><span className="rate-number">{trend.delta === null || trend.delta === 0 ? "" : trend.delta > 0 ? "↑ " : "↓ "}{pct(trend.current.visibility_pct)}</span><span className="rate-hover" tabIndex={0} aria-label={text} onFocus={event => { const rect = event.currentTarget.getBoundingClientRect(); setPosition({left:Math.max(10,Math.min(rect.left,innerWidth-290)),top:Math.max(10,rect.top-110)}) }} onMouseEnter={event => { const rect = event.currentTarget.getBoundingClientRect(); setPosition({left:Math.max(10,Math.min(rect.left,innerWidth-290)),top:Math.max(10,rect.top-110)}) }}><span className="table-progress"><span style={{width:`${trend.current.visibility_pct || 0}%`}}/></span><span className="trend-tooltip" role="tooltip" style={position}><strong>{text}</strong><span>{trend.baseline_from && trend.baseline_to ? `${shortDate(trend.baseline_from)} — ${shortDate(trend.baseline_to)}: ${pct(trend.previous.visibility_pct)}` : "Предыдущий период недоступен"}</span><span>{shortDate(from)} — {shortDate(to)}: {pct(trend.current.visibility_pct)}</span></span></span></div>
 }
 
+export function reportSelection(saved: unknown) {
+  if (!Array.isArray(saved) || !saved.every(id=>typeof id === "string")) return null
+  const services = [...new Set(saved.filter(isCurrentService))]
+  return services.length ? services : null
+}
 export function ReportView({ token, projectId, sourcesOnly = false }: {token:string;projectId:string;sourcesOnly?:boolean}) {
   const [range,setRange] = useState<{from:string;to:string}|null>(null)
   const [compare,setCompare] = useState(false), [cards,setCards] = useState(true)
   const serviceKey = `aimt.report.services.${projectId}`
   const [selectedServices,setSelectedServices] = useState<string[]|null>(() => {
-    try { const saved: unknown = JSON.parse(sessionStorage.getItem(serviceKey) || "null"); return Array.isArray(saved) && saved.length && saved.every(s => typeof s === "string" && s in serviceColors) ? [...new Set(saved)] : null } catch { return null }
+    try { return reportSelection(JSON.parse(sessionStorage.getItem(serviceKey) || "null")) } catch { return null }
   })
   const [group,setGroup] = useState("*"), [querySearch,setQuerySearch] = useState(""), [status,setStatus] = useState(""), [sort,setSort] = useState(false)
   const [sourceSearch,setSourceSearch] = useState("")
@@ -58,7 +64,7 @@ export function ReportView({ token, projectId, sourcesOnly = false }: {token:str
   const base = `/control/projects/${encodeURIComponent(projectId)}/mentions`
   const params = new URLSearchParams({include_cards:String(cards),compare:String(compare && !sourcesOnly),date_to:range?.to||today()})
   if (!sourcesOnly) params.set("search",search)
-  if (selectedServices) params.set("services",selectedServices.join(","))
+  params.set("services",(selectedServices || SCAN_SERVICES.map(service=>service.id)).join(","))
   if (range?.from) params.set("date_from",range.from)
   if (group !== "*") params.set("group",group)
   const filters = params.toString()
@@ -67,12 +73,12 @@ export function ReportView({ token, projectId, sourcesOnly = false }: {token:str
     setSelectedServices(next); setLoading(true)
     try { if(next)sessionStorage.setItem(serviceKey,JSON.stringify(next));else sessionStorage.removeItem(serviceKey) } catch { /* Private browsing may disable storage. */ }
   }
-  const availableServices = report?.available_services || []
+  const availableServices = report?.available_services.filter(isCurrentService) || []
   useEffect(() => {
     let alive = true
     setLoading(true)
     const timer = setTimeout(() => {
-      accountRequest<Report>(`${base}/overview?${filters}`,token).then(data => { if(alive){setLoadedFilters(filters);setReport(data);setError("")} }).catch(e => {if(alive)setError(e.message)}).finally(() => {if(alive)setLoading(false)})
+      accountRequest<Report>(`${base}/overview?${filters}`,token).then(data => { if(alive){setLoadedFilters(filters);setReport({...data,services:data.services.filter(id=>data.available_services.includes(id))});setError("")} }).catch(e => {if(alive)setError(e.message)}).finally(() => {if(alive)setLoading(false)})
     },180)
     return () => {alive=false;clearTimeout(timer)}
   },[base,filters,tick,token])
@@ -84,9 +90,11 @@ export function ReportView({ token, projectId, sourcesOnly = false }: {token:str
     try { const data=await accountRequest<Detail>(`${base}/results/${id}`,token);if(mounted.current && requestId===detailRequest.current && dialog.current?.open)setDetail(data) } catch(e) {if(mounted.current && requestId===detailRequest.current && dialog.current?.open)setDetailError(e instanceof Error?e.message:"Не удалось загрузить ответ")}
   }
   async function exportReport(kind:string) {
-    if (stale || loading) return
+    if (stale || loading || !report?.services.length) return
     setExporting(kind);setError("")
-    const path = sourcesOnly ? `${base}/overview/export/sources?${filters}&${new URLSearchParams({source_kind:sourceKind,source_search:search})}` : `${base}/export/${kind}?${filters}`
+    const exportFilters = new URLSearchParams(filters)
+    exportFilters.set("services",report.services.join(","))
+    const path = sourcesOnly ? `${base}/overview/export/sources?${exportFilters}&${new URLSearchParams({source_kind:sourceKind,source_search:search})}` : `${base}/export/${kind}?${exportFilters}`
     try {await accountDownload(path,token,`${kind}-${report?.date_from}-${report?.date_to}.xlsx`)}
     catch(e) {if(mounted.current)setError(e instanceof Error?e.message:"Ошибка выгрузки")}
     finally {if(mounted.current)setExporting("")}
@@ -104,7 +112,7 @@ export function ReportView({ token, projectId, sourcesOnly = false }: {token:str
       <AppChoice label="Группа запросов" value={group} searchable options={[{value:"*",label:"Все группы"},{value:"",label:"Без группы"},...(report?.groups || []).map(label => ({value:label,label}))]} change={setGroup}/>
       <label className="check-control"><input type="checkbox" checked={cards} onChange={e => setCards(e.target.checked)}/>Учитывать карточки</label>
       {!sourcesOnly && <AppChoice label="Режим отчёта" value={compare?"compare":"period"} options={[{value:"period",label:"За период"},{value:"compare",label:"Сравнить даты"}]} change={value => setCompare(value==="compare")}/>}
-      <span className="spacer"/><button className="btn" disabled={!!exporting||!report||loading||stale} onClick={() => exportReport(sourcesOnly?"sources":"mentions")}><Download size={14}/>{exporting?"Готовим…":"Экспорт XLSX"}</button><button className="btn icon-only" aria-label="Обновить отчёт" disabled={loading || stale} onClick={() => setTick(n=>n+1)}><RefreshCw size={14}/></button>
+      <span className="spacer"/><button className="btn" disabled={!!exporting||!report?.services.length||loading||stale} onClick={() => exportReport(sourcesOnly?"sources":"mentions")}><Download size={14}/>{exporting?"Готовим…":"Экспорт XLSX"}</button><button className="btn icon-only" aria-label="Обновить отчёт" disabled={loading || stale} onClick={() => setTick(n=>n+1)}><RefreshCw size={14}/></button>
     </div>
     {error && <p className="cc-alert" role="alert">{error}<button className="btn" onClick={() => setTick(n=>n+1)}>Повторить</button></p>}
     {report && stale && <p className="notice" role="status">По выбранным фильтрам данных ещё нет. Ниже показан предыдущий отчёт.</p>}

@@ -21,7 +21,7 @@ export function AdminScans({ token }: { token: string }) {
     let alive = true
     const timer = setTimeout(() => {
       setLoading(true); setError(""); setData(null)
-      accountRequest<{ total: number; results: Row[] }>(`/admin/scan-results?${new URLSearchParams({ search, status, offset: String(offset) })}`, token)
+      accountRequest<{ total: number; results: Row[] }>(`/admin/scan-results?${new URLSearchParams({ search, status, offset: String(offset), include_retired: "false" })}`, token)
         .then(d => { if (alive) setData(d) }).catch(e => { if (alive) setError(e.message) }).finally(() => { if (alive) setLoading(false) })
     }, 180)
     return () => { alive = false; clearTimeout(timer) }
@@ -35,7 +35,7 @@ export function AdminScans({ token }: { token: string }) {
     <div className="cc-two"><label>Пользователь, проект, бренд или запрос<input value={search} onChange={e => { setSearch(e.target.value); setOffset(0); setSelected(null) }} /></label><label>Результат<select value={status} onChange={e => { setStatus(e.target.value); setOffset(0); setSelected(null) }}><option value="">Все результаты</option>{Object.entries(statuses).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div>
     {error && <p role="alert">{error}</p>}{loading && <p role="status">Загружаем сканы…</p>}
     {data && <><p>{data.total} результатов</p><div className="admin-scan-list">{data.results.map(row => <article key={row.id}>
-      <p className="ws-note">{row.email} · {row.project_name} · {row.scan_date} · {SCAN_SERVICES.find(s => s.id === row.service)?.label || (row.service === "alice" ? "Алиса AI" : row.service)}</p><h3>{row.query_text}</h3><p>Бренд: {row.brand_name} · {statuses[row.status] || row.status} · {row.mention_types.join(", ")}</p>
+      <p className="ws-note">{row.email} · {row.project_name} · {row.scan_date} · {SCAN_SERVICES.find(s => s.id === row.service)?.label || row.service}</p><h3>{row.query_text}</h3><p>Бренд: {row.brand_name} · {statuses[row.status] || row.status} · {row.mention_types.join(", ")}</p>
       <button className="cc-button" aria-expanded={selected === row.id} onClick={() => setSelected(selected === row.id ? null : row.id)}>{selected === row.id ? "Скрыть ответ" : "Ответ и причина"}</button>
       {selected === row.id && <div className="admin-scan-detail">{detailError?.id === row.id && <p role="alert">{detailError.message}</p>}{detail?.id !== row.id && detailError?.id !== row.id && <p role="status">Загружаем ответ…</p>}{detail?.id === row.id && <>
         {detail.feedback && <p>Отметка пользователя: <b>{labels[detail.feedback.label]}</b>{detail.feedback.comment && ` · ${detail.feedback.comment}`}</p>}

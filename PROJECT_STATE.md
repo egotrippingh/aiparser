@@ -1,6 +1,31 @@
 # AIRate current project state
 
-## Prototype app verified for publication (2026-10-12)
+## Project interface fixes verified locally (2026-10-12)
+
+Branch codex/chart-gaps: sparse measurement points are joined by dashed guides across
+unmeasured days, without invented zeroes/tooltips or extending to empty endpoints.
+Standalone Alice is hidden in current website reports, export, project marks and
+admin scan list while stored answers/detail APIs remain. GPT/Perplexity marks use
+versioned URLs to invalidate old pale browser assets. Project progress is visible
+above report/settings/query/schedule views. Cloud automatic retry says «В процессе»;
+explicit pause, stop and terminal states remain distinct, with matching history
+filters. Owner run list includes all active checks plus 100 recent terminal checks,
+so a long run cannot disappear from project progress after newer completed checks.
+Project sidebar/list uses the first brand domain's /favicon.ico, with safe URL,
+no-referrer and letter fallback on invalid/failed icons; domain changes can recover.
+
+Checks: 184 server tests including five disposable PostgreSQL checks, 74 frontend
+checks, lint exit 0 with warnings, TypeScript/Vite build. Regression checks failed
+before sparse path, retry label, active-history limit, retired admin list and
+matching XLSX fixes. Sol/Astra review corrections applied. Browser fixture at
+1440x950 and 390x844 covered progress, true pause/retry/status filter, details,
+keyboard, report failure/recovery, favicon failure/domain change and current marks.
+Actual root favicons for geosoft-dent.ru and neighbors-expert.ru returned 200.
+Evidence: C:/codex-tmp/airate-prototype-qa/project-fixes-*; task docs/tasks/project-ui-fixes.md.
+Publication authorized, exact release verification pending. No schema/config/price
+change, real provider scan/payment/S3 exercise needed for this UI bugfix.
+
+## Prototype app published (2026-10-12)
 
 Branch `codex/prototype-frontend` follows the supplied white/navy/orange prototype:
 shared logo/service marks, nine account sections, calendar/choices/chart, grouped
@@ -25,7 +50,9 @@ Built assets are included; the user authorized immediate publication after check
 Comparison filters use only displayed dates. Scrapeless main and subscription
 balances are USD separately, confirmed against the official dashboard/backend;
 Excess Credits retains its original unit. Admin desktop/mobile failure/recovery
-and separate-currency smoke passed. Exact-SHA release verification is pending.
+and separate-currency smoke passed. PRs #43/#44 merged; production 2c50130af77eea1699301b8cdb9ec30035954aa5
+passed CI/deploy run 38241205017. Public readiness matched that SHA; 11 fetched
+assets matched the tested web tree and anonymous private routes returned 401.
 No real payment, S3 or authenticated production scan was exercised for the redesign.
 See [prototype task evidence](docs/tasks/prototype-frontend.md).
 

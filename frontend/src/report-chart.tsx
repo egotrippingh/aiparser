@@ -8,10 +8,10 @@ export function chartIndex(current: number | null, key: string, length: number) 
   if (key === "End") return length - 1
   return Math.max(0, Math.min(length - 1, (current ?? (key === "ArrowLeft" ? length : -1)) + (key === "ArrowLeft" ? -1 : 1)))
 }
-export function linePath(values: (number | null)[], x: (i: number) => number, y: (v: number) => number) {
+export function linePath(values: (number | null)[], x: (i: number) => number, y: (v: number) => number, connectGaps = false) {
   let continuous = false
   return values.map((value, index) => {
-    if (value === null) { continuous = false; return "" }
+    if (value === null) { if (!connectGaps) continuous = false; return "" }
     const part = `${continuous ? "L" : "M"}${x(index).toFixed(1)},${y(value).toFixed(1)}`
     continuous = true; return part
   }).join(" ")
@@ -40,15 +40,21 @@ export function ReportChart({ days, services, available, choose }: {
       onMouseLeave={() => setActive(null)} onFocus={() => setActive(days.length ? days.length - 1 : null)} onBlur={() => setActive(null)}
       onKeyDown={e => { if (["ArrowLeft","ArrowRight","Home","End","Escape"].includes(e.key)) { e.preventDefault(); setActive(index => chartIndex(index,e.key,days.length)) } }}>
       {[0,25,50,75,100].map(value => <g key={value}><line x1={left} y1={y(value)} x2={right} y2={y(value)} stroke="#e9edf3" strokeDasharray="3 3"/><text x={left-9} y={y(value)+3} textAnchor="end" fill="#748093" fontSize={10}>{value}%</text></g>)}
-      {services.map(id => <path key={id} d={linePath(days.map(day => day.services[id]?.visibility_pct ?? null),x,y)} fill="none" stroke={serviceColors[id]} strokeWidth={id === "chatgpt" ? 2.8 : 1.8} strokeLinecap="round"/>)}
+      {services.map(id => {
+        const values = days.map(day => day.services[id]?.visibility_pct ?? null)
+        return <g key={id} fill="none" stroke={serviceColors[id]} strokeWidth={id === "chatgpt" ? 2.8 : 2.2} strokeLinecap="round">
+          <path d={linePath(values,x,y,true)} strokeDasharray="4 4" opacity={0.75}/>
+          <path d={linePath(values,x,y)}/>
+        </g>
+      })}
       {indexes.map(i => <text key={i} x={x(i)} y={230} textAnchor="middle" fill="#748093" fontSize={10}>{shortDate(days[i].date)}</text>)}
       {point && active !== null && <g><line className="chart-crosshair" x1={x(active)} x2={x(active)} y1={top} y2={bottom}/>{services.map(id => point.services[id]?.visibility_pct == null ? null : <circle key={id} cx={x(active)} cy={y(point.services[id].visibility_pct!)} r={4} fill={serviceColors[id]} stroke="white" strokeWidth={2}/>)}</g>}
       {services.flatMap(id => days.map((day, i) => {
         const value = day.services[id]?.visibility_pct
-        return value != null && days[i-1]?.services[id]?.visibility_pct == null && days[i+1]?.services[id]?.visibility_pct == null
-          ? <circle key={`${id}-${i}`} cx={x(i)} cy={y(value)} r={3.5} fill={serviceColors[id]}/> : null
+        return value != null
+          ? <circle key={`${id}-${i}`} cx={x(i)} cy={y(value)} r={3} fill={serviceColors[id]} stroke="white" strokeWidth={1}/> : null
       }))}
       {!days.some(day => services.some(id => day.services[id]?.visibility_pct != null)) && <text x={width/2} y={115} textAnchor="middle" fill="#748093" fontSize={12}>В этом периоде нет проверок</text>}
-    </svg>{point && <div className="chart-tooltip" style={{display:"block",left:Math.max(8,Math.min(x(active!),width-250)),top:20}} aria-live="polite"><strong>{shortDate(point.date)}.{point.date.slice(0,4)}</strong>{services.map(id => <div className="tooltip-service" key={id}><ServiceMark id={id}/><span>{serviceName(id)}</span><b>{point.services[id]?.visibility_pct == null ? "нет данных" : `${point.services[id].visibility_pct}%`}</b></div>)}</div>}</div><div className="chart-note">Наведите на график, чтобы сравнить системы за день. ← → для выбора дня с клавиатуры.</div>
+    </svg>{point && <div className="chart-tooltip" style={{display:"block",left:Math.max(8,Math.min(x(active!),width-250)),top:20}} aria-live="polite"><strong>{shortDate(point.date)}.{point.date.slice(0,4)}</strong>{services.map(id => <div className="tooltip-service" key={id}><ServiceMark id={id}/><span>{serviceName(id)}</span><b>{point.services[id]?.visibility_pct == null ? "нет данных" : `${point.services[id].visibility_pct}%`}</b></div>)}</div>}</div><div className="chart-note">Точки — дни с проверками, пунктир — промежутки без проверок. Наведите на график для значений; ← → для выбора дня с клавиатуры.</div>
   </section>
 }

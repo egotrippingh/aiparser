@@ -116,6 +116,13 @@ def test_admin_review_all_accounts_without_disclosing_credentials(tmp_path):
     assert detail['answer_text'] == 'Original answer'
     assert detail['analysis']['reasoning'] == 'Owner analysis'
     assert 'private reasoning' not in json.dumps(detail)
+    with sessions() as db:
+        db.get(CloudResult, ids[1]).service = 'alice'
+        db.commit()
+    filtered = client.get(route, headers=other, params={'search': 'owner@test.example', 'status': 'found', 'include_retired': False}).json()
+    assert filtered['total'] == 2
+    assert all(row['service'] != 'alice' for row in filtered['results'])
+    assert client.get(route + f'/{ids[1]}', headers=other).json()['service'] == 'alice'
     assert client.get(route, headers=other, params={'search': '%'}).json()['total'] == 0
     assert client.get(route, headers=other, params={'limit': 101}).status_code == 422
     assert client.get(route + '/999999', headers=other).status_code == 404
