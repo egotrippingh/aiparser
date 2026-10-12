@@ -85,6 +85,7 @@ class FeedbackIn(BaseModel):
 
 
 class ReviewOptions(BaseModel):
+    include_retired: bool = True
     search: str = Field(default="", max_length=200)
     status: Literal["", "found", "not_found", "error", "skipped", "captcha", "auth_required", "limit_reached"] = ""
     offset: int = Field(default=0, ge=0)
@@ -137,6 +138,8 @@ def register_scan_feedback(app, db_session, current_user, screenshot_storage=Non
     @router.get("/admin/scan-results")
     def review(response: Response, options: ReviewOptions = Depends(), user=Depends(admin), db=Depends(db_session)):
         filters = []
+        if not options.include_retired:
+            filters.append(CloudResult.service != "alice")
         if options.search:
             filters.append(User.email.icontains(options.search, autoescape=True) |
                            CloudResult.project_name.icontains(options.search, autoescape=True) |
