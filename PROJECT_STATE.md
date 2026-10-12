@@ -1,6 +1,6 @@
 # AIRate current project state
 
-## Project report preferences verified locally (2026-10-12)
+## Project report preferences published (2026-10-12)
 
 Branch codex/project-report-services restricts report choices, graph, service stats,
 overview requests and XLSX to current project.config.services. Saved choices that
@@ -14,7 +14,10 @@ independent review without blockers. Browser checked two-system legend/stats,
 disabled saved selection after config save, restored range in a new tab, separate
 second-project range/Gemini legend, keyboard and narrow viewport without overflow
 or console errors/warnings. Evidence: C:/codex-tmp/airate-project-services-20261012/.
-Publication authorized; exact-SHA CI/deploy/public verification pending. No backend,
+PRs #47/#48 merged; production c7e6c2736ca8c649407bd875a182236eddef6106
+passed CI/deploy run 38261782655. Public readiness matched that SHA; all 11 fetched
+assets matched the tested tree and anonymous private routes returned 401.
+Homepage Gemini logo loaded; cabinet uses cabinet-C0HK4bK9.js. No backend,
 schema, provider/payment/S3 change. Browser data clearing removes saved ranges;
 private browsing can disable persistent storage without breaking the report.
 
