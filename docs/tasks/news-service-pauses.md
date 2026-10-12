@@ -28,9 +28,22 @@ Acceptance:
 - Windows agent workflow and CI-only desktop steps are retired, while server,
   shared parser/rules/XML and frontend checks remain.
 
-Evidence: focused admin/news, cloud pause and chart tests; full server suite with
-the disposable PostgreSQL URL, frontend test/lint/build, generated web and review
-remain before the production PR.
+Delivered on 2026-10-12 through PR #51, with separate renderer PR #52. Production
+`62536ba7389fd625656155b48ec77ddb99823ddc`; Actions run 38295211655 attempt 2 passed.
+Evidence: 194 server tests with disposable PostgreSQL, 66 retained shared checks
+without the retired browser runtime, 83 frontend tests, lint/build and generated
+web, independent Sol/Astra reviews, desktop/390px fixture checks and live asset
+and exact-release readiness checks. Existing desktop assertions remain in manual
+legacy test files.
+
+Operator preparation verified the backup checksum, migrated an isolated restored
+copy twice, compared all previous columns/records and started both candidate and
+compatible rollback in production mode. Graceful activation repeated the final
+backup and preservation check before readiness; the normal backup/restore/deploy
+gates then passed. Compatible image: `airate-web:news-rollback-62536ba7389f`, ID
+`sha256:a99092ac04334a32a0bfda9bd96056bf58b2172cd7aa30518a6c1f8914bb96c2`.
+Private fingerprints and backup details remain in root-only release evidence on
+the VPS. No paid scans or real production posts were launched for verification.
 
 Deployment note: this revision is additive (new table and defaulted columns), but
 the existing runtime refuses a database ahead of its Alembic head. Deploy with the
