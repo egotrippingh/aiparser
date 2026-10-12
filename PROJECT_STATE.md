@@ -1,6 +1,6 @@
 # AIRate current project state
 
-## Project interface fixes verified locally (2026-10-12)
+## Project interface fixes published (2026-10-12)
 
 Branch codex/chart-gaps: sparse measurement points are joined by dashed guides across
 unmeasured days, without invented zeroes/tooltips or extending to empty endpoints.
@@ -22,8 +22,14 @@ matching XLSX fixes. Sol/Astra review corrections applied. Browser fixture at
 keyboard, report failure/recovery, favicon failure/domain change and current marks.
 Actual root favicons for geosoft-dent.ru and neighbors-expert.ru returned 200.
 Evidence: C:/codex-tmp/airate-prototype-qa/project-fixes-*; task docs/tasks/project-ui-fixes.md.
-Publication authorized, exact release verification pending. No schema/config/price
-change, real provider scan/payment/S3 exercise needed for this UI bugfix.
+PRs #45/#46 merged; production 488d5f3baa9fcb8d42897f4e8ab39e40700cc7f3
+passed CI/deploy run 38248217391. Public readiness matched that SHA; 11 fetched
+assets matched the tested web tree and anonymous private routes returned 401.
+Public home/cabinet loaded the new bundles without console errors/warnings;
+versioned GPT/Perplexity icons loaded. Release evidence:
+C:/codex-tmp/airate-project-fixes-release-20261012/.
+No schema/config/price change. No real provider scan/payment/S3 exercise was
+performed for this UI bugfix; authenticated project flows used disposable fixtures.
 
 ## Prototype app published (2026-10-12)
 
