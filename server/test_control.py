@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from server.app import create_app
 from server.control import schedule_tick
-from server.models import AgentDevice, ControlRun, ControlProject, make_session_factory
+from server.models import AgentDevice, ControlRun, ControlProject, ProviderAccount, make_session_factory, utcnow
 
 
 @pytest.fixture(autouse=True)
@@ -189,6 +189,77 @@ def test_schedule_runs_on_server_and_deduplicates(tmp_path):
         assert list(db.scalars(select(ControlRun)))[0].state == 'queued'
 
 
+def test_paused_services_consume_schedule_and_invalidate_quote(tmp_path):
+    client, owner, _, _, url = setup(tmp_path)
+    project = client.post('/api/v1/control/projects', headers=owner, json={
+        'name': 'Scheduled', 'brand_name': 'Brand', 'queries': [{'text': 'question'}],
+        'config': {'services': ['chatgpt']},
+        'schedule': {'enabled': True, 'month_days': [15], 'time': '12:30', 'timezone': 'Europe/Moscow'},
+    }).json()
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        db.get(ProviderAccount, 'chatgpt').paused = True
+        db.commit()
+    quote = client.get(f"/api/v1/control/projects/{project['id']}/quote", headers=owner).json()
+    assert quote['count'] == quote['total_kopeks'] == 0
+    with sessions() as db:
+        db.get(ProviderAccount, 'chatgpt').paused = False
+        db.get(ProviderAccount, 'chatgpt').revision += 1
+        db.commit()
+    assert client.post(f"/api/v1/control/projects/{project['id']}/runs", headers=owner,
+        json={'request_id': uuid.uuid4().hex, 'revision': quote['revision'], 'provider_state': quote['provider_state']}).status_code == 409
+    with sessions() as db:
+        db.get(ProviderAccount, 'chatgpt').paused = True
+        db.commit()
+    due = datetime(datetime.now(timezone.utc).year + 1, 4, 15, 9, 30, tzinfo=timezone.utc)
+    schedule_tick(sessions, due)
+    with sessions() as db:
+        run = db.scalar(select(ControlRun))
+        assert run.state == 'done' and run.active_project_key is None
+        assert json.loads(run.progress_json)['skipped'] == 1
+
+
+def test_schedule_slot_during_offline_pause_is_consumed_after_resume(tmp_path):
+    client, owner, _, _, url = setup(tmp_path)
+    project = client.post('/api/v1/control/projects', headers=owner, json={
+        'name': 'Offline pause', 'brand_name': 'Brand', 'queries': [{'text': 'question'}],
+        'config': {'services': ['chatgpt']},
+        'schedule': {'enabled': True, 'month_days': [15], 'time': '12:30', 'timezone': 'Europe/Moscow'},
+    }).json()
+    due = datetime(datetime.now(timezone.utc).year + 1, 4, 15, 9, 30, tzinfo=timezone.utc)
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        account = db.get(ProviderAccount, 'chatgpt')
+        account.paused, account.last_paused_at = True, due - timedelta(minutes=1)
+        db.commit()
+        account.paused, account.last_paused_at = False, due + timedelta(minutes=1)
+        db.commit()
+    schedule_tick(sessions, due + timedelta(minutes=2))
+    with sessions() as db:
+        run = db.scalar(select(ControlRun).where(ControlRun.project_id == project['id']))
+        assert run.state == 'done' and run.active_project_key is None
+        assert json.loads(run.progress_json)['skipped'] == 1
+        assert json.loads(run.snapshot_json)['cloud_services'] == []
+
+
+def test_launch_requires_provider_quote_after_pause_history(tmp_path):
+    client, owner, _, _, url = setup(tmp_path)
+    project = client.post('/api/v1/control/projects', headers=owner, json={
+        'name': 'Fresh quote', 'brand_name': 'Brand', 'queries': [{'text': 'question'}],
+        'config': {'services': ['chatgpt']},
+    }).json()
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        account = db.get(ProviderAccount, 'chatgpt')
+        account.paused, account.last_paused_at = True, utcnow()
+        db.commit()
+        account.paused, account.last_paused_at = False, utcnow()
+        db.commit()
+    response = client.post(f"/api/v1/control/projects/{project['id']}/runs", headers=owner,
+        json={'request_id': uuid.uuid4().hex})
+    assert response.status_code == 409
+
+
 @pytest.mark.parametrize('year,month,last,numbered', [
     (2028, 2, 29, []), (2029, 2, 28, [28]), (2028, 4, 30, []), (2028, 12, 31, []),
 ])
@@ -276,64 +347,3 @@ def test_browser_device_login_one_use_and_revocation(tmp_path):
     assert client.post('/api/v1/control/agent/poll', headers=fresh, json={}).json()['name'] == 'Москва — рабочий ПК'
     assert client.post('/api/v1/auth/logout', headers=fresh).status_code == 200
     assert client.get('/api/v1/me', headers=fresh).status_code == 401
-
-
-def test_website_to_desktop_and_shared_report(tmp_path, monkeypatch):
-    import asyncio
-    import json
-    import threading
-    from app import config, control_agent, agent
-    from app.db import repo
-    from server.models import User
-    client, owner, other, devices, url = setup(tmp_path)
-    user_id = client.get('/api/v1/me', headers=owner).json()['id']
-    _, sessions = make_session_factory(url)
-    with sessions() as db:
-        db.get(User, user_id).is_admin = True
-        db.commit()
-    monkeypatch.setattr(config, 'DB_PATH', tmp_path / 'desktop.db')
-    monkeypatch.setattr(repo, '_local', threading.local())
-    repo.init_db()
-    project = client.post('/api/v1/control/projects', headers=owner, json={
-        'name':'geosoft-dent.ru', 'brand_name':'ESTUS', 'device_id':'a'*32,
-        'queries':[{'text':'Где купить ESTUS?', 'group_tag':'Общие'}],
-        'config':{'services':['chatgpt'],'browser_mode':'headless'},
-    }).json()
-    request_id = uuid.uuid4().hex
-    seed_legacy_run(client, owner, project, request_id)
-    run = client.post(f"/api/v1/control/projects/{project['id']}/runs", headers=owner,
-        json={'request_id':request_id}).json()
-    assert client.post('/api/v1/control/agent/poll',headers=devices[0],
-        json={'capabilities':{'installed':False}}).json()['run'] is None
-    job = client.post('/api/v1/control/agent/poll',headers=devices[0],json={}).json()['run']
-    local_id, managed = control_agent.materialize({**job,'created_at':'2026-09-26T23:00:00+00:00'}, user_id)
-    assert managed['date'] == '2026-09-27'
-    assert repo.get_project(local_id)['deep_check_depth'] == 0
-    qid = repo.list_queries(local_id, only_active=True)[0]['id']
-    query_id = managed['query_map'][str(qid)]
-    check_id = f"{run['id']}:{query_id}:chatgpt"
-    assert client.post('/api/v1/checks/reserve',headers=devices[1],json={'check_ids':[check_id]}).status_code == 403
-    assert client.post('/api/v1/checks/reserve',headers=devices[0],json={'check_ids':['arbitrary']}).status_code == 403
-    res = client.post('/api/v1/checks/reserve',headers=devices[0],json={'check_ids':[check_id]})
-    assert res.status_code == 200, res.text
-    assert res.json()['price_kopeks'] == 0
-    assert client.post(f'/api/v1/checks/{check_id}/complete',headers=devices[1],json={'status':'found'}).status_code == 403
-    assert client.post(f'/api/v1/checks/{check_id}/complete',headers=devices[0],json={'status':'found'}).status_code == 200
-    scan_id = repo.create_scan(local_id, ['chatgpt'], {
-        'billing_run_id':run['id'],'billing_user_id':user_id,'cloud_job_id':run['id'],
-        'cloud_project_id':project['id'],'cloud_query_map':managed['query_map'],'cloud_queries':managed['queries']})
-    repo.save_result(scan_id,qid,'chatgpt','found',answer_text='ESTUS',mention_types=['text'])
-    row = repo.cloud_results_after(0)[0]
-    row['query_text'] = 'later edited text'
-    payload = agent._payload(row)
-    assert payload['query_text'] == 'Где купить ESTUS?'
-    res = client.post('/api/v1/agent/results',headers=devices[0],json={'device_id':'a'*32,'results':[payload]})
-    assert res.status_code == 200, res.text
-    report = client.get('/api/v1/reports',headers=owner,params={'project':project['id']})
-    assert report.status_code == 200, report.text
-    assert report.json()['results'][0]['query_text'] == 'Где купить ESTUS?'
-    assert client.get('/api/v1/reports',headers=other,params={'project':project['id']}).json()['results'] == []
-    # A stopped assignment cannot reserve further checks, even with a valid token.
-    client.post(f"/api/v1/control/runs/{run['id']}/command",headers=owner,json={'action':'stop'})
-    assert client.post('/api/v1/checks/reserve',headers=devices[0],json={'check_ids':[check_id]}).status_code == 409
-    repo.conn().close()

@@ -14,11 +14,12 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import StatementError
 
 from server.ai import AIError, AIResult, AIRetryAfter
+from server import provider_tasks
 from server.app import create_app
 from server.checks import complete_check
-from server.cloud_scans import _analyze_saved, cloud_tick, worker
+from server.cloud_scans import _analyze_saved, _claim, cloud_tick, worker
 from server.control import schedule_tick
-from server.models import Check, CloudResult, ControlProject, ControlRun, LedgerEntry, ServerCapture, User, Wallet, make_session_factory, utcnow
+from server.models import Check, CloudResult, ControlProject, ControlRun, LedgerEntry, ProviderAccount, ProviderTask, ServerCapture, User, Wallet, make_session_factory, utcnow
 from shared.errors import ProviderQuotaError
 from shared.xmlriver import CollectionCancelled, ProviderThrottleError
 
@@ -168,6 +169,33 @@ def test_two_cloud_services_finish_one_query(tmp_path, monkeypatch):
         assert row.state == 'done'
         assert json.loads(row.progress_json)['cloud_done'] == 2
         assert {result.service for result in db.scalars(select(CloudResult))} == {'google_aio', 'yandex_neuro'}
+
+
+def test_pause_discards_unadmitted_pair_even_after_resume(tmp_path, monkeypatch):
+    client, owner, _, _, sessions = setup(tmp_path, monkeypatch)
+    _, run = project_and_run(client, owner)
+    claimed = _claim(sessions)
+    assert claimed is not None
+    run_id, token, snapshot = claimed
+    with sessions() as db:
+        account = db.get(ProviderAccount, 'google_aio')
+        account.paused = True
+        account.last_paused_at = utcnow()
+        db.commit()
+    task, fresh = provider_tasks.admit(
+        sessions, run_id, token, snapshot['queries'][0]['id'], 'google_aio', 1)
+    assert fresh is False and task.state == 'skipped'
+    with sessions() as db:
+        account = db.get(ProviderAccount, 'google_aio')
+        account.paused = False
+        db.get(ControlRun, run_id).lease_until = utcnow() - timedelta(seconds=1)
+        db.commit()
+    assert tick(sessions)
+    with sessions() as db:
+        assert db.get(ControlRun, run['id']).state == 'done'
+        assert db.get(ProviderTask, task.check_id).state == 'skipped'
+        assert db.scalar(select(CloudResult)) is None
+        assert db.scalar(select(Check)) is None
 
 
 def test_historical_supplier_errors_are_masked_at_public_boundaries(tmp_path, monkeypatch):

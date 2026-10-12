@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from server import provider_tasks, scrapeless
 from server.cloud_scans import _claim, _cloud_tick
@@ -152,6 +152,121 @@ def test_insufficient_funds_never_posts(tmp_path, monkeypatch):
         assert db.scalar(select(ProviderTask)) is None
 
 
+def test_run_created_while_paused_never_admits_after_resume(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRAPELESS_API_KEY", "fake-key")
+    client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, admin=False)
+    created = client.post('/api/v1/control/projects', headers=owner, json={
+        'name': 'Mixed pause', 'brand_name': 'Brand', 'queries': [{'text': 'question'}],
+        'config': {'services': ['chatgpt', 'perplexity']},
+    })
+    assert created.status_code == 201, created.text
+    project = created.json()
+    with sessions() as db:
+        db.get(Wallet, user_id).balance_kopeks = 120
+        account = db.get(ProviderAccount, 'chatgpt')
+        account.paused, account.last_paused_at = True, utcnow()
+        db.commit()
+    quote = client.get(f"/api/v1/control/projects/{project['id']}/quote", headers=owner).json()
+    launched = client.post(f"/api/v1/control/projects/{project['id']}/runs", headers=owner,
+        json={'request_id': 'a' * 32, 'revision': quote['revision'], 'provider_state': quote['provider_state']})
+    assert launched.status_code == 201, launched.text
+    run = launched.json()
+    with sessions() as db:
+        account = db.get(ProviderAccount, 'chatgpt')
+        account.paused, account.last_paused_at = False, utcnow()
+        db.commit()
+    supplier = Supplier()
+    assert tick(sessions, supplier)
+    assert [service for service, _, _ in supplier.posts] == ['perplexity']
+    with sessions() as db:
+        frozen = json.loads(db.get(ControlRun, run['id']).snapshot_json)
+        assert frozen['cloud_services'] == ['perplexity']
+        assert db.scalar(select(Check).where(Check.client_check_id.like(f"{run['id']}:%:chatgpt"))) is None
+        assert db.get(Wallet, user_id).balance_kopeks == 0
+        assert db.scalar(select(Check)).status == 'settled'
+
+
+def test_pause_releases_rejected_reservation_before_skipping(tmp_path, monkeypatch):
+    _, _, _, user_id, sessions, _, run = create(tmp_path, monkeypatch, admin=False)
+    run_id, token, snapshot = _claim(sessions)
+    query_id = snapshot['queries'][0]['id']
+    check_id = f'{run_id}:{query_id}:chatgpt'
+    from server.checks import reserve_checks
+    with sessions() as db:
+        db.get(Wallet, user_id).balance_kopeks = 120
+        reserve_checks(db, db.get(User, user_id), [check_id], 120)
+        db.add(ProviderTask(check_id=check_id, run_id=run_id, query_id=query_id,
+            service='chatgpt', submission_token='rejected-token', state='rejected'))
+        account = db.get(ProviderAccount, 'chatgpt')
+        account.paused, account.last_paused_at = True, utcnow()
+        db.get(ControlRun, run_id).lease_until = utcnow() - timedelta(seconds=1)
+        db.commit()
+    assert tick(sessions, Supplier())
+    with sessions() as db:
+        assert db.get(ProviderTask, check_id).state == 'skipped'
+        assert db.scalar(select(Check).where(Check.client_check_id == check_id)).status == 'released'
+        assert db.get(Wallet, user_id).balance_kopeks == 120
+        assert db.get(ControlRun, run_id).state == 'done'
+
+
+def test_paused_admission_releases_hold_before_worker_restart(tmp_path, monkeypatch):
+    _, _, _, user_id, sessions, _, run = create(tmp_path, monkeypatch, admin=False)
+    run_id, token, snapshot = _claim(sessions)
+    query_id = snapshot['queries'][0]['id']
+    check_id = f'{run_id}:{query_id}:chatgpt'
+    from server.checks import reserve_checks
+    with sessions() as db:
+        db.get(Wallet, user_id).balance_kopeks = 120
+        reserve_checks(db, db.get(User, user_id), [check_id], 120)
+        account = db.get(ProviderAccount, 'chatgpt')
+        account.paused, account.last_paused_at = True, utcnow()
+        db.commit()
+    task, fresh = provider_tasks.admit(sessions, run_id, token, query_id, 'chatgpt', 100)
+    assert task.state == 'skipped' and fresh is False
+    # This is the crash boundary: release happens before the worker can refresh progress.
+    with sessions() as db:
+        assert db.scalar(select(Check).where(Check.client_check_id == check_id)).status == 'released'
+        assert db.get(Wallet, user_id).balance_kopeks == 120
+        db.get(ControlRun, run_id).lease_until = utcnow() - timedelta(seconds=1)
+        db.commit()
+    assert tick(sessions, Supplier())
+    with sessions() as db:
+        assert db.get(ControlRun, run_id).state == 'done'
+
+
+def test_late_pause_waits_for_release_before_retrying_next_service(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRAPELESS_API_KEY", "fake-key")
+    client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, admin=False)
+    project, run = project_and_run(client, owner, services=('chatgpt', 'perplexity'), legacy=False)
+    with sessions() as db:
+        db.get(Wallet, user_id).balance_kopeks = 120
+        db.commit()
+    original = provider_tasks.skip_if_paused
+    paused = False
+
+    def pause_after_preflight(*args):
+        nonlocal paused
+        result = original(*args)
+        if not paused and args[-1] == 'chatgpt':
+            paused = True
+            with sessions() as db:
+                account = db.get(ProviderAccount, 'chatgpt')
+                account.paused, account.last_paused_at = True, utcnow()
+                db.commit()
+        return result
+
+    monkeypatch.setattr(provider_tasks, 'skip_if_paused', pause_after_preflight)
+    supplier = Supplier()
+    assert tick(sessions, supplier)
+    assert [service for service, _, _ in supplier.posts] == ['perplexity']
+    with sessions() as db:
+        checks = {check.client_check_id.rsplit(':', 1)[1]: check for check in db.scalars(select(Check))}
+        assert checks['chatgpt'].status == 'released'
+        assert checks['perplexity'].status == 'settled'
+        assert db.get(Wallet, user_id).balance_kopeks == 0
+        assert db.get(ControlRun, run['id']).state == 'done'
+
+
 def test_ambiguous_post_retains_capacity_and_has_no_error_result(tmp_path, monkeypatch):
     _, _, _, _, sessions, _, run = create(tmp_path, monkeypatch)
     supplier = Supplier()
@@ -252,6 +367,30 @@ def test_shared_admission_across_users_and_stale_submission(tmp_path, monkeypatc
     assert admit(waiting) == (None, False)
     provider_tasks.save(sessions, task, scrapeless.evidence({"result_text": "Brand"}))
     assert admit(waiting)[1] is True
+
+
+def test_postgres_pause_and_admission_are_serialized(tmp_path, monkeypatch, postgres_url):
+    _, owner, _, _, sessions, _, run = create(tmp_path, monkeypatch, database_url=postgres_url)
+    run_id, token, snapshot = _claim(sessions)
+    query_id = snapshot['queries'][0]['id']
+    def pause():
+        with sessions() as db:
+            db.execute(update(ProviderAccount).where(ProviderAccount.service == 'chatgpt').values(
+                paused=True, last_paused_at=utcnow(), revision=ProviderAccount.revision + 1))
+            db.commit()
+    def admit():
+        return provider_tasks.admit(sessions, run_id, token, query_id, 'chatgpt', 1)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        paused = pool.submit(pause)
+        task, fresh = pool.submit(admit).result()
+        paused.result()
+    with sessions() as db:
+        account = db.get(ProviderAccount, 'chatgpt')
+        saved = db.get(ProviderTask, task.check_id)
+        # If the pause acquired the account lock first, admission must be skipped;
+        # otherwise the accepted intent predates the pause and is safe to drain.
+        assert saved.state == ('skipped' if account.last_paused_at <= saved.created_at else 'submitting')
+        assert fresh is (saved.state == 'submitting')
 
 
 def test_expired_paid_task_never_posts_again_or_holds_account_capacity(tmp_path, monkeypatch):

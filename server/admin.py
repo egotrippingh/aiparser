@@ -5,9 +5,20 @@ from decimal import Decimal, InvalidOperation
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import func, select
+from pydantic import BaseModel, Field, StrictBool
+from sqlalchemy import desc, func, select
 
-from server.models import Check, User, Wallet, utcnow
+from server.models import Check, NewsPost, ProviderAccount, User, Wallet, utcnow
+
+SERVICES = ("chatgpt", "perplexity", "gemini", "google_aio", "yandex_neuro")
+
+
+class ProviderPauseIn(BaseModel):
+    paused: StrictBool
+
+
+class NewsPostIn(BaseModel):
+    body: str = Field(min_length=1, max_length=10_000)
 
 
 def amount(value):
@@ -100,5 +111,49 @@ def register_admin(app, db_session, current_user):
         response.headers["Cache-Control"] = "no-store"
         async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
             return {"providers": await provider_balances(client)}
+
+    @router.get("/providers")
+    def providers(response: Response, user=Depends(admin), db=Depends(db_session)):
+        response.headers["Cache-Control"] = "no-store"
+        rows = {row.service: row for row in db.scalars(select(ProviderAccount)).all()}
+        return {"providers": [{"service": service, "paused": bool(rows.get(service) and rows[service].paused)} for service in SERVICES]}
+
+    @router.put("/providers/{service}")
+    def provider_pause(service: str, body: ProviderPauseIn, response: Response, user=Depends(admin), db=Depends(db_session)):
+        if service not in SERVICES:
+            raise HTTPException(404, "Неизвестная ИИ-система")
+        account = db.scalar(select(ProviderAccount).where(ProviderAccount.service == service).with_for_update())
+        if not account:
+            raise HTTPException(409, "Требуется миграция аккаунтов сервисов")
+        if account.paused != body.paused:
+            account.paused = body.paused
+            account.revision += 1
+            # This is an admission cutoff, not a provider revision: a resumed
+            # service must still exclude slots that elapsed while it was paused.
+            account.last_paused_at = utcnow()
+            db.commit()
+        response.headers["Cache-Control"] = "no-store"
+        return {"service": service, "paused": account.paused}
+
+    @router.post("/news", status_code=201)
+    def create_news(body: NewsPostIn, user=Depends(admin), db=Depends(db_session)):
+        text = body.body.strip()
+        if not text:
+            raise HTTPException(422, "Текст новости не может быть пустым")
+        row = NewsPost(body=text, author_id=user.id)
+        db.add(row)
+        db.commit()
+        return {"id": row.id, "body": row.body, "created_at": row.created_at.isoformat()}
+
+    @app.get("/api/v1/news")
+    def news(cursor: int | None = Query(default=None, ge=1), limit: int = Query(default=20, ge=1, le=50), db=Depends(db_session)):
+        statement = select(NewsPost).order_by(desc(NewsPost.id)).limit(limit + 1)
+        if cursor is not None:
+            statement = statement.where(NewsPost.id < cursor)
+        rows = db.scalars(statement).all()
+        more = len(rows) > limit
+        rows = rows[:limit]
+        return {"items": [{"id": row.id, "body": row.body, "created_at": row.created_at.isoformat()} for row in rows],
+                "next_cursor": rows[-1].id if more and rows else None}
 
     app.include_router(router)

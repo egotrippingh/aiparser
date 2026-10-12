@@ -9,7 +9,7 @@ from datetime import timedelta, timezone
 
 from sqlalchemy import func, select, update
 
-from server.models import ControlRun, ProviderAccount, ProviderTask, ServerCapture, utcnow
+from server.models import Check, ControlRun, ProviderAccount, ProviderTask, ServerCapture, User, utcnow
 from server.scrapeless import CollectionDeferred, Rejected, SubmissionUnknown
 
 ACTIVE = ("submitting", "submitted", "uncertain")
@@ -17,6 +17,60 @@ ACTIVE = ("submitting", "submitted", "uncertain")
 
 def _aware(value):
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
+def paused_at(account, timestamp):
+    if account.paused:
+        return True
+    cutoff = account.last_paused_at
+    if not cutoff:
+        return False
+    return _aware(timestamp) <= _aware(cutoff)
+
+
+def paused_for_run(account, run):
+    return paused_at(account, run.scheduled_for or run.created_at)
+
+
+def _skip_and_release(db, run, task, check_id, query_id, service, now):
+    """Terminalize unadmitted work and release any unused reservation atomically."""
+    if task is None:
+        task = ProviderTask(check_id=check_id, run_id=run.id, query_id=query_id,
+            service=service, submission_token=uuid.uuid4().hex, state="skipped")
+        db.add(task)
+    else:
+        task.state, task.updated_at = "skipped", now
+    check = db.scalar(select(Check).where(Check.user_id == run.user_id,
+        Check.client_check_id == check_id))
+    if check and check.status == "reserved":
+        from server.checks import complete_check
+        complete_check(db, db.get(User, run.user_id), check_id, "skipped", commit=False)
+    return task
+
+
+def skip_if_paused(sessions, run_id, token, query_id, service):
+    """Durably skip only work excluded by a pause, without admitting fresh work."""
+    check_id = f"{run_id}:{query_id}:{service}"
+    with sessions() as db:
+        if not db.execute(update(ProviderAccount).where(ProviderAccount.service == service)
+                .values(revision=ProviderAccount.revision + 1)).rowcount:
+            raise RuntimeError("Provider account migration is missing")
+        task = db.get(ProviderTask, check_id)
+        if task and task.state != "rejected":
+            db.commit()
+            return task if task.state == "skipped" else None
+        run = db.get(ControlRun, run_id)
+        now = utcnow()
+        if (not run or run.lease_token != token or not run.lease_until or
+                _aware(run.lease_until) < now or run.desired_state != "running"):
+            return None
+        account = db.get(ProviderAccount, service)
+        if not paused_for_run(account, run):
+            db.commit()
+            return None
+        task = _skip_and_release(db, run, task, check_id, query_id, service, now)
+        db.commit()
+        return task
 
 
 def admit(sessions, run_id, token, query_id, service, limit):
@@ -37,6 +91,12 @@ def admit(sessions, run_id, token, query_id, service, limit):
                 _aware(run.lease_until) < now or run.desired_state != "running"):
             return None, False
         account = db.get(ProviderAccount, service)
+        # A manual pause discards not-yet-admitted work from older runs.  It is
+        # deliberately not a cooldown: resuming must not recreate that backlog.
+        if paused_for_run(account, run):
+            task = _skip_and_release(db, run, task, check_id, query_id, service, now)
+            db.commit()
+            return task, False
         if account.cooldown_until and _aware(account.cooldown_until) > now:
             return None, False
         active = db.scalar(select(func.count()).select_from(ProviderTask).where(
@@ -127,6 +187,8 @@ async def collect(sessions, client, run_id, token, query, service, country, limi
             await asyncio.sleep(.5)
     if task.state == "completed":
         return json.loads(task.answer_json)
+    if task.state == "skipped":
+        return None
     if task.state == "expired":
         raise CollectionDeferred("Срок хранения ответа истёк; требуется сверка оплаченной задачи администратором")
     if fresh:
@@ -179,6 +241,8 @@ async def collect_xml(sessions, collector, run_id, token, query, service, limit,
             await asyncio.sleep(.5)
     if task.state == "completed":
         return json.loads(task.answer_json)
+    if task.state == "skipped":
+        return None
     if not fresh:
         # XMLRiver has no result handle; its six 90s calls + backoff are bounded below 15m.
         if _aware(task.updated_at) + timedelta(minutes=15) < utcnow():

@@ -13,6 +13,10 @@ it("formats supplier Markdown and highlights brand text and links safely", () =>
   expect(html).toContain('<ul>')
   expect(html).not.toContain('<script>')
 })
+it("uses the same saved source context for Markdown evidence links", () => {
+  const html = renderToStaticMarkup(<AnswerEvidenceView evidence={{format:"markdown",answer_text:"example.test/path",content:[],products:[],source_cards:[]}} sources={["https://example.test/path"]}/>)
+  expect(html).toContain('href="https://example.test/path"')
+})
 it("renders XML structure and red brand accents without injecting provider markup", () => {
   const html = renderToStaticMarkup(<AnswerEvidenceView brand={brand} evidence={{content:[{tag:"h2",children:["TUVIO и Тувио"]},{tag:"p",children:["Не tuvioshop. ",{tag:"a",href:"https://shop.tuvio.test/a",children:["Официальный сайт"]},{tag:"script",children:["alert(1)"]},{tag:"a",href:"javascript:alert(1)",children:["плохая ссылка"]}]}],products:[],source_cards:[]}}/> )
   expect(html).toContain('<h2><mark class="answer-brand">TUVIO</mark>')
@@ -32,7 +36,8 @@ it("shows photo products in a labelled carousel and source cards with safe links
   expect(html).toContain('aria-label="Следующие товары"')
   expect(html).toContain('class="answer-brand">Tuvio</mark> робот')
   expect(html).toContain('23 455 ₽')
-  expect(html).toContain('Карточки ответа')
+  expect(html).not.toContain('Карточки ответа')
+  expect(html).toContain('Описание товара')
 })
 it("displays organization cards without a link or photo instead of dropping them", () => {
   const html=renderToStaticMarkup(<AnswerEvidenceView brand={brand} evidence={{content:["Совет"],products:[],source_cards:[{title:"Клиника Tuvio",text:"",url:""}]}}/> )

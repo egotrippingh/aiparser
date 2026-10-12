@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from server.agent_schemas import SCHEDULABLE_IDS
 from server.ai import AIError
-from server.models import (AgentDevice, Check, CloudResult, ControlLink, ControlProject, ControlRun, ServerCapture,
+from server.models import (AgentDevice, Check, CloudResult, ControlLink, ControlProject, ControlRun, ProviderAccount, ServerCapture,
                            DeviceConnect, DeviceGrant, LedgerEntry, Screenshot, SessionToken, User, Wallet, utcnow)
 from server.public_errors import public_error, public_progress
 from server.reporting import SERVICES
@@ -148,6 +148,7 @@ class LaunchIn(BaseModel):
     request_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     device_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     revision: int | None = Field(default=None, ge=0)
+    provider_state: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
 class RecomputeIn(BaseModel):
@@ -238,6 +239,17 @@ def create_run(db, project, device_id, key, scheduled_for=None, brand_clarificat
     if not snap["config"]["services"]:
         raise HTTPException(422, "Выберите доступный ИИ-сервис в настройках проекта")
     cloud = [s for s in snap["config"]["services"] if s in CLOUD_SERVICES]
+    original_cloud = cloud[:]
+    accounts = {account.service: account for account in db.scalars(select(ProviderAccount).where(
+        ProviderAccount.service.in_(cloud)).with_for_update()).all()}
+    # The account rows stay locked through creation: a run freezes the services
+    # eligible at its intended occurrence, rather than rechecking a later resume.
+    from server.provider_tasks import paused_at
+    intended_at = scheduled_for or utcnow()
+    excluded_cloud = [service for service in cloud if accounts.get(service) and paused_at(accounts[service], intended_at)]
+    if excluded_cloud:
+        cloud = [service for service in cloud if service not in excluded_cloud]
+        snap["config"]["services"] = [service for service in snap["config"]["services"] if service not in excluded_cloud]
     agent = agent_services(snap["config"])
     device = device_for(db, project.user_id, device_id) if agent else None
     if cloud:
@@ -267,13 +279,28 @@ def create_run(db, project, device_id, key, scheduled_for=None, brand_clarificat
     snap["queries"] = [q for q in snap["queries"] if q["active"]]
     if not snap["queries"]:
         raise HTTPException(422, "Добавьте активные запросы в проект")
+    all_cloud_excluded = original_cloud and not cloud
+    if all_cloud_excluded and not agent and not scheduled_for:
+        raise HTTPException(422, "Все выбранные ИИ-системы временно приостановлены администратором")
     row = ControlRun(id=uuid.uuid4().hex, user_id=project.user_id, project_id=project.id,
                      device_id=device_id if agent else None, phase="cloud" if cloud else "agent",
                      active_project_key=project.id, request_key=key,
                      snapshot_json=json.dumps(snap, ensure_ascii=False), scheduled_for=scheduled_for)
+    if all_cloud_excluded and not agent:
+        # A scheduled occurrence is consumed while providers are paused; it must
+        # never be replayed after an administrator resumes them.
+        row.state, row.active_project_key = "done", None
+        row.progress_json = json.dumps({"cloud_done": len(snap["queries"]) * len(original_cloud), "skipped": len(snap["queries"]) * len(original_cloud)})
     db.add(row)
     db.flush()
     return row
+
+
+def provider_state_fingerprint(accounts, services):
+    state = [(service, bool(accounts.get(service) and accounts[service].paused),
+              aware(accounts[service].last_paused_at).isoformat() if accounts.get(service) and accounts[service].last_paused_at else None)
+             for service in sorted(set(services) & CLOUD_SERVICES)]
+    return hashlib.sha256(json.dumps(state, separators=(",", ":")).encode()).hexdigest()
 
 
 def schedule_tick(sessions, now=None, feature_user_id=""):
@@ -501,19 +528,37 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
     def scan_quote(project_id: str, user=Depends(web_user), db=Depends(db_session)):
         row = owned_project(db, user.id, project_id)
         config = json.loads(row.config_json)
-        count = sum(q["active"] for q in json.loads(row.queries_json)) * len(config["services"])
+        accounts = {account.service: account for account in db.scalars(select(ProviderAccount).where(
+            ProviderAccount.service.in_(config["services"]))).all()}
+        active_services = [service for service in config["services"] if service not in CLOUD_SERVICES or not accounts.get(service) or not accounts[service].paused]
+        count = sum(q["active"] for q in json.loads(row.queries_json)) * len(active_services)
         unit = 0 if user.is_admin else check_price_kopeks
         return {"count": count, "unit_kopeks": unit, "total_kopeks": count * unit,
-                "available_kopeks": available_kopeks(db, user.id), "revision": row.revision}
+                "available_kopeks": available_kopeks(db, user.id), "revision": row.revision,
+                "provider_state": provider_state_fingerprint(accounts, config["services"])}
 
     @router.post("/projects/{project_id}/runs", status_code=201)
     def launch(project_id: str, body: LaunchIn, user=Depends(web_user), db=Depends(db_session)):
         row = owned_project(db, user.id, project_id)
+        request_key = f"manual:{row.id}:{body.request_id}"
+        existing = db.scalar(select(ControlRun).where(ControlRun.request_key == request_key))
+        if existing:
+            return run_payload(existing, device_for(db, user.id, existing.device_id) if existing.device_id else None)
         if body.revision is not None and row.revision != body.revision:
             raise HTTPException(409, "Проект изменён. Проверьте сумму ещё раз.")
+        services = json.loads(row.config_json)["services"]
+        cloud_services = [service for service in services if service in CLOUD_SERVICES]
+        if cloud_services:
+            accounts = {account.service: account for account in db.scalars(select(ProviderAccount).where(
+                ProviderAccount.service.in_(cloud_services)).with_for_update()).all()}
+            changed_availability = any(account.paused or account.last_paused_at for account in accounts.values())
+            if body.provider_state is None and changed_availability:
+                raise HTTPException(409, "Состояние ИИ-систем изменилось. Проверьте сумму ещё раз.")
+            if body.provider_state is not None and provider_state_fingerprint(accounts, services) != body.provider_state:
+                raise HTTPException(409, "Состояние ИИ-систем изменилось. Проверьте сумму ещё раз.")
         device_id = body.device_id or row.device_id
         try:
-            run = create_run(db, row, device_id, f"manual:{row.id}:{body.request_id}",
+            run = create_run(db, row, device_id, request_key,
                              brand_clarifications_enabled=brand_enabled(user))
             db.commit()
         except IntegrityError:

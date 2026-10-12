@@ -125,6 +125,7 @@ export function LandingPage() {
             <a href="#how">Как работает</a>
             <a href="#approach">Наш подход</a>
             <a href="#faq">Вопросы</a>
+            <a href="/news/">Лента</a>
             <a href={APP_URL}>Личный кабинет</a>
           </nav>
           <a className="header-cta" href={APP_URL}>Открыть кабинет <ArrowUpRight size={16} aria-hidden="true" /></a>
@@ -134,6 +135,7 @@ export function LandingPage() {
               <a href="#how">Как работает</a>
               <a href="#approach">Наш подход</a>
               <a href="#faq">Вопросы</a>
+              <a href="/news/">Лента</a>
               <a href={APP_URL}>Личный кабинет</a>
             </nav>
           </details>

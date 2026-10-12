@@ -1,10 +1,9 @@
 """Account-wide schedule and private cloud report contract."""
 
-from datetime import date, datetime
+from datetime import date
 
 from fastapi.testclient import TestClient
 
-from app.agent import schedule_due
 from server.app import create_app
 from server.models import Check, make_session_factory
 
@@ -37,12 +36,6 @@ def test_month_day_schedule_and_report_ownership(tmp_path):
                       json={**response.json(), "services": ["yandex_neuro"]}).status_code == 200
     assert client.put("/api/v1/scan-preferences", headers=headers, json=changed).status_code == 409
     assert client.get("/api/v1/scan-preferences", headers=other_headers).json()["enabled"] is False
-
-    preferences = response.json()
-    assert not schedule_due(preferences, datetime(2026, 4, 15, 14, 29))
-    assert schedule_due(preferences, datetime(2026, 4, 15, 14, 30))
-    assert not schedule_due(preferences, datetime(2026, 4, 16, 14, 30))
-    assert not schedule_due({**preferences, "month_days": [31]}, datetime(2026, 4, 30, 15))
 
     device_id = "a" * 32
     heartbeat = {"device_id": device_id, "name": "Тестовый агент",

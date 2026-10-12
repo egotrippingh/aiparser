@@ -1235,6 +1235,11 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         def cabinet() -> FileResponse:
             return FileResponse(web_dir / "cabinet" / "index.html", headers={"Cache-Control": "no-cache"})
 
+        @app.get("/news/", include_in_schema=False)
+        @app.get("/news", include_in_schema=False)
+        def news_page() -> FileResponse:
+            return FileResponse(web_dir / "news" / "index.html", headers={"Cache-Control": "no-cache"})
+
     from contextlib import asynccontextmanager
     if coinso_client and os.environ.get("APP_ENV") == "production":
         from .payment_reconcile import PaymentReconciler
