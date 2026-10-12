@@ -9,6 +9,7 @@ from sqlalchemy import select
 from server.app import create_app
 from server.models import AgentDevice, ControlRun, Wallet, make_session_factory, utcnow
 from server.test_app import FakeArbiterAI
+from server.test_control import seed_legacy_run
 
 
 def setup(tmp_path):
@@ -32,8 +33,10 @@ def setup(tmp_path):
     project = client.post('/api/v1/control/projects', headers=owners[0], json={
         'name': 'Project', 'brand_name': 'Brand', 'device_id': '0' * 32,
         'queries': [{'text': 'first'}, {'text': 'second'}], 'config': {'services': ['chatgpt']}}).json()
+    request_id = uuid.uuid4().hex
+    seed_legacy_run(client, owners[0], project, request_id)
     run = client.post(f"/api/v1/control/projects/{project['id']}/runs", headers=owners[0],
-                      json={'request_id': uuid.uuid4().hex}).json()
+                      json={'request_id': request_id}).json()
     job = client.post('/api/v1/control/agent/poll', headers=devices[0], json={}).json()['run']
     keys = [f"{run['id']}:{q['id']}:chatgpt" for q in job['snapshot']['queries']]
     assert client.post('/api/v1/checks/reserve', headers=devices[0], json={'check_ids': [keys[0]]}).status_code == 200

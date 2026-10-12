@@ -51,8 +51,8 @@ SERVICES: tuple[ServiceInfo, ...] = (
     ),
     ServiceInfo(
         id="yandex_neuro",
-        name="Яндекс Нейро",
-        short="Нейро",
+        name="Яндекс Поиск с Алисой",
+        short="Яндекс",
         requires_auth=False,
         login_url="https://ya.ru/",
         color="--c3",

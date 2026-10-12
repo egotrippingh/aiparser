@@ -15,7 +15,7 @@ from sqlalchemy.orm import load_only
 from server.models import CloudResult, ControlProject, utcnow
 
 SERVICES = {"google_aio": "Google AI Overview", "chatgpt": "ChatGPT", "perplexity": "Perplexity",
-            "alice": "Алиса AI", "yandex_neuro": "Яндекс Нейро"}
+            "alice": "Алиса AI", "yandex_neuro": "Яндекс Поиск с Алисой", "gemini": "Gemini"}
 LABELS = {"found": "Упоминание", "not_found": "Нет упоминания", "skipped": "Нет AI-блока",
           "error": "Ошибка", "captcha": "Капча", "auth_required": "Нужен вход", "limit_reached": "Лимит сервиса"}
 

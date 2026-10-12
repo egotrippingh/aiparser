@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from "react"
 import { publicError } from "../lib/public-error"
+import { highlightedText, brandLink, type BrandHighlight } from "./brand-highlight"
 import "./answer-content.css"
 
 function safeUrl(value: string) {
@@ -44,13 +45,13 @@ function inlineCode(text: string, index: number) {
   return end < 0 ? null : { value: text.slice(start, end).replace(/\\([\\`])/g, "$1"), end: end + ticks.length }
 }
 
-function linkedText(text: string, sources: string[], bold = true) {
+function linkedText(text: string, sources: string[], bold = true, brand?: BrandHighlight) {
   const saved = sourcesOf(sources).map(value => new URL(value)), output: ReactNode[] = []
   let index = 0, plain = ""
-  const flush = () => { if (plain) { output.push(plain); plain = "" } }
+  const flush = () => { if (plain) { output.push(highlightedText(plain, brand)); plain = "" } }
   const link = (label: string, url: URL) => {
     flush()
-    output.push(<a key={output.length} href={url.href} target="_blank" rel="noopener noreferrer">{label}</a>)
+    output.push(<a key={output.length} href={url.href} className={brandLink(url.href, brand) ? "answer-brand-link" : undefined} target="_blank" rel="noopener noreferrer">{highlightedText(label, brand)}</a>)
   }
   while (index < text.length) {
     const rest = text.slice(index)
@@ -61,7 +62,7 @@ function linkedText(text: string, sources: string[], bold = true) {
       }
       if (end > index + 2 && text.startsWith("**", end)) {
         flush()
-        output.push(<strong key={output.length}>{linkedText(text.slice(index + 2, end), sources, false)}</strong>)
+        output.push(<strong key={output.length}>{linkedText(text.slice(index + 2, end), sources, false, brand)}</strong>)
         index = end + 2; continue
       }
     }
@@ -139,7 +140,7 @@ function tableCells(line: string) {
   return cells
 }
 
-function blocks(text: string, sources: string[]) {
+function blocks(text: string, sources: string[], brand?: BrandHighlight) {
   const lines = text.replace(/\r\n?/g, "\n").split("\n"), output: ReactNode[] = []
   let index = 0, key = 0, cleaned = false
   // ponytail: only standalone source counters; ambiguous inline +N stays literal.
@@ -163,7 +164,7 @@ function blocks(text: string, sources: string[]) {
   }
   const table = (data: NonNullable<ReturnType<typeof tableAt>>) => {
     index = data.end
-    return <div key={key++} className="answer-table-scroll" role="region" aria-label="Таблица ответа" tabIndex={0}><table className="answer-table">{data.headers.some(Boolean) && <thead><tr>{data.headers.map((cell, i) => <th key={i} scope="col" style={{textAlign:data.alignment[i]}}>{linkedText(cell, sources)}</th>)}</tr></thead>}<tbody>{data.rows.map((row, r) => <tr key={r}>{row.map((cell, i) => <td key={i} style={{textAlign:data.alignment[i]}}>{linkedText(cell, sources)}</td>)}</tr>)}</tbody></table></div>
+    return <div key={key++} className="answer-table-scroll" role="region" aria-label="Таблица ответа" tabIndex={0}><table className="answer-table">{data.headers.some(Boolean) && <thead><tr>{data.headers.map((cell, i) => <th key={i} scope="col" style={{textAlign:data.alignment[i]}}>{linkedText(cell, sources, true, brand)}</th>)}</tr></thead>}<tbody>{data.rows.map((row, r) => <tr key={r}>{row.map((cell, i) => <td key={i} style={{textAlign:data.alignment[i]}}>{linkedText(cell, sources, true, brand)}</td>)}</tr>)}</tbody></table></div>
   }
   const list = (indent: number, ordered: boolean): ReactNode => {
     const items: ReactNode[] = [], first = parseInt(listItem(lines[index])![2])
@@ -171,7 +172,7 @@ function blocks(text: string, sources: string[]) {
       const item = listItem(lines[index])
       if (!item || item[1].length !== indent || /^\d/.test(item[2]) !== ordered) break
       index++
-      const content: ReactNode[] = [<Fragment key="text">{linkedText(item[3] || "", sources)}</Fragment>]
+      const content: ReactNode[] = [<Fragment key="text">{linkedText(item[3] || "", sources, true, brand)}</Fragment>]
       while (index < lines.length) {
         if (sourceCounter(lines[index])) { cleaned = true; index++; continue }
         if (!lines[index].trim()) {
@@ -193,7 +194,7 @@ function blocks(text: string, sources: string[]) {
         const nestedTable = lines[index].startsWith(" ".repeat(indent + 2)) && tableAt(index)
         if (nestedTable) { content.push(table(nestedTable)); continue }
         if (!child && lines[index].startsWith(" ".repeat(indent + 2))) {
-          content.push(<Fragment key={content.length}><br/>{linkedText(lines[index++].slice(indent + 2), sources)}</Fragment>); continue
+          content.push(<Fragment key={content.length}><br/>{linkedText(lines[index++].slice(indent + 2), sources, true, brand)}</Fragment>); continue
         }
         break
       }
@@ -217,20 +218,20 @@ function blocks(text: string, sources: string[]) {
     const heading = lines[index].match(/^(#{1,6})\s+(.*)$/)
     if (heading) {
       const Tag = `h${heading[1].length}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
-      output.push(<Tag key={key++}>{linkedText(heading[2], sources)}</Tag>); index++; continue
+      output.push(<Tag key={key++}>{linkedText(heading[2], sources, true, brand)}</Tag>); index++; continue
     }
     const item = listItem(lines[index])
     if (item) { output.push(list(item[1].length, /^\d/.test(item[2]))); continue }
     const paragraph: string[] = []
     while (index < lines.length && lines[index].trim() && lines[index].trim() !== "•" && !sourceCounter(lines[index]) && !/^#{1,6}\s+/.test(lines[index]) && !/^(`{3,})(?:[^`]*)$/.test(lines[index]) && !listItem(lines[index]) && !tableAt(index)) paragraph.push(lines[index++])
-    output.push(<p key={key++}>{paragraph.map((line, i) => <Fragment key={i}>{i > 0 && <br/>}{linkedText(line, sources)}</Fragment>)}</p>)
+    output.push(<p key={key++}>{paragraph.map((line, i) => <Fragment key={i}>{i > 0 && <br/>}{linkedText(line, sources, true, brand)}</Fragment>)}</p>)
   }
   return { output, cleaned }
 }
 
-export function AnswerContent({ text, service, sources = [] }: { text: string; service?: string; sources?: string[] }) {
+export function AnswerContent({ text, service, sources = [], brand }: { text: string; service?: string; sources?: string[]; brand?: BrandHighlight }) {
   const fixed = service === "chatgpt" ? cleanChatGPTMap(text) : { text, changed: false }
-  const rendered = blocks(fixed.text, sources)
+  const rendered = blocks(fixed.text, sources, brand)
   return <div className="answer-content">{rendered.output}{(fixed.changed || rendered.cleaned) && <details className="answer-original"><summary>Исходный текст</summary><pre>{text}</pre></details>}</div>
 }
 

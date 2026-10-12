@@ -9,9 +9,9 @@ They work through project lists, query groups, schedules and visibility reports 
 
 ## Product Purpose
 Measure brand mentions in AI answers. A website manages work and stores shared reports;
-Google/Yandex checks run on the server through XMLRiver; desktop agents execute
-the other assigned checks using local browser sessions. Users must understand
-whether a check runs on the server or waits for its assigned computer.
+All new checks run on the server: Google AI Overview, Яндекс Поиск с Алисой,
+ChatGPT, Perplexity and Gemini. Historical agent runs retain their local execution.
+Collection failures keep requests unfinished; reports contain actual answers.
 
 ## Brand Personality
 Clear, calm and precise. Russian interface. Preserve the user's dark violet visual direction.
@@ -21,7 +21,8 @@ Topvisor is the user's reference for shared projects and scheduled checks.
 Avoid duplicated controls between the website and desktop, decorative dashboard metrics,
 and statuses that disappear when a service fails. Do not expose AI model selection or deep
 source checking as user settings. Do not disclose collection supplier names in interface
-copy or diagnostics.
+copy or diagnostics for ordinary users. Administrators see supplier balances and
+cabinet links in the private administration section.
 
 ## Design Principles
 - Projects belong to the account; computers are replaceable executors.
