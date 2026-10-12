@@ -61,7 +61,8 @@ def test_real_balance_contracts_and_separate_subscription(monkeypatch, caplog):
     rows = balances(monkeypatch, handler)
     assert [r['balance'] for r in rows] == ['12.995', '10', '256.724']
     assert rows[1]['details'][1]['amount'] == '3.705'
-    assert rows[1]['currency'] == 'CREDITS'
+    assert rows[1]['currency'] == 'USD'
+    assert rows[1]['details'][2]['currency'] == 'CREDITS'
     assert all(r['status'] == 'ok' for r in rows)
     assert 'SECRET_' not in json.dumps(rows) and 'SECRET_' not in caplog.text
 

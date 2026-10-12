@@ -27,9 +27,15 @@ with sessions() as db:
     db.get(CloudResult, ids[1]).check_id = 'qa-a'
     db.get(CloudResult, ids[-1]).check_id = 'qa-b'
     db.commit()
+second = client.post('/api/v1/control/projects', headers=owner, json={
+    'name': 'Второй проект QA', 'brand_name': 'QA',
+    'queries': [{'text': 'Вопрос второго проекта'}],
+    'config': {'services': ['gemini'], 'brand_domains': ['second.example.test']},
+}).json()
 qa_release = {'version': '2026.9.29.3', 'installer': {'size_bytes': 100, 'sha256': 'a' * 64},
               'portable': {'size_bytes': 50, 'sha256': 'b' * 64}}
-state = {'save': 'pass', 'shot': 'pass', 'seen': [], 'agent_error': False,
+state = {'save': 'pass', 'shot': 'pass', 'report': 'pass', 'wallet_kopeks': None,
+         'unauthenticated': False, 'login_fields': [], 'seen': [], 'agent_error': False,
          'update_release': qa_release, 'update_error': '',
          'agent': {'configured': True, 'connected': True, 'has_token': True,
                    'version': '2026.9.29.2', 'portable': False,
@@ -89,8 +95,26 @@ async def qa(request, call_next):
         return Response(f'<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="400" height="200" fill="#39483d"/><text x="20" y="100" fill="white">TEST SCREENSHOT {label}</text></svg>', media_type='image/svg+xml')
     if path.startswith('/api/v1/'):
         request.scope['headers'] = [(key, value) for key, value in request.scope['headers'] if key.lower() != b'authorization'] + [(b'authorization', owner['Authorization'].encode())]
+    if path == '/api/v1/auth/login':
+        fields = sorted((await request.json()).keys())
+        state['login_fields'] = fields
+        if 'connect_id' in fields:
+            return JSONResponse({'detail': 'QA: скрытое подключение устройства'}, status_code=403)
+        state['unauthenticated'] = False
+        return JSONResponse({'token': owner['Authorization'].removeprefix('Bearer ')})
+    if state['unauthenticated'] and path.startswith(('/api/v1/me', '/api/v1/wallet', '/api/v1/payments', '/api/v1/control/')):
+        return JSONResponse({'detail': 'QA: войдите в аккаунт'}, status_code=401)
     if path == '/api/v1/auth/logout':
         state['seen'].append('logout')
+    if path.endswith('/mentions/overview'):
+        while state['report'] == 'hold':
+            await asyncio.sleep(.05)
+        if state['report'] == 'fail':
+            return JSONResponse({'detail': 'QA: отчёт временно недоступен'}, status_code=503)
+    if path == '/api/v1/wallet' and state['wallet_kopeks'] is not None:
+        value = state['wallet_kopeks']
+        return JSONResponse({'balance_kopeks': value, 'available_kopeks': value,
+                             'reserved_kopeks': 0, 'entries': []})
     if request.method in ('PUT', 'POST') and path.startswith('/api/v1/control/projects'):
         state['seen'].append('save')
         while state['save'] == 'hold':
@@ -108,5 +132,5 @@ async def qa(request, call_next):
         return JSONResponse({'url': '/__qa/shot-b.svg'})
     return await call_next(request)
 
-print(json.dumps({'project_id': project['id'], 'result_a': ids[1], 'result_b': ids[-1], 'url': 'http://127.0.0.1:8793/cabinet/'}), flush=True)
+print(json.dumps({'project_id': project['id'], 'second_project_id': second['id'], 'result_a': ids[1], 'result_b': ids[-1], 'url': 'http://127.0.0.1:8793/cabinet/'}), flush=True)
 uvicorn.run(BaseHTTPMiddleware(app, dispatch=qa), host='127.0.0.1', port=8793, log_level='warning')
