@@ -16,5 +16,8 @@ Project settings prevent saving an empty service selection. Date storage is loca
 to this browser and disappears when its site data is cleared; unavailable storage
 does not prevent using reports. Evidence: C:/codex-tmp/airate-project-services-20261012/.
 
-Publication is authorized. CI/deploy/exact-SHA public asset verification pending.
+Published through PRs #47/#48: c7e6c2736ca8c649407bd875a182236eddef6106.
+CI/deploy run 38261782655 succeeded, public readiness matched that SHA, all 11
+fetched assets matched the tested tree and anonymous private routes returned 401.
+Public homepage Gemini logo loaded; cabinet serves cabinet-C0HK4bK9.js.
 Backend and provider integrations are unchanged; no paid requests/payment/S3 check.
