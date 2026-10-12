@@ -142,6 +142,83 @@ def collect_report(db, project, options, *, with_sources=False):
                         "search": options.search, "compare": options.compare}}
 
 
+def overview_report(db, project, options):
+    """Compact, unpaginated period totals; retain the existing matrix/export contract."""
+    report = collect_report(db, project, options, with_sources=True)
+    start, end = date.fromisoformat(report['date_from']), date.fromisoformat(report['date_to'])
+    baseline_end = start if options.compare else start - timedelta(days=1)
+    baseline_start = start if options.compare else start - timedelta(days=(end - start).days + 1)
+    baseline = collect_report(db, project, options.model_copy(update={
+        'date_from': baseline_start, 'date_to': baseline_end, 'compare': False}))
+
+    def totals(data, only_date=None):
+        summary, services, queries, days = empty_stats(), {}, {}, {}
+        for query, row in data['measurements']:
+            if only_date and row.scan_date != only_date:
+                continue
+            count(summary, row, options.include_cards)
+            count(services.setdefault(row.service, empty_stats()), row, options.include_cards)
+            count(queries.setdefault(query['id'], empty_stats()), row, options.include_cards)
+            days.setdefault(query['id'], set()).add(row.scan_date)
+        return summary, services, queries, days
+
+    current, services, queries, _ = totals(report, end.isoformat() if options.compare else None)
+    previous, previous_services, previous_queries, previous_days = totals(baseline)
+    expected_days = (baseline_end - baseline_start).days + 1
+
+    def trend(now, before, complete):
+        left, right = before['visibility_pct'], now['visibility_pct']
+        delta = round(right - left, 1) if complete and left is not None and right is not None else None
+        return {'current': now, 'previous': before, 'delta': delta,
+                'relative': round(100 * (right - left) / left, 1) if delta is not None and left else None,
+                'baseline_complete': complete, 'baseline_from': baseline_start.isoformat(),
+                'baseline_to': baseline_end.isoformat()}
+
+    complete = len({r.scan_date for _, r in baseline['measurements']}) == expected_days
+    report['trend'] = trend(current, previous, complete)
+    report['summary'] = current
+    report['service_stats'] = {s: trend(services.get(s, empty_stats()), previous_services.get(s, empty_stats()),
+        len({r.scan_date for _, r in baseline['measurements'] if r.service == s}) == expected_days)
+        for s in report['services']}
+    for query in report['rows']:
+        query['trend'] = trend(queries.get(query['id'], empty_stats()), previous_queries.get(query['id'], empty_stats()),
+                              len(previous_days.get(query['id'], set())) == expected_days)
+        latest = {}
+        for day in sorted(query['cells']):
+            latest.update(query['cells'][day])
+        query['latest'] = latest
+        query['cells'] = {d: cells for d, cells in query['cells'].items()
+                          if options.compare and d in (start.isoformat(), end.isoformat())}
+    own = set()
+    for domain in json.loads(project.config_json).get('brand_domains', []):
+        try:
+            host = urlsplit(domain if '://' in domain else 'https://' + domain).hostname
+            if host:
+                own.add(host.lower().removeprefix('www.'))
+        except ValueError:
+            continue
+    sources = {}
+    for query, row in report.pop('measurements'):
+        if not found(row, options.include_cards):
+            continue
+        for source in set(json.loads(row.sources_json or '[]')):
+            try:
+                parsed = urlsplit(source)
+                host = (parsed.hostname or '').lower().removeprefix('www.')
+            except ValueError:
+                continue
+            if parsed.scheme not in ('http', 'https') or not host or parsed.username or parsed.password:
+                continue
+            item = sources.setdefault(host, {'domain': host, 'count': 0, 'urls': set(), 'queries': set(),
+                'services': set(), 'own': any(host == d or host.endswith('.' + d) for d in own)})
+            item['count'] += 1
+            item['urls'].add(source); item['queries'].add(query['id']); item['services'].add(row.service)
+    report['sources'] = [{**item, 'urls': sorted(item['urls']), 'queries': len(item['queries']),
+                          'services': sorted(item['services'])} for item in sorted(sources.values(),
+                          key=lambda item: (-item['count'], item['domain']))]
+    return report
+
+
 def workbook(report, project, kind):
     from openpyxl import Workbook
     from openpyxl.cell import WriteOnlyCell
@@ -240,6 +317,12 @@ def register_reports(app, db_session, current_user):
         data["rows"] = [{**q, "cells": {d: cells for d, cells in q["cells"].items() if d in data["visible_dates"]}}
                         for q in data["rows"][options.offset:options.offset + options.limit]]
         return data
+
+    @router.get("/overview")
+    def overview(project_id: str, response: Response, options: ReportOptions = Depends(),
+                 user=Depends(current_user), db=Depends(db_session)):
+        response.headers['Cache-Control'] = 'no-store'
+        return overview_report(db, owned_project(db, user.id, project_id), options)
 
     @router.get("/results/{result_id}")
     def detail(project_id: str, result_id: int, response: Response,
