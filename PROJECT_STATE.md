@@ -1,6 +1,31 @@
 # AIRate current project state
 
-## Scrapeless server collection ready locally (2026-10-12)
+## Prototype app ready locally (2026-10-12)
+
+Branch `codex/prototype-frontend` follows the supplied white/navy/orange prototype:
+shared logo/service marks, nine account sections, calendar/choices/chart, grouped
+continuous visibility report and domain sources with matching filtered XLSX.
+Homepage blocks/copy are retained with new colors/logo and no agent download link.
+New checks and schedules remain server-only. Legacy desktop `connect/provider`
+browser login is intentionally retired per the user's removal of the website agent;
+historical answers and execution APIs remain. No schema or price change.
+
+Final gates: 67 frontend tests, lint exit 0 with warnings (including new warnings),
+TypeScript/Vite build, 178 server tests. Five PostgreSQL-only concurrency tests were
+skipped in this run because AIRATE_TEST_POSTGRES_URL was unset; separate integration
+release evidence below includes PostgreSQL and live Scrapeless validation.
+Regression checks failed before fixes for isolated chart measurements and source
+export mode. Sol/Astra reviews found no remaining defect in the requested website flow.
+Disposable browser checks at 1440x950 and 390x844 covered keyboard/mobile, missing
+dates, comparison, sources/export, dirty guards, failure/hold/recovery, answer
+formatting, project navigation, wallet refresh and legacy URL ordinary login.
+Fixture console had no errors/warnings. Evidence: C:/codex-tmp/airate-prototype-qa/.
+
+Built assets are included; redesign is local only, awaiting frontend publication.
+No real payment, S3 or authenticated production scan was exercised for the redesign.
+See [prototype task evidence](docs/tasks/prototype-frontend.md).
+
+## Scrapeless server collection deployed (2026-10-12)
 
 `codex/scrapeless-server` adds server collection for ChatGPT, Perplexity and separate
 Gemini alongside Google AI Overview / Яндекс Поиск с Алисой. New scans/schedules no
@@ -27,11 +52,19 @@ synthetic owners, 300 POSTs -> 300 saved formatted answers, no invalid report ro
 peaks ChatGPT 100, Perplexity 100, Gemini 89. Analysis was deterministic fake, with
 300 settled checks / exactly 300 ledger debits in temporary PostgreSQL.
 
-Not deployed or pushed. Release requires separately installing reviewed Compose/env
-changes, setting SCRAPELESS_API_KEY (OPENROUTER_MANAGEMENT_KEY for account credit view)
-and additive migration `20261012_provider_tasks` through the normal backup/isolated
-restore/head/readiness procedure. Live OpenRouter/XMLRiver balances, S3/payments and
-installer were not exercised. See [task evidence](docs/tasks/scrapeless-server.md).
+Implementation PR #41 and release PR #42 are merged. Production
+`dc716decc5d6ee49cddee203ed8e5ef0b417cc9d` passed tests and deployment
+in run `38229766210`; public HTTPS readiness confirmed that exact SHA.
+The supplied Scrapeless key and reviewed caps (100/100/100, four runs) are installed.
+Migration `20261012_provider_tasks` passed isolated restore, repeat migration,
+old-row fingerprints and constraints before live activation with writes stopped.
+The verified pre-migration backup is retained. Temporary root SSH access was removed;
+authentication rejection verified and local key pair deleted. VNC root session closed.
+Live balance reads succeeded for OpenRouter, Scrapeless and XMLRiver; admin users
+returned all three users against the real DB. Unauthenticated private routes returned
+401. No new authenticated production scan, S3, payment or installer check was run.
+Private release evidence: `C:/codex-tmp/airate-scrapeless-release-20261012/`.
+See [task evidence](docs/tasks/scrapeless-server.md).
 
 ## Continuous collection and analysis deployed (2026-10-09)
 

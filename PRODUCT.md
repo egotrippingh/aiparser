@@ -4,7 +4,7 @@
 product
 
 ## Users
-SEO specialists and agencies managing several brands and computers under one account.
+SEO specialists and agencies managing several brands under one account.
 They work through project lists, query groups, schedules and visibility reports in a browser.
 
 ## Product Purpose
@@ -14,7 +14,8 @@ ChatGPT, Perplexity and Gemini. Historical agent runs retain their local executi
 Collection failures keep requests unfinished; reports contain actual answers.
 
 ## Brand Personality
-Clear, calm and precise. Russian interface. Preserve the user's dark violet visual direction.
+Clear, calm and precise. Russian interface. Follow the supplied AIRate prototype:
+white panels, navy navigation, blue links and orange primary actions.
 Topvisor is the user's reference for shared projects and scheduled checks.
 
 ## Anti-references
@@ -25,10 +26,10 @@ copy or diagnostics for ordinary users. Administrators see supplier balances and
 cabinet links in the private administration section.
 
 ## Design Principles
-- Projects belong to the account; computers are replaceable executors.
+- Projects belong to the account; new checks run on the server.
 - Make the next action visible in empty and failure states.
-- Keep configuration on the website and the agent small.
-- Explain state in text, including offline computers and required authorization.
+- Keep configuration on the website; remove agent setup/downloads from its interface.
+- Explain state in text, including queued and incomplete checks.
 
 ## Accessibility & Inclusion
 No special accessibility requirements were specified. Apply keyboard navigation, visible

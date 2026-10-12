@@ -1,6 +1,8 @@
 import io
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+import pytest
+from sqlalchemy import event
 
 from openpyxl import load_workbook
 from server.test_control import setup
@@ -73,6 +75,131 @@ def test_calendar_daily_dedup_filters_and_comparison(tmp_path):
     assert detail['answer_text'] == 'Original answer'
     assert client.get(f'{base}/results/{ids[1]}', headers=other).status_code == 404
     assert client.get(f'{base}/export/mentions', headers=other).status_code == 404
+
+
+def test_overview_sources_count_answers_and_keep_intermediate_compare_dates(tmp_path):
+    client, owner, other, devices, project, ids, url = seed_report(tmp_path)
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        row = db.get(CloudResult, ids[1])
+        row.scan_date = '2026-09-02'
+        row.sources_json = json.dumps(['https://catalog.test/a', 'https://catalog.test/b',
+                                      'https://sub.geosoft-dent.ru/x', 'https://user:pass@bad.test/x',
+                                      'javascript:alert(1)'])
+        db.commit()
+    base = f"/api/v1/control/projects/{project['id']}/mentions/overview"
+    args = {'date_from': '2026-09-01', 'date_to': '2026-09-03', 'compare': 'true', 'limit': 1}
+    response = client.get(base, headers=owner, params=args)
+    assert response.status_code == 200
+    data = response.json()
+    sources = {s['domain']: s for s in data['sources']}
+    assert sources['catalog.test']['count'] == 3
+    assert sources['sub.geosoft-dent.ru']['count'] == 1
+    assert sources['sub.geosoft-dent.ru']['own'] is True
+    assert sources['sub.geosoft-dent.ru']['results'][0]['id'] == ids[1]
+    assert not any(s['domain'] == 'bad.test' for s in data['sources'])
+    assert len(data['rows']) == 3 and 'measurements' not in data
+    assert all(set(q['cells']) <= {'2026-09-01', '2026-09-03'} for q in data['rows'])
+    assert response.headers['cache-control'] == 'no-store'
+    assert client.get(base, headers=other, params=args).status_code == 404
+    assert client.get(base, headers=devices[0], params=args).status_code == 403
+    boundary = client.get(base, headers=owner, params={'date_from': '0001-01-01', 'date_to': '0001-01-01'})
+    assert boundary.status_code == 200
+    assert boundary.json()['trend']['delta'] is None
+    export = client.get(base + '/export/sources', headers=owner, params={**args, 'source_kind': 'own', 'source_search': 'sub.'})
+    assert export.status_code == 200
+    sheet = load_workbook(io.BytesIO(export.content))['Источники']
+    assert list(sheet.values)[1:] == [('sub.geosoft-dent.ru', 'Сайт бренда', 1, 1, 'Google AI Overview')]
+    notes = dict(list(load_workbook(io.BytesIO(export.content))['О выгрузке'].values)[1:])
+    assert notes['Режим'] == 'За период'  # Sources include intermediate dates even from a compared report.
+    assert client.get(base + '/export/sources', headers=other, params=args).status_code == 404
+    assert client.get(base + '/export/sources', headers=devices[0], params=args).status_code == 403
+    assert client.get(base + '/export/sources', headers=owner, params={**args, 'source_kind': 'invalid'}).status_code == 422
+
+
+@pytest.mark.parametrize('start,end,compare,baseline_start,baseline_end', [
+    ('2026-10-10', '2026-10-12', False, '2026-10-07', '2026-10-09'),
+    ('2026-10-10', '2026-10-10', False, '2026-10-09', '2026-10-09'),
+    ('2026-01-01', '2026-01-03', False, '2025-12-29', '2025-12-31'),
+    ('2024-03-01', '2024-03-01', False, '2024-02-29', '2024-02-29'),
+    ('2026-10-10', '2026-10-12', True, '2026-10-10', '2026-10-10'),
+])
+def test_overview_previous_calendar_periods(tmp_path, start, end, compare, baseline_start, baseline_end):
+    client, owner, _, _, project, _, _ = seed_report(tmp_path)
+    response = client.get(f"/api/v1/control/projects/{project['id']}/mentions/overview", headers=owner,
+                          params={'date_from': start, 'date_to': end, 'compare': str(compare).lower()})
+    assert response.status_code == 200
+    trend = response.json()['trend']
+    assert (trend['baseline_from'], trend['baseline_to']) == (baseline_start, baseline_end)
+    assert trend['delta'] is None and trend['relative'] is None and not trend['baseline_complete']
+
+
+def test_overview_partial_baselines_are_local_to_query_and_service(tmp_path):
+    client, owner, _, _, project, _, url = seed_report(tmp_path)
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        p = db.get(ControlProject, project['id'])
+        query = project['queries'][0]
+        for i, (day, service, status) in enumerate([
+            ('2026-08-29', 'google_aio', 'not_found'), ('2026-08-30', 'google_aio', 'not_found'),
+            ('2026-08-31', 'google_aio', 'not_found'), ('2026-08-29', 'chatgpt', 'found'),
+            ('2026-08-30', 'chatgpt', 'found'), ('2026-09-02', 'google_aio', 'found'),
+        ], 100):
+            db.add(CloudResult(user_id=p.user_id, device_id='a'*32, local_result_id=i, local_project_id=1,
+                               project_id=p.id, query_id=query['id'], query_text=query['text'], group_tag='Brand',
+                               project_name=p.name, brand_name=p.brand_name, service=service, scan_date=day, status=status))
+        db.commit()
+    base = f"/api/v1/control/projects/{project['id']}/mentions/overview"
+    args = {'date_from':'2026-09-01', 'date_to':'2026-09-03'}
+    data = client.get(base, headers=owner, params=args).json()
+    assert data['service_stats']['google_aio']['previous']['visibility_pct'] == 0
+    assert data['service_stats']['google_aio']['relative'] is None
+    assert data['service_stats']['google_aio']['delta'] == 75
+    assert data['service_stats']['chatgpt']['delta'] is None
+    assert data['rows'][0]['trend']['delta'] == 35
+    assert data['rows'][1]['trend']['delta'] is None
+    filtered = client.get(base, headers=owner, params={**args,'services':'google_aio','include_cards':'false'}).json()
+    assert filtered['trend']['delta'] == 50
+    compared = client.get(base, headers=owner, params={**args, 'compare':'true', 'services':'google_aio'}).json()
+    assert compared['trend']['current']['visibility_pct'] == 0
+    assert compared['trend']['previous']['visibility_pct'] == 100
+    assert compared['trend']['delta'] == -100
+
+
+def test_compact_overview_keeps_all_queries_with_bounded_sql_and_source_references(tmp_path):
+    from server.reporting import ReportOptions, overview_report
+    client, owner, other, _, project, _, url = seed_report(tmp_path)
+    engine, sessions = make_session_factory(url)
+    with sessions() as db:
+        p = db.get(ControlProject, project['id'])
+        queries = json.loads(p.queries_json)
+        for i in range(205):
+            q = {'id': f'query-{i}', 'text': f'Query {i}', 'group_tag': 'Scale', 'active': True}
+            queries.append(q)
+            db.add(CloudResult(user_id=p.user_id, device_id='a'*32, local_result_id=100+i, local_project_id=1,
+                               project_id=p.id, query_id=q['id'], query_text=q['text'], group_tag='Scale',
+                               project_name=p.name, brand_name=p.brand_name, service='google_aio', scan_date='2026-09-02',
+                               status='found', answer_text='Private answer never belongs in summary',
+                               sources_json=json.dumps([f'https://scale.test/{i}/{j}' for j in range(15)])))
+        p.queries_json = json.dumps(queries)
+        db.commit()
+        statements = []
+        def record(*args): statements.append(args[2])
+        event.listen(engine, 'before_cursor_execute', record)
+        try:
+            data = overview_report(db, p, ReportOptions(date_from=date(2026,9,1), date_to=date(2026,9,3), limit=1))
+        finally:
+            event.remove(engine, 'before_cursor_execute', record)
+        # The project reload after commit adds one statement; result columns cause no N+1 reads.
+        assert len(statements) <= 9
+        assert len(data['rows']) == 208 and all(not q['cells'] for q in data['rows'])
+        source = next(s for s in data['sources'] if s['domain'] == 'scale.test')
+        assert source['count'] == 205 and len(source['results']) == len(source['urls']) == 10
+        assert 'Private answer' not in json.dumps(data)
+        assert data['rows'][-1]['latest']['google_aio']['date'] == '2026-09-02'
+        p.archived = True
+        db.commit()
+    assert client.get(f"/api/v1/control/projects/{project['id']}/mentions/overview", headers=owner).status_code == 404
 
 
 def test_exports_use_all_filtered_rows_and_safe_text(tmp_path):
