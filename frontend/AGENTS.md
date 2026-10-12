@@ -2,8 +2,8 @@
 
 Read root `AGENTS.md`; read `PRODUCT.md` and `DESIGN.md` for UI changes.
 
-- React/TypeScript + Vite, existing components/styles; retain Russian copy, dark violet
-  palette, keyboard access, labelled controls, focus and reduced motion. Use native
+- React/TypeScript + Vite, existing components/styles; retain Russian copy, the supplied
+  white/navy/orange prototype palette, keyboard access, labelled controls, focus and reduced motion. Use native
   controls or installed components before dependencies. Do not edit vendored React Bits
   merely to match formatting; preserve licenses.
 - Website configures projects; server executes all five new service choices.

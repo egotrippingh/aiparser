@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from typing import Literal
 from urllib.parse import quote, urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -62,12 +62,12 @@ def count(stats, row, cards):
         stats["issues"] += 1
 
 
-def collect_report(db, project, options, *, with_sources=False):
+def collect_report(db, project, options, *, with_sources=False, compact=False):
     scope = (CloudResult.user_id == project.user_id, CloudResult.project_id == project.id)
     available_dates = list(db.scalars(select(CloudResult.scan_date).where(*scope).distinct()
                                       .order_by(CloudResult.scan_date)))
     end = options.date_to or utcnow().date()
-    start = options.date_from or end - timedelta(days=29)
+    start = options.date_from or max(date.min, end - timedelta(days=min(29, end.toordinal() - 1)))
     if start > end or (end - start).days > 365:
         raise HTTPException(422, "Выберите период от 1 до 366 дней, начало не позже конца")
     if options.service and options.service not in SERVICES:
@@ -122,11 +122,16 @@ def collect_report(db, project, options, *, with_sources=False):
     for (key, service_id, day), row in daily.items():
         count(by_date[day], row, options.include_cards)
         count(by_date[day]["services"][service_id], row, options.include_cards)
-        if not options.compare or day in table_dates:
+        if compact or not options.compare or day in table_dates:
             count(summary, row, options.include_cards)
             selected_measurements.append((queries[key], row))
-        queries[key]["cells"].setdefault(day, {})[service_id] = {
-            "id": row.id, "status": row.status, "found": bool(found(row, options.include_cards))}
+        cell = {"id": row.id, "status": row.status, "found": bool(found(row, options.include_cards))}
+        if compact:
+            latest = queries[key].setdefault("latest", {})
+            if service_id not in latest or day > latest[service_id]["date"]:
+                latest[service_id] = {**cell, "date": day}
+        if not compact or options.compare and day in table_dates:
+            queries[key]["cells"].setdefault(day, {})[service_id] = cell
     rows = list(queries.values())
     comparison = {"from": by_date[start.isoformat()], "to": by_date[end.isoformat()]}
     left, right = comparison["from"]["visibility_pct"], comparison["to"]["visibility_pct"]
@@ -140,6 +145,83 @@ def collect_report(db, project, options, *, with_sources=False):
             "filters": {"include_cards": options.include_cards, "group": options.group,
                         "service": options.service, "services": service_ids,
                         "search": options.search, "compare": options.compare}}
+
+
+def overview_report(db, project, options):
+    """Compact, unpaginated period totals; retain the existing matrix/export contract."""
+    report = collect_report(db, project, options, with_sources=True, compact=True)
+    start, end = date.fromisoformat(report['date_from']), date.fromisoformat(report['date_to'])
+    length = (end - start).days + 1
+    has_baseline = options.compare or start.toordinal() > length
+    baseline_end = start if options.compare else start - timedelta(days=1) if has_baseline else None
+    baseline_start = start if options.compare else start - timedelta(days=length) if has_baseline else None
+    baseline = collect_report(db, project, options.model_copy(update={
+        'date_from': baseline_start, 'date_to': baseline_end, 'compare': False}), compact=True) if has_baseline else {'measurements': []}
+
+    def totals(data, only_date=None):
+        summary, services, queries, days = empty_stats(), {}, {}, {}
+        for query, row in data['measurements']:
+            if only_date and row.scan_date != only_date:
+                continue
+            count(summary, row, options.include_cards)
+            count(services.setdefault(row.service, empty_stats()), row, options.include_cards)
+            count(queries.setdefault(query['id'], empty_stats()), row, options.include_cards)
+            days.setdefault(query['id'], set()).add(row.scan_date)
+        return summary, services, queries, days
+
+    current, services, queries, _ = totals(report, end.isoformat() if options.compare else None)
+    previous, previous_services, previous_queries, previous_days = totals(baseline)
+    expected_days = 1 if options.compare else length
+
+    def trend(now, before, complete):
+        left, right = before['visibility_pct'], now['visibility_pct']
+        delta = round(right - left, 1) if complete and left is not None and right is not None else None
+        return {'current': now, 'previous': before, 'delta': delta,
+                'relative': round(100 * (right - left) / left, 1) if delta is not None and left else None,
+                'baseline_complete': complete, 'baseline_from': baseline_start.isoformat() if baseline_start else None,
+                'baseline_to': baseline_end.isoformat() if baseline_end else None}
+
+    complete = len({r.scan_date for _, r in baseline['measurements']}) == expected_days
+    report['trend'] = trend(current, previous, complete)
+    report['summary'] = current
+    report['service_stats'] = {s: trend(services.get(s, empty_stats()), previous_services.get(s, empty_stats()),
+        len({r.scan_date for _, r in baseline['measurements'] if r.service == s}) == expected_days)
+        for s in report['services']}
+    for query in report['rows']:
+        query['trend'] = trend(queries.get(query['id'], empty_stats()), previous_queries.get(query['id'], empty_stats()),
+                              len(previous_days.get(query['id'], set())) == expected_days)
+        query.setdefault('latest', {})
+    own = set()
+    for domain in json.loads(project.config_json).get('brand_domains', []):
+        try:
+            host = urlsplit(domain if '://' in domain else 'https://' + domain).hostname
+            if host:
+                own.add(host.lower().removeprefix('www.'))
+        except ValueError:
+            continue
+    sources = {}
+    for query, row in report.pop('measurements'):
+        if not found(row, options.include_cards):
+            continue
+        for source in sorted(set(json.loads(row.sources_json or '[]'))):
+            try:
+                parsed = urlsplit(source)
+                host = (parsed.hostname or '').lower().removeprefix('www.')
+            except ValueError:
+                continue
+            if parsed.scheme not in ('http', 'https') or not host or parsed.username or parsed.password:
+                continue
+            item = sources.setdefault(host, {'domain': host, 'results': {}, 'urls': set(), 'queries': set(),
+                'services': set(), 'own': any(host == d or host.endswith('.' + d) for d in own)})
+            item['results'][row.id] = {'id': row.id, 'query_text': query['text'], 'date': row.scan_date, 'service': row.service}
+            if len(item['urls']) < 10:
+                item['urls'].add(source)
+            item['queries'].add(query['id']); item['services'].add(row.service)
+    report['sources'] = [{**item, 'count': len(item['results']), 'urls': sorted(item['urls']),
+                          'results': sorted(item['results'].values(), key=lambda r: (r['date'], r['id']), reverse=True)[:10],
+                          'queries': len(item['queries']), 'services': sorted(item['services'])}
+                         for item in sorted(sources.values(), key=lambda item: (-len(item['results']), item['domain']))]
+    return report
 
 
 def workbook(report, project, kind):
@@ -185,6 +267,11 @@ def workbook(report, project, kind):
                 values.append("Не проверялось" if cell is None else "Карточки исключены" if cell["status"] == "found" and not cell["found"]
                               else LABELS.get(cell["status"], cell["status"]))
             append(ws, values)
+    elif kind == "source_summary":
+        ws = sheet("Источники", ["Домен", "Тип", "Ответов со ссылкой", "Запросы", "ИИ-системы"], [45, 24, 24, 15, 55])
+        for item in report['sources']:
+            append(ws, [item['domain'], "Сайт бренда" if item['own'] else "Внешний источник", item['count'],
+                        item['queries'], ', '.join(SERVICES.get(s, s) for s in item['services'])])
     else:
         domains = json.loads(project.config_json).get("brand_domains", [])
         own = set()
@@ -218,13 +305,17 @@ def workbook(report, project, kind):
     append(notes, ["Проект", project.name])
     append(notes, ["Период", report["date_from"] + " — " + report["date_to"]])
     filters = report["filters"]
-    append(notes, ["Режим", "Сравнение двух дат" if filters["compare"] else "За период"])
+    append(notes, ["Режим", "Сравнение двух дат" if filters["compare"] and kind != 'source_summary' else "За период"])
     append(notes, ["Карточки товаров", "Учитываются" if filters["include_cards"] else "Исключены из упоминаний"])
     append(notes, ["Группа", "Все группы" if filters["group"] is None else filters["group"] or "Без группы"])
     append(notes, ["ИИ-системы", ", ".join(SERVICES[s] for s in filters["services"])])
     append(notes, ["Поиск", filters["search"]])
     append(notes, ["Упоминаемость", "Доля ответов с упоминанием среди успешных проверок. Ошибки и отсутствие AI-блока не входят в знаменатель."])
     append(notes, ["Внешние источники", "Сохранённые ссылки из ответов ИИ, без доменов бренда. Контекст — фрагмент ответа ИИ, не цитата с внешнего сайта."])
+    if kind == 'source_summary':
+        append(notes, ['Источники', 'Только ответы с упоминанием бренда. Несколько ссылок на домен из одного ответа считаются один раз.'])
+        append(notes, ['Тип источника', report['source_kind']])
+        append(notes, ['Поиск домена', report['source_search']])
     out = io.BytesIO()
     wb.save(out)
     return out.getvalue()
@@ -240,6 +331,28 @@ def register_reports(app, db_session, current_user):
         data["rows"] = [{**q, "cells": {d: cells for d, cells in q["cells"].items() if d in data["visible_dates"]}}
                         for q in data["rows"][options.offset:options.offset + options.limit]]
         return data
+
+    @router.get("/overview")
+    def overview(project_id: str, response: Response, options: ReportOptions = Depends(),
+                 user=Depends(current_user), db=Depends(db_session)):
+        response.headers['Cache-Control'] = 'no-store'
+        return overview_report(db, owned_project(db, user.id, project_id), options)
+
+    @router.get("/overview/export/sources")
+    def source_summary_export(project_id: str, options: ReportOptions = Depends(),
+                              source_kind: Literal['all', 'own', 'external'] = 'all',
+                              source_search: str = Query(default='', max_length=254),
+                              user=Depends(current_user), db=Depends(db_session)):
+        project = owned_project(db, user.id, project_id)
+        data = overview_report(db, project, options)
+        data['sources'] = [s for s in data['sources'] if
+                           (source_kind == 'all' or s['own'] == (source_kind == 'own'))
+                           and source_search.casefold() in s['domain'].casefold()]
+        data.update(source_kind=source_kind, source_search=source_search)
+        filename = f"sources-{project.id[:8]}-{data['date_from']}-{data['date_to']}.xlsx"
+        return Response(workbook(data, project, 'source_summary'),
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={'Content-Disposition': f"attachment; filename*=UTF-8''{quote(filename)}", 'Cache-Control': 'no-store'})
 
     @router.get("/results/{result_id}")
     def detail(project_id: str, result_id: int, response: Response,

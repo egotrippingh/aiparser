@@ -116,7 +116,6 @@ function ReportPreview() {
 }
 
 export function LandingPage() {
-  const downloadUrl = "/downloads/AIRate-Setup.exe"
   return (
     <div className="landing" id="top">
       <header className="site-header">
@@ -136,7 +135,6 @@ export function LandingPage() {
               <a href="#approach">Наш подход</a>
               <a href="#faq">Вопросы</a>
               <a href={APP_URL}>Личный кабинет</a>
-              {downloadUrl && <a href={downloadUrl}>Скачать агент</a>}
             </nav>
           </details>
         </div>

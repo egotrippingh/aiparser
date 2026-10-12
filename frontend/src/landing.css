@@ -70,14 +70,14 @@ a:focus-visible, summary:focus-visible { outline: 3px solid var(--air-accent); o
 .report-heading { display: flex; justify-content: space-between; align-items: end; gap: 10px; padding: 25px 23px 19px; }
 .report-kicker { color: var(--air-muted); font-size: 9px; font-weight: 800; letter-spacing: .11em; }
 .report-heading h3 { margin: 7px 0 0; font-size: 23px; letter-spacing: -.055em; }
-.report-scan { display: inline-flex; align-items: center; gap: 6px; color: #9ae6cf; font-size: 10px; white-space: nowrap; }
-.report-scan span { width: 6px; height: 6px; border-radius: 50%; background: #75d8bd; }
+.report-scan { display: inline-flex; align-items: center; gap: 6px; color: var(--air-success); font-size: 10px; white-space: nowrap; }
+.report-scan span { width: 6px; height: 6px; border-radius: 50%; background: var(--air-success); }
 .report-metrics { display: grid; grid-template-columns: 36% 64%; align-items: end; margin-inline: 22px; border: 1px solid var(--air-line); border-radius: 10px; background: var(--air-panel); }
 .report-main-metric { padding: 19px; }
 .report-main-metric > span { display: block; color: var(--air-muted); font-size: 10px; }
 .report-main-metric strong { display: block; margin: 8px 0; font-size: clamp(25px,3vw,39px); line-height: 1; letter-spacing: -.06em; }
 .report-main-metric strong small { color: var(--air-quiet); font-size: .52em; font-weight: 500; }
-.report-main-metric em { display: inline-flex; align-items: center; gap: 2px; color: #9ae6cf; font-style: normal; font-size: 9px; white-space: nowrap; }
+.report-main-metric em { display: inline-flex; align-items: center; gap: 2px; color: var(--air-success); font-style: normal; font-size: 9px; white-space: nowrap; }
 .report-chart { position: relative; height: 115px; overflow: hidden; }
 .report-chart svg { position: absolute; inset: 12px 8px 0 0; width: calc(100% - 8px); height: calc(100% - 12px); }
 .chart-grid { position: absolute; inset: 0; background: repeating-linear-gradient(to bottom, transparent 0 29px, var(--air-line) 30px); }
@@ -87,7 +87,7 @@ a:focus-visible, summary:focus-visible { outline: 3px solid var(--air-accent); o
 .report-row { display: grid; grid-template-columns: 2.15fr 1fr 1fr 1fr; min-height: 38px; align-items: center; gap: 8px; border-top: 1px solid var(--air-raised); color: var(--air-muted); font-size: 9px; }
 .report-row-head { min-height: 31px; color: var(--air-quiet); font-size: 8px; }
 .report-row span:not(:first-child) { text-align: center; }
-.report-row .status-found { display: inline-flex; align-items: center; justify-content: center; gap: 3px; color: #9ae6cf; font-weight: 700; }
+.report-row .status-found { display: inline-flex; align-items: center; justify-content: center; gap: 3px; color: var(--air-success); font-weight: 700; }
 .report-row .status-empty { color: var(--air-quiet); }
 
 .intro-section, .signals-section, .faq-section { scroll-margin-top: 25px; }
@@ -139,7 +139,7 @@ a:focus-visible, summary:focus-visible { outline: 3px solid var(--air-accent); o
 .demo-chart-line { position: absolute; inset: 15% 0 6%; background: var(--air-accent); clip-path: polygon(0 78%,11% 68%,20% 82%,31% 42%,41% 53%,50% 29%,59% 42%,69% 19%,80% 32%,91% 4%,100% 0,100% 100%,0 100%); opacity: .3; }
 .demo-chart-line::before { content: ""; position: absolute; inset: 0; border-top: 4px solid var(--air-accent); }
 .demo-query { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid var(--air-line); color: var(--air-muted); font-size: clamp(6px,.66vw,10px); }
-.demo-query strong, .demo-query em { flex: 0 0 auto; padding: 4px 7px; border-radius: 4px; color: #9ae6cf; background: #23433e; font-size: inherit; font-weight: 700; font-style: normal; }
+.demo-query strong, .demo-query em { flex: 0 0 auto; padding: 4px 7px; border-radius: 4px; color: var(--air-success); background: var(--air-success-bg); font-size: inherit; font-weight: 700; font-style: normal; }
 .demo-query em { color: var(--air-muted); background: var(--air-line); }
 .parsing-demo { height: 100%; padding: clamp(16px,2vw,30px); background: var(--air-panel); }
 .parsing-head { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
@@ -152,11 +152,11 @@ a:focus-visible, summary:focus-visible { outline: 3px solid var(--air-accent); o
 .parsing-events > div { display: grid; grid-template-columns: 12px 1fr 1fr 16px; align-items: center; gap: 9px; min-height: 42px; padding-inline: 13px; border-top: 1px solid var(--air-line); color: var(--air-muted); font-size: clamp(7px,.7vw,10px); }
 .parsing-events > div:first-child { border-top: 0; }
 .parsing-events em { justify-self: end; color: var(--air-muted); font-style: normal; }
-.parsing-events svg { color: #84d9c0; }
+.parsing-events svg { color: var(--air-success); }
 .parsing-events .is-current { background: var(--air-raised); }
 .parsing-events .is-current em { color: var(--air-accent); }
 .parsing-dot { width: 7px; height: 7px; border: 1px solid var(--air-muted); border-radius: 50%; }
-.parsing-dot.is-done { border-color: #84d9c0; background: #84d9c0; }
+.parsing-dot.is-done { border-color: var(--air-success); background: var(--air-success); }
 .is-current .parsing-dot { border-color: var(--air-accent); background: var(--air-accent); box-shadow: 0 0 0 4px var(--air-line-strong); }
 .typing-dots { display: flex; align-items: center; gap: 2px; }
 .typing-dots i { width: 3px; height: 3px; border-radius: 50%; background: var(--air-accent); animation: dot-pulse 1s ease-in-out infinite alternate; }
@@ -322,7 +322,7 @@ a:focus-visible, summary:focus-visible { outline: 3px solid var(--air-accent); o
 .landing .hero h1 span{color:var(--air-text)}
 .landing .button,.landing .header-cta{font-weight:600}
 .landing .button-primary,.landing .header-cta{background:var(--air-text);color:var(--air-ink)}
-.landing .button-primary:hover,.landing .header-cta:hover{background:#f1f0e5;transform:none}
+.landing .button-primary:hover,.landing .header-cta:hover{background:var(--air-accent-strong);transform:none}
 .landing .proof-section,.landing .showcase-section,.landing .history-section,.landing .bottom-cta{background:var(--air-panel)}
 .landing .media-card,.landing .report-frame{box-shadow:none}
 

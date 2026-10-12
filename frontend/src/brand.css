@@ -1,5 +1,5 @@
-.air-brand{display:inline-flex;align-items:center;flex-shrink:0;gap:9px;line-height:1;white-space:nowrap}
-.air-brand img{display:block;width:48px;height:48px;object-fit:contain}
-.air-brand>span{font-size:26px;font-weight:800;letter-spacing:-.065em;color:var(--air-text)}
-.cab-header .air-brand>span{font-size:24px}
-@media(max-width:620px){.air-brand img{width:40px;height:40px}.air-brand>span,.cab-header .air-brand>span{font-size:23px}}
+.air-brand{display:inline-flex;align-items:center;flex-shrink:0;gap:11px;line-height:1;white-space:nowrap;text-decoration:none}
+.air-brand img{display:block;width:31px;height:31px;object-fit:contain}
+.air-brand>span{font-family:ui-monospace,"SFMono-Regular",Menlo,monospace;font-size:28px;font-weight:600;letter-spacing:-1.8px;color:#252c36}
+.air-brand b{color:#153d75;font-weight:600}
+@media(max-width:620px){.air-brand img{width:25px;height:25px}.air-brand>span{font-size:25px}}
