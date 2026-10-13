@@ -17,7 +17,6 @@ export function AdminOverview({ token }: { token: string }) {
   const [search, setSearch] = useState(""), [offset, setOffset] = useState(0), [tick, setTick] = useState(0)
   const [balanceTick, setBalanceTick] = useState(0), [loading, setLoading] = useState(true), [balanceLoading, setBalanceLoading] = useState(true)
   const [services, setServices] = useState<Service[] | null>(null), [serviceError, setServiceError] = useState(""), [serviceLoading, setServiceLoading] = useState(true), [changing, setChanging] = useState<Set<string>>(new Set())
-  const [news, setNews] = useState(""), [newsError, setNewsError] = useState(""), [newsNotice, setNewsNotice] = useState(""), [posting, setPosting] = useState(false)
   useEffect(() => {
     let alive = true
     setBalanceLoading(true); setBalanceError("")
@@ -29,7 +28,6 @@ export function AdminOverview({ token }: { token: string }) {
   const loadServices = useCallback(() => { setServiceLoading(true); setServiceError(""); accountRequest<{providers: Service[]}>("/admin/providers", token).then(data => setServices(data.providers)).catch(e => setServiceError(e instanceof Error ? e.message : "Не удалось загрузить ИИ-системы")).finally(() => setServiceLoading(false)) }, [token])
   useEffect(() => { loadServices() }, [loadServices])
   async function toggle(row: Service) { setChanging(current => new Set(current).add(row.service)); setServiceError(""); try { const result = await accountRequest<Service>(`/admin/providers/${row.service}`, token, {paused: !row.paused}, "PUT"); setServices(rows => rows?.map(item => item.service === row.service ? result : item) || null) } catch (e) { setServiceError(e instanceof Error ? e.message : "Не удалось изменить состояние") } finally { setChanging(current => { const next = new Set(current); next.delete(row.service); return next }) } }
-  async function publish() { setPosting(true); setNewsError(""); setNewsNotice(""); try { await accountRequest("/admin/news", token, {body: news}); setNews(""); setNewsNotice("Новость опубликована.") } catch (e) { setNewsError(e instanceof Error ? e.message : "Не удалось опубликовать новость") } finally { setPosting(false) } }
   useEffect(() => {
     let alive = true
     const timer = setTimeout(() => {
@@ -42,7 +40,6 @@ export function AdminOverview({ token }: { token: string }) {
   }, [search, offset, tick, token])
   return <>
     <section className="cab-panel admin-overview"><div className="cab-section-head"><div><h2>ИИ-системы</h2><p>Пауза пропускает ещё не отправленные проверки. Уже отправленные ответы сохраняются и списываются один раз.</p></div></div>{serviceLoading && <p role="status">Загружаем ИИ-системы…</p>}{serviceError && <p role="alert">{serviceError} <button className="cc-button" onClick={loadServices}>Повторить</button></p>}{services && <div className="admin-provider-switches">{services.map(row => <label key={row.service}><span>{serviceName(row.service)}</span><input type="checkbox" role="switch" checked={!row.paused} disabled={changing.has(row.service)} onChange={() => void toggle(row)}/><b>{row.paused ? "Приостановлена" : "Включена"}</b></label>)}</div>}</section>
-    <section className="cab-panel admin-overview"><div className="cab-section-head"><div><h2>Новая запись в ленте</h2><p>Текст и эмодзи видны всем посетителям сайта.</p></div></div><label>Текст новости<textarea value={news} maxLength={10000} disabled={posting} onChange={e => setNews(e.target.value)} /></label>{newsError && <p role="alert">{newsError}</p>}{newsNotice && <p role="status">{newsNotice}</p>}<button className="cc-button primary" disabled={posting || !news.trim()} onClick={() => void publish()}>{posting ? "Публикуем…" : "Опубликовать"}</button></section>
     <section className="cab-panel admin-overview"><div className="cab-section-head"><div><h2>Балансы поставщиков</h2><p>Остатки средств у поставщиков.</p></div><button className="cc-button" disabled={balanceLoading} onClick={() => setBalanceTick(n => n + 1)}>Обновить балансы</button></div>
       {balanceLoading && <p role="status">Получаем актуальные балансы…</p>}{balanceError && <p role="alert">{balanceError}</p>}
       {providers && <ul className="admin-balances">{providers.map(p => <li key={p.id}><div><h2>{p.name}</h2><strong>{balanceLabel(p.balance, p.currency)}</strong>

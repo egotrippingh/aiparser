@@ -36,27 +36,25 @@ def test_all_users_wallets_and_admin_only(tmp_path, monkeypatch):
     assert not {'password_hash', 'token', 'sessions'} & set(owner)
 
 
-def test_public_news_and_admin_provider_pause(tmp_path, monkeypatch):
-    client, admin, other, _, _ = setup(tmp_path, monkeypatch)
-    assert 'Лента' in client.get('/news/').text
-    assert client.get('/api/v1/news').json() == {'items': [], 'next_cursor': None}
-    assert client.post('/api/v1/admin/news', headers=other, json={'body': 'Нельзя'}).status_code == 403
-    assert client.post('/api/v1/admin/news', json={'body': 'Нельзя'}).status_code == 401
-    post = client.post('/api/v1/admin/news', headers=admin, json={'body': '🌟 Первая\nновость'}).json()
-    feed = client.get('/api/v1/news?limit=1').json()
-    assert feed['items'][0]['id'] == post['id']
-    assert feed['items'][0]['body'] == '🌟 Первая\nновость'
-    assert 'author' not in feed['items'][0]
+def test_news_routes_retired_and_provider_pauses_remain_private(tmp_path, monkeypatch):
+    from server.models import NewsPost
+    client, admin, other, user_id, sessions = setup(tmp_path, monkeypatch)
+    with sessions() as db:
+        archived = NewsPost(author_id=user_id, body='Saved news remains in the database')
+        db.add(archived)
+        db.commit()
+        news_id = archived.id
+    for path in ('/news', '/news/', '/api/v1/news'):
+        assert client.get(path).status_code == 404
+    for headers in ({}, other, admin):
+        assert client.post('/api/v1/admin/news', headers=headers, json={'body': 'Retired'}).status_code == 404
+    with sessions() as db:
+        assert db.get(NewsPost, news_id).body == 'Saved news remains in the database'
+    assert client.get('/api/v1/admin/providers').status_code == 401
     assert client.put('/api/v1/admin/providers/chatgpt', headers=other, json={'paused': True}).status_code == 403
     assert client.put('/api/v1/admin/providers/chatgpt', headers=admin, json={'paused': 'true'}).status_code == 422
     assert client.put('/api/v1/admin/providers/chatgpt', headers=admin, json={'paused': True}).json() == {'service': 'chatgpt', 'paused': True}
     assert client.get('/api/v1/admin/providers', headers=admin).json()['providers'][0]['service'] == 'chatgpt'
-
-    for body in ('Вторая', 'Третья'):
-        client.post('/api/v1/admin/news', headers=admin, json={'body': body})
-    first = client.get('/api/v1/news?limit=2').json()
-    assert [item['body'] for item in first['items']] == ['Третья', 'Вторая']
-    assert [item['body'] for item in client.get(f"/api/v1/news?cursor={first['next_cursor']}").json()['items']] == ['🌟 Первая\nновость']
 
 
 def balances(monkeypatch, handler):

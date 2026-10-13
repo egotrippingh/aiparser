@@ -24,6 +24,13 @@ checks, readiness and rollback gates.
 
 ## Open checks and next action
 
+`codex/telegram-news` prepares replacement of the web feed with a Telegram news
+link in website/cabinet headers. Feed page/API and admin composer are removed
+in the draft; stored posts and migration head are preserved. Admin tests (5),
+frontend tests (83), lint/build and Graphify update passed. The news link uses
+`https://t.me/airtate_tech`; complete browser checks, Docker refresh, CI and deployment.
+This replacement is unpublished; production and Docker still use the prior release.
+
 The full server suite passed with disposable
 PostgreSQL (194 tests); retained shared CI checks passed without the retired browser
 runtime (66 tests). Independent review and production activation are complete.

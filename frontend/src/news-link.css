@@ -1,0 +1,5 @@
+.news-link { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 0 11px; border: 1px solid currentColor; border-radius: 8px; color: inherit; font-size: 13px; font-weight: 600; line-height: 1; white-space: nowrap; text-decoration: none; }
+.news-link svg { flex-shrink: 0; }
+.news-link:hover { opacity: .8; text-decoration: none; }
+.news-link:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.cab-header-inner > .news-link { margin-left: auto; }
