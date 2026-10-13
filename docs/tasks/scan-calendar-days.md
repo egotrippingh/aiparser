@@ -32,7 +32,9 @@ Release: PR #54 merged into production 99d7fb34584eb9b12dab1378d7b73960fe4a86a5.
 PR run 38357093941 passed on feature 94c00d4ec886dcdbce0a34ec1fa58dcb08985c83.
 Production run 38357731853 passed Tests and build and Upload and activate verified
 release; Verify public release failed. No delivery gate was changed or bypassed.
-Google DNS still returns NXDOMAIN; Radix RDAP reports client hold, with expiration
-2027-09-27. The user received REG.RU verification/block-removal instructions.
-Remaining: remove registrar hold and verify public readiness/assets on this exact
-production SHA; paid provider scans/payment/live S3 were not checked.
+After the user confirmed the registrant email, Radix RDAP no longer reports client
+hold; Google DNS resolves airate.tech to 45.146.90.88. Normal HTTPS verification
+passed on 2026-10-13 for the exact production SHA: readiness, pricing, 12 matching
+assets and anonymous private routes returning 401. The initial CI failure remains
+historical; no redeployment or gate bypass was needed.
+Paid provider scans/payment/live S3 were not checked.
