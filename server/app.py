@@ -49,6 +49,11 @@ class Credentials(BaseModel):
     connect_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
 
 
+class ScrapelessWebhookIn(BaseModel):
+    task_id: str = Field(pattern=r'^[A-Za-z0-9_-]{1,200}$')
+    status: str = Field(pattern=r'^(success|failed)$')
+
+
 class TopupIn(BaseModel):
     amount_kopeks: int = Field(ge=30000, le=10_000_000)
     method: str = Field(pattern="^(sbp|crypto)$")
@@ -221,6 +226,27 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         raise RuntimeError("Цена и минимальное пополнение должны быть положительными")
 
     app = FastAPI(title="AI Mentions Account API")
+    from server import scrapeless, provider_tasks
+    access_logger = logging.getLogger('uvicorn.access')
+    if scrapeless.callback_access_log not in access_logger.filters:
+        access_logger.addFilter(scrapeless.callback_access_log)
+
+    @app.post('/api/v1/webhooks/scrapeless/{check_id}/{capability}', include_in_schema=False, status_code=204)
+    async def scrapeless_webhook(check_id: str, capability: str, request: Request):
+        if (len(check_id) > 100 or not re.fullmatch(r'[a-f0-9]{32}', capability)):
+            raise HTTPException(404, 'Задача не найдена')
+        raw = bytearray()
+        async for chunk in request.stream():
+            raw.extend(chunk)
+            if len(raw) > 262144:
+                raise HTTPException(413, 'Слишком большой ответ')
+        from pydantic import ValidationError
+        try:
+            event = ScrapelessWebhookIn.model_validate_json(bytes(raw))
+        except ValidationError:
+            raise HTTPException(422, 'Неверный формат уведомления') from None
+        await run_in_threadpool(provider_tasks.callback, SessionLocal, check_id, capability, event.task_id)
+        return Response(status_code=204, headers={'Cache-Control': 'no-store'})
     @app.on_event("startup")
     async def telemetry_startup():
         telemetry.watch_loop("server")

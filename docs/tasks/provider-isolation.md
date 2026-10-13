@@ -17,9 +17,18 @@ production PR/CI and exact-SHA plus existing-scan live verification.
 Evidence: before fix5 regressions failed (existing uncertain/submitting, fresh
 ambiguous POST, XML transient and Scrapeless400). After fix96 focused provider/XML
 tests passed including disposable PostgreSQL. Shared CI group67 passed; benchmark
-self-check passed. Full server and independent reviews pending.
+self-check passed.
 Full server passed241 before the final capacity fix. Sol review found a sticky
 full-capacity pause; its SQLite/PostgreSQL regression failed with the old pause
 and passed with capacity refreshed after slot release. Sol re-review and Astra
-risk review passed. Final full-server rerun and production CI remain pending.
+risk review passed. Final full server passed243 with disposable PostgreSQL.
+PR56 merged as67575132d4f4d3b0852fc9c62bd7e5fdbb2f8aab after exact-head
+CI38384826583 passed on1bf2344a29cb37fca0b69a51afe4de4c80d7a82d.
+Production CI38385385962 passed, including backup/isolated restore and readiness
+gates. HTTPS readiness and remote production both match67575132; pricing120.
+Live read-only acceptance: geosoft-dent ChatGPT121 ->301/303 and Yandex186 ->203/303.
+One pre-existing uncertain task remains isolated, never reposted; one expired
+handle and Yandex tail remain for normal recovery. No paid QA scan/history rewrite.
+Disposable PostgreSQL55433 stopped; VNC diagnostic transaction closed and fit
+scale restored. No new SSH access was created.
 No migration, frontend or delivery-script change.

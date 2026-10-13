@@ -1,14 +1,33 @@
 # AIRate current project state
 
-## Provider queue isolation (2026-10-13, release pending)
+## Scrapeless webhook and timeout recovery (2026-10-13, validated)
+
+Branch codex/scrapeless-webhook adds attempt-scoped notifications, authenticated
+GET evidence recovery and automatic retry after15min without a confirmed handle.
+One AIRate Check/settlement is preserved; old results remain unchanged. Unknown
+confirmation is capped at3 total submissions, then isolated; other slots/users run.
+Known pending IDs retain one slot and are polled without duplicate submission.
+Full server262, focused19 and shared67 passed with disposable PostgreSQL.
+Sol/Astra reviewed final risky changes without blockers. Caddy URI redaction
+passed an actual502 check; production Caddy2.11.4 validated/reloaded with backup.
+One live geosoft-dent ChatGPT uncertain task is awaiting release recovery.
+Source CI, application deploy and final live verification remain pending.
+See [scrapeless-webhook.md](docs/tasks/scrapeless-webhook.md).
+
+## Provider queue isolation (2026-10-13, deployed)
 
 Branch codex/provider-isolation removes account-wide pauses for individual unknown
 Scrapeless sends and XML transient failures, while preserving occupied slots,
 global auth/quota guards and ambiguous-POST no-resend. XML network exhaustion is
 classified as a retryable query failure. No schema or frontend change.
 Five regressions failed before the fix; focused provider/XML96 and shared67 pass
-with disposable PostgreSQL. Sol/Astra reviews passed; final server rerun and
-publication pending. Full-capacity regression covers slot reuse in the same tick.
+with disposable PostgreSQL. Final full server243 passed; Sol/Astra reviews passed.
+Full-capacity regression covers slot reuse in the same tick. PR56 merged after
+exact-head CI38384826583 passed. Production CI38385385962 passed;
+HTTPS readiness confirms67575132d4f4d3b0852fc9c62bd7e5fdbb2f8aab and pricing120.
+Live geosoft-dent: ChatGPT121 ->301 of303, Yandex186 ->203 of303 after activation.
+One pre-existing uncertain POST is retained without resend; one expired handle
+and the remaining Yandex tail still require normal recovery/provider responses.
 See [provider-isolation.md](docs/tasks/provider-isolation.md).
 
 ## Automatic collection recovery and report filters (2026-10-13)
@@ -45,7 +64,7 @@ routes returning 401. The original failed CI run remains historical; no gate was
 
 ## Current release
 
-Production is `ddec8319283954deafe3b9d0d3e0691b84b4e539` from PR #55.
+Production is `67575132d4f4d3b0852fc9c62bd7e5fdbb2f8aab` from PR #56.
 Normal HTTPS verification confirms the exact SHA, pricing, 12 matching public assets
 and anonymous private routes returning401. Production CI and readiness passed.
 Previous records were verified unchanged during the PR #51/#52 migration.

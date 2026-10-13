@@ -17,6 +17,11 @@ BASE = "https://api.scrapeless.com/api/v2/scraper"
 HTTP_SLOTS = threading.BoundedSemaphore(32)
 
 
+def callback_access_log(record):
+    # Callback URLs carry a per-attempt capability, never an access-log entry.
+    return '/api/v1/webhooks/scrapeless/' not in record.getMessage()
+
+
 def configured():
     return bool(os.environ.get("SCRAPELESS_API_KEY", "").strip())
 
@@ -27,7 +32,7 @@ def limits():
 
 
 class SubmissionUnknown(AdapterError):
-    """The supplier may have accepted the POST; do not send it again."""
+    """The supplier may have accepted the POST; wait for callback or recovery timeout."""
 
 
 class CollectionDeferred(AdapterError):
@@ -112,7 +117,7 @@ class ScrapelessClient:
         finally:
             HTTP_SLOTS.release()
 
-    async def submit(self, service, prompt, country):
+    async def submit(self, service, prompt, country, *, webhook_url=None):
         if service not in SERVICES or not re.fullmatch(r"[A-Z]{2}", country):
             raise ValueError("Неверный сервис или страна сбора")
         input_data = {"prompt": prompt, "country": country}
@@ -120,12 +125,17 @@ class ScrapelessClient:
             input_data["web_search"] = True
         if service in {"chatgpt", "gemini"}:
             input_data["shopping"] = False
+        body = {"actor": "scraper." + service, "input": input_data}
+        if webhook_url:
+            if not safe_url(webhook_url) or urlsplit(webhook_url).scheme != 'https':
+                raise ValueError('Webhook требует HTTPS')
+            body['webhook'] = {'url': webhook_url}
         try:
-            response = await self.request("POST", "/request", json={"actor": "scraper." + service, "input": input_data})
+            response = await asyncio.wait_for(self.request("POST", "/request", json=body), timeout=75)
             if response.status_code in (400, 401, 402, 403, 429):
                 raise Rejected(response.status_code)
             if response.status_code not in (200, 201, 202):
-                raise SubmissionUnknown("Неизвестен исход отправки; требуется сверка задачи у сервиса сбора")
+                raise SubmissionUnknown("Исход отправки неизвестен; ожидается уведомление или автоматический повтор")
             data = response.json()
             if isinstance(data, dict) and isinstance(data.get("data"), dict):
                 data = data["data"]
@@ -133,8 +143,8 @@ class ScrapelessClient:
             if not isinstance(task_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", task_id):
                 raise SubmissionUnknown("Сервис сбора не подтвердил идентификатор отправленной задачи")
             return task_id
-        except (httpx.HTTPError, ValueError) as exc:
-            raise SubmissionUnknown("Неизвестен исход отправки; повторная отправка заблокирована") from exc
+        except (httpx.HTTPError, ValueError, asyncio.TimeoutError) as exc:
+            raise SubmissionUnknown("Подтверждение отправки потеряно; ожидается уведомление или автоматический повтор") from exc
 
     async def poll(self, task_id):
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", task_id):

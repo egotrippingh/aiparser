@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import hmac
+import os
 import time
 import uuid
 from datetime import timedelta, timezone
@@ -11,6 +13,7 @@ from sqlalchemy import func, select, update
 
 from server.models import Check, ControlRun, ProviderAccount, ProviderTask, ServerCapture, User, utcnow
 from server.scrapeless import CollectionDeferred, Rejected, SubmissionUnknown
+from server import scrapeless
 
 ACTIVE = ("submitting", "submitted", "uncertain")
 
@@ -129,15 +132,17 @@ def admit(sessions, run_id, token, query_id, service, limit):
 
 
 def submitted(sessions, task, task_id):
-    # A late successful POST must retain its handle even when the run lease changed.
+    # Authenticated POST confirmation takes precedence over an early notification.
     with sessions() as db:
+        db.execute(update(ProviderAccount).where(ProviderAccount.service == task.service)
+            .values(revision=ProviderAccount.revision + 1))
         db.execute(update(ProviderTask).where(ProviderTask.check_id == task.check_id,
             ProviderTask.submission_token == task.submission_token,
-            ProviderTask.task_id.is_(None)).values(task_id=task_id, state="submitted", updated_at=utcnow()))
+            ProviderTask.state.in_(ACTIVE)).values(task_id=task_id, state="submitted", updated_at=utcnow()))
         db.commit()
 
 
-def failed(sessions, task, *, uncertain=False, expired=False, cooldown=30):
+def failed(sessions, task, *, uncertain=False, expired=False, cooldown=30, no_handle=False):
     with sessions() as db:
         db.execute(update(ProviderAccount).where(ProviderAccount.service == task.service)
             .values(revision=ProviderAccount.revision + 1))
@@ -146,11 +151,61 @@ def failed(sessions, task, *, uncertain=False, expired=False, cooldown=30):
             deadline = utcnow() + timedelta(seconds=cooldown)
             if not account.cooldown_until or _aware(account.cooldown_until) < deadline:
                 account.cooldown_until = deadline
-        db.execute(update(ProviderTask).where(ProviderTask.check_id == task.check_id,
+        conditions = [ProviderTask.check_id == task.check_id,
             ProviderTask.submission_token == task.submission_token,
-            ProviderTask.state != "completed").values(
+            ProviderTask.state != "completed"]
+        if uncertain or no_handle:
+            conditions.append(ProviderTask.task_id.is_(None))
+        db.execute(update(ProviderTask).where(*conditions).values(
                 state="expired" if expired else "uncertain" if uncertain else "rejected", updated_at=utcnow()))
         db.commit()
+
+
+def callback(sessions, check_id, capability, task_id):
+    """The capability identifies one attempt; its body is never answer evidence."""
+    from fastapi import HTTPException
+    with sessions() as db:
+        task = db.get(ProviderTask, check_id)
+        if (not task or task.service not in scrapeless.SERVICES or
+                not hmac.compare_digest(task.submission_token, capability)):
+            raise HTTPException(404, 'Задача не найдена')
+        db.execute(update(ProviderAccount).where(ProviderAccount.service == task.service)
+            .values(revision=ProviderAccount.revision + 1))
+        db.refresh(task)
+        if not hmac.compare_digest(task.submission_token, capability):
+            raise HTTPException(404, 'Задача не найдена')
+        if task.task_id and task.task_id != task_id:
+            raise HTTPException(409, 'Идентификатор задачи не совпадает')
+        if task.state in ACTIVE and not task.task_id:
+            task.task_id, task.state, task.updated_at = task_id, 'submitted', utcnow()
+        db.commit()
+
+
+def recover_scrapeless(sessions):
+    """Retire only unknown handles; known tasks remain recoverable by GET."""
+    now = utcnow()
+    with sessions() as db:
+        for service in sorted(scrapeless.SERVICES):
+            db.execute(update(ProviderAccount).where(ProviderAccount.service == service)
+                .values(revision=ProviderAccount.revision + 1))
+            tasks = db.scalars(select(ProviderTask).where(ProviderTask.service == service,
+                ProviderTask.state.in_(('submitting', 'uncertain')),
+                ProviderTask.task_id.is_(None), ProviderTask.updated_at <= now - timedelta(minutes=15))).all()
+            for task in tasks:
+                run = db.get(ControlRun, task.run_id)
+                if (task.state == 'submitting' and run and run.lease_token and run.lease_until
+                        and _aware(run.lease_until) >= now):
+                    continue
+                task.history_json = json.dumps([*json.loads(task.history_json),
+                    {'task_id': None, 'state': task.state}])
+                task.submission_token = uuid.uuid4().hex
+                if run and run.desired_state == 'cancelled':
+                    _skip_and_release(db, run, task, task.check_id, task.query_id, service, now)
+                else:
+                    eligible = (run and run.state in ('queued', 'running', 'paused') and
+                        json.loads(run.snapshot_json).get('collection_policy') == 'complete')
+                    task.state = 'rejected' if eligible and task.attempts < 3 else 'retry_exhausted'
+            db.commit()
 
 
 def recover_xml(sessions):
@@ -174,14 +229,15 @@ def save(sessions, task, payload):
         db.execute(update(ProviderAccount).where(ProviderAccount.service == task.service)
             .values(revision=ProviderAccount.revision + 1))
         current = db.get(ProviderTask, task.check_id)
-        if current.submission_token != task.submission_token or current.state == "completed":
-            return
+        if not current or current.submission_token != task.submission_token or current.state == "completed":
+            return False
         current.answer_json = json.dumps(payload, ensure_ascii=False)
         current.state, current.updated_at = "completed", utcnow()
         if not db.scalar(select(ServerCapture.id).where(ServerCapture.check_id == task.check_id)):
             db.add(ServerCapture(run_id=task.run_id, query_id=task.query_id, service=task.service,
                 check_id=task.check_id, answer_json=current.answer_json))
         db.commit()
+        return True
 
 
 async def collect(sessions, client, run_id, token, query, service, country, limit,
@@ -200,7 +256,8 @@ async def collect(sessions, client, run_id, token, query, service, country, limi
         status, payload = await client.poll(task.task_id)
         if status == "success":
             payload = enrich(payload)
-            save(sessions, task, payload)
+            if not save(sessions, task, payload):
+                raise CollectionDeferred('Ответ сохранён другой попыткой')
             return payload
         if status not in ("expired", "failed"):
             raise CollectionDeferred("Созданная задача ожидает получения сохранённого ответа")
@@ -219,22 +276,36 @@ async def collect(sessions, client, run_id, token, query, service, country, limi
         return json.loads(task.answer_json)
     if task.state == "skipped":
         return None
+    if task.state == 'retry_exhausted':
+        raise CollectionDeferred('Не получено подтверждение после трёх отправок; требуется сверка сервиса сбора')
     if task.state == "expired":
         raise CollectionDeferred("Срок хранения ответа истёк; требуется сверка оплаченной задачи администратором")
     if fresh:
         if not should_start():
-            failed(sessions, task, cooldown=0)
+            failed(sessions, task, cooldown=0, no_handle=True)
             return None
         try:
-            task_id = await client.submit(service, query["text"], country)
+            public_base = os.environ.get('PUBLIC_BASE_URL', '').rstrip('/')
+            webhook_url = (f'{public_base}/api/v1/webhooks/scrapeless/{task.check_id}/{task.submission_token}'
+                if scrapeless.safe_url(public_base) and public_base.startswith('https://') else None)
+            kwargs = {'webhook_url': webhook_url} if webhook_url else {}
+            task_id = await client.submit(service, query["text"], country, **kwargs)
         except Rejected as exc:
             cooldown = 10 if exc.status == 429 else 60 if exc.status in (401, 402, 403) else 0
-            failed(sessions, task, cooldown=cooldown)
+            failed(sessions, task, cooldown=cooldown, no_handle=True)
             raise CollectionDeferred(str(exc)) from exc
-        except (SubmissionUnknown, asyncio.CancelledError):
+        except SubmissionUnknown:
+            failed(sessions, task, uncertain=True, cooldown=0)
+            with sessions() as db:
+                current = db.get(ProviderTask, task.check_id)
+                task_id = current.task_id if current.submission_token == task.submission_token else None
+            if not task_id:
+                raise
+        except asyncio.CancelledError:
             failed(sessions, task, uncertain=True, cooldown=0)
             raise
-        submitted(sessions, task, task_id)
+        else:
+            submitted(sessions, task, task_id)
     else:
         # A concurrent old owner can still finish its POST and durably save the handle.
         if not task.task_id:
@@ -242,7 +313,7 @@ async def collect(sessions, client, run_id, token, query, service, country, limi
                 current = db.get(ProviderTask, task.check_id)
                 task_id = current.task_id
             if not task_id:
-                raise SubmissionUnknown("Отправленная задача не подтверждена; требуется сверка у сервиса сбора")
+                raise SubmissionUnknown("Подтверждение отправки ожидается; автоматический повтор запланирован после таймаута")
         else:
             task_id = task.task_id
     deadline = time.monotonic() + 600
@@ -250,10 +321,18 @@ async def collect(sessions, client, run_id, token, query, service, country, limi
         # Stop/Pause must drain accepted tasks; shutdown leaves them for a new worker.
         if not should_drain():
             raise CollectionDeferred("Созданная задача ожидает получения сохранённого ответа")
+        with sessions() as db:
+            current = db.get(ProviderTask, task.check_id)
+            if current.submission_token != task.submission_token:
+                raise CollectionDeferred('Отправка уже заменена новой попыткой')
+            if current.state == 'completed':
+                return json.loads(current.answer_json)
+            task_id = current.task_id or task_id
         status, payload = await client.poll(task_id)
         if status == "success":
             payload = enrich(payload)
-            save(sessions, task, payload)
+            if not save(sessions, task, payload):
+                raise CollectionDeferred('Ответ сохранён другой попыткой')
             return payload
         if status in ("failed", "expired"):
             failed(sessions, task, expired=status == "expired", cooldown=0)
