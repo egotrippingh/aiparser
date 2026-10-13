@@ -1,5 +1,18 @@
 # AIRate current project state
 
+## Monthly calendar completion (2026-10-13)
+
+Branch codex/schedule-calendar starts from production b165c429dc94b3de312072ec8cfa60f334723cc8
+and preserves PRs #49–53. Server last_day support and actual-scan chart dates are
+already published; the remaining UI now offers 1–28 and the last-day flag, including
+last-day-only schedules, explicit legacy 29–31 removal and complete schedule labels.
+84 frontend checks, lint/build, 8 schedule regressions and desktop/390px disposable
+browser checks passed; independent Sol review found no blockers. No schema change.
+Evidence: C:/codex-tmp/airate-schedule-calendar-20261013/; task
+[scan-calendar-days.md](docs/tasks/scan-calendar-days.md). Publication is pending.
+The latest prior production CI run 38352484491 passed activation but failed public
+verification; DNS returned NXDOMAIN on resume. Domain recovery is an external step.
+
 ## Current release
 
 Production is `62536ba`, verified on 2026-10-12 after PRs #51/#52 (deploy run
@@ -24,12 +37,10 @@ checks, readiness and rollback gates.
 
 ## Open checks and next action
 
-`codex/telegram-news` prepares replacement of the web feed with a Telegram news
-link in website/cabinet headers. Feed page/API and admin composer are removed
-in the draft; stored posts and migration head are preserved. Admin tests (5),
-frontend tests (83), lint/build and Graphify update passed. The news link uses
-`https://t.me/airtate_tech`; complete browser checks, Docker refresh, CI and deployment.
-This replacement is unpublished; production and Docker still use the prior release.
+PR #53 merged the Telegram news replacement into production b165c429dc94b3de312072ec8cfa60f334723cc8.
+The news link is https://t.me/airtate_tech; stored posts and migration head remain.
+Its production activation passed; the final external verification failed resolving
+the public domain. The prior local Docker preview is not current release evidence.
 
 The full server suite passed with disposable
 PostgreSQL (194 tests); retained shared CI checks passed without the retired browser
