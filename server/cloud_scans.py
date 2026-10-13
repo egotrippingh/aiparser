@@ -618,6 +618,7 @@ async def _cloud_tick(sessions, ai_client, price, collector_factory,
     blocked_services = {service for service, until in (cooldowns or {}).items() if until > clock()}
     if collector_factory is XMLRiverClient:
         provider_tasks.recover_xml(sessions)
+        provider_tasks.recover_scrapeless(sessions)
     claim = _claim(sessions, blocked_services)
     if not claim:
         return False

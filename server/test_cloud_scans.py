@@ -1000,6 +1000,7 @@ def test_worker_database_wait_does_not_delay_server_heartbeat(monkeypatch):
 
     monkeypatch.setattr('server.cloud_scans._claim', blocked_claim)
     monkeypatch.setattr('server.cloud_scans.provider_tasks.recover_xml', lambda sessions: None)
+    monkeypatch.setattr('server.cloud_scans.provider_tasks.recover_scrapeless', lambda sessions: None)
 
     async def scenario():
         task = asyncio.create_task(worker(None, None, 120))

@@ -1,3 +1,11 @@
+{
+    log {
+        format filter {
+            request>uri regexp /api/v1/webhooks/scrapeless/.* /api/v1/webhooks/scrapeless/REDACTED
+        }
+    }
+}
+
 {$DOMAIN} {
     encode zstd gzip
     reverse_proxy web:8000
