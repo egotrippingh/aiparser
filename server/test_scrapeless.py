@@ -568,14 +568,18 @@ def test_postgres_late_expired_answer_cannot_overwrite_new_owner(tmp_path, monke
         assert db.scalar(select(CloudResult)).status == 'found'
 
 
-def test_submitted_query_does_not_block_free_provider_capacity(tmp_path, monkeypatch):
+@pytest.mark.parametrize('state', ['submitted', 'submitting', 'uncertain'])
+@pytest.mark.parametrize('use_postgres', [False, True])
+def test_submitted_query_does_not_block_free_provider_capacity(tmp_path, monkeypatch, request, state, use_postgres):
+    url = request.getfixturevalue('postgres_url') if use_postgres else None
     monkeypatch.setenv('SCRAPELESS_CHATGPT_CONCURRENCY', '2')
     _, _, _, _, sessions, project, run = create(tmp_path, monkeypatch,
-        queries=[{'text': 'first'}, {'text': 'second'}, {'text': 'third'}])
+        queries=[{'text': 'first'}, {'text': 'second'}, {'text': 'third'}], database_url=url)
     with sessions() as db:
         query_id = project['queries'][0]['id']
         db.add(ProviderTask(check_id=f"{run['id']}:{query_id}:chatgpt", run_id=run['id'],
-            query_id=query_id, service='chatgpt', submission_token='old', state='submitted', task_id='old-id'))
+            query_id=query_id, service='chatgpt', submission_token='old', state=state,
+            task_id='old-id' if state == 'submitted' else None))
         db.commit()
     class Delayed(Supplier):
         async def poll(self, task_id):
@@ -587,7 +591,135 @@ def test_submitted_query_does_not_block_free_provider_capacity(tmp_path, monkeyp
     assert supplier.posts == [('chatgpt', 'second', 'US'), ('chatgpt', 'third', 'US')]
     with sessions() as db:
         assert {row.query_text for row in db.scalars(select(CloudResult))} == {'second', 'third'}
+        saved = db.get(ProviderTask, f"{run['id']}:{query_id}:chatgpt")
+        assert saved.state == state and saved.attempts == 1
         assert db.get(ControlRun, run['id']).lease_token is None
+
+
+@pytest.mark.parametrize('use_postgres', [False, True])
+def test_full_provider_capacity_is_reused_after_unknown_post(tmp_path, monkeypatch, request, use_postgres):
+    from shared.xmlriver import XMLRiverClient
+    url = request.getfixturevalue('postgres_url') if use_postgres else None
+    monkeypatch.setenv('SCRAPELESS_CHATGPT_CONCURRENCY', '2')
+    _, _, _, _, sessions, _, _ = create(tmp_path, monkeypatch,
+        queries=[{'text': 'first'}, {'text': 'second'}, {'text': 'third'}], database_url=url)
+
+    class Full(Supplier):
+        async def submit(self, service, prompt, country):
+            if prompt == 'first':
+                self.posts.append((service, prompt, country))
+                await self.second_started.wait()
+                self.unknown_raised.set()
+                raise scrapeless.SubmissionUnknown('Unknown submission')
+            task_id = await super().submit(service, prompt, country)
+            if prompt == 'second':
+                self.second_started.set()
+            return task_id
+
+        async def poll(self, task_id):
+            await self.unknown_raised.wait()
+            await asyncio.sleep(0.01)
+            return await super().poll(task_id)
+
+    async def run():
+        supplier = Full()
+        supplier.second_started = asyncio.Event()
+        supplier.unknown_raised = asyncio.Event()
+        assert await _cloud_tick(sessions, None, 120, XMLRiverClient, provider_client=supplier,
+            prefetch_limits={'chatgpt': 2})
+        return supplier
+
+    supplier = asyncio.run(run())
+    assert [prompt for _, prompt, _ in supplier.posts] == ['first', 'second', 'third']
+    with sessions() as db:
+        assert {row.query_text for row in db.scalars(select(CloudResult))} == {'second', 'third'}
+        assert db.scalar(select(ProviderTask).where(ProviderTask.state == 'uncertain')).attempts == 1
+
+
+def test_ambiguous_new_post_does_not_cool_down_other_queries(tmp_path, monkeypatch):
+    monkeypatch.setenv('SCRAPELESS_CHATGPT_CONCURRENCY', '2')
+    _, _, _, _, sessions, _, run = create(tmp_path, monkeypatch,
+        queries=[{'text': 'first'}, {'text': 'second'}, {'text': 'third'}])
+
+    class AmbiguousFirst(Supplier):
+        async def submit(self, service, prompt, country):
+            if prompt == 'first':
+                self.posts.append((service, prompt, country))
+                raise scrapeless.SubmissionUnknown('Unknown submission')
+            return await super().submit(service, prompt, country)
+
+    supplier = AmbiguousFirst()
+    assert tick(sessions, supplier)
+    with sessions() as db:
+        assert {row.query_text for row in db.scalars(select(CloudResult))} == {'second', 'third'}
+        assert db.get(ProviderAccount, 'chatgpt').cooldown_until is None
+        db.get(ControlRun, run['id']).retry_at = None
+        db.commit()
+    assert tick(sessions, supplier)
+    assert [prompt for _, prompt, _ in supplier.posts].count('first') == 1
+
+
+@pytest.mark.parametrize('use_postgres', [False, True])
+def test_xml_transient_query_does_not_cool_down_other_queries(tmp_path, monkeypatch, request, use_postgres):
+    from shared.xmlriver import XMLRiverClient, XMLRiverResponseError
+    url = request.getfixturevalue('postgres_url') if use_postgres else None
+    _, _, _, _, sessions, _, run = create(tmp_path, monkeypatch,
+        services=('yandex_neuro',), queries=[{'text': 'first'}, {'text': 'second'}], database_url=url)
+    calls = []
+
+    async def collect(self, prompt, *, should_continue=None):
+        calls.append(prompt)
+        if prompt == 'first':
+            raise XMLRiverResponseError('XMLRiver: empty answer')
+        return scrapeless.evidence({'result_text': 'Brand is recommended'})
+
+    monkeypatch.setattr(XMLRiverClient, 'collect', collect)
+    assert asyncio.run(_cloud_tick(sessions, None, 120, XMLRiverClient,
+        provider_client=Supplier(), prefetch_limits={'yandex_neuro': 1}))
+    assert calls == ['first', 'second']
+    with sessions() as db:
+        assert db.get(ProviderAccount, 'yandex_neuro').cooldown_until is None
+        assert [row.query_text for row in db.scalars(select(CloudResult))] == ['second']
+        assert db.get(ControlRun, run['id']).desired_state == 'running'
+
+
+def test_bad_request_does_not_cool_down_other_queries(tmp_path, monkeypatch):
+    monkeypatch.setenv('SCRAPELESS_CHATGPT_CONCURRENCY', '1')
+    _, _, _, _, sessions, _, _ = create(tmp_path, monkeypatch,
+        queries=[{'text': 'first'}, {'text': 'second'}])
+
+    class BadFirst(Supplier):
+        async def submit(self, service, prompt, country):
+            if prompt == 'first':
+                self.posts.append((service, prompt, country))
+                raise scrapeless.Rejected(400)
+            return await super().submit(service, prompt, country)
+
+    assert tick(sessions, BadFirst())
+    with sessions() as db:
+        assert db.get(ProviderAccount, 'chatgpt').cooldown_until is None
+        assert [row.query_text for row in db.scalars(select(CloudResult))] == ['second']
+
+
+@pytest.mark.parametrize('error_kind', ['auth', 'quota', 'throttle'])
+def test_xml_global_failure_preserves_account_cooldown(tmp_path, monkeypatch, error_kind):
+    from shared.xmlriver import AdapterError, ProviderQuotaError, ProviderThrottleError
+    _, _, _, _, sessions, _, _ = create(tmp_path, monkeypatch, services=('yandex_neuro',))
+    run_id, token, snapshot = _claim(sessions)
+    error = {'auth': AdapterError, 'quota': ProviderQuotaError, 'throttle': ProviderThrottleError}[error_kind]
+
+    class Unavailable:
+        async def collect(self, prompt, *, should_continue=None):
+            raise error('Service unavailable')
+
+    query = snapshot['queries'][0]
+    with pytest.raises(error):
+        asyncio.run(provider_tasks.collect_xml(sessions, Unavailable(), run_id, token, query,
+            'yandex_neuro', 1, lambda: True, lambda payload: payload))
+    with sessions() as db:
+        assert provider_tasks._aware(db.get(ProviderAccount, 'yandex_neuro').cooldown_until) > utcnow()
+        assert db.scalar(select(ProviderTask)).state == 'rejected'
+    assert provider_tasks.admit(sessions, run_id, token, query['id'], 'yandex_neuro', 1) == (None, False)
 
 
 @pytest.mark.parametrize('cooldown', [0, 10])
