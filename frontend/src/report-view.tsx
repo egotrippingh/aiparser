@@ -20,7 +20,7 @@ type Report = { date_from: string; date_to: string; available_dates: string[]; s
 type Detail = { id: number; feedback: ScanFeedback | null; mention_types: string[]; query_text: string; service: string; scan_date: string; status: string; answer_text: string | null; error_message?: string | null; evidence_quote: string | null; sources: string[]; check_id: string | null; answer_evidence?: AnswerEvidence | null; highlight?: BrandHighlight; has_screenshot?: boolean }
 const statuses: Record<string,string> = {found:"Упоминание",not_found:"Нет упоминания",skipped:"Нет AI-блока",error:"Требует внимания",captcha:"Требует внимания",auth_required:"Требует внимания",limit_reached:"Требует внимания"}
 const pct = (value: number | null) => value == null ? "—" : `${value}%`
-const cellLabel = (cell: Cell) => cell.status === "found" && !cell.found ? "Карточки исключены" : statuses[cell.status] || cell.status
+const cellLabel = (cell: Cell) => cell.status === "found" && !cell.found ? "Не учитывается по фильтрам" : statuses[cell.status] || cell.status
 export const trendTone = (delta: number | null) => delta === null || delta === 0 ? "neutral" : delta > 0 ? "positive" : "negative"
 export function trendText(trend: Trend) {
   const delta = trend.delta
@@ -29,7 +29,7 @@ export function trendText(trend: Trend) {
 export function reportRows(rows: Query[], status: string, sort: boolean, dates?: string[]) {
   const filtered = rows.filter(query => {
     const cells = dates ? dates.flatMap(day => Object.values(query.cells[day] || {})) : Object.values(query.latest)
-    return !status || cells.some(cell => status === "found" ? cell.found : cell.status === "not_found")
+    return !status || cells.some(cell => status === "found" ? cell.found : ["found","not_found"].includes(cell.status) && !cell.found)
   })
   return sort ? [...filtered].sort((a,b) => (b.trend.current.visibility_pct ?? -1) - (a.trend.current.visibility_pct ?? -1)) : filtered
 }
@@ -62,7 +62,7 @@ export function ReportView({ token, projectId, projectServices, sourcesOnly = fa
     const next = {from,to}; setRange(next)
     try { localStorage.setItem(rangeKey,JSON.stringify(next)) } catch { /* Private browsing may disable storage. */ }
   }
-  const [compare,setCompare] = useState(false), [cards,setCards] = useState(true)
+  const [compare,setCompare] = useState(false), [cards,setCards] = useState(true), [external,setExternal] = useState(true)
   const serviceKey = `aimt.report.services.${projectId}`
   const [selectedServices,setSelectedServices] = useState<string[]|null>(() => {
     try { return reportSelection(JSON.parse(sessionStorage.getItem(serviceKey) || "null")) } catch { return null }
@@ -79,7 +79,7 @@ export function ReportView({ token, projectId, projectServices, sourcesOnly = fa
   const dialog = useRef<HTMLDialogElement>(null), detailRequest = useRef(0), mounted = useRef(true)
   const [loadedFilters, setLoadedFilters] = useState("")
   const base = `/control/projects/${encodeURIComponent(projectId)}/mentions`
-  const params = new URLSearchParams({include_cards:String(cards),compare:String(compare && !sourcesOnly),date_to:range?.to||today()})
+  const params = new URLSearchParams({include_cards:String(cards),include_external:String(external),compare:String(compare && !sourcesOnly),date_to:range?.to||today()})
   if (!sourcesOnly) params.set("search",search)
   params.set("services",(selection || availableServices).join(","))
   if (range?.from) params.set("date_from",range.from)
@@ -128,10 +128,12 @@ export function ReportView({ token, projectId, projectServices, sourcesOnly = fa
     <div className="filterbar">{report && <ReportCalendar from={range?.from||report.date_from} to={range?.to||report.date_to} available={report.available_dates} change={chooseRange}/>}
       <AppChoice label="Системы в отчёте" value={selection?.length === 1 ? selection[0] : selection ? "custom" : "all"} options={[{value:"all",label:"Все ИИ-системы"},...availableServices.map(id => ({value:id,label:name(id)})),...(selection && selection.length > 1 ? [{value:"custom",label:"Выбрано несколько"}] : [])]} change={value => {if(value!=="custom")chooseServices(value==="all"?null:[value])}}/>
       <AppChoice label="Группа запросов" value={group} searchable options={[{value:"*",label:"Все группы"},{value:"",label:"Без группы"},...(report?.groups || []).map(label => ({value:label,label}))]} change={setGroup}/>
-      <label className="check-control"><input type="checkbox" checked={cards} onChange={e => setCards(e.target.checked)}/>Учитывать карточки</label>
+      <label className="report-switch"><input type="checkbox" role="switch" checked={external} onChange={e => setExternal(e.target.checked)}/>Внешние источники</label>
+      <label className="report-switch"><input type="checkbox" role="switch" checked={cards} onChange={e => setCards(e.target.checked)}/>Учитывать карточки</label>
       {!sourcesOnly && <AppChoice label="Режим отчёта" value={compare?"compare":"period"} options={[{value:"period",label:"За период"},{value:"compare",label:"Сравнить даты"}]} change={value => setCompare(value==="compare")}/>}
       <span className="spacer"/><button className="btn" disabled={!!exporting||!report?.services.length||loading||stale} onClick={() => exportReport(sourcesOnly?"sources":"mentions")}><Download size={14}/>{exporting?"Готовим…":"Экспорт XLSX"}</button><button className="btn icon-only" aria-label="Обновить отчёт" disabled={loading || stale} onClick={() => setTick(n=>n+1)}><RefreshCw size={14}/></button>
     </div>
+    {!external && <p className="notice" role="status">Учитываются только ответы со ссылкой на домены бренда из настроек проекта. Если домены не указаны, упоминания не засчитываются.</p>}
     {error && <p className="cc-alert" role="alert">{error}<button className="btn" onClick={() => setTick(n=>n+1)}>Повторить</button></p>}
     {report && stale && <p className="notice" role="status">По выбранным фильтрам данных ещё нет. Ниже показан предыдущий отчёт.</p>}
     {!report ? <p className="empty-state" role="status">{loading ? "Загрузка отчёта…" : !availableServices.length ? "Выберите ИИ-системы в настройках проекта." : "Отчёт недоступен"}</p> : sourcesOnly ? <>

@@ -25,6 +25,7 @@ class ReportOptions(BaseModel):
     date_to: date | None = None
     compare: bool = False
     include_cards: bool = True
+    include_external: bool = True
     service: str = Field(default="", max_length=40)
     services: str | None = Field(default=None, max_length=200)
     group: str | None = Field(default=None, max_length=120)
@@ -42,19 +43,39 @@ def owned_project(db, user_id, project_id):
     return project
 
 
-def found(row, cards):
+def source_host(source):
+    try:
+        parsed = urlsplit(source)
+        if parsed.scheme in ('http', 'https') and not parsed.username and not parsed.password:
+            return (parsed.hostname or '').lower().removeprefix('www.').encode('idna').decode('ascii')
+    except (ValueError, UnicodeError):
+        pass
+    return ''
+
+
+def brand_hosts(project):
+    return {host for domain in json.loads(project.config_json).get('brand_domains', [])
+            if (host := source_host(domain if '://' in domain else 'https://' + domain))}
+
+
+def found(row, cards, own=None):
     kinds = set(json.loads(row.mention_types_json or "[]"))
-    return row.status == "found" and (cards or not kinds or bool(kinds - {"marketplace"}))
+    if row.status != "found" or not (cards or not kinds or bool(kinds - {"marketplace", "card"})):
+        return False
+    if own is None:
+        return True
+    return any(host == d or host.endswith('.' + d)
+               for source in json.loads(row.sources_json or '[]') if (host := source_host(source)) for d in own)
 
 
 def empty_stats():
     return {"found": 0, "checked": 0, "issues": 0, "skipped": 0, "visibility_pct": None}
 
 
-def count(stats, row, cards):
+def count(stats, row, cards, own=None):
     if row.status in ("found", "not_found"):
         stats["checked"] += 1
-        stats["found"] += int(found(row, cards))
+        stats["found"] += int(found(row, cards, own))
         stats["visibility_pct"] = round(100 * stats["found"] / stats["checked"], 1)
     elif row.status == "skipped":
         stats["skipped"] += 1
@@ -63,6 +84,7 @@ def count(stats, row, cards):
 
 
 def collect_report(db, project, options, *, with_sources=False, compact=False):
+    own = None if options.include_external else brand_hosts(project)
     scope = (CloudResult.user_id == project.user_id, CloudResult.project_id == project.id)
     available_dates = list(db.scalars(select(CloudResult.scan_date).where(*scope).distinct()
                                       .order_by(CloudResult.scan_date)))
@@ -93,6 +115,8 @@ def collect_report(db, project, options, *, with_sources=False, compact=False):
     ]
     if with_sources:
         columns += [CloudResult.sources_json, CloudResult.evidence_quote]
+    elif not options.include_external:
+        columns += [CloudResult.sources_json]
     measurements = db.scalars(select(CloudResult).options(load_only(*columns)).where(
         *scope, CloudResult.scan_date >= start.isoformat(), CloudResult.scan_date <= end.isoformat(),
         CloudResult.service.in_(selected if selected is not None else SERVICES))
@@ -120,12 +144,12 @@ def collect_report(db, project, options, *, with_sources=False, compact=False):
         by_date[day] = {**empty_stats(), "services": {s: empty_stats() for s in service_ids}}
     selected_measurements = []
     for (key, service_id, day), row in daily.items():
-        count(by_date[day], row, options.include_cards)
-        count(by_date[day]["services"][service_id], row, options.include_cards)
+        count(by_date[day], row, options.include_cards, own)
+        count(by_date[day]["services"][service_id], row, options.include_cards, own)
         if compact or not options.compare or day in table_dates:
-            count(summary, row, options.include_cards)
+            count(summary, row, options.include_cards, own)
             selected_measurements.append((queries[key], row))
-        cell = {"id": row.id, "status": row.status, "found": bool(found(row, options.include_cards))}
+        cell = {"id": row.id, "status": row.status, "found": bool(found(row, options.include_cards, own))}
         if compact:
             latest = queries[key].setdefault("latest", {})
             if service_id not in latest or day > latest[service_id]["date"]:
@@ -142,7 +166,7 @@ def collect_report(db, project, options, *, with_sources=False, compact=False):
             "summary": summary, "comparison": comparison,
             "timeline": [{"date": d, **stats} for d, stats in by_date.items()],
             "total": len(rows), "rows": rows, "measurements": selected_measurements,
-            "filters": {"include_cards": options.include_cards, "group": options.group,
+            "filters": {"include_cards": options.include_cards, "include_external": options.include_external, "group": options.group,
                         "service": options.service, "services": service_ids,
                         "search": options.search, "compare": options.compare}}
 
@@ -157,15 +181,17 @@ def overview_report(db, project, options):
     baseline_start = start if options.compare else start - timedelta(days=length) if has_baseline else None
     baseline = collect_report(db, project, options.model_copy(update={
         'date_from': baseline_start, 'date_to': baseline_end, 'compare': False}), compact=True) if has_baseline else {'measurements': []}
+    own = brand_hosts(project)
+    allowed = None if options.include_external else own
 
     def totals(data, only_date=None):
         summary, services, queries, days = empty_stats(), {}, {}, {}
         for query, row in data['measurements']:
             if only_date and row.scan_date != only_date:
                 continue
-            count(summary, row, options.include_cards)
-            count(services.setdefault(row.service, empty_stats()), row, options.include_cards)
-            count(queries.setdefault(query['id'], empty_stats()), row, options.include_cards)
+            count(summary, row, options.include_cards, allowed)
+            count(services.setdefault(row.service, empty_stats()), row, options.include_cards, allowed)
+            count(queries.setdefault(query['id'], empty_stats()), row, options.include_cards, allowed)
             days.setdefault(query['id'], set()).add(row.scan_date)
         return summary, services, queries, days
 
@@ -191,28 +217,17 @@ def overview_report(db, project, options):
         query['trend'] = trend(queries.get(query['id'], empty_stats()), previous_queries.get(query['id'], empty_stats()),
                               len(previous_days.get(query['id'], set())) == expected_days)
         query.setdefault('latest', {})
-    own = set()
-    for domain in json.loads(project.config_json).get('brand_domains', []):
-        try:
-            host = urlsplit(domain if '://' in domain else 'https://' + domain).hostname
-            if host:
-                own.add(host.lower().removeprefix('www.'))
-        except ValueError:
-            continue
     sources = {}
     for query, row in report.pop('measurements'):
-        if not found(row, options.include_cards):
+        if not found(row, options.include_cards, allowed):
             continue
         for source in sorted(set(json.loads(row.sources_json or '[]'))):
-            try:
-                parsed = urlsplit(source)
-                host = (parsed.hostname or '').lower().removeprefix('www.')
-            except ValueError:
-                continue
-            if parsed.scheme not in ('http', 'https') or not host or parsed.username or parsed.password:
+            host = source_host(source)
+            is_own = any(host == d or host.endswith('.' + d) for d in own)
+            if not host or not options.include_external and not is_own:
                 continue
             item = sources.setdefault(host, {'domain': host, 'results': {}, 'urls': set(), 'queries': set(),
-                'services': set(), 'own': any(host == d or host.endswith('.' + d) for d in own)})
+                'services': set(), 'own': is_own})
             item['results'][row.id] = {'id': row.id, 'query_text': query['text'], 'date': row.scan_date, 'service': row.service}
             if len(item['urls']) < 10:
                 item['urls'].add(source)
@@ -264,7 +279,8 @@ def workbook(report, project, kind):
             values = [q["text"], q["group_tag"]]
             for day, service in columns:
                 cell = q["cells"].get(day, {}).get(service)
-                values.append("Не проверялось" if cell is None else "Карточки исключены" if cell["status"] == "found" and not cell["found"]
+                excluded = "Карточки исключены" if report['filters']['include_external'] else "Не учитывается по фильтрам"
+                values.append("Не проверялось" if cell is None else excluded if cell["status"] == "found" and not cell["found"]
                               else LABELS.get(cell["status"], cell["status"]))
             append(ws, values)
     elif kind == "source_summary":
@@ -273,26 +289,16 @@ def workbook(report, project, kind):
             append(ws, [item['domain'], "Сайт бренда" if item['own'] else "Внешний источник", item['count'],
                         item['queries'], ', '.join(SERVICES.get(s, s) for s in item['services'])])
     else:
-        domains = json.loads(project.config_json).get("brand_domains", [])
-        own = set()
-        for domain in domains:
-            try:
-                host = urlsplit(domain if "://" in domain else "https://" + domain).hostname
-                if host:
-                    own.add(host.lower().removeprefix("www."))
-            except ValueError:
-                continue
+        own = brand_hosts(project)
         ws = sheet("Внешние источники", ["Источник", "Домен", "Дата", "ИИ-система", "Запрос", "Группа", "Контекст в ответе ИИ"],
                    [65, 28, 14, 24, 65, 25, 90])
         counts = Counter()
         for query, row in report["measurements"]:
+            if not report['filters']['include_external']:
+                continue
             for source in dict.fromkeys(json.loads(row.sources_json or "[]")):
-                try:
-                    parsed = urlsplit(source)
-                    host = (parsed.hostname or "").lower()
-                except ValueError:
-                    continue
-                if parsed.scheme not in ("http", "https") or not host or any(
+                host = source_host(source)
+                if not host or any(
                     host == d or host.endswith("." + d) for d in own if d):
                     continue
                 counts[host] += 1
@@ -307,6 +313,7 @@ def workbook(report, project, kind):
     filters = report["filters"]
     append(notes, ["Режим", "Сравнение двух дат" if filters["compare"] and kind != 'source_summary' else "За период"])
     append(notes, ["Карточки товаров", "Учитываются" if filters["include_cards"] else "Исключены из упоминаний"])
+    append(notes, ["Учёт внешних источников", "Учитываются" if filters["include_external"] else "Исключены из упоминаний"])
     append(notes, ["Группа", "Все группы" if filters["group"] is None else filters["group"] or "Без группы"])
     append(notes, ["ИИ-системы", ", ".join(SERVICES[s] for s in filters["services"])])
     append(notes, ["Поиск", filters["search"]])

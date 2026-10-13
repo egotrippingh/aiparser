@@ -442,7 +442,14 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
         except CollectionCancelled:
             return None, False, None
         except (scrapeless.CollectionDeferred, scrapeless.SubmissionUnknown) as exc:
-            blocked.add(service)
+            with sessions() as db:
+                current = db.get(ProviderTask, check_id)
+                uncertain = current and current.state in ("submitting", "uncertain")
+                occupied = db.scalar(select(func.count()).select_from(ProviderTask).where(
+                    ProviderTask.service == service, ProviderTask.state.in_(provider_tasks.ACTIVE))) >= limits.get(service, 1)
+            rejection = exc.__cause__
+            if uncertain or occupied or isinstance(rejection, scrapeless.Rejected) and rejection.status in (401, 402, 403, 429):
+                blocked.add(service)
             return None, True, str(exc)
         except ProviderQuotaError as exc:
             blocked.add(service)
@@ -453,7 +460,6 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
             return _provider_error(exc, snapshot), False, "Лимит сервиса; сохранённые ответы доступны после возобновления"
         except (AdapterError, XMLRiverResponseError) as exc:
             if snapshot.get("collection_policy") == "complete":
-                blocked.add(service)
                 return None, True, "Сервис сбора временно недоступен; запросы остаются в очереди"
             return _provider_error(exc, snapshot), False, None
         except Exception as exc:
