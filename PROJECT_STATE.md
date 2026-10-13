@@ -1,6 +1,6 @@
 # AIRate current project state
 
-## Scrapeless webhook and timeout recovery (2026-10-13, validated)
+## Scrapeless webhook and timeout recovery (2026-10-13, deployed)
 
 Branch codex/scrapeless-webhook adds attempt-scoped notifications, authenticated
 GET evidence recovery and automatic retry after15min without a confirmed handle.
@@ -10,8 +10,12 @@ Known pending IDs retain one slot and are polled without duplicate submission.
 Full server262, focused19 and shared67 passed with disposable PostgreSQL.
 Sol/Astra reviewed final risky changes without blockers. Caddy URI redaction
 passed an actual502 check; production Caddy2.11.4 validated/reloaded with backup.
-One live geosoft-dent ChatGPT uncertain task is awaiting release recovery.
-Source CI, application deploy and final live verification remain pending.
+PR #57 merged after exact-head CI38391368321 passed on3a633685.
+Production CI38391886578 passed on50f18ee979d980f450c9f458f4007bc1f72e626d;
+normal HTTPS readiness confirms the exact release and pricing120.
+The live geosoft-dent uncertain task recovered automatically: attempt2 completed,
+answer saved, one Check settled. ChatGPT303/303; Yandex278/303 still processing.
+Invalid public callback returned404. No scan records were edited manually.
 See [scrapeless-webhook.md](docs/tasks/scrapeless-webhook.md).
 
 ## Provider queue isolation (2026-10-13, deployed)
@@ -64,9 +68,9 @@ routes returning 401. The original failed CI run remains historical; no gate was
 
 ## Current release
 
-Production is `67575132d4f4d3b0852fc9c62bd7e5fdbb2f8aab` from PR #56.
-Normal HTTPS verification confirms the exact SHA, pricing, 12 matching public assets
-and anonymous private routes returning401. Production CI and readiness passed.
+Production is `50f18ee979d980f450c9f458f4007bc1f72e626d` from PR #57.
+Normal HTTPS verification confirms the exact SHA and pricing120;
+an invalid callback returns404. Production CI and readiness passed.
 Previous records were verified unchanged during the PR #51/#52 migration.
 Historical release evidence is in
 [project-state-history-2026-10-12.md](docs/project-state-history-2026-10-12.md).

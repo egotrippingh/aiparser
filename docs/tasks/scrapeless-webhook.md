@@ -1,7 +1,7 @@
 # Scrapeless callback and lost-submission recovery
 
 Outcome: a lost POST confirmation recovers by callback or bounded timeout retry;
-one query never blocks healthy queries/users and one AIRate Check is settled once.
+unknown tasks release capacity after the recovery timeout. One AIRate Check settles once.
 User authorized implementation, recheck of the live uncertain geosoft-dent query,
 tests and production deployment. Base22eda27; production67575132. Clean checkout.
 Scope: ScrapelessClient.submit, provider_tasks admission/CAS/recovery, webhook
@@ -33,7 +33,19 @@ POST/recovery lock, early callback vs Rejected/mismatched ID, invalid capability
 before shared lock, and reverse-proxy URI redaction.
 Caddy2.11.7 official binary/checksum: real upstream502 redacts the capability.
 VPS Caddy2.11.4: original Caddyfile backed up, final filter validated and reloaded;
-public HTTPS still reports67575132. No scan data changed manually.
+public HTTPS remained available. No scan data changed manually.
 Live before release: geosoft-dent run desired running; one ChatGPT task uncertain,
-attempt1, no handle; the remaining tasks have completed. Source CI/deploy and
-verification of this task remain pending.
+attempt1, no handle; other ChatGPT tasks had completed. Yandex had a separate tail.
+Delivery: source3a633685f6357e2b2a506ca0d2d77afb09fee145 passed CI38391368321;
+PR https://github.com/egotrippingh/aiparser/pull/57 merged into production.
+Production50f18ee979d980f450c9f458f4007bc1f72e626d passed CI38391886578,
+including normal backup/restore/schema/readiness gates. Public HTTPS readiness
+returns the exact release, pricing120; a fake invalid callback returns404.
+Live read-only verification: queryd2f2e97ba0e3522bb838668f682fe51e in project
+c9b4d8947a3340b3902bc9e6f9607cf4 automatically recovered on attempt2;
+ProviderTask completed with handle, CloudResult has answer_text, one owner-scoped
+Check settled. ChatGPT303/303, Google303/303, Perplexity303/303; Yandex278/303
+with22 rejected and3 submitting tasks, still processing independently.
+Actual upstream callback delivery was not forced; live automatic retry succeeded.
+Provider fault scenarios used fake services; no old report history was rewritten.
+The read-only DB connection was closed; browser viewport override reset.
