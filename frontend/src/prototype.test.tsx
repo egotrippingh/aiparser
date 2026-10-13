@@ -162,7 +162,7 @@ it("filters the observable verdict, without counting excluded product cards as a
     {latest:{},trend:{current:{visibility_pct:null}}},
   ] as unknown as Parameters<typeof reportRows>[0]
   expect(reportRows(rows,"found",false)).toEqual([rows[1]])
-  expect(reportRows(rows,"not_found",false)).toEqual([rows[2]])
+  expect(reportRows(rows,"not_found",false)).toEqual([rows[0],rows[2]])
   expect(reportRows(rows,"",true)[0]).toBe(rows[1])
   expect(rows[0].trend.current.visibility_pct).toBe(0)
 })

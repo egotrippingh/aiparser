@@ -77,6 +77,42 @@ def test_calendar_daily_dedup_filters_and_comparison(tmp_path):
     assert client.get(f'{base}/export/mentions', headers=other).status_code == 404
 
 
+@pytest.mark.parametrize('source,expected', [
+    ('https://geosoft-dent.ru/item', 1), ('https://www.geosoft-dent.ru/item', 1),
+    ('https://shop.geosoft-dent.ru/item', 1), ('https://catalog.test/item', 0),
+    ('https://geosoft-dent.ru.evil.test/item', 0), ('https://user:pass@geosoft-dent.ru/item', 0),
+    ('javascript://geosoft-dent.ru/item', 0), ('', 0),
+])
+def test_own_source_filter_matches_domains_and_preserves_history(tmp_path, source, expected):
+    client, owner, _, _, project, ids, url = seed_report(tmp_path)
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        row = db.get(CloudResult, ids[1])
+        row.sources_json = json.dumps([source, 'https://catalog.test/other']) if source else '[]'
+        db.commit()
+    base = f"/api/v1/control/projects/{project['id']}/mentions"
+    args = {'date_from': '2026-09-01', 'date_to': '2026-09-01', 'search': 'Original',
+            'service': 'google_aio', 'include_external': 'false'}
+    for suffix in ('', '/overview'):
+        data = client.get(base + suffix, headers=owner, params=args).json()
+        assert data['summary']['found'] == expected and data['summary']['checked'] == 1
+        assert data['timeline'][0]['found'] == expected
+        cell = data['rows'][0]['latest']['google_aio'] if suffix else data['rows'][0]['cells']['2026-09-01']['google_aio']
+        assert cell['found'] is bool(expected)
+        if suffix:
+            assert all(s['own'] for s in data['sources'])
+    exported = client.get(base + '/export/mentions', headers=owner, params=args)
+    notes = dict(list(load_workbook(io.BytesIO(exported.content))['О выгрузке'].values)[1:])
+    assert notes['Учёт внешних источников'] == 'Исключены из упоминаний'
+    detail = client.get(f'{base}/results/{ids[1]}', headers=owner).json()
+    assert detail['status'] == 'found' and detail['answer_text'] == 'Original answer'
+    with sessions() as db:
+        p = db.get(ControlProject, project['id'])
+        config = json.loads(p.config_json); config['brand_domains'] = []
+        p.config_json = json.dumps(config); db.commit()
+    assert client.get(base, headers=owner, params=args).json()['summary']['found'] == 0
+
+
 def test_overview_sources_count_answers_and_keep_intermediate_compare_dates(tmp_path):
     client, owner, other, devices, project, ids, url = seed_report(tmp_path)
     _, sessions = make_session_factory(url)
@@ -115,6 +151,26 @@ def test_overview_sources_count_answers_and_keep_intermediate_compare_dates(tmp_
     assert client.get(base + '/export/sources', headers=other, params=args).status_code == 404
     assert client.get(base + '/export/sources', headers=devices[0], params=args).status_code == 403
     assert client.get(base + '/export/sources', headers=owner, params={**args, 'source_kind': 'invalid'}).status_code == 422
+
+
+def test_idn_and_private_urls_have_consistent_source_exports(tmp_path):
+    client, owner, _, _, project, ids, url = seed_report(tmp_path)
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        p = db.get(ControlProject, project['id'])
+        config = json.loads(p.config_json); config['brand_domains'] = ['пример.рф']
+        p.config_json = json.dumps(config)
+        db.get(CloudResult, ids[1]).sources_json = json.dumps([
+            'https://xn--e1afmkfd.xn--p1ai/page', 'https://user:pass@catalog.test/private',
+            'https://external.test/page'])
+        db.commit()
+    base = f"/api/v1/control/projects/{project['id']}/mentions"
+    args = {'date_from': '2026-09-01', 'date_to': '2026-09-01', 'search': 'Original', 'service': 'google_aio'}
+    sources = client.get(base + '/overview', headers=owner, params=args).json()['sources']
+    assert {s['domain']: s['own'] for s in sources} == {'xn--e1afmkfd.xn--p1ai': True, 'external.test': False}
+    exported = client.get(base + '/export/sources', headers=owner, params=args)
+    rows = list(load_workbook(io.BytesIO(exported.content))['Внешние источники'].values)[1:]
+    assert len(rows) == 1 and rows[0][0] == 'https://external.test/page'
 
 
 @pytest.mark.parametrize('start,end,compare,baseline_start,baseline_end', [

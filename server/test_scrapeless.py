@@ -58,6 +58,16 @@ def test_known_terminal_statuses(status, body):
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("result", [None, {}, {"result_text": " "}, {"result_text": []}])
+def test_empty_terminal_answer_is_retryable_failure(result):
+    async def scenario():
+        transport = httpx.MockTransport(lambda request: httpx.Response(200,
+            json={"status": "success", "task_result": result}))
+        async with scrapeless.ScrapelessClient(transport=transport) as client:
+            assert await client.poll("completed-empty") == ("failed", None)
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("status,body", [(500, {}), (201, {}), (201, {"task_id": "bad/id"})])
 def test_ambiguous_post_cannot_retry(status, body):
     calls = []
@@ -413,6 +423,191 @@ def test_expired_paid_task_never_posts_again_or_holds_account_capacity(tmp_path,
     assert len(supplier.posts) == 1
 
 
+def test_expired_task_recovers_new_checks_after_cooldown(tmp_path, monkeypatch):
+    _, _, _, user_id, sessions, _, run = create(tmp_path, monkeypatch, admin=False)
+    with sessions() as db:
+        db.get(Wallet, user_id).balance_kopeks = 500
+        db.commit()
+
+    class Expired(Supplier):
+        async def poll(self, task_id):
+            return ('expired', None) if len(self.posts) == 1 else await super().poll(task_id)
+    supplier = Expired()
+    assert tick(sessions, supplier)
+    with sessions() as db:
+        db.get(ControlRun, run['id']).retry_at = None
+        db.scalar(select(ProviderTask)).updated_at = utcnow() - timedelta(minutes=16)
+        db.get(ProviderAccount, 'chatgpt').cooldown_until = None
+        db.commit()
+    assert tick(sessions, supplier)
+    assert len(supplier.posts) == 2
+    with sessions() as db:
+        task = db.scalar(select(ProviderTask))
+        assert task.state == 'completed'
+        assert db.get(Wallet, user_id).balance_kopeks == 380
+        assert len(db.scalars(select(Check)).all()) == 1
+        assert db.get(ControlRun, run['id']).state == 'done'
+        assert json.loads(task.history_json) == [{'task_id': 'task-1', 'state': 'expired'}]
+
+
+def test_expired_query_does_not_block_other_queries_or_services(tmp_path, monkeypatch):
+    monkeypatch.setenv('SCRAPELESS_CHATGPT_CONCURRENCY', '1')
+    _, _, _, _, sessions, project, run = create(tmp_path, monkeypatch,
+        services=('chatgpt', 'perplexity'), queries=[{'text': 'first'}, {'text': 'second'}])
+    with sessions() as db:
+        query_id = project['queries'][0]['id']
+        db.add(ProviderTask(check_id=f"{run['id']}:{query_id}:chatgpt", run_id=run['id'],
+            query_id=query_id, service='chatgpt', submission_token='old', state='expired',
+            task_id='expired-id', updated_at=utcnow()))
+        db.commit()
+    supplier = Supplier()
+    assert tick(sessions, supplier)
+    assert len(supplier.posts) == 3
+    with sessions() as db:
+        results = db.scalars(select(CloudResult)).all()
+        assert len(results) == 3 and all(row.status == 'found' for row in results)
+        assert json.loads(db.get(ControlRun, run['id']).progress_json)['cloud_done'] == 3
+
+
+@pytest.mark.parametrize('status', ['success', 'pending'])
+def test_expired_handle_is_rechecked_before_another_paid_submission(tmp_path, monkeypatch, status):
+    _, _, _, _, sessions, project, run = create(tmp_path, monkeypatch)
+    with sessions() as db:
+        query_id = project['queries'][0]['id']
+        db.add(ProviderTask(check_id=f"{run['id']}:{query_id}:chatgpt", run_id=run['id'],
+            query_id=query_id, service='chatgpt', submission_token='old', state='expired',
+            task_id='expired-id', updated_at=utcnow() - timedelta(minutes=16)))
+        db.commit()
+    class Rechecked(Supplier):
+        async def poll(self, task_id):
+            assert task_id == 'expired-id'
+            return (status, scrapeless.evidence({'result_text': 'Brand'}) if status == 'success' else None)
+    supplier = Rechecked()
+    assert tick(sessions, supplier)
+    assert supplier.posts == []
+    with sessions() as db:
+        assert db.scalar(select(ProviderTask)).state == ('completed' if status == 'success' else 'expired')
+        assert len(db.scalars(select(CloudResult)).all()) == (1 if status == 'success' else 0)
+
+
+@pytest.mark.parametrize('state', ['submitted', 'uncertain', 'quota'])
+@pytest.mark.parametrize('use_postgres', [False, True])
+def test_occupied_or_quota_service_yields_without_blocking_healthy_service(
+        tmp_path, monkeypatch, request, state, use_postgres):
+    url = request.getfixturevalue('postgres_url') if use_postgres else None
+    monkeypatch.setenv('SCRAPELESS_CHATGPT_CONCURRENCY', '1')
+    _, _, _, _, sessions, project, run = create(tmp_path, monkeypatch,
+        services=('chatgpt', 'perplexity'), queries=[{'text': 'first'}, {'text': 'second'}], database_url=url)
+    if state != 'quota':
+        with sessions() as db:
+            query_id = project['queries'][0]['id']
+            db.add(ProviderTask(check_id=f"{run['id']}:{query_id}:chatgpt", run_id=run['id'],
+                query_id=query_id, service='chatgpt', submission_token='old', state=state,
+                task_id='old-id' if state == 'submitted' else None))
+            db.commit()
+    class Delayed(Supplier):
+        async def submit(self, service, prompt, country):
+            if service == 'chatgpt':
+                self.posts.append((service, prompt, country))
+                raise scrapeless.Rejected(402)
+            return await super().submit(service, prompt, country)
+
+        async def poll(self, task_id):
+            if task_id == 'old-id':
+                raise scrapeless.CollectionDeferred('Temporary GET failure')
+            return await super().poll(task_id)
+    supplier = Delayed()
+    async def bounded_tick():
+        return await asyncio.wait_for(_cloud_tick(sessions, None, 120,
+            __import__('shared.xmlriver', fromlist=['XMLRiverClient']).XMLRiverClient,
+            provider_client=supplier), timeout=10)
+    assert asyncio.run(bounded_tick())
+    assert sum(service == 'chatgpt' for service, _, _ in supplier.posts) == (1 if state == 'quota' else 0)
+    with sessions() as db:
+        results = db.scalars(select(CloudResult)).all()
+        assert len(results) == 2 and all(row.service == 'perplexity' for row in results)
+        assert db.get(ControlRun, run['id']).lease_token is None
+
+
+def test_postgres_late_expired_answer_cannot_overwrite_new_owner(tmp_path, monkeypatch, postgres_url):
+    _, _, _, user_id, sessions, project, run = create(tmp_path, monkeypatch,
+        admin=False, database_url=postgres_url)
+    query_id = project['queries'][0]['id']
+    check_id = f"{run['id']}:{query_id}:chatgpt"
+    with sessions() as db:
+        db.get(Wallet, user_id).balance_kopeks = 500
+        db.add(ProviderTask(check_id=check_id, run_id=run['id'], query_id=query_id,
+            service='chatgpt', submission_token='old', state='expired', task_id='old-id',
+            updated_at=utcnow() - timedelta(minutes=16)))
+        db.commit()
+    class Late(Supplier):
+        async def poll(self, task_id):
+            if task_id == 'old-id':
+                with sessions() as db:
+                    db.get(ControlRun, run['id']).lease_until = utcnow() - timedelta(seconds=1)
+                    db.commit()
+                claimed = _claim(sessions)
+                assert claimed[0] == run['id']
+                replacement, fresh = provider_tasks.admit(sessions, run['id'], claimed[1], query_id, 'chatgpt', 1)
+                assert fresh
+                provider_tasks.submitted(sessions, replacement, 'new-id')
+                return 'success', scrapeless.evidence({'result_text': 'Stale unrelated answer'})
+            assert task_id == 'new-id'
+            return await super().poll(task_id)
+    supplier = Late()
+    assert not tick(sessions, supplier)
+    with sessions() as db:
+        assert db.get(ProviderTask, check_id).task_id == 'new-id'
+        assert db.scalar(select(ServerCapture)) is None and db.scalar(select(CloudResult)) is None
+        db.get(ControlRun, run['id']).lease_until = utcnow() - timedelta(seconds=1)
+        db.commit()
+    assert tick(sessions, supplier)
+    with sessions() as db:
+        assert db.get(Wallet, user_id).balance_kopeks == 380
+        assert len(db.scalars(select(Check)).all()) == 1
+        assert db.scalar(select(CloudResult)).status == 'found'
+
+
+def test_submitted_query_does_not_block_free_provider_capacity(tmp_path, monkeypatch):
+    monkeypatch.setenv('SCRAPELESS_CHATGPT_CONCURRENCY', '2')
+    _, _, _, _, sessions, project, run = create(tmp_path, monkeypatch,
+        queries=[{'text': 'first'}, {'text': 'second'}, {'text': 'third'}])
+    with sessions() as db:
+        query_id = project['queries'][0]['id']
+        db.add(ProviderTask(check_id=f"{run['id']}:{query_id}:chatgpt", run_id=run['id'],
+            query_id=query_id, service='chatgpt', submission_token='old', state='submitted', task_id='old-id'))
+        db.commit()
+    class Delayed(Supplier):
+        async def poll(self, task_id):
+            if task_id == 'old-id':
+                raise scrapeless.CollectionDeferred('Temporary GET failure')
+            return await super().poll(task_id)
+    supplier = Delayed()
+    assert tick(sessions, supplier)
+    assert supplier.posts == [('chatgpt', 'second', 'US'), ('chatgpt', 'third', 'US')]
+    with sessions() as db:
+        assert {row.query_text for row in db.scalars(select(CloudResult))} == {'second', 'third'}
+        assert db.get(ControlRun, run['id']).lease_token is None
+
+
+@pytest.mark.parametrize('cooldown', [0, 10])
+@pytest.mark.parametrize('use_postgres', [False, True])
+def test_terminal_task_does_not_shorten_account_cooldown(tmp_path, monkeypatch, request, cooldown, use_postgres):
+    url = request.getfixturevalue('postgres_url') if use_postgres else None
+    _, _, _, _, sessions, _, _ = create(tmp_path, monkeypatch, database_url=url)
+    run_id, token, snapshot = _claim(sessions)
+    task, fresh = provider_tasks.admit(sessions, run_id, token, snapshot['queries'][0]['id'], 'chatgpt', 2)
+    assert fresh
+    deadline = utcnow() + timedelta(minutes=1)
+    with sessions() as db:
+        db.get(ProviderAccount, 'chatgpt').cooldown_until = deadline
+        db.commit()
+    provider_tasks.failed(sessions, task, expired=True, cooldown=cooldown)
+    with sessions() as db:
+        assert provider_tasks._aware(db.get(ProviderAccount, 'chatgpt').cooldown_until) == deadline
+        assert db.get(ProviderTask, task.check_id).state == 'expired'
+
+
 def test_known_failed_task_retries_without_error_report_or_double_client_charge(tmp_path, monkeypatch):
     _, _, _, user_id, sessions, _, run = create(tmp_path, monkeypatch, admin=False)
     with sessions() as db:
@@ -436,6 +631,52 @@ def test_known_failed_task_retries_without_error_report_or_double_client_charge(
         assert db.scalar(select(CloudResult)).status == 'found'
         assert db.scalar(select(ProviderTask)).attempts == 2
     assert len(supplier.posts) == 2
+
+
+@pytest.mark.parametrize("use_postgres", [False, True])
+def test_failed_tasks_recover_after_three_attempts_with_cooldown_and_one_charge(
+        tmp_path, monkeypatch, request, use_postgres):
+    url = request.getfixturevalue("postgres_url") if use_postgres else None
+    _, _, _, user_id, sessions, _, run = create(tmp_path, monkeypatch,
+        admin=False, database_url=url)
+    with sessions() as db:
+        db.get(Wallet, user_id).balance_kopeks = 500
+        db.commit()
+
+    class Retry(Supplier):
+        async def poll(self, task_id):
+            return ("failed", None) if len(self.posts) <= 3 else await super().poll(task_id)
+    supplier = Retry()
+
+    def allow_tick(*, cooled=False):
+        with sessions() as db:
+            db.get(ControlRun, run["id"]).retry_at = None
+            db.get(ProviderAccount, "chatgpt").cooldown_until = None
+            if cooled:
+                db.scalar(select(ProviderTask)).updated_at = utcnow() - timedelta(minutes=16)
+            db.commit()
+
+    for _ in range(3):
+        assert tick(sessions, supplier)
+        allow_tick()
+    assert tick(sessions, supplier)
+    assert len(supplier.posts) == 3  # No immediate fourth paid request.
+    with sessions() as db:
+        assert db.scalar(select(CloudResult)) is None
+        assert db.get(Wallet, user_id).balance_kopeks == 500
+        assert db.scalar(select(Check)).status == "reserved"
+    allow_tick(cooled=True)
+    assert tick(sessions, supplier)
+    assert len(supplier.posts) == 4
+    assert not tick(sessions, supplier)
+    with sessions() as db:
+        assert db.get(ControlRun, run["id"]).state == "done"
+        assert db.get(Wallet, user_id).balance_kopeks == 380
+        assert len(db.scalars(select(Check)).all()) == 1
+        assert db.scalar(select(Check)).status == "settled"
+        assert db.scalar(select(ProviderTask)).attempts == 4
+        assert len(json.loads(db.scalar(select(ProviderTask)).history_json)) == 3
+        assert db.scalar(select(CloudResult)).status == "found"
 
 
 def test_stop_preserves_unanalysed_answer_without_error_report(tmp_path, monkeypatch):

@@ -34,6 +34,10 @@ class CollectionDeferred(AdapterError):
     """Leave a request unfinished instead of publishing an error as evidence."""
 
 
+class IncompleteAnswer(CollectionDeferred):
+    """A terminal task has no usable answer and may be collected again."""
+
+
 class Rejected(AdapterError):
     def __init__(self, status):
         super().__init__(f"Сервис сбора отклонил запрос (HTTP {status})")
@@ -54,7 +58,7 @@ def safe_url(value):
 
 def evidence(result):
     if not isinstance(result, dict) or not isinstance(result.get("result_text"), str) or not result["result_text"].strip():
-        raise CollectionDeferred("Сервис сбора вернул пустой или неполный ответ")
+        raise IncompleteAnswer("Сервис сбора вернул пустой или неполный ответ")
     text = result["result_text"]
     if len(text) > 60000:
         raise CollectionDeferred("Ответ превышает допустимый размер; требуется проверка администратора")
@@ -154,7 +158,10 @@ class ScrapelessClient:
             if status == "failed":
                 return "failed", None
             if status == "success":
-                return "success", evidence(data.get("task_result"))
+                try:
+                    return "success", evidence(data.get("task_result"))
+                except IncompleteAnswer:
+                    return "failed", None
             raise CollectionDeferred("Сервис сбора вернул неизвестный статус задачи")
         except (httpx.HTTPError, ValueError):
             return "pending", None

@@ -75,6 +75,7 @@ def test_collect_retries_incomplete_prose_without_browser_and_shares_http_budget
     result = asyncio.run(xmlriver.XMLRiverClient("yandex_neuro", {"lr": "213"}).collect("Тест"))
     assert result["main_text"] == "Полный ответ" and len(seen) == 3
     assert all(r.url.params["query"] == "Тест" for r in seen)
+    assert all(r.url.params["ai"] == "1" for r in seen)
 
 
 def test_absence_and_empty_main_are_distinct():

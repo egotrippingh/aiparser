@@ -82,11 +82,15 @@ def admit(sessions, run_id, token, query_id, service, limit):
                 .values(revision=ProviderAccount.revision + 1)).rowcount:
             raise RuntimeError("Provider account migration is missing")
         task = db.get(ProviderTask, check_id)
-        if task and task.state != "rejected":
+        if task and task.state not in ("rejected", "expired"):
             db.commit()
             return task, False
         run = db.get(ControlRun, run_id)
         now = utcnow()
+        if task and task.state == "expired" and (not run or
+                json.loads(run.snapshot_json).get("collection_policy") != "complete"):
+            db.commit()
+            return task, False
         if (not run or run.lease_token != token or not run.lease_until or
                 _aware(run.lease_until) < now or run.desired_state != "running"):
             return None, False
@@ -104,8 +108,12 @@ def admit(sessions, run_id, token, query_id, service, limit):
         if active >= limit:
             return None, False
         if task:
-            if task.attempts >= 3:
-                raise CollectionDeferred("Лимит попыток сбора исчерпан; требуется проверка администратора")
+            if task.attempts >= 3 or task.state == "expired":
+                if json.loads(run.snapshot_json).get("collection_policy") != "complete":
+                    raise CollectionDeferred("Лимит попыток сбора исчерпан; требуется проверка администратора")
+                # Keep retrying new checks after a durable cooldown, without a paid retry storm.
+                if _aware(task.updated_at) + timedelta(minutes=15) > now:
+                    raise CollectionDeferred("Сервис сбора временно недоступен; автоматическая перепроверка ожидает повторной попытки")
             task.history_json = json.dumps([*json.loads(task.history_json),
                 {"task_id": task.task_id, "state": task.state}])
             task.attempts += 1
@@ -132,8 +140,12 @@ def submitted(sessions, task, task_id):
 def failed(sessions, task, *, uncertain=False, expired=False, cooldown=30):
     with sessions() as db:
         db.execute(update(ProviderAccount).where(ProviderAccount.service == task.service)
-            .values(revision=ProviderAccount.revision + 1,
-                    cooldown_until=utcnow() + timedelta(seconds=cooldown)))
+            .values(revision=ProviderAccount.revision + 1))
+        account = db.get(ProviderAccount, task.service)
+        if account and cooldown > 0:
+            deadline = utcnow() + timedelta(seconds=cooldown)
+            if not account.cooldown_until or _aware(account.cooldown_until) < deadline:
+                account.cooldown_until = deadline
         db.execute(update(ProviderTask).where(ProviderTask.check_id == task.check_id,
             ProviderTask.submission_token == task.submission_token,
             ProviderTask.state != "completed").values(
@@ -176,14 +188,32 @@ async def collect(sessions, client, run_id, token, query, service, country, limi
                   should_start, should_drain, enrich):
     with sessions() as db:
         task = db.get(ProviderTask, f"{run_id}:{query['id']}:{service}")
+        complete = bool(task and task.state == "expired" and
+            json.loads(db.get(ControlRun, run_id).snapshot_json).get("collection_policy") == "complete")
     fresh = False
-    if task and task.state == "rejected":
+    if complete:
+        if _aware(task.updated_at) + timedelta(minutes=15) > utcnow():
+            raise CollectionDeferred("Автоматическая перепроверка ожидает повторной попытки")
+        if not should_drain():
+            raise CollectionDeferred("Созданная задача ожидает получения сохранённого ответа")
+        # Recheck the old handle before buying another task after a terminal expiry.
+        status, payload = await client.poll(task.task_id)
+        if status == "success":
+            payload = enrich(payload)
+            save(sessions, task, payload)
+            return payload
+        if status not in ("expired", "failed"):
+            raise CollectionDeferred("Созданная задача ожидает получения сохранённого ответа")
+    if task and task.state in ("rejected", "expired"):
         task = None
+    admission_deadline = time.monotonic() + 5
     while task is None:
         if not should_start():
             return None
         task, fresh = admit(sessions, run_id, token, query["id"], service, limit)
         if task is None:
+            if time.monotonic() >= admission_deadline:
+                raise CollectionDeferred("Свободный слот сбора ожидается; запрос остаётся в очереди")
             await asyncio.sleep(.5)
     if task.state == "completed":
         return json.loads(task.answer_json)
@@ -225,7 +255,7 @@ async def collect(sessions, client, run_id, token, query, service, country, limi
             save(sessions, task, payload)
             return payload
         if status in ("failed", "expired"):
-            failed(sessions, task, expired=status == "expired")
+            failed(sessions, task, expired=status == "expired", cooldown=0)
             raise CollectionDeferred("Сервис сбора не завершил задачу; запрос ожидает повторной обработки")
         await asyncio.sleep(1)
     raise CollectionDeferred("Сервис сбора ещё не завершил задачу; получение продолжится по её идентификатору")
@@ -233,11 +263,14 @@ async def collect(sessions, client, run_id, token, query, service, country, limi
 
 async def collect_xml(sessions, collector, run_id, token, query, service, limit, should_start, enrich):
     task = None
+    admission_deadline = time.monotonic() + 5
     while task is None:
         if not should_start():
             return None
         task, fresh = admit(sessions, run_id, token, query["id"], service, limit)
         if task is None:
+            if time.monotonic() >= admission_deadline:
+                raise CollectionDeferred("Свободный слот сбора ожидается; запрос остаётся в очереди")
             await asyncio.sleep(.5)
     if task.state == "completed":
         return json.loads(task.answer_json)
