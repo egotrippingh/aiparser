@@ -8,6 +8,7 @@ import { ControlCenter } from "./control-center"
 import "./cabinet.css"
 import { SiteFooter } from "./site-footer"
 import { Brand } from "./brand"
+import { NewsLink } from "./news-link"
 import { TopupForm } from "./components/topup-form"
 import { paymentLabel, type Payment } from "./lib/payment"
 import { initTelemetry, rootOptions } from "./telemetry"
@@ -232,7 +233,7 @@ function Cabinet() {
         {(wallet?.entries.length || !user.is_admin) && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ИСТОРИЯ</span><h2>Операции по балансу</h2></div><button onClick={walletChanged} className="cab-refresh">Обновить</button></div>{wallet?.entries.length ? <div className="cab-list">{wallet.entries.map((entry) => <div className="cab-entry" key={entry.reference}><span className={entry.amount_kopeks > 0 ? "cab-entry-icon in" : "cab-entry-icon out"}>{entry.amount_kopeks > 0 ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}</span><span><b>{entry.kind === "topup" ? "Пополнение" : entry.kind === "recompute" ? "Пересчёт ответа" : "Проверка запроса"}</b><small>{new Date(entry.created_at).toLocaleString("ru-RU")}</small></span><strong className={entry.amount_kopeks > 0 ? "positive" : ""}>{entry.amount_kopeks > 0 ? "+" : ""}{money(entry.amount_kopeks)}</strong></div>)}</div> : <p className="cab-empty">Пока нет операций. Пополните баланс, чтобы начать проверки.</p>}</section>}
         {payments.some((p) => p.status === "pending") && <p className="cab-pending">Есть незавершённое пополнение. Если вы уже оплатили, нажмите «Обновить» после возврата на сайт.</p>}</div>}/>
   return <div className="cabinet">
-    <header className="cab-header"><div className="cab-container cab-header-inner"><Brand className="cab-brand"/><span className="cab-header-label">Личный кабинет</span></div></header>
+    <header className="cab-header"><div className="cab-container cab-header-inner"><Brand className="cab-brand"/><span className="cab-header-label">Личный кабинет</span><NewsLink/></div></header>
     <main className="cab-container cab-main">{checkingSession ? <p role="status">Открываем кабинет…</p> : <section className="cab-auth-wrap">        <div className="cab-intro"><span className="cab-kicker">AI MENTIONS / АККАУНТ</span><h1>Проверки под вашим контролем.</h1><p>Запускайте проверки и задавайте расписание в браузере. Ответы собираются на сервере и сохраняются в вашем аккаунте.</p><div className="cab-price-note"><ShieldCheck size={18} /> {money(price)} за запрос в одном ИИ-сервисе</div></div>
         <form className="cab-panel cab-auth" onSubmit={authenticate}>
           <button className="cab-yandex" type="button" disabled={!yandexEnabled || busy}

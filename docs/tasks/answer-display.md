@@ -29,6 +29,6 @@ the footer. Desktop and 390px layouts were inspected without horizontal overflow
 
 ## Next action
 
-Complete independent review, publish this renderer PR into the feature branch and
-merge the combined production PR after CI. Migration/rollback gates belong to
-the news/provider-pause release; this renderer changes no captures or database data.
+PR #52 and combined PR #51 are merged. Production release `62536ba` is verified;
+Actions run 38295211655 attempt 2 passed. Migration/rollback gates belong to the
+news/provider-pause release; this renderer changes no captures or database data.

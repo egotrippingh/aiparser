@@ -14,6 +14,7 @@ import {
 import "./landing.css"
 import { SiteFooter } from "./site-footer"
 import { Brand } from "./brand"
+import { NewsLink } from "./news-link"
 import { ProductPrinciples } from "./product-principles"
 import Scanner from "./components/reactbits/Scanner"
 import SpotlightCard from "./components/reactbits/SpotlightCard"
@@ -125,9 +126,9 @@ export function LandingPage() {
             <a href="#how">Как работает</a>
             <a href="#approach">Наш подход</a>
             <a href="#faq">Вопросы</a>
-            <a href="/news/">Лента</a>
             <a href={APP_URL}>Личный кабинет</a>
           </nav>
+          <NewsLink />
           <a className="header-cta" href={APP_URL}>Открыть кабинет <ArrowUpRight size={16} aria-hidden="true" /></a>
           <details className="mobile-nav">
             <summary>Меню <ChevronDown size={16} aria-hidden="true" /></summary>
@@ -135,7 +136,6 @@ export function LandingPage() {
               <a href="#how">Как работает</a>
               <a href="#approach">Наш подход</a>
               <a href="#faq">Вопросы</a>
-              <a href="/news/">Лента</a>
               <a href={APP_URL}>Личный кабинет</a>
             </nav>
           </details>

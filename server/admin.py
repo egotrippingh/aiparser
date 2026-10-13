@@ -5,20 +5,16 @@ from decimal import Decimal, InvalidOperation
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field, StrictBool
-from sqlalchemy import desc, func, select
+from pydantic import BaseModel, StrictBool
+from sqlalchemy import func, select
 
-from server.models import Check, NewsPost, ProviderAccount, User, Wallet, utcnow
+from server.models import Check, ProviderAccount, User, Wallet, utcnow
 
 SERVICES = ("chatgpt", "perplexity", "gemini", "google_aio", "yandex_neuro")
 
 
 class ProviderPauseIn(BaseModel):
     paused: StrictBool
-
-
-class NewsPostIn(BaseModel):
-    body: str = Field(min_length=1, max_length=10_000)
 
 
 def amount(value):
@@ -134,26 +130,5 @@ def register_admin(app, db_session, current_user):
             db.commit()
         response.headers["Cache-Control"] = "no-store"
         return {"service": service, "paused": account.paused}
-
-    @router.post("/news", status_code=201)
-    def create_news(body: NewsPostIn, user=Depends(admin), db=Depends(db_session)):
-        text = body.body.strip()
-        if not text:
-            raise HTTPException(422, "Текст новости не может быть пустым")
-        row = NewsPost(body=text, author_id=user.id)
-        db.add(row)
-        db.commit()
-        return {"id": row.id, "body": row.body, "created_at": row.created_at.isoformat()}
-
-    @app.get("/api/v1/news")
-    def news(cursor: int | None = Query(default=None, ge=1), limit: int = Query(default=20, ge=1, le=50), db=Depends(db_session)):
-        statement = select(NewsPost).order_by(desc(NewsPost.id)).limit(limit + 1)
-        if cursor is not None:
-            statement = statement.where(NewsPost.id < cursor)
-        rows = db.scalars(statement).all()
-        more = len(rows) > limit
-        rows = rows[:limit]
-        return {"items": [{"id": row.id, "body": row.body, "created_at": row.created_at.isoformat()} for row in rows],
-                "next_cursor": rows[-1].id if more and rows else None}
 
     app.include_router(router)

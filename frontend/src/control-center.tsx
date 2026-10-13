@@ -7,6 +7,7 @@ import { QueryLibrary } from "./query-library"
 import "./workspace.css"
 import { SUPPORT_URL } from "./site-footer"
 import { Brand } from "./brand"
+import { NewsLink } from "./news-link"
 import { AppChoice } from "./app-choice"
 import { ServiceMark, isCurrentService } from "./service-mark"
 import { ProjectIcon } from "./project-icon"
@@ -201,9 +202,9 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
   }
   return <div className="air-app">
     <a className="skip-link" href="#app-content" onClick={event => { event.preventDefault(); main.current?.focus() }}>К содержимому</a>
-    <header className="topbar"><Brand className="brand"/><div className="workspace-label">Рабочее пространство<span>AIRate</span></div><div className="topbar-right"><a className="balance-link" href="#/account"><span>Баланс</span>{balance}</a><button className="btn icon-only" aria-label="Выйти из аккаунта" onClick={logout}><LogOut size={16}/></button></div></header>
+    <header className="topbar"><Brand className="brand"/><div className="workspace-label">Рабочее пространство<span>AIRate</span></div><div className="topbar-right"><NewsLink/><a className="balance-link" href="#/account"><span>Баланс</span>{balance}</a><button className="btn icon-only" aria-label="Выйти из аккаунта" onClick={logout}><LogOut size={16}/></button></div></header>
     <aside className="sidebar"><a className="all-projects" href="#/projects"><FolderOpen size={15}/>Все проекты<ChevronRight size={13}/></a><span className="project-label">Текущий проект</span><div className="project-select-wrap"><ProjectIcon name={selected?.name || ""} domains={selected?.config.brand_domains || []}/><AppChoice label="Текущий проект" value={selected?.id || ""} disabled={loading || !projects.length} searchable options={projects.map(p => ({value:p.id,label:p.name}))} change={id => {location.hash = `/project/${id}/${["report","queries","sources","settings","schedule"].includes(page) ? page : "report"}`}}/></div>
-      <nav aria-label="Разделы приложения">{nav.map(([id, label, Icon]) => <a key={id} className="nav-link" aria-current={page === id ? "page" : undefined} href={["report","queries","sources","settings","schedule"].includes(id) ? projectLink(id) : `#/${id}`}><Icon size={17}/>{label}{id === "queries" && <span className="nav-count">{selected?.query_count || 0}</span>}{id === "runs" && activeRuns.length > 0 && <span className="nav-count orange">{activeRuns.length}</span>}</a>)}<a className="nav-link" href="/news/">Лента</a></nav>
+      <nav aria-label="Разделы приложения">{nav.map(([id, label, Icon]) => <a key={id} className="nav-link" aria-current={page === id ? "page" : undefined} href={["report","queries","sources","settings","schedule"].includes(id) ? projectLink(id) : `#/${id}`}><Icon size={17}/>{label}{id === "queries" && <span className="nav-count">{selected?.query_count || 0}</span>}{id === "runs" && activeRuns.length > 0 && <span className="nav-count orange">{activeRuns.length}</span>}</a>)}</nav>
       <div className="sidebar-bottom"><div className="sidebar-account"><span className="avatar little">{email.slice(0,2).toUpperCase()}</span><div className="account-email">{email}<small>{admin ? "Администратор" : "Личный аккаунт"}</small></div></div></div>
     </aside>
     <main ref={main} className="app-main" id="app-content" tabIndex={-1}>
