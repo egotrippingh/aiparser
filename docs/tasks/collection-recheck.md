@@ -40,4 +40,10 @@ keyboard switches; metrics75→50 with cards off; desktop and390px viewport veri
 Independent Sol/Astra findings fixed and rechecked. Full server with disposable PG:
 225 passed before the final cooldown fix. Four SQLite/PG cooldown regressions failed
 before the fix; all four and the strengthened third-query free-capacity regression
-passed afterwards. Final full suite/CI/release verification pending.
+passed afterwards. Final full suite:229 passed with disposable PostgreSQL.
+PR55 merged ddec8319283954deafe3b9d0d3e0691b84b4e539; PR CI38372134424
+and production CI38372769409 succeeded. Normal public HTTPS verification confirmed
+that exact release, pricing,12 matching assets and private endpoints401.
+Live report switches are present; geosoft-dent advanced576→706/1212 after activation.
+Complete-run finish is pending; no historical backfill or new paid QA scan initiated.
+Evidence: C:/codex-tmp/airate-recheck-qa/. Temporary PG/report fixture stopped.
