@@ -135,7 +135,7 @@ class ScrapelessClient:
             if response.status_code in (400, 401, 402, 403, 429):
                 raise Rejected(response.status_code)
             if response.status_code not in (200, 201, 202):
-                raise SubmissionUnknown("Неизвестен исход отправки; требуется сверка задачи у сервиса сбора")
+                raise SubmissionUnknown("Исход отправки неизвестен; ожидается уведомление или автоматический повтор")
             data = response.json()
             if isinstance(data, dict) and isinstance(data.get("data"), dict):
                 data = data["data"]

@@ -313,7 +313,7 @@ async def collect(sessions, client, run_id, token, query, service, country, limi
                 current = db.get(ProviderTask, task.check_id)
                 task_id = current.task_id
             if not task_id:
-                raise SubmissionUnknown("Отправленная задача не подтверждена; требуется сверка у сервиса сбора")
+                raise SubmissionUnknown("Подтверждение отправки ожидается; автоматический повтор запланирован после таймаута")
         else:
             task_id = task.task_id
     deadline = time.monotonic() + 600
