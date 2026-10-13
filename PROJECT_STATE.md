@@ -1,14 +1,19 @@
 # AIRate current project state
 
-## Provider queue isolation (2026-10-13, release pending)
+## Provider queue isolation (2026-10-13, deployed)
 
 Branch codex/provider-isolation removes account-wide pauses for individual unknown
 Scrapeless sends and XML transient failures, while preserving occupied slots,
 global auth/quota guards and ambiguous-POST no-resend. XML network exhaustion is
 classified as a retryable query failure. No schema or frontend change.
 Five regressions failed before the fix; focused provider/XML96 and shared67 pass
-with disposable PostgreSQL. Sol/Astra reviews passed; final server rerun and
-publication pending. Full-capacity regression covers slot reuse in the same tick.
+with disposable PostgreSQL. Final full server243 passed; Sol/Astra reviews passed.
+Full-capacity regression covers slot reuse in the same tick. PR56 merged after
+exact-head CI38384826583 passed. Production CI38385385962 passed;
+HTTPS readiness confirms67575132d4f4d3b0852fc9c62bd7e5fdbb2f8aab and pricing120.
+Live geosoft-dent: ChatGPT121 ->301 of303, Yandex186 ->203 of303 after activation.
+One pre-existing uncertain POST is retained without resend; one expired handle
+and the remaining Yandex tail still require normal recovery/provider responses.
 See [provider-isolation.md](docs/tasks/provider-isolation.md).
 
 ## Automatic collection recovery and report filters (2026-10-13)
