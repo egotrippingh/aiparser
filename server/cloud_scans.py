@@ -387,6 +387,7 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
     providers = {}
     analyses = {}
     blocked = set()
+    occupied_services = set()
     quota_message = None
     model_slots = asyncio.Semaphore(20)
     last_heartbeat = time.monotonic()
@@ -443,12 +444,12 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
             return None, False, None
         except (scrapeless.CollectionDeferred, scrapeless.SubmissionUnknown) as exc:
             with sessions() as db:
-                current = db.get(ProviderTask, check_id)
-                uncertain = current and current.state in ("submitting", "uncertain")
                 occupied = db.scalar(select(func.count()).select_from(ProviderTask).where(
                     ProviderTask.service == service, ProviderTask.state.in_(provider_tasks.ACTIVE))) >= limits.get(service, 1)
             rejection = exc.__cause__
-            if uncertain or occupied or isinstance(rejection, scrapeless.Rejected) and rejection.status in (401, 402, 403, 429):
+            if occupied:
+                occupied_services.add(service)
+            if isinstance(rejection, scrapeless.Rejected) and rejection.status in (401, 402, 403, 429):
                 blocked.add(service)
             return None, True, str(exc)
         except ProviderQuotaError as exc:
@@ -481,13 +482,18 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
         if running:
             reserve_failure = None
             with sessions() as db:
+                for service in tuple(occupied_services):
+                    occupied = db.scalar(select(func.count()).select_from(ProviderTask).where(
+                        ProviderTask.service == service, ProviderTask.state.in_(provider_tasks.ACTIVE)))
+                    if occupied < limits.get(service, 1):
+                        occupied_services.remove(service)
                 users = db.scalar(select(func.count(func.distinct(ControlRun.user_id))).where(
                     ControlRun.phase == "cloud", ControlRun.state.in_(("queued", "running")),
                     ControlRun.desired_state == "running")) or 1
             for service, queue in queues.items():
                 maximum = 100 if service in scrapeless.SERVICES else 10
                 capacity = max(1, math.ceil(min(int(limits.get(service, 1)), maximum) / users))
-                while (queue and service not in blocked and
+                while (queue and service not in blocked and service not in occupied_services and
                        not (cooldowns and cooldowns.get(service, 0) > clock()) and
                        sum(s == service for _, s, _ in providers.values()) < capacity):
                     query = queue[0]

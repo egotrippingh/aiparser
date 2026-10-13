@@ -228,10 +228,11 @@ async def collect(sessions, client, run_id, token, query, service, country, limi
         try:
             task_id = await client.submit(service, query["text"], country)
         except Rejected as exc:
-            failed(sessions, task, cooldown=60 if exc.status != 429 else 10)
+            cooldown = 10 if exc.status == 429 else 60 if exc.status in (401, 402, 403) else 0
+            failed(sessions, task, cooldown=cooldown)
             raise CollectionDeferred(str(exc)) from exc
         except (SubmissionUnknown, asyncio.CancelledError):
-            failed(sessions, task, uncertain=True)
+            failed(sessions, task, uncertain=True, cooldown=0)
             raise
         submitted(sessions, task, task_id)
     else:
@@ -283,8 +284,11 @@ async def collect_xml(sessions, collector, run_id, token, query, service, limit,
         raise CollectionDeferred("Предыдущий запрос поиска ожидает восстановления")
     try:
         payload = enrich(await collector.collect(query["text"], should_continue=should_start))
-    except BaseException:
-        failed(sessions, task)
+    except BaseException as exc:
+        from shared.xmlriver import XMLRiverResponseError, CollectionCancelled
+        # Query failures retain their own retry budget, not an account-wide pause.
+        cooldown = 0 if isinstance(exc, (XMLRiverResponseError, CollectionCancelled, asyncio.CancelledError)) else 30
+        failed(sessions, task, cooldown=cooldown)
         raise
     save(sessions, task, payload)
     return payload

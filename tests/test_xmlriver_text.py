@@ -153,6 +153,22 @@ def test_server_retry_budget_covers_http_xml_and_empty_ai(monkeypatch, successfu
     assert len(calls) == 6 and len({str(r.url) for r in calls}) == 1
 
 
+def test_network_timeout_is_query_retryable_with_bounded_budget(monkeypatch):
+    monkeypatch.setenv('AIPARSER_XMLRIVER_USER', 'test-user')
+    monkeypatch.setenv('AIPARSER_XMLRIVER_KEY', 'test-key')
+    original = httpx.AsyncClient
+    calls = []
+    async def no_wait(_): pass
+    monkeypatch.setattr(xmlriver, 'asyncio', SimpleNamespace(sleep=no_wait))
+    def timeout(request):
+        calls.append(request)
+        raise httpx.ReadTimeout('private URL must not be included', request=request)
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kw: original(transport=httpx.MockTransport(timeout), **kw))
+    with pytest.raises(xmlriver.XMLRiverResponseError, match='XMLRiver: ошибка сети или таймаут') as caught:
+        asyncio.run(xmlriver.XMLRiverClient('yandex_neuro', {}, max_attempts=6).collect('question'))
+    assert len(calls) == 6 and 'private' not in str(caught.value)
+
+
 @pytest.mark.parametrize('bad', [0, 7, True, '6'])
 def test_invalid_retry_budget_is_rejected(bad):
     with pytest.raises(ValueError):

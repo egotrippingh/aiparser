@@ -489,5 +489,5 @@ class XMLRiverClient:
                     raise
             except (httpx.TransportError, httpx.TimeoutException):
                 if self._attempts >= self.max_attempts:
-                    raise AdapterError("XMLRiver: ошибка сети или таймаут") from None
+                    raise XMLRiverResponseError("XMLRiver: ошибка сети или таймаут") from None
             await asyncio.sleep(self._attempts)

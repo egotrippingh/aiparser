@@ -1,5 +1,16 @@
 # AIRate current project state
 
+## Provider queue isolation (2026-10-13, release pending)
+
+Branch codex/provider-isolation removes account-wide pauses for individual unknown
+Scrapeless sends and XML transient failures, while preserving occupied slots,
+global auth/quota guards and ambiguous-POST no-resend. XML network exhaustion is
+classified as a retryable query failure. No schema or frontend change.
+Five regressions failed before the fix; focused provider/XML96 and shared67 pass
+with disposable PostgreSQL. Sol/Astra reviews passed; final server rerun and
+publication pending. Full-capacity regression covers slot reuse in the same tick.
+See [provider-isolation.md](docs/tasks/provider-isolation.md).
+
 ## Automatic collection recovery and report filters (2026-10-13)
 
 PR #55 recovers new complete-policy empty/failed/expired tasks automatically;
