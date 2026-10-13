@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
-import { ControlCenter, RunProgress, runStatus } from "./control-center"
+import { ControlCenter, RunProgress, ScheduleDays, runStatus } from "./control-center"
 import { ProjectIcon, projectFavicon } from "./project-icon"
 import { choiceIndex } from "./app-choice"
 import { ReportChart, chartDays, chartIndex, linePath } from "./report-chart"
@@ -9,6 +9,18 @@ import { isCurrentService } from "./service-mark"
 import { LandingPage } from "./landing-page"
 
 afterEach(() => vi.unstubAllGlobals())
+
+it("offers days 1–28 and a last-day flag without converting legacy dates", () => {
+  const html = renderToStaticMarkup(<ScheduleDays days={[]} lastDay={true} change={()=>{}}/> )
+  expect(html.match(/aria-pressed=/g)).toHaveLength(29)
+  expect(html).toContain('aria-label="Последний день месяца" aria-pressed="true"')
+  expect(html).toContain(">28</button>")
+  expect(html).not.toContain(">29</button>")
+  const legacy = renderToStaticMarkup(<ScheduleDays days={[15,29,31]} lastDay={false} change={()=>{}}/> )
+  expect(legacy).toContain('aria-label="Убрать число 29"')
+  expect(legacy).toContain('aria-label="Убрать число 31"')
+  expect(legacy).toContain('aria-label="Последний день месяца" aria-pressed="false"')
+})
 
 it("restores only valid calendar ranges within the report limit", () => {
   expect(reportRange({from:"2026-09-01",to:"2026-09-30"})).toEqual({from:"2026-09-01",to:"2026-09-30"})
