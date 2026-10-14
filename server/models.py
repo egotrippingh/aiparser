@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, create_engine, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 
@@ -117,6 +117,32 @@ class LedgerEntry(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class PromoCode(Base):
+    __tablename__ = "promo_codes"
+
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    scans_json: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PromoRedemption(Base):
+    __tablename__ = "promo_redemptions"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    code: Mapped[str] = mapped_column(ForeignKey("promo_codes.code"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class FreeScanBalance(Base):
+    __tablename__ = "free_scan_balances"
+    __table_args__ = (CheckConstraint("remaining >= 0", name="ck_free_scan_remaining"),)
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    service: Mapped[str] = mapped_column(String(40), primary_key=True)
+    remaining: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class PaymentOrder(Base):
     __tablename__ = "payment_orders"
 
@@ -139,6 +165,7 @@ class Check(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     client_check_id: Mapped[str] = mapped_column(String(100))
     price_kopeks: Mapped[int] = mapped_column(Integer)
+    free_scan_service: Mapped[str | None] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(16), default="reserved")
     result_status: Mapped[str | None] = mapped_column(String(30))
     analysis_json: Mapped[str | None] = mapped_column(Text)

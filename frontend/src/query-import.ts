@@ -1,4 +1,6 @@
 /** TXT: one query per line; CSV/TSV: query and optional group columns. */
+export const QUERY_IMPORT_EXAMPLE = 'Запрос;Группа\r\nГде купить оригинальное оборудование?;Покупка\r\nОфициальный сайт бренда?;Бренд\r\n'
+
 export function parseQueryImport(text: string, fallbackGroup = "") {
   const first = text.replace(/^\uFEFF/, "").split(/\r?\n/)[0] || ""
   const delimiter = first.includes("\t") ? "\t" : first.includes(";") ? ";" : /^(?:"?(?:query|запрос|group|группа)"?,)/i.test(first) ? "," : null

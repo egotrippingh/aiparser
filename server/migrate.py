@@ -17,7 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "69338e58324c"
 NEW_TABLES = {"auth_failures", "password_resets", "scan_preferences", "agent_devices", "cloud_results",
               "control_projects", "control_runs", "control_links", "device_grants", "device_connect",
-              "browser_login_tickets", "server_captures", "provider_accounts", "provider_tasks", "news_posts"}
+              "browser_login_tickets", "server_captures", "provider_accounts", "provider_tasks", "news_posts",
+              "promo_codes", "promo_redemptions", "free_scan_balances"}
 
 
 def upgrade_database(database_url: str) -> None:
@@ -39,6 +40,8 @@ def upgrade_database(database_url: str) -> None:
                     desired = {column.name for column in Base.metadata.tables[name].columns}
                     if name == "oauth_attempts":
                         desired.discard("connect_id")
+                    if name == "checks":
+                        desired.discard("free_scan_service")
                     if name == "checks" and existing == desired - {"analysis_json"}:
                         continue
                     if existing != desired:

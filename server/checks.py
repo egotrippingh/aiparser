@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 
 from server.ai import AIError, AIResult, AIRetryAfter
-from server.models import Check, LedgerEntry, Wallet
+from server.models import Check, FreeScanBalance, LedgerEntry, Wallet
 from server.scan_feedback import analysis_content
 
 
@@ -17,7 +17,7 @@ def _held(db, user_id):
         Check.user_id == user_id, Check.status == "reserved")) or 0
 
 
-def reserve_checks(db, user, ids, price, ai_client=None):
+def reserve_checks(db, user, ids, price, ai_client=None, *, service=None):
     if os.environ.get("APP_ENV") == "production" and not ai_client:
         raise HTTPException(503, "Серверный анализ не настроен; новые проверки временно недоступны")
     if len(ids) != len(set(ids)) or any(not 1 <= len(i) <= 100 for i in ids):
@@ -30,18 +30,26 @@ def reserve_checks(db, user, ids, price, ai_client=None):
            or check.analysis_json or check.arbitration_json) for check in existing.values()):
         raise HTTPException(409, "Проверка с начатым анализом не может быть зарезервирована повторно")
     pending = [key for key in ids if key not in existing or existing[key].status == "released"]
-    if len(pending) * effective_price > wallet.balance_kopeks - _held(db, user.id):
+    balance = db.get(FreeScanBalance, (user.id, service)) if service and not user.is_admin else None
+    free_count = min(len(pending), balance.remaining) if balance else 0
+    if (len(pending) - free_count) * effective_price > wallet.balance_kopeks - _held(db, user.id):
         raise HTTPException(402, "Недостаточно средств для выбранных проверок")
-    for key in pending:
+    for index, key in enumerate(pending):
+        free_service = service if index < free_count else None
+        check_price = 0 if free_service else effective_price
         if key in existing:
             check = existing[key]
-            check.status, check.result_status, check.price_kopeks = "reserved", None, effective_price
+            check.status, check.result_status, check.price_kopeks = "reserved", None, check_price
+            check.free_scan_service = free_service
             check.analysis_json = check.analysis_model = check.analysis_usage_json = None
             check.analysis_attempts = 0
             check.arbitration_json = check.arbitration_model = check.arbitration_usage_json = None
             check.arbitration_attempts = 0
         else:
-            db.add(Check(user_id=user.id, client_check_id=key, price_kopeks=effective_price))
+            db.add(Check(user_id=user.id, client_check_id=key, price_kopeks=check_price,
+                         free_scan_service=free_service))
+    if free_count:
+        balance.remaining -= free_count
     db.commit()
     return effective_price
 
@@ -146,17 +154,26 @@ def settle_check(db, wallet, check, status):
             kind="check", reference=reference))
 
 
+def release_check(db, check, status):
+    if check.status != "reserved":
+        return
+    if check.free_scan_service:
+        db.get(FreeScanBalance, (check.user_id, check.free_scan_service)).remaining += 1
+    check.status, check.result_status = "released", status
+
+
 def complete_check(db, user, check_id, status, *, commit=True):
     wallet = db.execute(select(Wallet).where(Wallet.user_id == user.id).with_for_update()).scalar_one()
     check = db.execute(select(Check).where(Check.user_id == user.id,
-        Check.client_check_id == check_id).with_for_update()).scalar_one_or_none()
+        Check.client_check_id == check_id).with_for_update()
+        .execution_options(populate_existing=True)).scalar_one_or_none()
     if not check:
         raise HTTPException(404, "Проверка не зарезервирована")
     if check.status == "reserved":
         if status in ("found", "not_found") or check.analysis_json:
             settle_check(db, wallet, check, status)
         else:
-            check.status, check.result_status = "released", status
+            release_check(db, check, status)
         if commit:
             db.commit()
     return check.status

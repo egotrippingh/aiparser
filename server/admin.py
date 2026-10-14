@@ -1,5 +1,6 @@
 """Private operator view; never expose provider credentials or response bodies."""
 import asyncio
+import json
 import os
 from decimal import Decimal, InvalidOperation
 
@@ -7,8 +8,10 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, StrictBool
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
-from server.models import Check, ProviderAccount, User, Wallet, utcnow
+from server.models import Check, PromoCode, PromoRedemption, ProviderAccount, User, Wallet, utcnow
+from server.promos import PromoIn
 
 SERVICES = ("chatgpt", "perplexity", "gemini", "google_aio", "yandex_neuro")
 
@@ -84,6 +87,31 @@ def register_admin(app, db_session, current_user):
         if not user.is_admin:
             raise HTTPException(403, "Доступно только администратору")
         return user
+
+    @router.get("/promos")
+    def promos(response: Response, offset: int = Query(default=0, ge=0),
+               user=Depends(admin), db=Depends(db_session)):
+        response.headers["Cache-Control"] = "no-store"
+        counts = select(PromoRedemption.code, func.count().label("uses")).group_by(PromoRedemption.code).subquery()
+        rows = db.execute(select(PromoCode, counts.c.uses).outerjoin(counts, counts.c.code == PromoCode.code)
+            .order_by(PromoCode.created_at.desc(), PromoCode.code).offset(offset).limit(50)).all()
+        return {"total": db.scalar(select(func.count()).select_from(PromoCode)),
+                "promos": [{"code": row.code, "scans": json.loads(row.scans_json),
+                            "created_at": row.created_at.isoformat(), "redemptions": uses or 0}
+                           for row, uses in rows]}
+
+    @router.post("/promos", status_code=201)
+    def create_promo(body: PromoIn, response: Response, user=Depends(admin), db=Depends(db_session)):
+        row = PromoCode(code=body.code, scans_json=body.scans.model_dump_json(), created_by=user.id)
+        db.add(row)
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(409, "Промокод с таким названием уже существует") from exc
+        response.headers["Cache-Control"] = "no-store"
+        return {"code": row.code, "scans": json.loads(row.scans_json),
+                "created_at": row.created_at.isoformat(), "redemptions": 0}
 
     @router.get("/users")
     def users(response: Response, search: str = Query(default="", max_length=200),

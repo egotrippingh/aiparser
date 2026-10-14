@@ -508,7 +508,7 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
                         if not run or run.desired_state != "running":
                             break
                         try:
-                            reserve_checks(db, db.get(User, run.user_id), [check_id], price, ai_client)
+                            reserve_checks(db, db.get(User, run.user_id), [check_id], price, ai_client, service=service)
                         except HTTPException as exc:
                             reserve_error = str(exc.detail)[:1000]
                     if reserve_error:
@@ -676,7 +676,7 @@ async def _cloud_tick(sessions, ai_client, price, collector_factory,
         needs_collect = capture_row is None
         if not capture_row:
             try:
-                reserve_checks(db, user, [check_id], price, ai_client)
+                reserve_checks(db, user, [check_id], price, ai_client, service=service)
             except HTTPException as exc:
                 run = _owned_locked(db, run_id, token)
                 if run:

@@ -31,3 +31,11 @@
 .admin-scan-list article { padding: 20px 0; border-top: 1px solid var(--air-line-strong); overflow-wrap: anywhere; }
 .admin-scan-detail { padding: 16px 0; }
 .admin-scan-detail blockquote { padding-left: 16px; border-left: 2px solid var(--air-line-strong); }
+.cab-promo{grid-column:1/-1;padding:24px}
+.cab-promo-form{display:flex;align-items:end;flex-wrap:wrap;gap:16px;margin:20px 0}
+.cab-promo-form label{display:grid;gap:8px;flex:1;min-width:180px;max-width:420px}
+.cab-promo input{width:100%;min-height:44px;padding:10px;border:1px solid var(--air-line-strong);border-radius:6px;background:var(--air-panel);color:var(--air-text)}
+.cab-free-scans{margin:20px 0 0}
+.cab-free-scans>div{display:flex;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--air-line)}
+.cab-free-scans dd{margin:0;text-align:right}
+@media(max-width:600px){.cab-promo-form label{max-width:none;flex-basis:100%}.cab-free-scans>div{flex-wrap:wrap}.cab-free-scans dd{text-align:left}}

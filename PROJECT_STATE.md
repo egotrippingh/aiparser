@@ -1,5 +1,23 @@
 # AIRate current project state
 
+## Promo codes and CSV import help (2026-10-14, local)
+
+Branch codex/promo-codes adds admin-created per-service free scans (including zero),
+redemption at email registration and account/top-up, once per code/account.
+Different codes accumulate; saved-answer recompute stays paid. Credits are frozen
+at cloud-run creation and refunded once when unused, with wallet locking and a
+fresh Check read preventing concurrent double refunds. CSV import now explains
+UTF-8, columns/delimiters and escaping in an accessible popover with a template.
+Final server277 passed with disposable PostgreSQL; agent billing/scan52 and
+frontend85/lint/build passed. Desktop1280px/mobile390px browser success/error,
+registration, quote and CSV help/import checks passed; no final console errors.
+Sol/Astra reviews completed; the confirmed refund race was reproduced then fixed.
+Hover is configured but pointer-only hover and OS template download completion
+were not verified. No live paid provider/payment checks or production deployment.
+Additive migration20261014_promo_codes is required at publication through normal
+delivery gates. Evidence: C:/codex-tmp/airate-promos-20261014/;
+see [promo-codes.md](docs/tasks/promo-codes.md).
+
 ## Scrapeless webhook and timeout recovery (2026-10-13, deployed)
 
 Branch codex/scrapeless-webhook adds attempt-scoped notifications, authenticated
