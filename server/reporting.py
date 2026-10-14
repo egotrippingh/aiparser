@@ -33,7 +33,7 @@ class ReportOptions(BaseModel):
     offset: int = Field(default=0, ge=0)
     limit: int = Field(default=50, ge=1, le=200)
     date_offset: int = Field(default=0, ge=0)
-    date_limit: int = Field(default=4, ge=1, le=14)
+    date_limit: int = Field(default=4, ge=1, le=64)
 
 
 def owned_project(db, user_id, project_id):
@@ -58,9 +58,9 @@ def brand_hosts(project):
             if (host := source_host(domain if '://' in domain else 'https://' + domain))}
 
 
-def found(row, cards, own=None):
+def found(row, cards, own=None, status=None):
     kinds = set(json.loads(row.mention_types_json or "[]"))
-    if row.status != "found" or not (cards or not kinds or bool(kinds - {"marketplace", "card"})):
+    if (status or row.status) != "found" or not (cards or not kinds or bool(kinds - {"marketplace", "card"})):
         return False
     if own is None:
         return True
@@ -72,18 +72,21 @@ def empty_stats():
     return {"found": 0, "checked": 0, "issues": 0, "skipped": 0, "visibility_pct": None}
 
 
-def count(stats, row, cards, own=None):
-    if row.status in ("found", "not_found"):
+def count(stats, row, cards, own=None, status=None):
+    status = status or row.status
+    if status in ("found", "not_found"):
         stats["checked"] += 1
-        stats["found"] += int(found(row, cards, own))
+        stats["found"] += int(found(row, cards, own, status))
         stats["visibility_pct"] = round(100 * stats["found"] / stats["checked"], 1)
-    elif row.status == "skipped":
+    elif status == "skipped":
         stats["skipped"] += 1
     else:
         stats["issues"] += 1
 
 
 def collect_report(db, project, options, *, with_sources=False, compact=False):
+    from server.scan_feedback import KEY, effective_status
+    corrections = {e["result_id"]: e for e in json.loads(project.config_json).get(KEY, [])}
     own = None if options.include_external else brand_hosts(project)
     scope = (CloudResult.user_id == project.user_id, CloudResult.project_id == project.id)
     available_dates = list(db.scalars(select(CloudResult.scan_date).where(*scope).distinct()
@@ -134,7 +137,8 @@ def collect_report(db, project, options, *, with_sources=False, compact=False):
                and options.search.casefold() in q["text"].casefold()}
     daily = {key: row for key, row in daily.items() if key[0] in queries}
     service_ids = [s for s in SERVICES if s in selected] if selected is not None else available_services
-    table_dates = sorted({start.isoformat(), end.isoformat()}) if options.compare else sorted({start.isoformat(), end.isoformat()} | measurement_dates)
+    table_dates = sorted({start.isoformat(), end.isoformat()}) if options.compare else sorted(
+        measurement_dates if compact else {start.isoformat(), end.isoformat()} | measurement_dates)
     # Page dates from the most recent measurements, then present each window chronologically.
     window = table_dates if options.compare else sorted(list(reversed(table_dates))[options.date_offset:options.date_offset + options.date_limit])
     summary = empty_stats()
@@ -144,17 +148,18 @@ def collect_report(db, project, options, *, with_sources=False, compact=False):
         by_date[day] = {**empty_stats(), "services": {s: empty_stats() for s in service_ids}}
     selected_measurements = []
     for (key, service_id, day), row in daily.items():
-        count(by_date[day], row, options.include_cards, own)
-        count(by_date[day]["services"][service_id], row, options.include_cards, own)
+        status = effective_status(row, corrections.get(row.id))
+        count(by_date[day], row, options.include_cards, own, status)
+        count(by_date[day]["services"][service_id], row, options.include_cards, own, status)
         if compact or not options.compare or day in table_dates:
-            count(summary, row, options.include_cards, own)
+            count(summary, row, options.include_cards, own, status)
             selected_measurements.append((queries[key], row))
-        cell = {"id": row.id, "status": row.status, "found": bool(found(row, options.include_cards, own))}
+        cell = {"id": row.id, "status": status, "found": bool(found(row, options.include_cards, own, status))}
         if compact:
             latest = queries[key].setdefault("latest", {})
             if service_id not in latest or day > latest[service_id]["date"]:
                 latest[service_id] = {**cell, "date": day}
-        if not compact or options.compare and day in table_dates:
+        if not compact or with_sources and day in window:
             queries[key]["cells"].setdefault(day, {})[service_id] = cell
     rows = list(queries.values())
     comparison = {"from": by_date[start.isoformat()], "to": by_date[end.isoformat()]}
@@ -173,6 +178,8 @@ def collect_report(db, project, options, *, with_sources=False, compact=False):
 
 def overview_report(db, project, options):
     """Compact, unpaginated period totals; retain the existing matrix/export contract."""
+    from server.scan_feedback import KEY, effective_status
+    corrections = {e["result_id"]: e for e in json.loads(project.config_json).get(KEY, [])}
     report = collect_report(db, project, options, with_sources=True, compact=True)
     start, end = date.fromisoformat(report['date_from']), date.fromisoformat(report['date_to'])
     length = (end - start).days + 1
@@ -189,9 +196,10 @@ def overview_report(db, project, options):
         for query, row in data['measurements']:
             if only_date and row.scan_date != only_date:
                 continue
-            count(summary, row, options.include_cards, allowed)
-            count(services.setdefault(row.service, empty_stats()), row, options.include_cards, allowed)
-            count(queries.setdefault(query['id'], empty_stats()), row, options.include_cards, allowed)
+            status = effective_status(row, corrections.get(row.id))
+            count(summary, row, options.include_cards, allowed, status)
+            count(services.setdefault(row.service, empty_stats()), row, options.include_cards, allowed, status)
+            count(queries.setdefault(query['id'], empty_stats()), row, options.include_cards, allowed, status)
             days.setdefault(query['id'], set()).add(row.scan_date)
         return summary, services, queries, days
 
@@ -219,7 +227,7 @@ def overview_report(db, project, options):
         query.setdefault('latest', {})
     sources = {}
     for query, row in report.pop('measurements'):
-        if not found(row, options.include_cards, allowed):
+        if not found(row, options.include_cards, allowed, effective_status(row, corrections.get(row.id))):
             continue
         for source in sorted(set(json.loads(row.sources_json or '[]'))):
             host = source_host(source)

@@ -1,5 +1,22 @@
 # AIRate current project state
 
+## Report history and manual verdict correction (2026-10-14, local)
+
+Actual scan dates scroll continuously, newest left; compact system icons,
+sticky query names, visibility/dynamics on the left and16px percentage inset.
+Legend buttons replace checkboxes; stale loading no longer shows false empty
+banners. Calendar presets align left. Manual missed/false-positive marks update
+all reporting views and mentions XLSX without changing raw results or charges;
+undo restores the automated verdict. Existing20 marks/project limit is visible.
+Full server279 passed with disposable PostgreSQL; frontend87/lint/build passed.
+Sol high final review found/fixed/rechecked three P2s, no remaining blockers.
+Astra high review unavailable for this chunk (capacity); Sol covered risk paths.
+Browser correction/undo, keyboard, desktop1280/narrow390, no page overflow,
+28-date horizontal scroll/sticky queries, loading legend and calendar gaps verified. Deployment authorized; verified production backup
+restored into isolated DB. User requested persistent admin SSH and login verified;
+local alias airate-admin uses a dedicated key and pinned host (no forwarding).
+No credentials committed. See [report-history-layout.md](docs/tasks/report-history-layout.md).
+
 ## Promo codes and CSV import help (2026-10-14, local)
 
 Branch codex/promo-codes adds admin-created per-service free scans (including zero),
