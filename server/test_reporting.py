@@ -248,7 +248,8 @@ def test_compact_overview_keeps_all_queries_with_bounded_sql_and_source_referenc
             event.remove(engine, 'before_cursor_execute', record)
         # The project reload after commit adds one statement; result columns cause no N+1 reads.
         assert len(statements) <= 9
-        assert len(data['rows']) == 208 and all(not q['cells'] for q in data['rows'])
+        assert len(data['rows']) == 208
+        assert data['rows'][-1]['cells']['2026-09-02']['google_aio']['found'] is True
         source = next(s for s in data['sources'] if s['domain'] == 'scale.test')
         assert source['count'] == 205 and len(source['results']) == len(source['urls']) == 10
         assert 'Private answer' not in json.dumps(data)
@@ -256,6 +257,41 @@ def test_compact_overview_keeps_all_queries_with_bounded_sql_and_source_referenc
         p.archived = True
         db.commit()
     assert client.get(f"/api/v1/control/projects/{project['id']}/mentions/overview", headers=owner).status_code == 404
+
+
+def test_overview_history_contains_every_actual_scan_date_and_latest_retry(tmp_path):
+    client, owner, other, devices, project, ids, url = seed_report(tmp_path)
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        p = db.get(ControlProject, project['id'])
+        q = project['queries'][0]
+        for i in range(4, 10):
+            db.add(CloudResult(user_id=p.user_id, device_id='a'*32, local_result_id=100+i,
+                               local_project_id=1, project_id=p.id, query_id=q['id'], query_text=q['text'],
+                               project_name=p.name, brand_name=p.brand_name, service='google_aio',
+                               scan_date=f'2026-09-{i:02}', status='not_found', answer_text='Private history'))
+        db.commit()
+    path = f"/api/v1/control/projects/{project['id']}/mentions/overview"
+    args = {'date_from':'2026-08-31', 'date_to':'2026-09-10', 'services':'google_aio,chatgpt'}
+    data = client.get(path, headers=owner, params=args).json()
+    dates = ['2026-09-01', '2026-09-03'] + [f'2026-09-{i:02}' for i in range(4, 10)]
+    assert data['dates'] == dates
+    assert data['visible_dates'] == dates[-4:]
+    assert sorted(data['rows'][0]['cells']) == dates[-4:]
+    older = client.get(path, headers=owner, params={**args, 'date_offset':4}).json()
+    assert older['visible_dates'] == dates[:4]
+    assert sorted(older['rows'][0]['cells']) == dates[:4]
+    assert older['summary'] == data['summary']
+    assert older['sources'] == data['sources']
+    assert older['rows'][0]['trend'] == data['rows'][0]['trend']
+    assert older['rows'][0]['cells']['2026-09-01']['google_aio']['id'] == ids[1]
+    assert data['rows'][0]['latest']['google_aio']['date'] == dates[-1]
+    assert 'Private history' not in json.dumps(data)
+    assert client.get(path, headers=other, params=args).status_code == 404
+    assert client.get(path, headers=devices[0], params=args).status_code == 403
+    compared = client.get(path, headers=owner, params={**args, 'compare':'true'}).json()
+    assert compared['dates'] == compared['visible_dates'] == ['2026-08-31', '2026-09-10']
+    assert not any(q['cells'] for q in compared['rows'])
 
 
 def test_exports_use_all_filtered_rows_and_safe_text(tmp_path):

@@ -6,7 +6,7 @@ import type { ScanFeedback } from "./scan-feedback"
 import { SCAN_SERVICES } from "./lib/scan-preferences"
 
 type Row = { id: number; email: string; project_name: string; brand_name: string; query_text: string; service: string; scan_date: string; status: string; mention_types: string[] }
-type Detail = { check_id: string | null; id: number; answer_text: string | null; evidence_quote: string | null; error_message: string | null; sources: string[]; status: string; service: string; feedback: ScanFeedback | null; analysis: { reasoning?: string } | null; arbitration: { reasoning?: string } | null; analysis_model: string | null; arbitration_model: string | null; answer_evidence?: AnswerEvidence | null; highlight?: BrandHighlight; has_screenshot?: boolean }
+type Detail = { check_id: string | null; id: number; answer_text: string | null; evidence_quote: string | null; error_message: string | null; sources: string[]; status: string; original_status: string; service: string; feedback: ScanFeedback | null; analysis: { reasoning?: string } | null; arbitration: { reasoning?: string } | null; analysis_model: string | null; arbitration_model: string | null; answer_evidence?: AnswerEvidence | null; highlight?: BrandHighlight; has_screenshot?: boolean }
 const statuses: Record<string, string> = { found: "Упоминание", not_found: "Нет упоминания", error: "Ошибка", skipped: "Нет AI-блока", captcha: "Капча", auth_required: "Нужен вход", limit_reached: "Лимит сервиса" }
 const labels = { correct: "Верно", false_positive: "Ложное срабатывание", missed: "Пропущено упоминание" }
 
@@ -38,6 +38,7 @@ export function AdminScans({ token }: { token: string }) {
       <p className="ws-note">{row.email} · {row.project_name} · {row.scan_date} · {SCAN_SERVICES.find(s => s.id === row.service)?.label || row.service}</p><h3>{row.query_text}</h3><p>Бренд: {row.brand_name} · {statuses[row.status] || row.status} · {row.mention_types.join(", ")}</p>
       <button className="cc-button" aria-expanded={selected === row.id} onClick={() => setSelected(selected === row.id ? null : row.id)}>{selected === row.id ? "Скрыть ответ" : "Ответ и причина"}</button>
       {selected === row.id && <div className="admin-scan-detail">{detailError?.id === row.id && <p role="alert">{detailError.message}</p>}{detail?.id !== row.id && detailError?.id !== row.id && <p role="status">Загружаем ответ…</p>}{detail?.id === row.id && <>
+        {detail.status !== detail.original_status && <p>После ручного исправления: {statuses[detail.status] || detail.status}. В журнале показана оценка сервиса.</p>}
         {detail.feedback && <p>Отметка пользователя: <b>{labels[detail.feedback.label]}</b>{detail.feedback.comment && ` · ${detail.feedback.comment}`}</p>}
         {detail.evidence_quote && <blockquote>{detail.evidence_quote}</blockquote>}
         {detail.analysis?.reasoning && <p>Анализ ({detail.analysis_model}): {detail.analysis.reasoning}</p>}{detail.arbitration?.reasoning && <p>Арбитр ({detail.arbitration_model}): {detail.arbitration.reasoning}</p>}

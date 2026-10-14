@@ -21,7 +21,7 @@ type Config = { brand_aliases: string[]; brand_domains: string[]; brand_clarific
 type Schedule = { enabled: boolean; device_id: string | null; month_days: number[]; last_day?: boolean; time: string; timezone: string }
 type Project = { id: string; revision: number; name: string; brand_name: string; device_id: string | null; config: Config; schedule: Schedule; queries: Query[]; query_count: number; active_queries: number }
 type Run = { id: string; project_id: string; project_name: string; device_id: string | null; device_name: string; phase?: string; state: string; desired_state: string; error: string | null; total: number; created_at: string; scheduled_for: string | null; progress: { done?: number; total?: number; services?: Record<string, {done:number; total:number; state?:string; error?:string}> } }
-type Quote = { count: number; unit_kopeks: number; total_kopeks: number; available_kopeks: number; revision: number; provider_state?: string }
+type Quote = { count: number; free_count?: number; unit_kopeks: number; total_kopeks: number; available_kopeks: number; revision: number; provider_state?: string; free_scans_state?: string }
 type RecomputeQuote = Quote & { result_ids: string[]; skipped: number }
 type RecomputeResult = { charged_kopeks: number; status: "done" | "skipped" | "error"; message: string }
 const money = (kopeks: number) => new Intl.NumberFormat("ru-RU", {style:"currency",currency:"RUB"}).format(kopeks / 100)
@@ -74,7 +74,7 @@ function QuotePopover({ quote, item, note, action, above = false, trigger, after
     document.addEventListener("mousedown", outside)
     return () => { document.removeEventListener("keydown", dismiss); document.removeEventListener("mousedown", outside); if (!confirmed.current) triggerButton?.focus() }
   }, [onCancel, trigger])
-  return <div ref={dialog} className={`cc-quote-popover${above ? " above" : ""}`} role="dialog" aria-modal="false" aria-label={`Подтверждение: ${action}`}><p>К списанию: до <b>{money(quote.total_kopeks)}</b></p><small>{quote.count} {item} × {money(quote.unit_kopeks)} · доступно {money(quote.available_kopeks)}</small><p className="cc-quote-note">{note}</p><div><button className="cc-quote-cancel" onClick={onCancel}>Отменить</button><button className="cc-button primary" onClick={() => { confirmed.current = true; onConfirm(); requestAnimationFrame(() => afterConfirm?.current?.focus()) }}>{action}</button></div></div>
+  return <div ref={dialog} className={`cc-quote-popover${above ? " above" : ""}`} role="dialog" aria-modal="false" aria-label={`Подтверждение: ${action}`}><p>К списанию: до <b>{money(quote.total_kopeks)}</b></p><small>{quote.free_count ? `${quote.free_count} бесплатно по промокоду · ${quote.count - quote.free_count} платных × ${money(quote.unit_kopeks)}` : `${quote.count} ${item} × ${money(quote.unit_kopeks)}`} · доступно {money(quote.available_kopeks)}</small><p className="cc-quote-note">{note}</p><div><button className="cc-quote-cancel" onClick={onCancel}>Отменить</button><button className="cc-button primary" onClick={() => { confirmed.current = true; onConfirm(); requestAnimationFrame(() => afterConfirm?.current?.focus()) }}>{action}</button></div></div>
 }
 
 export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange, email, balance, admin, account, administration, message, logout, walletChanged }: {
@@ -187,7 +187,7 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
     setScanQuote({projectId, quote})
   }
   async function launch(projectId: string, quote: Quote) {
-    await request(`/control/projects/${projectId}/runs`, token, {request_id:uuid(), revision:quote.revision, provider_state:quote.provider_state})
+    await request(`/control/projects/${projectId}/runs`, token, {request_id:uuid(), revision:quote.revision, provider_state:quote.provider_state, free_scans_state:quote.free_scans_state})
   }
   const [area, routeProject, projectTab] = route.split("/")
   const projectId = routeProject || projects.find(p => p.id === lastProject)?.id || projects[0]?.id

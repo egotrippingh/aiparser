@@ -1,6 +1,20 @@
-import { useRef, useState } from "react"
-import { FolderOpen, Plus, Search, Trash2, Upload, X } from "lucide-react"
-import { parseQueryImport } from "./query-import"
+import { useRef, useState, type RefObject } from "react"
+import { CircleHelp, FolderOpen, Plus, Search, Trash2, Upload, X } from "lucide-react"
+import { parseQueryImport, QUERY_IMPORT_EXAMPLE } from "./query-import"
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "./components/ui/popover"
+
+export function QueryImportHelp({ container }: { container?: RefObject<HTMLDialogElement | null> }) {
+  return <Popover><PopoverTrigger openOnHover delay={150} closeDelay={150} className="cc-button" aria-label="Как подготовить файл CSV"><CircleHelp size={17} aria-hidden="true" />CSV UTF-8</PopoverTrigger>
+    <PopoverContent portalContainer={container} className="ql-import-help" align="start">
+      <PopoverTitle>Формат файла для импорта</PopoverTitle>
+      <p>В Excel выберите «CSV UTF-8», не «CSV (MS-DOS)». Кодировка — UTF-8, расширение — .csv.</p>
+      <p>Первая строка: «Запрос» и необязательная «Группа». Подойдут разделители: точка с запятой или запятая; для TSV — табуляция. В TXT — один запрос в строке.</p>
+      <pre>{QUERY_IMPORT_EXAMPLE}</pre>
+      <p>Если внутри запроса есть разделитель или перенос строки, заключите его в двойные кавычки. Кавычки внутри поля удвойте.</p>
+      <a className="cc-button" download="airate-queries.csv" href={`data:text/csv;charset=utf-8,${encodeURIComponent('\uFEFF' + QUERY_IMPORT_EXAMPLE)}`}>Скачать шаблон CSV</a>
+    </PopoverContent>
+  </Popover>
+}
 
 type Query = { id: string; text: string; group_tag: string; active: boolean }
 export function QueryLibrary({ queries, saving, onChange }: { queries: Query[]; saving: boolean; onChange: (queries: Query[]) => void }) {
@@ -37,6 +51,6 @@ export function QueryLibrary({ queries, saving, onChange }: { queries: Query[]; 
         {filtered.length>limit && <button className="cc-button" disabled={saving} onClick={()=>setLimit(n=>n+100)}>Показать ещё 100</button>}
       </div></div>
     <datalist id="query-groups">{groups.map(g=><option key={g} value={g}/>)}</datalist>
-    <dialog className="ws-dialog" ref={dialog} aria-labelledby="add-queries-title"><div className="ws-dialog-head"><h2 id="add-queries-title">Добавить запросы</h2><button className="cc-button icon" disabled={saving} aria-label="Закрыть" onClick={()=>dialog.current?.close()}><X size={18}/></button></div><p>По одному запросу в строке. Повторы пропустим. В CSV и TSV можно указать столбцы «Запрос» и «Группа».</p><label>Группа<input disabled={saving} list="query-groups" maxLength={120} placeholder="Без группы или название новой группы" value={newGroup} onChange={e=>setNewGroup(e.target.value)}/></label><label>Запросы<textarea disabled={saving} rows={9} value={text} onChange={e=>setText(e.target.value)} placeholder="Где купить оригинальное оборудование?"/></label>{error && <p className="cc-alert" role="alert">{error}</p>}<div className="cc-actions"><label className="cc-button cc-upload" aria-disabled={saving}><Upload size={16}/>Из файла<input disabled={saving} type="file" accept=".txt,.csv,.tsv" onChange={async e=>{const file=e.target.files?.[0];e.target.value="";if(!file)return;try{if(file.size>4000000)throw new Error("Файл больше 4 МБ");setText(await file.text());setError("")}catch(e){setError(e instanceof Error?e.message:"Не удалось прочитать файл")}}}/></label><button className="cc-button primary" disabled={saving||!text.trim()} onClick={add}>Добавить в базу</button></div><small>После добавления сохраните изменения в проекте.</small></dialog>
+    <dialog className="ws-dialog" ref={dialog} aria-labelledby="add-queries-title"><div className="ws-dialog-head"><h2 id="add-queries-title">Добавить запросы</h2><button className="cc-button icon" disabled={saving} aria-label="Закрыть" onClick={()=>dialog.current?.close()}><X size={18}/></button></div><p>По одному запросу в строке. Повторы пропустим. Для CSV выберите кодировку UTF-8 и столбцы «Запрос» и «Группа».</p><label>Группа<input disabled={saving} list="query-groups" maxLength={120} placeholder="Без группы или название новой группы" value={newGroup} onChange={e=>setNewGroup(e.target.value)}/></label><label>Запросы<textarea disabled={saving} rows={9} value={text} onChange={e=>setText(e.target.value)} placeholder="Где купить оригинальное оборудование?"/></label>{error && <p className="cc-alert" role="alert">{error}</p>}<div className="cc-actions"><label className="cc-button cc-upload" aria-disabled={saving}><Upload size={16}/>Из файла<input disabled={saving} type="file" accept=".txt,.csv,.tsv" onChange={async e=>{const file=e.target.files?.[0];e.target.value="";if(!file)return;try{if(file.size>4000000)throw new Error("Файл больше 4 МБ");setText(await file.text());setError("")}catch(e){setError(e instanceof Error?e.message:"Не удалось прочитать файл")}}}/></label><QueryImportHelp container={dialog}/><button className="cc-button primary" disabled={saving||!text.trim()} onClick={add}>Добавить в базу</button></div><small>TXT, CSV UTF-8 или TSV · до 4 МБ. После добавления сохраните изменения в проекте.</small></dialog>
   </>
 }

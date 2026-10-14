@@ -23,6 +23,7 @@ from server.ai import AIError
 from server.models import (AgentDevice, Check, CloudResult, ControlLink, ControlProject, ControlRun, ProviderAccount, ServerCapture,
                            DeviceConnect, DeviceGrant, LedgerEntry, Screenshot, SessionToken, User, Wallet, utcnow)
 from server.public_errors import public_error, public_progress
+from server.promos import free_scans_payload, free_scans_state, reserve_run_credits
 from server.reporting import SERVICES
 from server.scan_feedback import KEY as FEEDBACK_KEY, learning_context
 from server.security import new_token, token_hash
@@ -149,6 +150,7 @@ class LaunchIn(BaseModel):
     device_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     revision: int | None = Field(default=None, ge=0)
     provider_state: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    free_scans_state: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
 class RecomputeIn(BaseModel):
@@ -293,6 +295,8 @@ def create_run(db, project, device_id, key, scheduled_for=None, brand_clarificat
         row.progress_json = json.dumps({"cloud_done": len(snap["queries"]) * len(original_cloud), "skipped": len(snap["queries"]) * len(original_cloud)})
     db.add(row)
     db.flush()
+    if cloud:
+        reserve_run_credits(db, db.get(User, project.user_id), row.id, snap)
     return row
 
 
@@ -531,10 +535,15 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         accounts = {account.service: account for account in db.scalars(select(ProviderAccount).where(
             ProviderAccount.service.in_(config["services"]))).all()}
         active_services = [service for service in config["services"] if service not in CLOUD_SERVICES or not accounts.get(service) or not accounts[service].paused]
-        count = sum(q["active"] for q in json.loads(row.queries_json)) * len(active_services)
+        queries = sum(q["active"] for q in json.loads(row.queries_json))
+        count = queries * len(active_services)
         unit = 0 if user.is_admin else check_price_kopeks
-        return {"count": count, "unit_kopeks": unit, "total_kopeks": count * unit,
+        balances = free_scans_payload(db, user.id)
+        free = sum(min(queries, balances[service]["available"]) for service in active_services
+                   if service in CLOUD_SERVICES) if not user.is_admin else 0
+        return {"count": count, "free_count": free, "unit_kopeks": unit, "total_kopeks": (count - free) * unit,
                 "available_kopeks": available_kopeks(db, user.id), "revision": row.revision,
+                "free_scans_state": free_scans_state(balances),
                 "provider_state": provider_state_fingerprint(accounts, config["services"])}
 
     @router.post("/projects/{project_id}/runs", status_code=201)
@@ -557,6 +566,9 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             if body.provider_state is not None and provider_state_fingerprint(accounts, services) != body.provider_state:
                 raise HTTPException(409, "Состояние ИИ-систем изменилось. Проверьте сумму ещё раз.")
         device_id = body.device_id or row.device_id
+        db.execute(select(Wallet).where(Wallet.user_id == user.id).with_for_update()).scalar_one()
+        if body.free_scans_state is not None and body.free_scans_state != free_scans_state(free_scans_payload(db, user.id)):
+            raise HTTPException(409, "Остаток бесплатных сканов изменился. Проверьте сумму ещё раз.")
         try:
             run = create_run(db, row, device_id, request_key,
                              brand_clarifications_enabled=brand_enabled(user))
@@ -697,7 +709,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
 
     @router.post("/runs/{run_id}/command")
     def command(run_id: str, body: CommandIn, user=Depends(web_user), db=Depends(db_session)):
-        row = db.get(ControlRun, run_id)
+        row = db.scalar(select(ControlRun).where(ControlRun.id == run_id).with_for_update())
         if not row or row.user_id != user.id:
             raise HTTPException(404, "Проверка не найдена")
         if row.state in TERMINAL:
@@ -705,6 +717,11 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         row.desired_state = {"pause": "paused", "resume": "running", "stop": "cancelled"}[body.action]
         if body.action == "stop" and (row.state == "queued" or
                 (row.phase == "agent" and row.lease_until and aware(row.lease_until) < utcnow())):
+            from server.checks import complete_check
+            for check in db.scalars(select(Check).where(Check.user_id == user.id,
+                    Check.client_check_id.startswith(row.id + ":"), Check.status == "reserved",
+                    Check.free_scan_service.is_not(None))):
+                complete_check(db, user, check.client_check_id, "skipped", commit=False)
             row.state = "cancelled"
             row.active_project_key = row.active_device_key = None
             row.lease_token = None

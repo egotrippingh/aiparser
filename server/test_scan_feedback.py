@@ -19,7 +19,8 @@ def test_feedback_ownership_validation_and_removal(tmp_path):
     response = client.put(base + '/feedback', headers=owner, json={'label': 'false_positive', 'comment': 'Other company'})
     assert response.status_code == 200, response.text
     assert response.headers['cache-control'] == 'no-store'
-    assert response.json()['status'] == 'found'  # raw result is preserved
+    assert response.json()['status'] == 'not_found'
+    assert response.json()['original_status'] == 'found'
     assert client.get(base, headers=owner).json()['feedback']['comment'] == 'Other company'
     _, sessions = make_session_factory(url)
     with sessions() as db:
@@ -29,6 +30,54 @@ def test_feedback_ownership_validation_and_removal(tmp_path):
         db.commit()
         assert learning_context(row) == ''
     assert client.put(base + '/feedback', headers=owner, json={'label': None}).json()['feedback'] is None
+
+
+def test_manual_feedback_recalculates_history_totals_sources_and_export_without_rebilling(tmp_path):
+    from openpyxl import load_workbook
+    import io
+    from server.models import Wallet, LedgerEntry
+    client, owner, _, _, project, ids, url = seed_report(tmp_path)
+    base = f"/api/v1/control/projects/{project['id']}/mentions"
+    args = {'date_from':'2026-09-01', 'date_to':'2026-09-03'}
+    before = client.get(base+'/overview', headers=owner, params=args).json()
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        wallet = db.get(Wallet, db.get(ControlProject, project['id']).user_id)
+        balance = wallet.balance_kopeks
+        check = Check(user_id=wallet.user_id,client_check_id='feedback-cost',price_kopeks=120,status='settled',result_status='found')
+        db.add(check); db.flush()
+        check_id = check.id
+        db.get(CloudResult,ids[1]).check_id = check.client_check_id
+        db.commit()
+        ledger = list(db.scalars(select(LedgerEntry.id)))
+    fp = f'{base}/results/{ids[1]}/feedback'
+    missed = f'{base}/results/{ids[4]}/feedback'
+    assert client.put(fp, headers=owner, json={'label':'false_positive'}).status_code == 200
+    data = client.get(base+'/overview', headers=owner, params=args).json()
+    assert data['summary']['found'] == before['summary']['found']-1
+    assert data['timeline'][0]['found'] == before['timeline'][0]['found']-1
+    assert data['rows'][0]['cells']['2026-09-01']['google_aio']['status'] == 'not_found'
+    assert data['sources'][0]['count'] == before['sources'][0]['count']-1
+    wb = load_workbook(io.BytesIO(client.get(base+'/export/mentions', headers=owner, params=args).content))
+    assert wb['Упоминаемость']['C2'].value == 'Нет упоминания'
+    detail = client.put(missed, headers=owner, json={'label':'missed'}).json()
+    assert detail['status'] == 'found' and detail['original_status'] == 'not_found'
+    data = client.get(base+'/overview', headers=owner, params=args).json()
+    assert data['summary'] == before['summary']
+    assert data['rows'][0]['latest']['google_aio']['found'] is True
+    # Repeat/undo is validated against the stored automated verdict.
+    assert client.put(missed, headers=owner, json={'label':'missed'}).status_code == 200
+    assert client.put(fp, headers=owner, json={'label':'correct'}).json()['status'] == 'found'
+    assert client.put(missed, headers=owner, json={'label':None}).json()['status'] == 'not_found'
+    assert client.get(base+'/overview', headers=owner, params=args).json()['summary'] == before['summary']
+    with sessions() as db:
+        row = db.get(CloudResult, ids[1])
+        assert row.status == 'found' and row.answer_text == 'Original answer'
+        wallet = db.get(Wallet, row.user_id)
+        assert wallet.balance_kopeks == balance
+        assert list(db.scalars(select(LedgerEntry.id))) == ledger
+        check = db.get(Check,check_id)
+        assert (check.status,check.result_status,check.price_kopeks) == ('settled','found',120)
 
 
 def test_generic_design_roles_are_not_neighbours_expert_mentions():

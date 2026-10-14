@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { parseQueryImport } from "./query-import"
+import { parseQueryImport, QUERY_IMPORT_EXAMPLE } from "./query-import"
 
 describe("query imports", () => {
+  it("imports the downloadable UTF-8 template with BOM and comma CSV", () => {
+    const rows = [{ text: "Где купить оригинальное оборудование?", group_tag: "Покупка" }, { text: "Официальный сайт бренда?", group_tag: "Бренд" }]
+    expect(parseQueryImport('\uFEFF' + QUERY_IMPORT_EXAMPLE)).toEqual(rows)
+    expect(parseQueryImport(QUERY_IMPORT_EXAMPLE.replaceAll(";", ","))).toEqual(rows)
+  })
   it("preserves punctuation in plain text and the chosen group", () => {
     expect(parseQueryImport("Где купить ESTUS, оригинал?\n\nОфициальный сайт?", "Общие")).toEqual([
       { text: "Где купить ESTUS, оригинал?", group_tag: "Общие" },

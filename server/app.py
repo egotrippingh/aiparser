@@ -24,7 +24,8 @@ from sqlalchemy.orm import Session
 
 from server.agent_schemas import AgentHeartbeatIn, CloudResultsIn, ScanPreferencesIn
 from server.ai import OpenRouterAI
-from server.checks import reserve_checks, analyze_check, arbitrate_check, complete_check, settle_check
+from server.checks import reserve_checks, analyze_check, arbitrate_check, complete_check, settle_check, release_check
+from server.promos import RedeemIn, free_scans_payload, normalize_code, redeem_promo
 from server.auth_limit import clear as clear_auth_failures
 from server.auth_limit import email_key, guard as guard_auth, record as record_auth, source_key
 from server.coinso import CoinsoClient, CoinsoError, kopeks, payment_options, valid_payment_currency, verify_webhook
@@ -47,6 +48,10 @@ class Credentials(BaseModel):
     email: str = Field(min_length=3, max_length=190)
     password: str = Field(min_length=12, max_length=256)
     connect_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+
+
+class RegistrationIn(Credentials):
+    promo_code: str = Field(default="", max_length=128)
 
 
 class ScrapelessWebhookIn(BaseModel):
@@ -130,6 +135,7 @@ def _wallet_payload(db: Session, user_id: str) -> dict:
         "balance_kopeks": wallet.balance_kopeks,
         "reserved_kopeks": held,
         "available_kopeks": wallet.balance_kopeks - held,
+        "free_scans": free_scans_payload(db, user_id),
         "entries": [
             {"amount_kopeks": entry.amount_kopeks, "kind": entry.kind,
              "reference": entry.reference, "created_at": entry.created_at.isoformat()}
@@ -844,20 +850,27 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         return issue_session(db, user)
 
     @app.post("/api/v1/auth/register", status_code=201)
-    def register(body: Credentials, request: Request, response: Response,
+    def register(body: RegistrationIn, request: Request, response: Response,
                  db: Session = Depends(db_session)) -> dict:
         source = source_key(request)
         guard_auth(db, "register", [(source, 10)])
         record_auth(db, "register", [source])
         email = _email(body.email)
+        try:
+            promo_code = normalize_code(body.promo_code) if body.promo_code.strip() else ""
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
         user = User(id=uuid.uuid4().hex, email=email, password_hash=hash_password(body.password))
         db.add(user)
         db.add(Wallet(user_id=user.id, balance_kopeks=0))
         try:
-            db.commit()
+            db.flush()
         except IntegrityError as exc:
             db.rollback()
             raise HTTPException(409, "Аккаунт с таким email уже есть") from exc
+        if promo_code:
+            redeem_promo(db, user.id, promo_code)
+        db.commit()
         approve_login_connect(db, body.connect_id, user.id)
         return {**issue_session(db, user, request, response), "agent_connected": bool(body.connect_id)}
 
@@ -940,6 +953,12 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
     @app.get("/api/v1/wallet")
     def wallet(user: User = Depends(current_user), db: Session = Depends(db_session)) -> dict:
         return _wallet_payload(db, user.id)
+
+    @app.post("/api/v1/wallet/promo")
+    def redeem(body: RedeemIn, user: User = Depends(current_user), db: Session = Depends(db_session)):
+        result = redeem_promo(db, user.id, body.code)
+        db.commit()
+        return {**result, "free_scans": free_scans_payload(db, user.id)}
 
     def confirm_payment(db: Session, order: PaymentOrder, invoice_id: str) -> None:
         # Creation must persist the provider's test_mode before any credit.
@@ -1228,8 +1247,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
                     settle_check(db, wallet_row, check, "analyzed")
                     settled += 1
                 else:
-                    check.status = "released"
-                    check.result_status = "not_started"
+                    release_check(db, check, "not_started")
                     released += 1
         db.commit()
         return {"released": released, "settled": settled, **_wallet_payload(db, user.id)}

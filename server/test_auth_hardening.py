@@ -85,6 +85,7 @@ def test_legacy_database_upgrade_preserves_account(tmp_path):
                                           if table.name not in NEW_TABLES])
     with engine.begin() as connection:
         connection.execute(text("ALTER TABLE checks DROP COLUMN analysis_json"))
+        connection.execute(text("ALTER TABLE checks DROP COLUMN free_scan_service"))
         connection.execute(text("ALTER TABLE oauth_attempts DROP COLUMN connect_id"))
     with Session(engine) as db:
         db.add(User(id="legacy", email="legacy@example.test",

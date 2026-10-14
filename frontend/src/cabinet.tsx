@@ -4,6 +4,8 @@ import { ArrowDownLeft, ArrowUpRight, ShieldCheck } from "lucide-react"
 import { ACCOUNT_API as API, COOKIE_SESSION, accountRequest as request, AccountError } from "./account-api"
 import { AdminScans } from "./admin-scans"
 import { AdminOverview } from "./admin-overview"
+import { AdminPromos } from "./admin-promos"
+import { PromoForm, type FreeScans } from "./components/promo-form"
 import { ControlCenter } from "./control-center"
 import "./cabinet.css"
 import { SiteFooter } from "./site-footer"
@@ -20,7 +22,7 @@ const money = (kopeks: number) => new Intl.NumberFormat("ru-RU", {
 
 type User = { id: string; email: string; yandex_linked?: boolean; is_admin?: boolean; brand_clarifications_enabled?: boolean }
 type Entry = { amount_kopeks: number; kind: string; reference: string; created_at: string }
-type Wallet = { balance_kopeks: number; reserved_kopeks: number; available_kopeks: number; entries: Entry[] }
+type Wallet = { balance_kopeks: number; reserved_kopeks: number; available_kopeks: number; entries: Entry[]; free_scans?: FreeScans }
 
 function Cabinet() {
   const editorDirty = useRef(false)
@@ -38,6 +40,7 @@ function Cabinet() {
     new URLSearchParams(location.hash.slice(1)).has("reset_token") ? "reset" : "login")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [promoCode, setPromoCode] = useState("")
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
   const [yandexEnabled, setYandexEnabled] = useState(false)
@@ -189,9 +192,10 @@ function Cabinet() {
         setMessage("Пароль изменён. Войдите с новым паролем.")
         return
       }
-      const result = await request<{ token?: string; user: User }>(`/auth/${authMode}`, undefined, { email, password })
+      const result = await request<{ token?: string; user: User }>(`/auth/${authMode}`, undefined, { email, password, ...(authMode === "register" ? { promo_code: promoCode.trim() } : {}) })
       acceptSession(result)
       setPassword("")
+      setPromoCode("")
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Не удалось войти")
     } finally { setBusy(false) }
@@ -223,14 +227,15 @@ function Cabinet() {
   if (user && !checkingSession) return <ControlCenter key={token} token={token} email={user.email}
     balance={user.is_admin ? "Безлимитно" : money(wallet?.available_kopeks || 0)} admin={!!user.is_admin}
     brandClarificationsEnabled={!!user.brand_clarifications_enabled} onDirtyChange={setEditorDirty}
-    logout={logout} walletChanged={walletChanged} message={message} administration={<><AdminOverview token={token}/><AdminScans token={token}/></>}
+    logout={logout} walletChanged={walletChanged} message={message} administration={<><AdminPromos token={token}/><AdminOverview token={token}/><AdminScans token={token}/></>}
     account={<div className="app-account">        <div className="cab-title-row"><div><span className="cab-kicker">ВАШ АККАУНТ</span><h2>Баланс и проверки</h2><p>{user.email}</p>{yandexEnabled && <button className="cab-link-yandex" disabled={busy || user.yandex_linked} onClick={linkYandex}>{user.yandex_linked ? "Яндекс ID подключён" : "Привязать Яндекс ID"}</button>}</div><span className="cab-rate">{user.is_admin ? "Администратор · проверки бесплатно" : `Одна проверка · ${money(price)}`}</span></div>
         <div className="cab-grid">
-          <section className="cab-panel cab-balance"><span className="cab-kicker">ДОСТУПНО ДЛЯ ПРОВЕРОК</span><strong>{user.is_admin ? "Безлимитно" : money(wallet?.available_kopeks || 0)}</strong><p>{user.is_admin ? `Обычные проверки бесплатны.${user.brand_clarifications_enabled ? ` Пересчёт сохранённых ответов — 0,80 ₽ за ответ; доступный баланс ${money(wallet?.available_kopeks || 0)}.` : ""}` : `На балансе ${money(wallet?.balance_kopeks || 0)}${wallet?.reserved_kopeks ? ` · Зарезервировано ${money(wallet.reserved_kopeks)}` : ""}`}</p><div className="cab-balance-foot">{user.is_admin ? "Обычная проверка запроса в ИИ-сервисе · 0 ₽" : `Примерно ${Math.floor((wallet?.available_kopeks || 0) / price)} проверок по текущей цене`}</div><button className="cab-primary" type="button" onClick={() => document.getElementById("topup-amount")?.focus()}>Пополнить баланс</button></section>
+          <section className="cab-panel cab-balance"><span className="cab-kicker">ДОСТУПНО ДЛЯ ПРОВЕРОК</span><strong>{user.is_admin ? "Безлимитно" : money(wallet?.available_kopeks || 0)}</strong><p>{user.is_admin ? `Обычные проверки бесплатны.${user.brand_clarifications_enabled ? ` Пересчёт сохранённых ответов — 0,80 ₽ за ответ; доступный баланс ${money(wallet?.available_kopeks || 0)}.` : ""}` : `На балансе ${money(wallet?.balance_kopeks || 0)}${wallet?.reserved_kopeks ? ` · Зарезервировано ${money(wallet.reserved_kopeks)}` : ""}`}</p><div className="cab-balance-foot">{user.is_admin ? "Обычная проверка запроса в ИИ-сервисе · 0 ₽" : `Примерно ${Math.floor((wallet?.available_kopeks || 0) / price)} платных проверок по текущей цене`}</div><button className="cab-primary" type="button" onClick={() => document.getElementById("topup-amount")?.focus()}>Пополнить баланс</button></section>
           <TopupForm token={token} minimum={minimum} />
+          <PromoForm token={token} freeScans={wallet?.free_scans} applied={walletChanged} />
         </div>
         {payments.length > 0 && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ПОПОЛНЕНИЯ</span><h2>История платежей</h2></div><button className="cab-refresh" onClick={() => refresh(token).catch(e => setMessage(e.message))}>Обновить</button></div><div className="cab-list">{payments.map(payment => <div className="cab-entry cab-payment-row" key={payment.id}><span><b>{money(payment.amount_kopeks)} · {payment.method === "crypto" ? "Криптовалюта" : payment.method === "sbp" ? "СБП" : "Банковская оплата"}</b><small>{new Date(payment.created_at).toLocaleString("ru-RU")}</small></span><span className={`cab-payment-status ${payment.status}`} role="status">{paymentLabel(payment.status)}</span>{payment.status === "pending" && payment.payment_url && <a className="cab-download" href={payment.payment_url}>Продолжить оплату</a>}</div>)}</div></section>}
-        {(wallet?.entries.length || !user.is_admin) && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ИСТОРИЯ</span><h2>Операции по балансу</h2></div><button onClick={walletChanged} className="cab-refresh">Обновить</button></div>{wallet?.entries.length ? <div className="cab-list">{wallet.entries.map((entry) => <div className="cab-entry" key={entry.reference}><span className={entry.amount_kopeks > 0 ? "cab-entry-icon in" : "cab-entry-icon out"}>{entry.amount_kopeks > 0 ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}</span><span><b>{entry.kind === "topup" ? "Пополнение" : entry.kind === "recompute" ? "Пересчёт ответа" : "Проверка запроса"}</b><small>{new Date(entry.created_at).toLocaleString("ru-RU")}</small></span><strong className={entry.amount_kopeks > 0 ? "positive" : ""}>{entry.amount_kopeks > 0 ? "+" : ""}{money(entry.amount_kopeks)}</strong></div>)}</div> : <p className="cab-empty">Пока нет операций. Пополните баланс, чтобы начать проверки.</p>}</section>}
+        {(wallet?.entries.length || !user.is_admin) && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ИСТОРИЯ</span><h2>Операции по балансу</h2></div><button onClick={walletChanged} className="cab-refresh">Обновить</button></div>{wallet?.entries.length ? <div className="cab-list">{wallet.entries.map((entry) => <div className="cab-entry" key={entry.reference}><span className={entry.amount_kopeks > 0 ? "cab-entry-icon in" : "cab-entry-icon out"}>{entry.amount_kopeks > 0 ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}</span><span><b>{entry.kind === "topup" ? "Пополнение" : entry.kind === "recompute" ? "Пересчёт ответа" : "Проверка запроса"}</b><small>{new Date(entry.created_at).toLocaleString("ru-RU")}</small></span><strong className={entry.amount_kopeks > 0 ? "positive" : ""}>{entry.amount_kopeks > 0 ? "+" : ""}{money(entry.amount_kopeks)}</strong></div>)}</div> : <p className="cab-empty">Пока нет операций по денежному балансу.</p>}</section>}
         {payments.some((p) => p.status === "pending") && <p className="cab-pending">Есть незавершённое пополнение. Если вы уже оплатили, нажмите «Обновить» после возврата на сайт.</p>}</div>}/>
   return <div className="cabinet">
     <header className="cab-header"><div className="cab-container cab-header-inner"><Brand className="cab-brand"/><span className="cab-header-label">Личный кабинет</span><NewsLink/></div></header>
@@ -249,6 +254,7 @@ function Cabinet() {
             : <label>Email<input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>}
           {authMode !== "forgot" && <label>{authMode === "reset" ? "Новый пароль" : "Пароль"}<input type="password" minLength={12} autoComplete={authMode === "login" ? "current-password" : "new-password"} required value={password} onChange={(e) => setPassword(e.target.value)} /></label>}
           {(authMode === "register" || authMode === "reset") && <small>Не менее 12 символов.</small>}
+          {authMode === "register" && <><label>Промокод (необязательно)<input autoComplete="off" maxLength={64} disabled={busy} value={promoCode} onChange={e => setPromoCode(e.target.value)} aria-describedby="registration-promo-hint" /></label><small id="registration-promo-hint">Начислим бесплатные сканы по условиям промокода. Его также можно ввести позже в разделе «Аккаунт и оплата».</small></>}
           <button className="cab-primary" disabled={busy}>{busy ? "Подождите…" : authMode === "login" ? "Войти" : authMode === "register" ? "Зарегистрироваться" : authMode === "forgot" ? "Отправить ссылку" : "Сменить пароль"}</button>
           {authMode === "login" && resetEnabled && <button className="cab-refresh" type="button" onClick={() => setAuthMode("forgot")}>Забыли пароль?</button>}
         </form></section>}

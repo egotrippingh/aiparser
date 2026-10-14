@@ -1,4 +1,4 @@
-"""Bounded, project-owned examples for future scans; original results stay intact."""
+"""Project-owned verdict corrections and bounded examples; original results stay intact."""
 import hashlib
 import json
 from datetime import timedelta
@@ -37,6 +37,13 @@ def feedback_for(project, result_id):
     return next((e for e in json.loads(project.config_json).get(KEY, []) if e["result_id"] == result_id), None)
 
 
+def effective_status(row, feedback):
+    if row.status not in ("found", "not_found"):
+        return row.status
+    return {"false_positive": "not_found", "missed": "found"}.get(
+        feedback.get("label") if feedback else None, row.status)
+
+
 def learning_context(project):
     examples = [e for e in json.loads(project.config_json).get(KEY, [])
                 if e["identity"] == identity(project) and e["label"] != "correct"][-6:]
@@ -65,7 +72,8 @@ def result_detail(db, row):
         evidence = None
     has_screenshot = bool(check and db.get(Screenshot, check.id))
     return {"id": row.id, "query_text": row.query_text, "service": row.service, "scan_date": row.scan_date,
-            "status": row.status, "answer_text": row.answer_text, "error_message": public_error(row.error_message),
+            "status": effective_status(row, feedback), "original_status": row.status,
+            "answer_text": row.answer_text, "error_message": public_error(row.error_message),
             "evidence_quote": row.evidence_quote, "sources": json.loads(row.sources_json or "[]"),
             "mention_types": json.loads(row.mention_types_json or "[]"), "check_id": row.check_id,
             "feedback": visible_feedback,

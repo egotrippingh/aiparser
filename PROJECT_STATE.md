@@ -1,6 +1,41 @@
 # AIRate current project state
 
-## Scrapeless webhook and timeout recovery (2026-10-13, validated)
+## Report history and manual verdict correction (2026-10-14, local)
+
+Actual scan dates scroll continuously, newest left; compact system icons,
+sticky query names, visibility/dynamics on the left and16px percentage inset.
+Legend buttons replace checkboxes; stale loading no longer shows false empty
+banners. Calendar presets align left. Manual missed/false-positive marks update
+all reporting views and mentions XLSX without changing raw results or charges;
+undo restores the automated verdict. Existing20 marks/project limit is visible.
+Full server279 passed with disposable PostgreSQL; frontend87/lint/build passed.
+Sol high final review found/fixed/rechecked three P2s, no remaining blockers.
+Astra high review unavailable for this chunk (capacity); Sol covered risk paths.
+Browser correction/undo, keyboard, desktop1280/narrow390, no page overflow,
+28-date horizontal scroll/sticky queries, loading legend and calendar gaps verified. Deployment authorized; verified production backup
+restored into isolated DB. User requested persistent admin SSH and login verified;
+local alias airate-admin uses a dedicated key and pinned host (no forwarding).
+No credentials committed. See [report-history-layout.md](docs/tasks/report-history-layout.md).
+
+## Promo codes and CSV import help (2026-10-14, local)
+
+Branch codex/promo-codes adds admin-created per-service free scans (including zero),
+redemption at email registration and account/top-up, once per code/account.
+Different codes accumulate; saved-answer recompute stays paid. Credits are frozen
+at cloud-run creation and refunded once when unused, with wallet locking and a
+fresh Check read preventing concurrent double refunds. CSV import now explains
+UTF-8, columns/delimiters and escaping in an accessible popover with a template.
+Final server277 passed with disposable PostgreSQL; agent billing/scan52 and
+frontend85/lint/build passed. Desktop1280px/mobile390px browser success/error,
+registration, quote and CSV help/import checks passed; no final console errors.
+Sol/Astra reviews completed; the confirmed refund race was reproduced then fixed.
+Hover is configured but pointer-only hover and OS template download completion
+were not verified. No live paid provider/payment checks or production deployment.
+Additive migration20261014_promo_codes is required at publication through normal
+delivery gates. Evidence: C:/codex-tmp/airate-promos-20261014/;
+see [promo-codes.md](docs/tasks/promo-codes.md).
+
+## Scrapeless webhook and timeout recovery (2026-10-13, deployed)
 
 Branch codex/scrapeless-webhook adds attempt-scoped notifications, authenticated
 GET evidence recovery and automatic retry after15min without a confirmed handle.
@@ -10,8 +45,12 @@ Known pending IDs retain one slot and are polled without duplicate submission.
 Full server262, focused19 and shared67 passed with disposable PostgreSQL.
 Sol/Astra reviewed final risky changes without blockers. Caddy URI redaction
 passed an actual502 check; production Caddy2.11.4 validated/reloaded with backup.
-One live geosoft-dent ChatGPT uncertain task is awaiting release recovery.
-Source CI, application deploy and final live verification remain pending.
+PR #57 merged after exact-head CI38391368321 passed on3a633685.
+Production CI38391886578 passed on50f18ee979d980f450c9f458f4007bc1f72e626d;
+normal HTTPS readiness confirms the exact release and pricing120.
+The live geosoft-dent uncertain task recovered automatically: attempt2 completed,
+answer saved, one Check settled. ChatGPT303/303; Yandex278/303 still processing.
+Invalid public callback returned404. No scan records were edited manually.
 See [scrapeless-webhook.md](docs/tasks/scrapeless-webhook.md).
 
 ## Provider queue isolation (2026-10-13, deployed)
@@ -64,9 +103,9 @@ routes returning 401. The original failed CI run remains historical; no gate was
 
 ## Current release
 
-Production is `67575132d4f4d3b0852fc9c62bd7e5fdbb2f8aab` from PR #56.
-Normal HTTPS verification confirms the exact SHA, pricing, 12 matching public assets
-and anonymous private routes returning401. Production CI and readiness passed.
+Production is `50f18ee979d980f450c9f458f4007bc1f72e626d` from PR #57.
+Normal HTTPS verification confirms the exact SHA and pricing120;
+an invalid callback returns404. Production CI and readiness passed.
 Previous records were verified unchanged during the PR #51/#52 migration.
 Historical release evidence is in
 [project-state-history-2026-10-12.md](docs/project-state-history-2026-10-12.md).

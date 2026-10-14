@@ -123,6 +123,22 @@ it("shows isolated measurements even when surrounding dates have no answers", ()
   expect(html.match(/<circle /g)).toHaveLength(2)
 })
 
+it("uses pressed service buttons and preserves the last selected system", () => {
+  const html = renderToStaticMarkup(<ReportChart days={[]} services={["chatgpt"]} available={["chatgpt","google_aio"]} choose={()=>{}}/> )
+  expect(html).not.toContain('type="checkbox"')
+  expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*disabled=""[^>]*aria-label="Показывать ChatGPT"/)
+  expect(html).toMatch(/<button[^>]*aria-pressed="false"[^>]*aria-label="Показывать Google AI Overview"/)
+})
+
+it("filters by full-period totals even when an earlier mention is outside the loaded date window", () => {
+  const rows = [
+    {trend:{current:{found:1,checked:2}},latest:{chatgpt:{status:"not_found",found:false}},cells:{"2026-10-14":{chatgpt:{status:"not_found",found:false}},"2026-10-10":{chatgpt:{status:"found",found:true}}}},
+    {trend:{current:{found:0,checked:0}},latest:{},cells:{}},
+  ] as unknown as Parameters<typeof reportRows>[0]
+  expect(reportRows(rows,"found",false,["2026-10-14","2026-10-10"])).toEqual([rows[0]])
+  expect(reportRows(rows,"found",false)).toEqual([rows[0]])
+})
+
 it("shows only actual scan dates and never adds a dashed interpolation", () => {
   expect(linePath([null,0,null,60,null], i=>i,v=>v).replace(/\s+/g," ").trim()).toBe("M1.0,0.0 M3.0,60.0")
   expect(linePath([null,null], i=>i,v=>v).trim()).toBe("")
@@ -156,10 +172,10 @@ it("keeps missing/zero baselines neutral and distinguishes points from relative 
 
 it("filters the observable verdict, without counting excluded product cards as a mention", () => {
   const rows = [
-    {latest:{google_aio:{status:"found",found:false}},trend:{current:{visibility_pct:0}}},
-    {latest:{chatgpt:{status:"found",found:true}},trend:{current:{visibility_pct:100}}},
-    {latest:{google_aio:{status:"not_found",found:false}},trend:{current:{visibility_pct:0}}},
-    {latest:{},trend:{current:{visibility_pct:null}}},
+    {latest:{google_aio:{status:"found",found:false}},trend:{current:{visibility_pct:0,found:0,checked:1}}},
+    {latest:{chatgpt:{status:"found",found:true}},trend:{current:{visibility_pct:100,found:1,checked:1}}},
+    {latest:{google_aio:{status:"not_found",found:false}},trend:{current:{visibility_pct:0,found:0,checked:1}}},
+    {latest:{},trend:{current:{visibility_pct:null,found:0,checked:0}}},
   ] as unknown as Parameters<typeof reportRows>[0]
   expect(reportRows(rows,"found",false)).toEqual([rows[1]])
   expect(reportRows(rows,"not_found",false)).toEqual([rows[0],rows[2]])
@@ -170,12 +186,12 @@ it("filters the observable verdict, without counting excluded product cards as a
 it("filters comparison rows only by the two displayed dates", () => {
   const absent = {status:"not_found",found:false}, found = {status:"found",found:true}
   const rows = [
-    {latest:{google_aio:found},cells:{"2026-09-01":{google_aio:absent},"2026-09-02":{google_aio:found},"2026-09-03":{google_aio:absent}}},
-    {latest:{google_aio:absent},cells:{"2026-09-01":{google_aio:found},"2026-09-03":{google_aio:absent}}},
-    {latest:{},cells:{}},
+    {trend:{current:{found:1,checked:3}},latest:{google_aio:found},cells:{"2026-09-01":{google_aio:absent},"2026-09-02":{google_aio:found},"2026-09-03":{google_aio:absent}}},
+    {trend:{current:{found:1,checked:2}},latest:{google_aio:absent},cells:{"2026-09-01":{google_aio:found},"2026-09-03":{google_aio:absent}}},
+    {trend:{current:{found:0,checked:0}},latest:{},cells:{}},
   ] as unknown as Parameters<typeof reportRows>[0]
   const dates = ["2026-09-01","2026-09-03"]
   expect(reportRows(rows,"found",false,dates)).toEqual([rows[1]])
   expect(reportRows(rows,"not_found",false,dates)).toEqual([rows[0],rows[1]])
-  expect(reportRows(rows,"found",false)).toEqual([rows[0]])
+  expect(reportRows(rows,"found",false)).toEqual([rows[0],rows[1]])
 })
