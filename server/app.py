@@ -33,7 +33,7 @@ from server.mailer import PasswordMailer
 from server.migrate import upgrade_database
 from server.models import (AgentDevice, Check, CloudResult, ScanPreferences, Screenshot, DeviceCode, DeviceConnect, BrowserLoginTicket,
                            LedgerEntry, LoginTicket, OAuthAttempt, OAuthIdentity, PasswordReset,
-                           PaymentOrder, SessionToken, User, Wallet, YandexRegistration, make_session_factory, utcnow)
+                           PaymentOrder, SessionToken, TopupEmail, User, Wallet, YandexRegistration, make_session_factory, utcnow)
 from server.security import hash_password, new_token, token_hash, verify_password
 from server.storage import ScreenshotStorage, StorageError
 from server.yandex import YandexError, YandexOAuth
@@ -1104,6 +1104,10 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
             user_id=order.user_id, amount_kopeks=order.amount_kopeks,
             kind="topup", reference=f"payment:{order.id}",
         ))
+        db.add(TopupEmail(
+            order_id=locked.id, email=db.get(User, locked.user_id).email,
+            amount_kopeks=locked.amount_kopeks, balance_kopeks=wallet_row.balance_kopeks,
+        ))
         db.commit()
 
     @app.post("/api/v1/payments", status_code=201)
@@ -1386,6 +1390,10 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
             cloud_task = asyncio.create_task(cloud_worker(SessionLocal, ai_client, price))
             if reconciler:
                 reconciler.thread.start()
+            from server.topup_emails import TopupEmailWorker
+            mail_worker = TopupEmailWorker(SessionLocal, password_mailer) if password_mailer else None
+            if mail_worker:
+                mail_worker.thread.start()
             try:
                 yield
             finally:
@@ -1396,6 +1404,8 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
                     pass
                 if reconciler:
                     await run_in_threadpool(reconciler.close)
+                if mail_worker:
+                    await run_in_threadpool(mail_worker.close)
                 close_ai = getattr(ai_client, "close", None)
                 if close_ai:
                     await run_in_threadpool(close_ai)
