@@ -175,6 +175,33 @@ def test_enabling_mailer_starts_delivery_of_queued_topup_and_stops_worker(tmp_pa
     assert not workers[0].thread.is_alive()
 
 
+def test_stale_claim_cannot_bypass_another_workers_retry_deadline(tmp_path, monkeypatch):
+    app, client, headers, coinso, order_id, invoice = setup_payment(tmp_path, monkeypatch)
+    coinso.paid.add(invoice)
+    client.get(f"/api/v1/payments/{order_id}", headers=headers)
+    sessions = app.state.payment_sessions
+    engine = sessions.kw["bind"]
+    armed = [True]
+    late_mailer = Mailer()
+
+    def retry_before_stale_claim(connection, cursor, statement, parameters, context, executemany):
+        if armed[0] and statement.startswith("UPDATE topup_emails"):
+            armed[0] = False
+            refusing = Mailer(MailDeliveryError(uncertain=False))
+            assert TopupEmailWorker(sessions, refusing).send_once()
+
+    event.listen(engine, "before_cursor_execute", retry_before_stale_claim)
+    try:
+        assert not TopupEmailWorker(sessions, late_mailer).send_once()
+    finally:
+        event.remove(engine, "before_cursor_execute", retry_before_stale_claim)
+    assert not late_mailer.messages
+    with sessions() as db:
+        row = db.get(TopupEmail, order_id)
+        assert row.status == "pending" and row.attempts == 1
+        assert row.next_attempt_at > utcnow().replace(tzinfo=None)
+
+
 def test_postgres_confirmation_race_creates_one_credit_and_one_mail(tmp_path, monkeypatch, postgres_url):
     app, _, _, coinso, order_id, invoice = setup_payment(tmp_path, monkeypatch, url=postgres_url)
     coinso.paid.add(invoice)

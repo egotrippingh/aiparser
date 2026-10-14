@@ -26,12 +26,14 @@ class TopupEmailWorker:
                 return False
             claimed = db.execute(update(TopupEmail).where(
                 TopupEmail.order_id == row.order_id, TopupEmail.status == "pending",
-            ).values(status="sending", attempts=TopupEmail.attempts + 1))
+                TopupEmail.attempts == row.attempts, TopupEmail.next_attempt_at <= utcnow(),
+            ).values(status="sending", attempts=TopupEmail.attempts + 1)
+                .execution_options(synchronize_session=False))
             if claimed.rowcount != 1:
                 return False
             db.commit()
             order_id, email = row.order_id, row.email
-            amount, balance, attempts = row.amount_kopeks, row.balance_kopeks, row.attempts
+            amount, balance, attempts = row.amount_kopeks, row.balance_kopeks, row.attempts + 1
         status, sent_at = "sent", None
         try:
             self.mailer.send_topup(email, order_id, amount, balance)
