@@ -1,6 +1,6 @@
 # AIRate current project state
 
-## Report history and manual verdict correction (2026-10-14, local)
+## Report history and manual verdict correction (2026-10-14, deployed)
 
 Actual scan dates scroll continuously, newest left; compact system icons,
 sticky query names, visibility/dynamics on the left and16px percentage inset.
@@ -10,14 +10,30 @@ all reporting views and mentions XLSX without changing raw results or charges;
 undo restores the automated verdict. Existing20 marks/project limit is visible.
 Full server279 passed with disposable PostgreSQL; frontend87/lint/build passed.
 Sol high final review found/fixed/rechecked three P2s, no remaining blockers.
-Astra high review unavailable for this chunk (capacity); Sol covered risk paths.
+Astra high risk review completed; old-image schema rollback incompatibility was
+addressed with a reviewed promo-aware fallback0274ab3 and operator recovery checks.
 Browser correction/undo, keyboard, desktop1280/narrow390, no page overflow,
 28-date horizontal scroll/sticky queries, loading legend and calendar gaps verified. Deployment authorized; verified production backup
 restored into isolated DB. User requested persistent admin SSH and login verified;
 local alias airate-admin uses a dedicated key and pinned host (no forwarding).
 No credentials committed. See [report-history-layout.md](docs/tasks/report-history-layout.md).
 
-## Promo codes and CSV import help (2026-10-14, local)
+PR58 merged after exact-head CI38531393427 passed on b2332c0. Production
+CI38532175701 attempt2 succeeded on b3c1f3055e9a52dab8a216be7f0ee046742a6c91;
+HTTPS readiness, pricing120, cabinet assets and healthy container confirm it.
+Live browser loaded 303 queries and 7 actual date groups, newest 13.10 left,
+16px percentage inset, no false notice and no console errors. Production records
+were not edited for UI tests. Migration20261014_promo_codes applied under release
+lock after draining web and verified backup/isolated restore. Canonical comparison
+of all 26 existing tables/columns matched before starting workers. Verified backup:
+backups/aiparser-20261014T081554Z-3743840.dump. Schema-aware rollback image
+airate-web:promo-rollback-20261014 uses0274ab334d2b7efe799e6e7f4b1a3b401f8a2695,
+including promo refunds; restored-copy migration/check/readiness passed before live.
+Old 50f18ee cannot restart against this new head. Ordinary migration-head gate remains
+intact; attempt1 correctly stopped before touching the old application. Backups
+remain on this VPS; live paid provider/payment requests were not part of QA.
+
+## Promo codes and CSV import help (2026-10-14, deployed)
 
 Branch codex/promo-codes adds admin-created per-service free scans (including zero),
 redemption at email registration and account/top-up, once per code/account.
@@ -30,9 +46,9 @@ frontend85/lint/build passed. Desktop1280px/mobile390px browser success/error,
 registration, quote and CSV help/import checks passed; no final console errors.
 Sol/Astra reviews completed; the confirmed refund race was reproduced then fixed.
 Hover is configured but pointer-only hover and OS template download completion
-were not verified. No live paid provider/payment checks or production deployment.
-Additive migration20261014_promo_codes is required at publication through normal
-delivery gates. Evidence: C:/codex-tmp/airate-promos-20261014/;
+were not verified. No live paid provider/payment checks. PR58 and production SHA
+b3c1f30 above include these changes; additive migration20261014_promo_codes verified.
+Evidence: C:/codex-tmp/airate-promos-20261014/;
 see [promo-codes.md](docs/tasks/promo-codes.md).
 
 ## Scrapeless webhook and timeout recovery (2026-10-13, deployed)

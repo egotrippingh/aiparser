@@ -85,6 +85,28 @@ backup, set `AIRATE_IMAGE` and `AIRATE_RELEASE` in the server `.env`, then run
 `docker compose up -d --no-build --no-deps --wait web` and verify `/api/v1/ready`.
 Only do this when the selected image supports the current database schema.
 
+### Promo schema release on 14 October 2026
+
+Production b3c1f3055e9a52dab8a216be7f0ee046742a6c91 uses
+20261014_promo_codes. The previous 50f18ee image does not know this revision and
+must not be selected for rollback. The retained image
+`airate-web:promo-rollback-20261014` is built from tested 0274ab3 server/web sources
+and the previous runtime dependencies; set AIRATE_RELEASE to
+0274ab334d2b7efe799e6e7f4b1a3b401f8a2695 when using it. It supports the schema
+and promo reservations/refunds. Upgrade, metadata check, canonical preservation
+of 26 existing tables/columns and readiness without workers passed on an isolated
+restored DB before the reviewed live upgrade. Live preservation was checked
+before fallback startup; ordinary CI activation then retained its image ID.
+
+One-off operator scripts/evidence stay in `/opt/airate/releases/promo-20261014`.
+The live procedure admits only the old head, holds the release-lock, drains web,
+creates/restores a backup, uses 5s lock/60s statement timeouts and refuses startup
+if canonical preservation fails. It never restores or downgrades the live DB.
+The migration-head gate and restricted CI access were not changed.
+User-authorized persistent administrative SSH uses local alias `airate-admin`
+with a dedicated private key and pinned host; forwarding is disabled. Credentials
+stay in the user's SSH directory, outside Git. This does not alter release authorization.
+
 ## Retired Windows download
 
 The Windows agent is retired. Website/API releases do not build, publish or test

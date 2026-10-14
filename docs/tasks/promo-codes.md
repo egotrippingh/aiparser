@@ -52,6 +52,10 @@ Evidence (disposable SQLite/PostgreSQL and fake providers):
   was unavailable; the main agent implemented the change.
 - Logs/screenshots: C:/codex-tmp/airate-promos-20261014/ (not committed).
 
-Remaining: no production deployment or live paid provider/payment checks.
-Publish only when requested, through normal delivery gates and additive migration
-20261014_promo_codes. No expiration, global use limit or editing existing codes added.
+Deployed with report changes through PR58; production CI38532175701 attempt2
+passed on b3c1f3055e9a52dab8a216be7f0ee046742a6c91. Migration20261014_promo_codes
+preserved all 26 existing tables/columns, verified on a restored copy and live
+before worker restart. Compatible rollback 0274ab3 includes credits/refunds and
+passed copied-DB readiness. Public readiness/assets and pricing120 verified.
+Remaining: no live paid provider/payment checks; backups remain on this VPS.
+No expiration, global use limit or editing existing codes added.

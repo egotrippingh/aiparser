@@ -29,8 +29,10 @@ Evidence: two history regressions failed before the backend fix (missing cells
 and fabricated/paged dates). Manual-verdict regressions also failed before implementation. Final server suite:
 279 passed with disposable PostgreSQL; frontend87/lint/build passed (existing lint
 warnings). Sol high review found three P2 issues; all fixed and re-reviewed.
-Astra high risk review was unavailable after two capacity failures; Sol covered
-server money/data/migration risks. Browser verified false-positive changes924→923 mentions and removes checkmark;
+Astra high risk review subsequently completed: found old-image startup incompatible
+with the new schema. Prepared a separately reviewed rollback image from 0274ab3,
+including promo quota reservation/refund logic. Four operator recovery smoke
+checks passed; handler now refuses startup after preservation-check failure. Browser verified false-positive changes924→923 mentions and removes checkmark;
 missed mention/undo changes effective detail, keyboard Enter/Escape works.
 Desktop1280 and narrow390 verified no page overflow,16px percentage inset,
 calendar preset10px gaps, immediate gray legend with pending report/no false
@@ -43,3 +45,18 @@ backup/isolated restore and readiness gates. Disposable fixtures are never shipp
 successfully into an isolated DB. User subsequently requested persistent SSH;
 dedicated local key and pinned host configured as alias airate-admin, verified
 root login. Key forwarding is disabled; no credentials belong in Git.
+
+Deployed: PR58, production b3c1f3055e9a52dab8a216be7f0ee046742a6c91;
+CI38532175701 attempt2 passed, public readiness/assets/price and healthy container
+verified. Attempt1 stopped at the preserved schema-head gate. Root operator
+scripts under /opt/airate/releases/promo-20261014 were reviewed; four isolated
+recovery smoke checks passed. Both copied and live DB migration preserved all 26
+existing tables and columns by canonical hashes. Copied DB fallback readiness
+ran without lifespan/background workers and rechecked preservation afterwards.
+Live upgrade ran via transient systemd unit under release-lock with 5s lock timeout,
+60s statement timeout, fresh verified backup and schema-aware failure recovery.
+Fallback 0274ab3 ran healthy before ordinary CI activation and remains available.
+New schema20261014_promo_codes confirmed; no production records edited for QA.
+Browser production 303-query/7-date table loaded, newest13.10 left,16px inset,
+no false notice or console errors. Proof: history-production.png in the local
+evidence directory; screenshots and credentials are not committed.
