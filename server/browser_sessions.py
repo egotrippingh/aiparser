@@ -20,6 +20,18 @@ def request_token(request: Request) -> str:
     return request.cookies.get(COOKIE_NAME, "")
 
 
+def lock_web_session(db, user_id: str, parent_hash: str) -> User:
+    user = db.scalar(select(User).where(User.id == user_id).with_for_update()
+                     .execution_options(populate_existing=True))
+    session = db.get(SessionToken, parent_hash, populate_existing=True)
+    expiry = session.expires_at if session else None
+    if expiry and expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    if not user or not session or session.user_id != user_id or expiry <= utcnow():
+        raise HTTPException(401, "Войдите в аккаунт заново")
+    return user
+
+
 def web_session_response(request, response, payload, *, secure):
     if request is not None and request.headers.get("x-ai-client") == "browser":
         response.set_cookie(COOKIE_NAME, payload["token"], max_age=SESSION_SECONDS,
@@ -43,6 +55,7 @@ def register_browser_login(app, db_session, current_user, issue_session):
     def create_link(body: BrowserLinkIn, request: Request, response: Response,
                     user=Depends(current_user), db=Depends(db_session)):
         parent_hash = token_hash(request_token(request))
+        lock_web_session(db, user.id, parent_hash)
         db.execute(delete(BrowserLoginTicket).where(
             (BrowserLoginTicket.expires_at <= utcnow()) | (BrowserLoginTicket.parent_hash == parent_hash)))
         ticket = new_token()
@@ -59,10 +72,15 @@ def register_browser_login(app, db_session, current_user, issue_session):
                  db=Depends(db_session)):
         if request.headers.get("x-ai-client") != "browser":
             raise HTTPException(403, "Откройте ссылку в браузере")
+        candidate = db.get(BrowserLoginTicket, token_hash(body.ticket))
+        if not candidate:
+            raise HTTPException(401, "Ссылка истекла. Откройте кабинет из агента ещё раз.")
+        user = lock_web_session(db, candidate.user_id, candidate.parent_hash)
         # Atomic consume works on both PostgreSQL and SQLite; replay cannot issue a session.
         ticket = db.execute(delete(BrowserLoginTicket).where(
             BrowserLoginTicket.ticket_hash == token_hash(body.ticket),
-            BrowserLoginTicket.expires_at > utcnow()).returning(BrowserLoginTicket)).scalar_one_or_none()
+            BrowserLoginTicket.expires_at > utcnow()).returning(BrowserLoginTicket)
+            .execution_options(synchronize_session=False)).scalar_one_or_none()
         if not ticket:
             raise HTTPException(401, "Ссылка истекла. Откройте кабинет из агента ещё раз.")
         parent = db.get(SessionToken, ticket.parent_hash)
@@ -74,5 +92,5 @@ def register_browser_login(app, db_session, current_user, issue_session):
                 AgentDevice.user_id == grant.user_id, AgentDevice.device_id == grant.device_id))
             if not device or device.revoked:
                 raise HTTPException(401, "Доступ компьютера отозван")
-        result = issue_session(db, db.get(User, ticket.user_id), request, response)
+        result = issue_session(db, user, request, response)
         return {**result, "destination": ticket.destination}

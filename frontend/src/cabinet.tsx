@@ -12,6 +12,7 @@ import { SiteFooter } from "./site-footer"
 import { Brand } from "./brand"
 import { NewsLink } from "./news-link"
 import { TopupForm } from "./components/topup-form"
+import { PasswordSettings } from "./components/password-settings"
 import { paymentLabel, type Payment } from "./lib/payment"
 import { initTelemetry, rootOptions } from "./telemetry"
 
@@ -20,14 +21,14 @@ const money = (kopeks: number) => new Intl.NumberFormat("ru-RU", {
   style: "currency", currency: "RUB", maximumFractionDigits: 2,
 }).format(kopeks / 100)
 
-type User = { id: string; email: string; yandex_linked?: boolean; is_admin?: boolean; brand_clarifications_enabled?: boolean }
+type User = { id: string; email: string; has_password?: boolean; yandex_linked?: boolean; is_admin?: boolean; brand_clarifications_enabled?: boolean }
 type Entry = { amount_kopeks: number; kind: string; reference: string; created_at: string }
 type Wallet = { balance_kopeks: number; reserved_kopeks: number; available_kopeks: number; entries: Entry[]; free_scans?: FreeScans }
 
 function Cabinet() {
   const editorDirty = useRef(false)
   const [token, setToken] = useState(() =>
-    location.hash.includes("auth_ticket=") || location.hash.includes("browser_ticket=") || location.hash.includes("reset_token=")
+    location.hash.includes("auth_ticket=") || location.hash.includes("browser_ticket=") || location.hash.includes("reset_token=") || location.hash.includes("registration_ticket=")
       ? "" : sessionStorage.getItem(TOKEN_KEY) || COOKIE_SESSION)
   const [checkingSession, setCheckingSession] = useState(true)
   const [user, setUser] = useState<User | null>(null)
@@ -36,10 +37,12 @@ function Cabinet() {
   const [price, setPrice] = useState(120)
   const [minimum, setMinimum] = useState(30000)
   const [resetToken, setResetToken] = useState(() => new URLSearchParams(location.hash.slice(1)).get("reset_token") || "")
-  const [authMode, setAuthMode] = useState<"login" | "register" | "forgot" | "reset">(() =>
+  const [registrationTicket, setRegistrationTicket] = useState(() => new URLSearchParams(location.hash.slice(1)).get("registration_ticket") || "")
+  const [authMode, setAuthMode] = useState<"login" | "register" | "forgot" | "reset" | "yandex-register">(() =>
     new URLSearchParams(location.hash.slice(1)).has("reset_token") ? "reset" : "login")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [confirmation, setConfirmation] = useState("")
   const [promoCode, setPromoCode] = useState("")
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
@@ -73,6 +76,15 @@ function Cabinet() {
   useEffect(() => {
     request<{ yandex: boolean; password_reset: boolean }>("/auth/providers")
       .then((p) => { setYandexEnabled(p.yandex); setResetEnabled(p.password_reset) }).catch(() => null)
+    const registration = new URLSearchParams(location.hash.slice(1)).get("registration_ticket")
+    if (registration) {
+      history.replaceState(null, "", location.pathname + location.search)
+      sessionStorage.removeItem(TOKEN_KEY)
+      request<{email: string}>("/auth/yandex/registration", undefined, {ticket: registration})
+        .then(result => {setEmail(result.email); setAuthMode("yandex-register"); setMessage("Яндекс подтвердил вашу почту. Создайте пароль, чтобы завершить регистрацию.")})
+        .catch(e => {setRegistrationTicket(""); setMessage(e.message)})
+        .finally(() => setCheckingSession(false))
+    }
     if (new URLSearchParams(location.hash.slice(1)).has("reset_token")) {
       sessionStorage.removeItem(TOKEN_KEY)
       history.replaceState(null, "", location.pathname + location.search)
@@ -176,6 +188,8 @@ function Cabinet() {
 
   async function authenticate(event: FormEvent) {
     event.preventDefault()
+    if (busy) return
+    if (["register", "reset", "yandex-register"].includes(authMode) && password !== confirmation) {setMessage("Пароли не совпадают."); return}
     setBusy(true)
     setMessage("")
     try {
@@ -188,13 +202,19 @@ function Cabinet() {
         await request("/auth/password/confirm", undefined, { token: resetToken, password })
         setResetToken("")
         setPassword("")
+        setConfirmation("")
         setAuthMode("login")
         setMessage("Пароль изменён. Войдите с новым паролем.")
         return
       }
-      const result = await request<{ token?: string; user: User }>(`/auth/${authMode}`, undefined, { email, password, ...(authMode === "register" ? { promo_code: promoCode.trim() } : {}) })
+      const result = authMode === "yandex-register"
+        ? await request<{token?: string; user: User}>("/auth/yandex/register", undefined, {ticket: registrationTicket, password, promo_code: promoCode.trim()})
+        : await request<{ token?: string; user: User }>(`/auth/${authMode}`, undefined, { email, password, ...(authMode === "register" ? { promo_code: promoCode.trim() } : {}) })
       acceptSession(result)
+      setAuthMode("login")
+      setRegistrationTicket("")
       setPassword("")
+      setConfirmation("")
       setPromoCode("")
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Не удалось войти")
@@ -233,6 +253,7 @@ function Cabinet() {
           <section className="cab-panel cab-balance"><span className="cab-kicker">ДОСТУПНО ДЛЯ ПРОВЕРОК</span><strong>{user.is_admin ? "Безлимитно" : money(wallet?.available_kopeks || 0)}</strong><p>{user.is_admin ? `Обычные проверки бесплатны.${user.brand_clarifications_enabled ? ` Пересчёт сохранённых ответов — 0,80 ₽ за ответ; доступный баланс ${money(wallet?.available_kopeks || 0)}.` : ""}` : `На балансе ${money(wallet?.balance_kopeks || 0)}${wallet?.reserved_kopeks ? ` · Зарезервировано ${money(wallet.reserved_kopeks)}` : ""}`}</p><div className="cab-balance-foot">{user.is_admin ? "Обычная проверка запроса в ИИ-сервисе · 0 ₽" : `Примерно ${Math.floor((wallet?.available_kopeks || 0) / price)} платных проверок по текущей цене`}</div><button className="cab-primary" type="button" onClick={() => document.getElementById("topup-amount")?.focus()}>Пополнить баланс</button></section>
           <TopupForm token={token} minimum={minimum} />
           <PromoForm token={token} freeScans={wallet?.free_scans} applied={walletChanged} />
+          <PasswordSettings token={token} hasPassword={!!user.has_password} email={user.email} resetEnabled={resetEnabled} saved={result => {acceptSession(result); setUser({...user, has_password:true}); setMessage("Пароль сохранён. Другие сеансы завершены.")}}/>
         </div>
         {payments.length > 0 && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ПОПОЛНЕНИЯ</span><h2>История платежей</h2></div><button className="cab-refresh" onClick={() => refresh(token).catch(e => setMessage(e.message))}>Обновить</button></div><div className="cab-list">{payments.map(payment => <div className="cab-entry cab-payment-row" key={payment.id}><span><b>{money(payment.amount_kopeks)} · {payment.method === "crypto" ? "Криптовалюта" : payment.method === "sbp" ? "СБП" : "Банковская оплата"}</b><small>{new Date(payment.created_at).toLocaleString("ru-RU")}</small></span><span className={`cab-payment-status ${payment.status}`} role="status">{paymentLabel(payment.status)}</span>{payment.status === "pending" && payment.payment_url && <a className="cab-download" href={payment.payment_url}>Продолжить оплату</a>}</div>)}</div></section>}
         {(wallet?.entries.length || !user.is_admin) && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ИСТОРИЯ</span><h2>Операции по балансу</h2></div><button onClick={walletChanged} className="cab-refresh">Обновить</button></div>{wallet?.entries.length ? <div className="cab-list">{wallet.entries.map((entry) => <div className="cab-entry" key={entry.reference}><span className={entry.amount_kopeks > 0 ? "cab-entry-icon in" : "cab-entry-icon out"}>{entry.amount_kopeks > 0 ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}</span><span><b>{entry.kind === "topup" ? "Пополнение" : entry.kind === "recompute" ? "Пересчёт ответа" : "Проверка запроса"}</b><small>{new Date(entry.created_at).toLocaleString("ru-RU")}</small></span><strong className={entry.amount_kopeks > 0 ? "positive" : ""}>{entry.amount_kopeks > 0 ? "+" : ""}{money(entry.amount_kopeks)}</strong></div>)}</div> : <p className="cab-empty">Пока нет операций по денежному балансу.</p>}</section>}
@@ -241,22 +262,24 @@ function Cabinet() {
     <header className="cab-header"><div className="cab-container cab-header-inner"><Brand className="cab-brand"/><span className="cab-header-label">Личный кабинет</span><NewsLink/></div></header>
     <main className="cab-container cab-main">{checkingSession ? <p role="status">Открываем кабинет…</p> : <section className="cab-auth-wrap">        <div className="cab-intro"><span className="cab-kicker">AI MENTIONS / АККАУНТ</span><h1>Проверки под вашим контролем.</h1><p>Запускайте проверки и задавайте расписание в браузере. Ответы собираются на сервере и сохраняются в вашем аккаунте.</p><div className="cab-price-note"><ShieldCheck size={18} /> {money(price)} за запрос в одном ИИ-сервисе</div></div>
         <form className="cab-panel cab-auth" onSubmit={authenticate}>
-          <button className="cab-yandex" type="button" disabled={!yandexEnabled || busy}
+          {(authMode === "login" || authMode === "register") && <><button className="cab-yandex" type="button" disabled={!yandexEnabled || busy}
             title={yandexEnabled ? "" : "Доступно после настройки Яндекс ID на сервере"}
             onClick={() => location.assign(`${API}/api/v1/auth/yandex/start`)}>
             <span className="cab-yandex-mark" aria-hidden="true">Я</span> Продолжить через Яндекс
           </button>
-          <div className="cab-auth-divider"><span>или по email</span></div>
-          {authMode === "forgot" || authMode === "reset"
-            ? <div className="cab-tabs"><button type="button" onClick={() => { setAuthMode("login"); setResetToken("") }}>← Вернуться ко входу</button></div>
+          <div className="cab-auth-divider"><span>или по email</span></div></>}
+          {authMode === "forgot" || authMode === "reset" || authMode === "yandex-register"
+            ? <div className="cab-tabs"><button type="button" disabled={busy} onClick={() => { setAuthMode("login"); setResetToken(""); setRegistrationTicket(""); setPassword(""); setConfirmation("") }}>← Вернуться ко входу</button></div>
             : <div className="cab-tabs"><button type="button" className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>Войти</button><button type="button" className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>Создать аккаунт</button></div>}
           {authMode === "reset" ? <p>Придумайте новый пароль для аккаунта.</p>
-            : <label>Email<input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>}
-          {authMode !== "forgot" && <label>{authMode === "reset" ? "Новый пароль" : "Пароль"}<input type="password" minLength={12} autoComplete={authMode === "login" ? "current-password" : "new-password"} required value={password} onChange={(e) => setPassword(e.target.value)} /></label>}
-          {(authMode === "register" || authMode === "reset") && <small>Не менее 12 символов.</small>}
-          {authMode === "register" && <><label>Промокод (необязательно)<input autoComplete="off" maxLength={64} disabled={busy} value={promoCode} onChange={e => setPromoCode(e.target.value)} aria-describedby="registration-promo-hint" /></label><small id="registration-promo-hint">Начислим бесплатные сканы по условиям промокода. Его также можно ввести позже в разделе «Аккаунт и оплата».</small></>}
-          <button className="cab-primary" disabled={busy}>{busy ? "Подождите…" : authMode === "login" ? "Войти" : authMode === "register" ? "Зарегистрироваться" : authMode === "forgot" ? "Отправить ссылку" : "Сменить пароль"}</button>
-          {authMode === "login" && resetEnabled && <button className="cab-refresh" type="button" onClick={() => setAuthMode("forgot")}>Забыли пароль?</button>}
+            : <label>Email<input type="email" autoComplete="email" required disabled={busy} readOnly={authMode === "yandex-register"} value={email} onChange={(e) => setEmail(e.target.value)} /></label>}
+          {authMode === "yandex-register" && <p>Завершите регистрацию: пароль позволит входить без Яндекса.</p>}
+          {authMode === "forgot" && <><p>Укажите почту аккаунта: использованную при регистрации или полученную от Яндекса.</p>{!resetEnabled && <p role="status">Отправка писем ещё не подключена. Восстановление по почте станет доступно позже.</p>}</>}
+          {authMode !== "forgot" && <label>{authMode === "reset" ? "Новый пароль" : "Пароль"}<input type="password" minLength={12} maxLength={256} disabled={busy} autoComplete={authMode === "login" ? "current-password" : "new-password"} required value={password} onChange={(e) => setPassword(e.target.value)} /></label>}
+          {["register", "reset", "yandex-register"].includes(authMode) && <><small>Не менее 12 символов.</small><label>Повторите пароль<input type="password" autoComplete="new-password" required minLength={12} maxLength={256} disabled={busy} value={confirmation} onChange={e => setConfirmation(e.target.value)}/></label></>}
+          {(authMode === "register" || authMode === "yandex-register") && <><label>Промокод (необязательно)<input autoComplete="off" maxLength={64} disabled={busy} value={promoCode} onChange={e => setPromoCode(e.target.value)} aria-describedby="registration-promo-hint" /></label><small id="registration-promo-hint">Начислим бесплатные сканы по условиям промокода. Его также можно ввести позже в разделе «Аккаунт и оплата».</small></>}
+          <button className="cab-primary" disabled={busy || (authMode === "forgot" && !resetEnabled)}>{busy ? "Подождите…" : authMode === "login" ? "Войти" : authMode === "register" ? "Зарегистрироваться" : authMode === "yandex-register" ? "Завершить регистрацию" : authMode === "forgot" ? "Отправить ссылку" : "Сменить пароль"}</button>
+          {authMode === "login" && <button className="cab-refresh" type="button" onClick={() => setAuthMode("forgot")}>Забыли пароль?</button>}
         </form></section>}
       {message && <p className="cab-message" role="status">{message}</p>}
     </main><SiteFooter/>

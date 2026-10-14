@@ -32,6 +32,7 @@
 .admin-scan-detail { padding: 16px 0; }
 .admin-scan-detail blockquote { padding-left: 16px; border-left: 2px solid var(--air-line-strong); }
 .cab-promo{grid-column:1/-1;padding:24px}
+.cab-password-form{display:grid;gap:16px;max-width:460px}.cab-password-form label{display:grid;gap:8px}
 .cab-promo-form{display:flex;align-items:end;flex-wrap:wrap;gap:16px;margin:20px 0}
 .cab-promo-form label{display:grid;gap:8px;flex:1;min-width:180px;max-width:420px}
 .cab-promo input{width:100%;min-height:44px;padding:10px;border:1px solid var(--air-line-strong);border-radius:6px;background:var(--air-panel);color:var(--air-text)}

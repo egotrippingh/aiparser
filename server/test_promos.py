@@ -319,3 +319,93 @@ def test_additive_promo_migration_keeps_existing_check(tmp_path):
         assert db.execute(text('SELECT price_kopeks,status,free_scan_service FROM checks')).one() == (120, 'reserved', None)
         assert db.execute(text('SELECT balance_kopeks FROM wallets')).scalar() == 12345
     engine.dispose()
+
+
+def test_promo_conditions_validation_revision_expiry_and_existing_credits(tmp_path, monkeypatch):
+    from datetime import timedelta
+    from server.models import utcnow
+    client, admin, other, _, sessions = setup(tmp_path, monkeypatch)
+    path = '/api/v1/admin/promos'
+    body = {'code':'CONTROL','scans':{'chatgpt':3},'max_redemptions':1,'expires_at':(utcnow()+timedelta(days=1)).isoformat()}
+    for invalid in ({'max_redemptions':0}, {'max_redemptions':True}, {'is_active':1}, {'expires_at':'2026-10-14T12:00:00'}, {'unexpected':1}):
+        assert client.post(path, headers=admin,json={**body,**invalid}).status_code == 422
+    created = client.post(path,headers=admin,json=body).json()
+    assert created['status'] == 'active'
+    update_path = path+'/CONTROL'
+    conditions = {'revision':created['revision'],'is_active':False,'max_redemptions':1,'expires_at':None}
+    assert client.put(update_path,json=conditions).status_code == 401
+    assert client.put(update_path,headers=other,json=conditions).status_code == 403
+    device = client.post('/api/v1/control/agent/enroll',headers=admin,json={'device_id':'b'*32,'name':'Test'}).json()
+    assert client.put(update_path,headers={'Authorization':'Bearer '+device['token']},json=conditions).status_code == 403
+    assert redeem(client,other,'CONTROL').status_code == 200
+    assert client.get(path,headers=admin).json()['promos'][0]['status'] == 'exhausted'
+    disabled = client.put(update_path,headers=admin,json=conditions)
+    assert disabled.status_code == 200 and disabled.json()['status'] == 'inactive'
+    assert client.put(update_path,headers=admin,json=conditions).status_code == 409
+    assert redeem(client,admin,'CONTROL').status_code == 422
+    assert redeem(client,other,'CONTROL').json()['already_redeemed'] is True
+    assert client.get('/api/v1/wallet',headers=other).json()['free_scans']['chatgpt']['available'] == 3
+    body = {'revision':disabled.json()['revision'],'is_active':True,'max_redemptions':None,'expires_at':(utcnow()-timedelta(seconds=1)).isoformat()}
+    expired = client.put(update_path,headers=admin,json=body).json()
+    assert expired['status'] == 'expired'
+    assert redeem(client,admin,'CONTROL').status_code == 422
+    enabled = client.put(update_path,headers=admin,json={**body,'revision':expired['revision'],'expires_at':None})
+    assert enabled.status_code == 200 and enabled.json()['status'] == 'active'
+    assert redeem(client,admin,'CONTROL').status_code == 200
+    assert client.put(update_path,headers=admin,json={**body,'revision':enabled.json()['revision'],'max_redemptions':1}).status_code == 422
+    with sessions() as db:
+        assert len(db.scalars(select(PromoRedemption)).all()) == 2
+
+
+def test_postgres_global_promo_limit_serializes_different_accounts(tmp_path, monkeypatch, postgres_url):
+    client, admin, other, _, sessions = setup(tmp_path,monkeypatch,database_url=postgres_url)
+    response = client.post('/api/v1/admin/promos',headers=admin,json={'code':'LAST','scans':{'chatgpt':2},'max_redemptions':1})
+    assert response.status_code == 201
+    barrier = Barrier(2)
+    def activate(headers):
+        barrier.wait(timeout=10)
+        return redeem(client,headers,'LAST').status_code
+    with ThreadPoolExecutor(2) as pool:
+        assert sorted(pool.map(activate,[admin,other])) == [200,422]
+    with sessions() as db:
+        assert len(db.scalars(select(PromoRedemption)).all()) == 1
+        assert sum(db.scalars(select(FreeScanBalance.remaining)).all()) == 2
+
+
+def test_postgres_password_setup_cannot_overwrite_another_setup(tmp_path,monkeypatch,postgres_url):
+    client,_,other,_,sessions = setup(tmp_path,monkeypatch,database_url=postgres_url)
+    user_id = client.get('/api/v1/me',headers=other).json()['id']
+    with sessions() as db:
+        db.get(User,user_id).password_hash = 'external:yandex'
+        db.commit()
+    barrier = Barrier(2)
+    def save(index):
+        barrier.wait(timeout=10)
+        return client.put('/api/v1/auth/password',headers=other,json={'password':f'new-password-123-{index}'}).status_code
+    with ThreadPoolExecutor(2) as pool:
+        assert sorted(pool.map(save,range(2))) == [200,401]
+
+
+def test_account_promo_migration_preserves_old_accounts_codes_and_grants(tmp_path):
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import create_engine,text
+    from server.migrate import ROOT,upgrade_database
+    url = f"sqlite:///{tmp_path / 'old-promos.db'}"
+    config = Config(str(ROOT/'alembic.ini')); config.attributes['database_url'] = url
+    command.upgrade(config,'20261014_promo_codes')
+    engine = create_engine(url)
+    with engine.begin() as db:
+        db.execute(text("INSERT INTO users(id,email,password_hash,is_admin,created_at) VALUES('old','old@test.example','external:yandex',1,'2026-10-01')"))
+        db.execute(text("INSERT INTO wallets(user_id,balance_kopeks) VALUES('old',12345)"))
+        db.execute(text("INSERT INTO promo_codes(code,scans_json,created_by,created_at) VALUES('OLD','{}','old','2026-10-01')"))
+        db.execute(text("INSERT INTO promo_redemptions(user_id,code,created_at) VALUES('old','OLD','2026-10-01')"))
+        db.execute(text("INSERT INTO free_scan_balances(user_id,service,remaining) VALUES('old','chatgpt',123)"))
+    upgrade_database(url)
+    with engine.connect() as db:
+        assert db.execute(text('SELECT password_hash,is_admin FROM users')).one() == ('external:yandex',1)
+        assert db.execute(text('SELECT balance_kopeks FROM wallets')).scalar() == 12345
+        assert db.execute(text('SELECT remaining FROM free_scan_balances')).scalar() == 123
+        assert db.execute(text('SELECT is_active,max_redemptions,expires_at,revision FROM promo_codes')).one() == (1,None,None,0)
+        assert db.execute(text('SELECT COUNT(*) FROM promo_redemptions')).scalar() == 1
+    engine.dispose()

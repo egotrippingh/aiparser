@@ -31,9 +31,9 @@ from server.auth_limit import email_key, guard as guard_auth, record as record_a
 from server.coinso import CoinsoClient, CoinsoError, kopeks, payment_options, valid_payment_currency, verify_webhook
 from server.mailer import PasswordMailer
 from server.migrate import upgrade_database
-from server.models import (AgentDevice, Check, CloudResult, ScanPreferences, Screenshot, DeviceCode,
+from server.models import (AgentDevice, Check, CloudResult, ScanPreferences, Screenshot, DeviceCode, DeviceConnect, BrowserLoginTicket,
                            LedgerEntry, LoginTicket, OAuthAttempt, OAuthIdentity, PasswordReset,
-                           PaymentOrder, SessionToken, User, Wallet, make_session_factory, utcnow)
+                           PaymentOrder, SessionToken, User, Wallet, YandexRegistration, make_session_factory, utcnow)
 from server.security import hash_password, new_token, token_hash, verify_password
 from server.storage import ScreenshotStorage, StorageError
 from server.yandex import YandexError, YandexOAuth
@@ -41,7 +41,7 @@ from server.models import ControlProject, ControlRun, ControlLink, DeviceGrant
 from server.public_errors import public_error
 from server.control import register_control
 from server.device_login import pending_connect, approve_login_connect
-from server.browser_sessions import COOKIE_NAME, request_token, web_session_response, register_browser_login
+from server.browser_sessions import COOKIE_NAME, request_token, web_session_response, register_browser_login, lock_web_session
 
 
 class Credentials(BaseModel):
@@ -91,7 +91,7 @@ def _validate_ai_content(content: list[dict]) -> None:
 
 
 class TicketIn(BaseModel):
-    ticket: str = Field(min_length=30, max_length=200)
+    ticket: str = Field(pattern=r"^[A-Za-z0-9_-]{30,200}$")
 
 
 class PasswordResetRequest(BaseModel):
@@ -101,6 +101,16 @@ class PasswordResetRequest(BaseModel):
 class PasswordResetConfirm(BaseModel):
     token: str = Field(pattern=r"^[A-Za-z0-9_-]{30,200}$")
     password: str = Field(min_length=12, max_length=256)
+
+
+class PasswordSet(BaseModel):
+    password: str = Field(min_length=12, max_length=256)
+    current_password: str = Field(default="", max_length=256)
+
+
+class YandexRegisterIn(TicketIn):
+    password: str = Field(min_length=12, max_length=256)
+    promo_code: str = Field(default="", max_length=128)
 
 
 def _email(raw: str) -> str:
@@ -694,14 +704,15 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         return {"yandex": yandex_client is not None,
                 "password_reset": password_mailer is not None}
 
-    def start_yandex(db: Session, *, purpose: str, user_id: str | None = None, connect_id: str | None = None) -> tuple[str, str]:
+    def start_yandex(db: Session, *, purpose: str, user_id: str | None = None, connect_id: str | None = None, parent_hash: str | None = None) -> tuple[str, str]:
         if not yandex_client:
             raise HTTPException(503, "Вход через Яндекс ещё не настроен")
         state, verifier = new_token(), new_token()
         db.execute(delete(OAuthAttempt).where(OAuthAttempt.expires_at < utcnow()))
         db.execute(delete(LoginTicket).where(LoginTicket.expires_at < utcnow()))
+        db.execute(delete(YandexRegistration).where(YandexRegistration.expires_at < utcnow()))
         db.add(OAuthAttempt(state_hash=token_hash(state), code_verifier=verifier,
-                            purpose=purpose, user_id=user_id, connect_id=connect_id,
+                            purpose=purpose, user_id=user_id, connect_id=connect_id, parent_hash=parent_hash,
                             expires_at=utcnow() + timedelta(minutes=10)))
         db.commit()
         return yandex_client.authorize_url(state, verifier), state
@@ -724,9 +735,11 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         return response
 
     @app.post("/api/v1/auth/yandex/link/start")
-    def yandex_link_start(user: User = Depends(current_user),
+    def yandex_link_start(request: Request, user: User = Depends(current_user),
                           db: Session = Depends(db_session)) -> JSONResponse:
-        url, state = start_yandex(db, purpose="link", user_id=user.id)
+        parent_hash = token_hash(request_token(request))
+        lock_web_session(db, user.id, parent_hash)
+        url, state = start_yandex(db, purpose="link", user_id=user.id, parent_hash=parent_hash)
         response = JSONResponse({"authorization_url": url})
         set_yandex_cookie(response, state)
         return response
@@ -743,6 +756,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
             raise HTTPException(400, "Время входа через Яндекс истекло")
         purpose, link_user_id, verifier = attempt.purpose, attempt.user_id, attempt.code_verifier
         connect_id = attempt.connect_id
+        parent_hash = attempt.parent_hash
         db.delete(attempt)
         db.commit()  # состояние одноразовое, даже если Яндекс вернёт ошибку
         if error or not code:
@@ -761,7 +775,11 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         identity = db.scalar(select(OAuthIdentity).where(OAuthIdentity.provider == "yandex",
                                                        OAuthIdentity.subject == subject))
         if purpose == "link":
-            if not link_user_id or not db.get(User, link_user_id):
+            if not link_user_id or not parent_hash:
+                return oauth_redirect("?auth_error=retry")
+            try:
+                lock_web_session(db, link_user_id, parent_hash)
+            except HTTPException:
                 return oauth_redirect("?auth_error=retry")
             if identity and identity.user_id != link_user_id:
                 return oauth_redirect("?auth_error=already_linked")
@@ -791,9 +809,11 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
                 return oauth_redirect("?auth_error=email_required")
             if db.scalar(select(User).where(User.email == email)):
                 return oauth_redirect("?auth_error=link_required")
-            user = User(id=uuid.uuid4().hex, email=email, password_hash="external:yandex")
-            db.add_all([user, Wallet(user_id=user.id, balance_kopeks=0),
-                        OAuthIdentity(provider="yandex", subject=subject, user_id=user.id)])
+            registration = new_token()
+            db.add(YandexRegistration(token_hash=token_hash(registration), email=email, subject=subject,
+                                     connect_id=connect_id, expires_at=utcnow() + timedelta(minutes=10)))
+            db.commit()
+            return oauth_redirect(f"#registration_ticket={registration}")
         if connect_id:
             try:
                 approve_login_connect(db, connect_id, user.id)
@@ -815,18 +835,62 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
                         db: Session = Depends(db_session)) -> dict:
         source = source_key(request)
         guard_auth(db, "ticket", [(source, 20)])
-        ticket = db.execute(select(LoginTicket).where(LoginTicket.ticket_hash == token_hash(body.ticket))
-                            .with_for_update()).scalar_one_or_none()
+        ticket = db.get(LoginTicket, token_hash(body.ticket))
+        if ticket:
+            user = db.scalar(select(User).where(User.id == ticket.user_id).with_for_update())
+            ticket = db.scalar(select(LoginTicket).where(LoginTicket.ticket_hash == token_hash(body.ticket))
+                               .with_for_update().execution_options(populate_existing=True))
         if not ticket or expired(ticket.expires_at):
             record_auth(db, "ticket", [source])
             raise HTTPException(401, "Ссылка для входа истекла")
-        user = db.get(User, ticket.user_id)
         db.delete(ticket)
-        db.commit()
         return issue_session(db, user, request, response)
 
+    def pending_yandex_registration(db, raw_ticket):
+        registration = db.scalar(select(YandexRegistration).where(
+            YandexRegistration.token_hash == token_hash(raw_ticket)).with_for_update())
+        if not registration or expired(registration.expires_at):
+            raise HTTPException(401, "Время регистрации истекло. Начните вход через Яндекс заново.")
+        return registration
+
+    @app.post("/api/v1/auth/yandex/registration")
+    def yandex_registration(body: TicketIn, request: Request, response: Response,
+                            db: Session = Depends(db_session)):
+        source = source_key(request)
+        guard_auth(db, "registration_info", [(source, 30)])
+        record_auth(db, "registration_info", [source])
+        registration = pending_yandex_registration(db, body.ticket)
+        response.headers["Cache-Control"] = "no-store"
+        return {"email": registration.email}
+
+    @app.post("/api/v1/auth/yandex/register", status_code=201)
+    def yandex_register(body: YandexRegisterIn, request: Request, response: Response,
+                        db: Session = Depends(db_session)):
+        source = source_key(request)
+        guard_auth(db, "register", [(source, 10)])
+        record_auth(db, "register", [source])
+        registration = pending_yandex_registration(db, body.ticket)
+        try:
+            promo_code = normalize_code(body.promo_code) if body.promo_code.strip() else ""
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        user = User(id=uuid.uuid4().hex, email=registration.email, password_hash=hash_password(body.password))
+        db.add_all([user, Wallet(user_id=user.id, balance_kopeks=0),
+                    OAuthIdentity(provider="yandex", subject=registration.subject, user_id=user.id)])
+        try:
+            db.flush()
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(409, "Аккаунт уже создан. Войдите заново; привязка выполняется в настройках аккаунта.") from exc
+        if promo_code:
+            redeem_promo(db, user.id, promo_code)
+        approve_login_connect(db, registration.connect_id, user.id)
+        db.delete(registration)
+        return {**issue_session(db, user, request, response), "agent_connected": bool(registration.connect_id)}
+
     @app.post("/api/v1/auth/device/code")
-    def device_code(user: User = Depends(current_user), db: Session = Depends(db_session)) -> dict:
+    def device_code(request: Request, user: User = Depends(current_user), db: Session = Depends(db_session)) -> dict:
+        lock_web_session(db, user.id, token_hash(request_token(request)))
         code = new_token()
         db.execute(delete(DeviceCode).where(DeviceCode.user_id == user.id))
         db.add(DeviceCode(code_hash=token_hash(code), user_id=user.id,
@@ -839,14 +903,15 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
                         db: Session = Depends(db_session)) -> dict:
         source = source_key(request)
         guard_auth(db, "device", [(source, 20)])
-        code = db.execute(select(DeviceCode).where(DeviceCode.code_hash == token_hash(body.ticket))
-                          .with_for_update()).scalar_one_or_none()
+        code = db.get(DeviceCode, token_hash(body.ticket))
+        if code:
+            user = db.scalar(select(User).where(User.id == code.user_id).with_for_update())
+            code = db.scalar(select(DeviceCode).where(DeviceCode.code_hash == token_hash(body.ticket))
+                             .with_for_update().execution_options(populate_existing=True))
         if not code or expired(code.expires_at):
             record_auth(db, "device", [source])
             raise HTTPException(401, "Код подключения истёк или уже использован")
-        user = db.get(User, code.user_id)
         db.delete(code)
-        db.commit()
         return issue_session(db, user)
 
     @app.post("/api/v1/auth/register", status_code=201)
@@ -879,7 +944,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         email = _email(body.email)
         source, account = source_key(request), email_key(email)
         guard_auth(db, "login", [(source, 30), (account, 5)])
-        user = db.scalar(select(User).where(User.email == email))
+        user = db.scalar(select(User).where(User.email == email).with_for_update())
         if not user or not verify_password(body.password, user.password_hash):
             record_auth(db, "login", [source, account])
             raise HTTPException(401, "Неверный email или пароль")
@@ -898,6 +963,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         record_auth(db, "password_request", [source, account])
         user = db.scalar(select(User).where(User.email == email))
         if user:
+            user = db.scalar(select(User).where(User.id == user.id).with_for_update())
             token = new_token()
             db.execute(delete(PasswordReset).where(PasswordReset.user_id == user.id))
             db.add(PasswordReset(token_hash=token_hash(token), user_id=user.id,
@@ -905,31 +971,56 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
             db.commit()
             try:
                 password_mailer.send_reset(email, token)
-            except Exception:
+            except Exception as exc:
                 db.execute(delete(PasswordReset).where(PasswordReset.token_hash == token_hash(token)))
                 db.commit()
-                logging.getLogger(__name__).exception("Не удалось отправить письмо восстановления")
+                logging.getLogger(__name__).error("Не удалось отправить письмо восстановления (%s)", type(exc).__name__)
         return {"ok": True, "message": "Если аккаунт существует, письмо отправлено"}
+
+    def revoke_password_access(db, user_id):
+        db.execute(delete(PasswordReset).where(PasswordReset.user_id == user_id))
+        db.execute(delete(SessionToken).where(SessionToken.user_id == user_id))
+        db.execute(delete(DeviceCode).where(DeviceCode.user_id == user_id))
+        db.execute(delete(LoginTicket).where(LoginTicket.user_id == user_id))
+        db.execute(delete(BrowserLoginTicket).where(BrowserLoginTicket.user_id == user_id))
+        db.execute(delete(OAuthAttempt).where(OAuthAttempt.user_id == user_id))
+        db.execute(delete(DeviceConnect).where(DeviceConnect.user_id == user_id))
+
+    @app.put("/api/v1/auth/password")
+    def set_password(body: PasswordSet, request: Request, response: Response,
+                     user: User = Depends(current_user), db: Session = Depends(db_session)):
+        source, account = source_key(request), email_key(user.email)
+        guard_auth(db, "password_set", [(source, 20), (account, 5)])
+        user = db.scalar(select(User).where(User.id == user.id).with_for_update()
+                         .execution_options(populate_existing=True))
+        if not user.password_hash.startswith("external:") and not verify_password(body.current_password, user.password_hash):
+            record_auth(db, "password_set", [source, account])
+            raise HTTPException(401, "Укажите верный текущий пароль")
+        user.password_hash = hash_password(body.password)
+        revoke_password_access(db, user.id)
+        return issue_session(db, user, request, response)
 
     @app.post("/api/v1/auth/password/confirm")
     def confirm_password_reset(body: PasswordResetConfirm, request: Request,
                                db: Session = Depends(db_session)) -> dict:
         source = source_key(request)
         guard_auth(db, "password_confirm", [(source, 20)])
-        reset = db.execute(select(PasswordReset).where(
-            PasswordReset.token_hash == token_hash(body.token)).with_for_update()).scalar_one_or_none()
+        reset_hash = token_hash(body.token)
+        reset = db.get(PasswordReset, reset_hash)
         if not reset or expired(reset.expires_at):
             record_auth(db, "password_confirm", [source])
             raise HTTPException(400, "Ссылка устарела или уже использована")
-        user = db.get(User, reset.user_id)
+        user = db.scalar(select(User).where(User.id == reset.user_id).with_for_update()
+                         .execution_options(populate_existing=True))
         if not user:
             record_auth(db, "password_confirm", [source])
             raise HTTPException(400, "Ссылка устарела или уже использована")
+        reset = db.scalar(select(PasswordReset).where(PasswordReset.token_hash == reset_hash)
+                          .with_for_update().execution_options(populate_existing=True))
+        if not reset or expired(reset.expires_at):
+            raise HTTPException(400, "Ссылка устарела или уже использована")
         user.password_hash = hash_password(body.password)
-        db.execute(delete(PasswordReset).where(PasswordReset.user_id == user.id))
-        db.execute(delete(SessionToken).where(SessionToken.user_id == user.id))
-        db.execute(delete(DeviceCode).where(DeviceCode.user_id == user.id))
-        db.execute(delete(LoginTicket).where(LoginTicket.user_id == user.id))
+        revoke_password_access(db, user.id)
         db.commit()
         return {"ok": True}
 
@@ -946,6 +1037,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         linked = db.scalar(select(OAuthIdentity.id).where(OAuthIdentity.provider == "yandex",
                                                         OAuthIdentity.user_id == user.id))
         return {"id": user.id, "email": user.email, "yandex_linked": linked is not None,
+                "has_password": not user.password_hash.startswith("external:"),
                 "is_admin": user.is_admin,
                 "brand_clarifications_enabled": bool(brand_clarifications_user_id and user.is_admin
                                                        and user.id == brand_clarifications_user_id)}

@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from server.agent_schemas import SCHEDULABLE_IDS
 from server.ai import AIError
+from server.browser_sessions import lock_web_session, request_token
 from server.models import (AgentDevice, Check, CloudResult, ControlLink, ControlProject, ControlRun, ProviderAccount, ServerCapture,
                            DeviceConnect, DeviceGrant, LedgerEntry, Screenshot, SessionToken, User, Wallet, utcnow)
 from server.public_errors import public_error, public_progress
@@ -793,7 +794,8 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         return {"name": row.name, "id": row.id}
 
     @router.post("/connect/{identifier}/approve")
-    def connect_approve(identifier: str, user=Depends(web_user), db=Depends(db_session)):
+    def connect_approve(identifier: str, request: Request, user=Depends(web_user), db=Depends(db_session)):
+        lock_web_session(db, user.id, token_hash(request_token(request)))
         changed = db.execute(update(DeviceConnect).where(DeviceConnect.id == identifier,
             DeviceConnect.expires_at > utcnow(), DeviceConnect.user_id.is_(None)).values(user_id=user.id))
         if changed.rowcount != 1:
@@ -807,6 +809,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             raise HTTPException(410, "Запрос входа истёк")
         if not row.user_id:
             return {"pending": True}
+        db.scalar(select(User).where(User.id == row.user_id).with_for_update())
         # DELETE returning makes concurrent polls consume the request only once.
         consumed = db.execute(delete(DeviceConnect).where(DeviceConnect.id == row.id,
             DeviceConnect.secret_hash == row.secret_hash)).rowcount
@@ -816,7 +819,8 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         db.commit(); return {"pending": False, "token": token}
 
     @router.post("/agent/enroll")
-    def enroll(body: ConnectIn, user=Depends(web_user), db=Depends(db_session)):
+    def enroll(body: ConnectIn, request: Request, user=Depends(web_user), db=Depends(db_session)):
+        lock_web_session(db, user.id, token_hash(request_token(request)))
         token = issue_device(db, user.id, body.device_id, body.name)
         db.commit(); return {"token": token}
 
