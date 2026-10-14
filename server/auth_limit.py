@@ -47,7 +47,6 @@ def record(db: Session, scope: str, keys: list[str]) -> None:
 
 def clear(db: Session, scope: str, key: str) -> None:
     db.execute(delete(AuthFailure).where(AuthFailure.key_hash == _digest(scope, key)))
-    db.commit()
 
 
 def prune(db: Session) -> int:

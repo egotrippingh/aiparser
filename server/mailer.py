@@ -22,7 +22,7 @@ class PasswordMailer:
         message = EmailMessage()
         message["From"] = self.sender
         message["To"] = email
-        message["Subject"] = "Восстановление доступа к AI Mentions"
+        message["Subject"] = "Восстановление доступа к AIRate"
         message.set_content(
             "Чтобы задать новый пароль, откройте ссылку:\n\n"
             f"{link}\n\nСсылка действует 30 минут и подходит для одного использования. "

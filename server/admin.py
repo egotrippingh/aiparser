@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from server.models import Check, PromoCode, PromoRedemption, ProviderAccount, User, Wallet, utcnow
-from server.promos import PromoIn
+from server.promos import PromoIn, PromoUpdate, promo_payload
 
 SERVICES = ("chatgpt", "perplexity", "gemini", "google_aio", "yandex_neuro")
 
@@ -96,13 +96,12 @@ def register_admin(app, db_session, current_user):
         rows = db.execute(select(PromoCode, counts.c.uses).outerjoin(counts, counts.c.code == PromoCode.code)
             .order_by(PromoCode.created_at.desc(), PromoCode.code).offset(offset).limit(50)).all()
         return {"total": db.scalar(select(func.count()).select_from(PromoCode)),
-                "promos": [{"code": row.code, "scans": json.loads(row.scans_json),
-                            "created_at": row.created_at.isoformat(), "redemptions": uses or 0}
-                           for row, uses in rows]}
+                "promos": [promo_payload(row, uses or 0) for row, uses in rows]}
 
     @router.post("/promos", status_code=201)
     def create_promo(body: PromoIn, response: Response, user=Depends(admin), db=Depends(db_session)):
-        row = PromoCode(code=body.code, scans_json=body.scans.model_dump_json(), created_by=user.id)
+        row = PromoCode(code=body.code, scans_json=body.scans.model_dump_json(), created_by=user.id,
+                        **body.model_dump(include={"is_active", "max_redemptions", "expires_at"}))
         db.add(row)
         try:
             db.commit()
@@ -110,8 +109,23 @@ def register_admin(app, db_session, current_user):
             db.rollback()
             raise HTTPException(409, "Промокод с таким названием уже существует") from exc
         response.headers["Cache-Control"] = "no-store"
-        return {"code": row.code, "scans": json.loads(row.scans_json),
-                "created_at": row.created_at.isoformat(), "redemptions": 0}
+        return promo_payload(row, 0)
+
+    @router.put("/promos/{code}")
+    def update_promo(code: str, body: PromoUpdate, response: Response, user=Depends(admin), db=Depends(db_session)):
+        row = db.scalar(select(PromoCode).where(PromoCode.code == code).with_for_update())
+        if not row:
+            raise HTTPException(404, "Промокод не найден")
+        if row.revision != body.revision:
+            raise HTTPException(409, "Условия промокода изменились. Обновите список и повторите.")
+        uses = db.scalar(select(func.count()).select_from(PromoRedemption).where(PromoRedemption.code == code))
+        if body.max_redemptions is not None and body.max_redemptions < uses:
+            raise HTTPException(422, "Лимит не может быть меньше числа уже выполненных активаций.")
+        row.is_active, row.max_redemptions, row.expires_at = body.is_active, body.max_redemptions, body.expires_at
+        row.revision += 1
+        db.commit()
+        response.headers["Cache-Control"] = "no-store"
+        return promo_payload(row, uses)
 
     @router.get("/users")
     def users(response: Response, search: str = Query(default="", max_length=200),

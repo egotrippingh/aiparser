@@ -54,6 +54,7 @@ class OAuthAttempt(Base):
     purpose: Mapped[str] = mapped_column(String(12))
     user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     connect_id: Mapped[str | None] = mapped_column(String(32))
+    parent_hash: Mapped[str | None] = mapped_column(String(64))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -62,6 +63,16 @@ class LoginTicket(Base):
 
     ticket_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class YandexRegistration(Base):
+    __tablename__ = "yandex_registrations"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    email: Mapped[str] = mapped_column(String(190))
+    subject: Mapped[str] = mapped_column(String(190))
+    connect_id: Mapped[str | None] = mapped_column(String(32))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -119,18 +130,23 @@ class LedgerEntry(Base):
 
 class PromoCode(Base):
     __tablename__ = "promo_codes"
+    __table_args__ = (CheckConstraint("max_redemptions IS NULL OR max_redemptions > 0", name="ck_promo_max_redemptions"),)
 
     code: Mapped[str] = mapped_column(String(64), primary_key=True)
     scans_json: Mapped[str] = mapped_column(Text)
     created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    max_redemptions: Mapped[int | None] = mapped_column(Integer)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class PromoRedemption(Base):
     __tablename__ = "promo_redemptions"
 
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
-    code: Mapped[str] = mapped_column(ForeignKey("promo_codes.code"), primary_key=True)
+    code: Mapped[str] = mapped_column(ForeignKey("promo_codes.code"), primary_key=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

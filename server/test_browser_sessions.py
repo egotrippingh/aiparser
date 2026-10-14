@@ -1,14 +1,18 @@
 from datetime import timedelta
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import event, select
+from sqlalchemy.engine import Engine
 
 from server.app import create_app
 from server.browser_sessions import COOKIE_NAME, SESSION_SECONDS
 from server.models import BrowserLoginTicket, make_session_factory, utcnow
 from server.test_yandex import FakeYandex
+from server.test_cloud_scans import postgres_url
 
 WEB = {"X-AI-Client": "browser", "Origin": "http://testserver"}
 CREDS = {"email": "owner@example.test", "password": "long-test-password-123"}
@@ -122,3 +126,42 @@ def test_yandex_login_connects_pc_without_code(setup):
     client.cookies.clear()
     poll = {key: pending[key] for key in ("id", "secret")}
     assert not client.post("/api/v1/control/connect/exchange", json=poll).json()["pending"]
+
+
+def test_postgres_browser_exchange_and_reset_do_not_deadlock(monkeypatch, postgres_url):
+    from server.test_auth_hardening import FakeMailer
+    monkeypatch.setenv("PUBLIC_BASE_URL", "http://testserver")
+    mailer = FakeMailer()
+    app = create_app(database_url=postgres_url, password_mailer=mailer)
+    browser, resetter = TestClient(app), TestClient(app)
+    owner = browser.post("/api/v1/auth/register", json=CREDS).json()
+    ticket = link(browser, {"Authorization":"Bearer "+owner["token"]})
+    resetter.post("/api/v1/auth/password/request", json={"email":CREDS["email"]})
+    reset_token = mailer.messages[-1][1]
+    held, reset_started, release = Event(), Event(), Event()
+    def after_sql(conn, cursor, statement, parameters, context, executemany):
+        if "DELETE FROM browser_login_tickets" in statement and "RETURNING" in statement:
+            held.set()
+            assert release.wait(15)
+    def before_sql(conn, cursor, statement, parameters, context, executemany):
+        if held.is_set() and "FROM users" in statement and "FOR UPDATE" in statement:
+            reset_started.set()
+    event.listen(Engine, "after_cursor_execute", after_sql)
+    event.listen(Engine, "before_cursor_execute", before_sql)
+    try:
+        with ThreadPoolExecutor(2) as pool:
+            exchange = pool.submit(browser.post, "/api/v1/auth/browser/exchange", headers=WEB, json={"ticket":ticket})
+            try:
+                assert held.wait(15)
+                reset = pool.submit(resetter.post, "/api/v1/auth/password/confirm", json={
+                    "token":reset_token,"password":"new-password-123"})
+                assert reset_started.wait(15)
+            finally:
+                release.set()
+            assert exchange.result(15).status_code == 200
+            assert reset.result(15).status_code == 200
+        assert browser.get("/api/v1/me").status_code == 401
+    finally:
+        release.set()
+        event.remove(Engine, "after_cursor_execute", after_sql)
+        event.remove(Engine, "before_cursor_execute", before_sql)

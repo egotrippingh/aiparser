@@ -1,6 +1,6 @@
 .admin-overview{margin-bottom:24px;padding:24px}
 .admin-overview .cab-section-head>div{min-width:0;max-width:100%}
-.admin-overview input{width:100%;min-height:42px;padding:10px;border:1px solid var(--air-line-strong);border-radius:6px;background:var(--air-panel);color:var(--air-text)}
+.admin-overview input,.admin-overview select{width:100%;min-height:42px;padding:10px;border:1px solid var(--air-line-strong);border-radius:6px;background:var(--air-panel);color:var(--air-text);font:inherit}
 .admin-overview label{display:grid;gap:8px;max-width:420px;margin:16px 0}
 .admin-balances{list-style:none;padding:0;margin:16px 0 0}
 .admin-balances li{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 0;border-top:1px solid var(--air-line)}
