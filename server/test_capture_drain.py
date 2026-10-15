@@ -1,4 +1,5 @@
 """Cancellation drains reserved checks only within the existing device/lease boundary."""
+from server.test_accounts import register_account
 import uuid
 from datetime import timedelta
 
@@ -18,7 +19,7 @@ def setup(tmp_path):
     client = TestClient(create_app(database_url=url, ai_client=ai))
     owners, devices = [], []
     for i in range(2):
-        user = client.post('/api/v1/auth/register', json={
+        user = register_account(client, json={
             'email': f'owner{i}@test.example', 'password': 'long-test-password-123'}).json()
         owner = {'Authorization': 'Bearer ' + user['token']}
         owners.append(owner)

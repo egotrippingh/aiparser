@@ -5,7 +5,7 @@ from __future__ import annotations
 import smtplib
 import ssl
 from email.message import EmailMessage
-from email.utils import formatdate
+from email.utils import formatdate, make_msgid
 from html import escape
 from pathlib import Path
 from string import Template
@@ -68,6 +68,22 @@ class PasswordMailer:
     def send_topup(self, email: str, order_id: str, amount_kopeks: int, balance_kopeks: int) -> None:
         self._send(topup_message(self.sender, self.public_base, email, order_id,
                                  amount_kopeks, balance_kopeks))
+
+    def send_verification(self, email: str, code: str) -> None:
+        templates = Path(__file__).with_name("email_templates")
+        message = EmailMessage()
+        message["From"], message["To"] = self.sender, email
+        message["Subject"] = "Код подтверждения почты AIRate"
+        message["Reply-To"] = "support@airate.tech"
+        message["Date"] = formatdate(localtime=False, usegmt=True)
+        message["Message-ID"] = make_msgid(domain="airate.tech")
+        message["Auto-Submitted"] = "auto-generated"
+        message.set_content(Template((templates / "verification-code.txt").read_text(encoding="utf-8")).substitute(code=code))
+        message.add_alternative(Template((templates / "verification-code.html").read_text(encoding="utf-8"))
+                                .substitute(code=escape(code)), subtype="html")
+        message.get_payload()[-1].add_related((templates / "airate.png").read_bytes(),
+            maintype="image", subtype="png", cid="<airate-logo>", disposition="inline")
+        self._send(message)
 
     def _send(self, message: EmailMessage) -> None:
         context = ssl.create_default_context()

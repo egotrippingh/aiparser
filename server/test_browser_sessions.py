@@ -1,3 +1,4 @@
+from server.test_accounts import register_account
 from datetime import timedelta
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
@@ -24,7 +25,7 @@ def setup(tmp_path, monkeypatch):
     url = f"sqlite:///{tmp_path / 'browser.db'}"
     app = create_app(database_url=url, yandex_client=FakeYandex())
     client = TestClient(app)
-    owner = client.post("/api/v1/auth/register", json=CREDS).json()
+    owner = register_account(client, json=CREDS).json()
     headers = {"Authorization": "Bearer " + owner["token"]}
     agent = client.post("/api/v1/control/agent/enroll", headers=headers,
         json={"device_id": "a" * 32, "name": "Office PC"}).json()["token"]
@@ -134,7 +135,7 @@ def test_postgres_browser_exchange_and_reset_do_not_deadlock(monkeypatch, postgr
     mailer = FakeMailer()
     app = create_app(database_url=postgres_url, password_mailer=mailer)
     browser, resetter = TestClient(app), TestClient(app)
-    owner = browser.post("/api/v1/auth/register", json=CREDS).json()
+    owner = register_account(browser, json=CREDS).json()
     ticket = link(browser, {"Authorization":"Bearer "+owner["token"]})
     resetter.post("/api/v1/auth/password/request", json={"email":CREDS["email"]})
     reset_token = mailer.messages[-1][1]

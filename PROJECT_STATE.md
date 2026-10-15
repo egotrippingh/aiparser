@@ -1,166 +1,50 @@
 # AIRate current project state
 
-## Balance top-up email (2026-10-15, prepared, not deployed)
-
-Real Coinso credits now atomically queue one HTML/plain-text notification per
-order; test/failed payments and older paid orders are excluded. A bounded SMTP
-worker retries known refusals and leaves ambiguous acceptance for inspection.
-The approved visual style uses the current orange logo as embedded PNG, the
-credited amount and balance snapshot, and a cabinet link. See
-[operation and migration gates](docs/topup-emails.md). SMTP.BZ domain approval,
-verified SMTP configuration and rollout of the new additive migration are still
-required before production delivery. Production remains PR59 / 88c0741.
-
-## Report history and manual verdict correction (2026-10-14, deployed)
-
-Actual scan dates scroll continuously, newest left; compact system icons,
-sticky query names, visibility/dynamics on the left and16px percentage inset.
-Legend buttons replace checkboxes; stale loading no longer shows false empty
-banners. Calendar presets align left. Manual missed/false-positive marks update
-all reporting views and mentions XLSX without changing raw results or charges;
-undo restores the automated verdict. Existing20 marks/project limit is visible.
-Full server279 passed with disposable PostgreSQL; frontend87/lint/build passed.
-Sol high final review found/fixed/rechecked three P2s, no remaining blockers.
-Astra high risk review completed; old-image schema rollback incompatibility was
-addressed with a reviewed promo-aware fallback0274ab3 and operator recovery checks.
-Browser correction/undo, keyboard, desktop1280/narrow390, no page overflow,
-28-date horizontal scroll/sticky queries, loading legend and calendar gaps verified. Deployment authorized; verified production backup
-restored into isolated DB. User requested persistent admin SSH and login verified;
-local alias airate-admin uses a dedicated key and pinned host (no forwarding).
-No credentials committed. See [report-history-layout.md](docs/tasks/report-history-layout.md).
-
-PR58 merged after exact-head CI38531393427 passed on b2332c0. Production
-CI38532175701 attempt2 succeeded on b3c1f3055e9a52dab8a216be7f0ee046742a6c91;
-HTTPS readiness, pricing120, cabinet assets and healthy container confirm it.
-Live browser loaded 303 queries and 7 actual date groups, newest 13.10 left,
-16px percentage inset, no false notice and no console errors. Production records
-were not edited for UI tests. Migration20261014_promo_codes applied under release
-lock after draining web and verified backup/isolated restore. Canonical comparison
-of all 26 existing tables/columns matched before starting workers. Verified backup:
-backups/aiparser-20261014T081554Z-3743840.dump. Schema-aware rollback image
-airate-web:promo-rollback-20261014 uses0274ab334d2b7efe799e6e7f4b1a3b401f8a2695,
-including promo refunds; restored-copy migration/check/readiness passed before live.
-Old 50f18ee cannot restart against this new head. Ordinary migration-head gate remains
-intact; attempt1 correctly stopped before touching the old application. Backups
-remain on this VPS; live paid provider/payment requests were not part of QA.
-
-## Promo codes and CSV import help (2026-10-14, deployed)
-
-Branch codex/promo-codes adds admin-created per-service free scans (including zero),
-redemption at email registration and account/top-up, once per code/account.
-Different codes accumulate; saved-answer recompute stays paid. Credits are frozen
-at cloud-run creation and refunded once when unused, with wallet locking and a
-fresh Check read preventing concurrent double refunds. CSV import now explains
-UTF-8, columns/delimiters and escaping in an accessible popover with a template.
-Final server277 passed with disposable PostgreSQL; agent billing/scan52 and
-frontend85/lint/build passed. Desktop1280px/mobile390px browser success/error,
-registration, quote and CSV help/import checks passed; no final console errors.
-Sol/Astra reviews completed; the confirmed refund race was reproduced then fixed.
-Hover is configured but pointer-only hover and OS template download completion
-were not verified. No live paid provider/payment checks. PR58 and production SHA
-b3c1f30 above include these changes; additive migration20261014_promo_codes verified.
-Evidence: C:/codex-tmp/airate-promos-20261014/;
-see [promo-codes.md](docs/tasks/promo-codes.md).
-
-## Scrapeless webhook and timeout recovery (2026-10-13, deployed)
-
-Branch codex/scrapeless-webhook adds attempt-scoped notifications, authenticated
-GET evidence recovery and automatic retry after15min without a confirmed handle.
-One AIRate Check/settlement is preserved; old results remain unchanged. Unknown
-confirmation is capped at3 total submissions, then isolated; other slots/users run.
-Known pending IDs retain one slot and are polled without duplicate submission.
-Full server262, focused19 and shared67 passed with disposable PostgreSQL.
-Sol/Astra reviewed final risky changes without blockers. Caddy URI redaction
-passed an actual502 check; production Caddy2.11.4 validated/reloaded with backup.
-PR #57 merged after exact-head CI38391368321 passed on3a633685.
-Production CI38391886578 passed on50f18ee979d980f450c9f458f4007bc1f72e626d;
-normal HTTPS readiness confirms the exact release and pricing120.
-The live geosoft-dent uncertain task recovered automatically: attempt2 completed,
-answer saved, one Check settled. ChatGPT303/303; Yandex278/303 still processing.
-Invalid public callback returned404. No scan records were edited manually.
-See [scrapeless-webhook.md](docs/tasks/scrapeless-webhook.md).
-
-## Provider queue isolation (2026-10-13, deployed)
-
-Branch codex/provider-isolation removes account-wide pauses for individual unknown
-Scrapeless sends and XML transient failures, while preserving occupied slots,
-global auth/quota guards and ambiguous-POST no-resend. XML network exhaustion is
-classified as a retryable query failure. No schema or frontend change.
-Five regressions failed before the fix; focused provider/XML96 and shared67 pass
-with disposable PostgreSQL. Final full server243 passed; Sol/Astra reviews passed.
-Full-capacity regression covers slot reuse in the same tick. PR56 merged after
-exact-head CI38384826583 passed. Production CI38385385962 passed;
-HTTPS readiness confirms67575132d4f4d3b0852fc9c62bd7e5fdbb2f8aab and pricing120.
-Live geosoft-dent: ChatGPT121 ->301 of303, Yandex186 ->203 of303 after activation.
-One pre-existing uncertain POST is retained without resend; one expired handle
-and the remaining Yandex tail still require normal recovery/provider responses.
-See [provider-isolation.md](docs/tasks/provider-isolation.md).
-
-## Automatic collection recovery and report filters (2026-10-13)
-
-PR #55 recovers new complete-policy empty/failed/expired tasks automatically;
-an expired handle is rechecked before another paid submission. Deferred tasks
-leave free provider slots usable, with bounded admission and durable shared cooldowns.
-Original completed history and one wallet settlement per Check are preserved.
-Reports expose independent external-source/product-card switches; own-domain mode
-uses safe HTTP(S) sources consistently across charts, totals, tables and XLSX.
-Final full server: 229 passed with disposable PostgreSQL; frontend84/lint/build,
-XMLRiver27 and desktop/mobile keyboard QA passed. Sol/Astra reviews completed.
-PR CI 38372134424 and production CI 38372769409 succeeded. No schema change.
-Live geosoft-dent scan advanced from 576 to706 of1212 after activation.
-Evidence: C:/codex-tmp/airate-recheck-qa/; [collection-recheck.md](docs/tasks/collection-recheck.md).
-
-## Monthly calendar completion (2026-10-13)
-
-Branch codex/schedule-calendar starts from production b165c429dc94b3de312072ec8cfa60f334723cc8
-and preserves PRs #49–53. Server last_day support and actual-scan chart dates are
-already published; the remaining UI now offers 1–28 and the last-day flag, including
-last-day-only schedules, explicit legacy 29–31 removal and complete schedule labels.
-84 frontend checks, lint/build, 8 schedule regressions and desktop/390px disposable
-browser checks passed; independent Sol review found no blockers. No schema change.
-Evidence: C:/codex-tmp/airate-schedule-calendar-20261013/; task
-[scan-calendar-days.md](docs/tasks/scan-calendar-days.md).
-PR #54 is merged into production 99d7fb34584eb9b12dab1378d7b73960fe4a86a5.
-PR CI 38357093941 passed; production CI 38357731853 passed Tests and build and
-Upload and activate verified release, then failed Verify public release.
-After email confirmation, Radix RDAP no longer reports client hold and Google DNS
-resolves the domain to 45.146.90.88. Normal HTTPS public verification passed on
-2026-10-13: exact release SHA, pricing, 12 matching assets and anonymous private
-routes returning 401. The original failed CI run remains historical; no gate was bypassed.
+Updated 2026-10-15. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
 
 ## Current release
 
-Production is `50f18ee979d980f450c9f458f4007bc1f72e626d` from PR #57.
-Normal HTTPS verification confirms the exact SHA and pricing120;
-an invalid callback returns404. Production CI and readiness passed.
-Previous records were verified unchanged during the PR #51/#52 migration.
-Historical release evidence is in
-[project-state-history-2026-10-12.md](docs/project-state-history-2026-10-12.md).
-
-## Delivered change
-
-PR #51 delivers public news, admin-only publishing, provider pause
-admission controls and sparse actual-scan chart dates. Migration
-`20261012_news_provider_pauses` is live and additive. Application rollback requires
-`airate-web:news-rollback-62536ba7389f`, verified against the restored migrated DB;
-the old application image cannot start against this schema.
-See [news-service-pauses.md](docs/tasks/news-service-pauses.md).
+- Published and verified 2026-10-15: PR #60, release `ca1f47394367ee74be01738aa9d7222c448ce97d`, schema `20261015_topup_emails`. Real Coinso credits atomically queue HTML/plain-text notifications; SMTP.BZ is active. CI attempt 2, public readiness, pricing and cabinet HTTP checks passed. [Release evidence](https://github.com/egotrippingh/aiparser/pull/60).
+- PR #59 password completion for Yandex registrations, password settings/recovery and promo availability/limits/expiry remain deployed. Password recovery is now available through the verified SMTP configuration.
+- Manual scan and saved-answer recompute use anchored cost popovers with a fresh server quote, cancellation and stale-quote protection. This frontend release does not change billing API or agent version.
+- New scans cost **120 kopeks per query and service** and automatically use fast timings. Saved-answer recompute costs up to **80 kopeks per eligible answer**; failed analysis is skipped without charge. Saving a brand clarification is free and affects future scans. Clarifications/recompute remain gated to the exact `ivoryya` admin account.
+- Captured answers preserve formatting, tables and available source links. Errors show reasons and guidance. Ordinary failed queries do not retry automatically; starting a new project scan checks all its queries. Selective retry is not implemented.
 
 ## Architecture
 
-`server/` owns accounts, runs, billing and cloud collection; `frontend/` builds the
-tracked `web/` interface. Production delivery retains CI, backup/restore, migration
-checks, readiness and rollback gates.
+- `app/`, `desktop.py`: Windows agent, local FastAPI/SQLite state, browser profiles and provider adapters. Browser scans run on the user's PC across ChatGPT, Perplexity, Alice and Google.
+- `server/`: central API, accounts, PostgreSQL, managed runs and billing. Managed checks use control-plane query UUIDs; local integer IDs remain for unmanaged runs. Pending uploads use the agent outbox.
+- `frontend/`: React/Vite UI shared by the agent and web cabinet; built site assets live in `web/`.
+- Production: `https://airate.tech`; screenshots in Yandex S3; semantic analysis via OpenRouter. GitHub Actions deploys `production` with backup/restore verification, serialized activation and readiness checks. Windows artifacts are published atomically through `scripts/publish-agent.py`.
 
-## Open checks and next action
+## Open checks and limitations
 
-Geosoft-dent remains in progress; complete-run live verification is still pending.
-An automatic provider retry can spend provider balance again; the client Check
-settles once. No live new scan/payment was initiated for QA. The disposable
-PostgreSQL instance and report QA server started for these checks are stopped.
-## Delivered answer display
+- Windows release automation: PR #21 contains the full process; #20 registers the manual workflow on default branch `main`. Local EXE/installer/browser/reinstall/uninstall smoke and Linux PR CI passed. Dedicated non-root publishing account, download ownership, traverse-only parent ACL and pinned GitHub credentials are configured; live artifacts remain 2026.10.1.3. New-binary publication through Actions is unverified. See `docs/windows-agent-release.md`.
 
-PR #52 renders reference citations, removes synthetic answer tiles
-and suppresses duplicate source footers. Its 83 frontend tests, lint/build and
-desktop/mobile fixture checks passed. Both changes are deployed in the same release.
-See [answer-display.md](docs/tasks/answer-display.md).
+- Native upgrade of an existing user installation, WebView2/tray/Windows logon behavior and power-loss recovery still need validation on a real PC. Disposable updater fixtures passed; this does not verify the installed user's full scenario.
+- A real provider scan with a clarification, historical S3 screenshot recovery, paid saved-answer recompute and a live PostgreSQL upload/recompute race remain unverified.
+- Google completion uses a quiet-time heuristic. Preservation of a nonempty Google source list and sustained provider rate-limit behavior remain unverified.
+- An off-VPS database backup destination is not confirmed; the delivery guide currently records VPS-local backups.
+
+## Next action
+
+Corporate mail: support/hello/noreply@airate.tech remain at REG.RU. SMTP.BZ is approved and enabled in production via connect.smtp.bz:2525 STARTTLS; final-container authentication returned 235. The approved demo HTML test to egorjojori@gmail.com was accepted and the user confirmed Inbox delivery. Existing REG.RU MX/DKIM were preserved; merged SPF, SMTP.BZ DKIM and stats CNAME were verified during setup. Tracking is disabled; transactional mode is enabled. Secrets remain in the private local SMTP file and production .env (0600). Earlier Aéza/REG.RU support ticket status was not rechecked.
+
+Prepared, not deployed: email/password registration now requires a one-use six-digit email code (10 minutes, five wrong attempts) through SMTP.BZ and the approved HTML/plain-text template. The cabinet retains its ticket across reloads and explicitly offers Yandex registration. Existing accounts and Yandex sign-in remain available. Migration `20261015_email_registration` is additive; rollout requires a fresh restored-backup rehearsal and a fallback that rejects password registration without proof. See [registration operation](docs/registration-email.md). Password recovery still sends plain text.
+
+PR #60 is merged and deployed. Reviewed operator rehearsal and live migration preserved all prior rows/columns in 30 tables; the new queue was empty before workers started. A fresh backup was restored/verified before activation. Compatible fallback source 9b32129, image and checksum-verified archive are retained in /opt/airate/releases/mail-20261015. Final CI run 38685256024 attempt 2 passed; production SMTP/auth/recovery/readiness checks passed with no missing/invalid post-cutover notification rows. Detailed evidence is in the PR and private operator folder; local summary: build/mail-release-20261015/release-evidence.json.
+
+Next: observe the first real paid top-up notification. No real payment or artificial balance credit was performed for this release. SMTP-uncertain/sending outcomes require provider-log inspection per docs/topup-emails.md; old paid orders are not backfilled.
+
+The previous cloud scan completed all 300 provider tasks and reached done at 20:59 MSK on 2026-10-14 after PR #59 deployment. Older Windows notes in this checkout predate current production; consult the production branch for current runtime details.
+
+## Checks and references
+
+Read [AGENTS.md](AGENTS.md) for verification commands and review rules. Historical test counts describe earlier revisions; run checks appropriate to the current change.
+
+- [Delivery, backups and rollback](deploy/DELIVERY.md)
+- [Updater](docs/updater.md), [session preservation](docs/session-preservation.md)
+- [Managed check identifiers](docs/managed-check-identifiers.md), [error diagnostics](docs/report-response-diagnostics.md)
+- [Scan timing and benchmark](docs/scan-delays.md), [answer capture/rendering](docs/answer-readability.md)
+- [Coinso integration](docs/coinso.md)
+- [Historical release evidence](docs/project-state-history-2026-10-01.md) (read only for a specific investigation)

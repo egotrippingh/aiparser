@@ -1,3 +1,4 @@
+from server.test_accounts import register_account
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
@@ -61,14 +62,14 @@ def test_registration_promo_is_atomic(tmp_path, monkeypatch):
     client, admin, _, _, sessions = setup(tmp_path, monkeypatch)
     create_code(client, admin, {'google_aio': 5})
     body = {'email': 'new@example.test', 'password': 'long-test-password-123', 'promo_code': 'UNKNOWN'}
-    assert client.post('/api/v1/auth/register', json=body).status_code == 404
+    assert register_account(client, json=body).status_code == 404
     with sessions() as db:
         assert db.scalar(select(User).where(User.email == body['email'])) is None
-    response = client.post('/api/v1/auth/register', json={**body, 'promo_code': ' welcome '})
+    response = register_account(client, json={**body, 'promo_code': ' welcome '})
     assert response.status_code == 201, response.text
     headers = {'Authorization': 'Bearer ' + response.json()['token']}
     assert client.get('/api/v1/wallet', headers=headers).json()['free_scans']['google_aio']['available'] == 5
-    assert client.post('/api/v1/auth/register', json={**body, 'promo_code': 'WELCOME'}).status_code == 409
+    assert register_account(client, json={**body, 'promo_code': 'WELCOME'}).status_code == 409
     assert redeem(client, headers).json()['already_redeemed'] is True
 
 

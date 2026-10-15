@@ -8,8 +8,10 @@ import hmac
 import logging
 import os
 import re
+import secrets
 import uuid
 from datetime import timedelta, timezone
+from email.headerregistry import Address
 from pathlib import Path
 from typing import Annotated
 
@@ -33,7 +35,7 @@ from server.mailer import PasswordMailer
 from server.migrate import upgrade_database
 from server.models import (AgentDevice, Check, CloudResult, ScanPreferences, Screenshot, DeviceCode, DeviceConnect, BrowserLoginTicket,
                            LedgerEntry, LoginTicket, OAuthAttempt, OAuthIdentity, PasswordReset,
-                           PaymentOrder, SessionToken, TopupEmail, User, Wallet, YandexRegistration, make_session_factory, utcnow)
+                           EmailRegistration, PaymentOrder, SessionToken, TopupEmail, User, Wallet, YandexRegistration, make_session_factory, utcnow)
 from server.security import hash_password, new_token, token_hash, verify_password
 from server.storage import ScreenshotStorage, StorageError
 from server.yandex import YandexError, YandexOAuth
@@ -52,6 +54,8 @@ class Credentials(BaseModel):
 
 class RegistrationIn(Credentials):
     promo_code: str = Field(default="", max_length=128)
+    ticket: str = Field(pattern=r"^[A-Za-z0-9_-]{30,200}$")
+    code: str = Field(pattern=r"^[0-9]{6}$")
 
 
 class ScrapelessWebhookIn(BaseModel):
@@ -914,6 +918,44 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         db.delete(code)
         return issue_session(db, user)
 
+    @app.post("/api/v1/auth/registration/code")
+    def request_registration_code(body: PasswordResetRequest, request: Request, response: Response,
+                                  db: Session = Depends(db_session)) -> dict:
+        if not password_mailer:
+            raise HTTPException(503, "Отправка кода пока недоступна. Попробуйте регистрацию через Яндекс.")
+        email = _email(body.email)
+        source, account = source_key(request), email_key(email)
+        try:
+            Address(addr_spec=email)
+        except ValueError as exc:
+            raise HTTPException(422, "Укажите один корректный email") from exc
+        if db.bind.dialect.name == "postgresql":
+            # Reserve both shared budgets, including the first send with no challenge.
+            for key in sorted((source, account)):
+                db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                           {"key": "registration_code:" + key})
+        guard_auth(db, "registration_code", [(source, 20), (account, 3)])
+        if db.scalar(select(EmailRegistration.token_hash).where(
+                EmailRegistration.email == email,
+                EmailRegistration.created_at > utcnow() - timedelta(seconds=60))):
+            raise HTTPException(429, "Повторный код можно запросить через минуту", headers={"Retry-After": "60"})
+        record_auth(db, "registration_code", [source, account], commit=False)
+        if db.scalar(select(User.id).where(User.email == email)):
+            db.commit()
+            raise HTTPException(409, "Аккаунт с таким email уже есть. Войдите или восстановите пароль.")
+        ticket, code = new_token(), f"{secrets.randbelow(1_000_000):06d}"
+        db.execute(delete(EmailRegistration).where(EmailRegistration.expires_at < utcnow()))
+        db.add(EmailRegistration(token_hash=token_hash(ticket), email=email,
+            code_hash=token_hash(ticket + ":" + code), expires_at=utcnow() + timedelta(minutes=10)))
+        db.commit()
+        try:
+            password_mailer.send_verification(email, code)
+        except Exception as exc:
+            logging.getLogger(__name__).error("Не удалось отправить код регистрации (%s)", type(exc).__name__)
+            raise HTTPException(503, "Не удалось отправить код. Попробуйте ещё раз позже.") from exc
+        response.headers["Cache-Control"] = "no-store"
+        return {"ticket": ticket, "expires_in": 600, "resend_after": 60}
+
     @app.post("/api/v1/auth/register", status_code=201)
     def register(body: RegistrationIn, request: Request, response: Response,
                  db: Session = Depends(db_session)) -> dict:
@@ -921,6 +963,23 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         guard_auth(db, "register", [(source, 10)])
         record_auth(db, "register", [source])
         email = _email(body.email)
+        registration = db.scalar(select(EmailRegistration).where(
+            EmailRegistration.token_hash == token_hash(body.ticket)).with_for_update()
+            .execution_options(populate_existing=True))
+        if (not registration or expired(registration.expires_at) or registration.attempts >= 5
+                or registration.email != email):
+            raise HTTPException(400, "Код истёк или уже использован. Запросите новый код.")
+        if not hmac.compare_digest(registration.code_hash, token_hash(body.ticket + ":" + body.code)):
+            db.execute(update(EmailRegistration).where(EmailRegistration.token_hash == registration.token_hash)
+                       .values(attempts=EmailRegistration.attempts + 1))
+            db.commit()
+            raise HTTPException(400, "Неверный код. Проверьте письмо и попробуйте ещё раз.")
+        claimed = db.execute(delete(EmailRegistration).where(
+            EmailRegistration.token_hash == registration.token_hash,
+            EmailRegistration.attempts < 5, EmailRegistration.expires_at > utcnow())
+            .execution_options(synchronize_session=False))
+        if claimed.rowcount != 1:
+            raise HTTPException(400, "Код истёк или уже использован. Запросите новый код.")
         try:
             promo_code = normalize_code(body.promo_code) if body.promo_code.strip() else ""
         except ValueError as exc:
@@ -935,7 +994,6 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
             raise HTTPException(409, "Аккаунт с таким email уже есть") from exc
         if promo_code:
             redeem_promo(db, user.id, promo_code)
-        db.commit()
         approve_login_connect(db, body.connect_id, user.id)
         return {**issue_session(db, user, request, response), "agent_connected": bool(body.connect_id)}
 

@@ -1,3 +1,4 @@
+from server.test_accounts import register_account
 import asyncio
 import json
 import logging
@@ -71,7 +72,7 @@ def setup(tmp_path, monkeypatch, *, ai=None, admin=True, database_url=None):
     url = database_url or f"sqlite:///{tmp_path / 'cloud.db'}"
     client = TestClient(create_app(database_url=url, ai_client=ai))
     def register(email):
-        result = client.post('/api/v1/auth/register', json={'email': email, 'password': 'long-test-password-123'})
+        result = register_account(client, json={'email': email, 'password': 'long-test-password-123'})
         assert result.status_code == 201, result.text
         return {'Authorization': 'Bearer ' + result.json()['token']}, result.json()['user']['id']
     owner, user_id = register('owner@test.example')
