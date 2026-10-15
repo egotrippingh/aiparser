@@ -39,10 +39,11 @@ def guard(db: Session, scope: str, limits: list[tuple[str, int]]) -> None:
                                 headers={"Retry-After": "900"})
 
 
-def record(db: Session, scope: str, keys: list[str]) -> None:
+def record(db: Session, scope: str, keys: list[str], *, commit: bool = True) -> None:
     now = utcnow()
     db.add_all(AuthFailure(key_hash=_digest(scope, key), created_at=now) for key in keys)
-    db.commit()
+    if commit:
+        db.commit()
 
 
 def clear(db: Session, scope: str, key: str) -> None:

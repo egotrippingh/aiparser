@@ -1,3 +1,4 @@
+from server.test_accounts import register_account
 import uuid
 import json
 from datetime import datetime, timedelta, timezone
@@ -42,7 +43,7 @@ def setup(tmp_path):
     url = f"sqlite:///{tmp_path / 'control.db'}"
     client = TestClient(create_app(database_url=url))
     def register(email):
-        res = client.post('/api/v1/auth/register', json={'email': email, 'password': 'long-test-password-123'})
+        res = register_account(client, json={'email': email, 'password': 'long-test-password-123'})
         assert res.status_code == 201, res.text
         return {'Authorization': 'Bearer '+res.json()['token']}
     owner, other = register('owner@test.example'), register('other@test.example')

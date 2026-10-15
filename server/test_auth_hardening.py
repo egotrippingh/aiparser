@@ -1,5 +1,6 @@
 """Recovery, throttling and legacy data migration checks."""
 
+from server.test_accounts import register_account
 from datetime import timedelta
 from urllib.parse import parse_qs, urlparse
 
@@ -25,7 +26,7 @@ def test_postgres_reset_during_login_cannot_leave_a_valid_session(tmp_path, monk
     mailer = FakeMailer()
     client = TestClient(create_app(database_url=postgres_url, yandex_client=FakeYandex(), password_mailer=mailer))
     creds = {"email": "owner@example.test", "password": "old-password-123"}
-    account = client.post("/api/v1/auth/register", json=creds).json()
+    account = register_account(client, json=creds).json()
     headers = {"Authorization": "Bearer " + account["token"]}
     if method == "device":
         path = "/api/v1/auth/device/exchange"
@@ -71,7 +72,7 @@ def test_password_reset_is_one_use_and_revokes_sessions(tmp_path, monkeypatch):
     mailer = FakeMailer()
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'auth.db'}",
                                    password_mailer=mailer))
-    created = client.post("/api/v1/auth/register", json={
+    created = register_account(client, json={
         "email": "user@example.test", "password": "old-password-123",
     })
     assert created.status_code == 201
@@ -101,7 +102,7 @@ def test_login_limit_persists_in_database(tmp_path, monkeypatch):
     monkeypatch.delenv("SMTP_HOST", raising=False)
     path = tmp_path / "auth.db"
     client = TestClient(create_app(database_url=f"sqlite:///{path}"))
-    client.post("/api/v1/auth/register", json={
+    register_account(client, json={
         "email": "user@example.test", "password": "correct-password-123",
     })
     for _ in range(5):
@@ -125,7 +126,7 @@ def test_login_limit_persists_in_database(tmp_path, monkeypatch):
 def test_password_settings_require_owner_session_current_password_and_origin(tmp_path, monkeypatch):
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.test")
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'settings.db'}"), base_url="https://example.test")
-    created = client.post("/api/v1/auth/register", json={"email": "owner@test.example", "password": "old-password-123"}).json()
+    created = register_account(client, json={"email": "owner@test.example", "password": "old-password-123"}).json()
     headers = {"Authorization": "Bearer " + created["token"]}
     body = {"password": "new-password-123", "current_password": "old-password-123"}
     assert client.put("/api/v1/auth/password", json=body).status_code == 401

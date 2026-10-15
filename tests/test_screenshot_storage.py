@@ -1,5 +1,6 @@
 """Screenshots must be private, bounded, and safe to retry."""
 
+from server.test_accounts import register_account
 import asyncio
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -30,7 +31,7 @@ def test_private_screenshot_upload_and_retry(tmp_path):
                                    screenshot_storage=storage))
 
     def account(email):
-        response = client.post("/api/v1/auth/register", json={
+        response = register_account(client, json={
             "email": email, "password": "a-long-password-123",
         })
         assert response.status_code == 201
@@ -75,7 +76,7 @@ def test_screenshot_size_limit(tmp_path):
     storage = FakeStorage()
     client = TestClient(create_app(database_url=f"sqlite:///{db_path}",
                                    screenshot_storage=storage))
-    response = client.post("/api/v1/auth/register", json={
+    response = register_account(client, json={
         "email": "owner@example.com", "password": "a-long-password-123",
     })
     token = {"Authorization": f"Bearer {response.json()['token']}"}

@@ -1,3 +1,4 @@
+from server.test_accounts import register_account
 import hashlib
 import hmac
 import json
@@ -35,7 +36,7 @@ def setup_payment(tmp_path, monkeypatch, *, url=None, amount=30001):
     coinso = FakeCoinso()
     app = create_app(database_url=url or f"sqlite:///{tmp_path / 'mail.db'}", coinso_client=coinso)
     client = TestClient(app)
-    account = client.post("/api/v1/auth/register", json={
+    account = register_account(client, json={
         "email": "owner@example.test", "password": "a-long-test-password"}).json()
     headers = {"Authorization": "Bearer " + account["token"]}
     response = client.post("/api/v1/payments", headers=headers,

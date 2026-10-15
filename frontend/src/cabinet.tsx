@@ -14,6 +14,7 @@ import { NewsLink } from "./news-link"
 import { TopupForm } from "./components/topup-form"
 import { PasswordSettings } from "./components/password-settings"
 import { paymentLabel, type Payment } from "./lib/payment"
+import { EMAIL_PROOF_KEY, restoreEmailProof } from "./lib/registration"
 import { initTelemetry, rootOptions } from "./telemetry"
 
 const TOKEN_KEY = "aimt.account.token"
@@ -38,18 +39,50 @@ function Cabinet() {
   const [minimum, setMinimum] = useState(30000)
   const [resetToken, setResetToken] = useState(() => new URLSearchParams(location.hash.slice(1)).get("reset_token") || "")
   const [registrationTicket, setRegistrationTicket] = useState(() => new URLSearchParams(location.hash.slice(1)).get("registration_ticket") || "")
+  const [savedEmailProof] = useState(() => restoreEmailProof(sessionStorage.getItem(EMAIL_PROOF_KEY)))
   const [authMode, setAuthMode] = useState<"login" | "register" | "forgot" | "reset" | "yandex-register">(() =>
-    new URLSearchParams(location.hash.slice(1)).has("reset_token") ? "reset" : "login")
-  const [email, setEmail] = useState("")
+    new URLSearchParams(location.hash.slice(1)).has("reset_token") ? "reset" : savedEmailProof ? "register" : "login")
+  const [email, setEmail] = useState(savedEmailProof?.email || "")
   const [password, setPassword] = useState("")
   const [confirmation, setConfirmation] = useState("")
   const [promoCode, setPromoCode] = useState("")
+  const [emailTicket, setEmailTicket] = useState(savedEmailProof?.ticket || "")
+  const [emailCode, setEmailCode] = useState("")
+  const [resendAfter, setResendAfter] = useState(() => Math.max(0, Math.ceil(((savedEmailProof?.resendAt || 0) - Date.now()) / 1000)))
+  const codeInput = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
   const [yandexEnabled, setYandexEnabled] = useState(false)
   const [resetEnabled, setResetEnabled] = useState(false)
   const refreshVersion = useRef(0), activeSession = useRef(token)
   activeSession.current = token
+
+  useEffect(() => {
+    if (!resendAfter) return
+    const timer = setTimeout(() => setResendAfter(resendAfter - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [resendAfter])
+
+  useEffect(() => { if (emailTicket) codeInput.current?.focus() }, [emailTicket])
+
+  async function sendRegistrationCode() {
+    const result = await request<{ticket: string; expires_in: number; resend_after: number}>("/auth/registration/code", undefined, {email})
+    sessionStorage.setItem(EMAIL_PROOF_KEY, JSON.stringify({email, ticket: result.ticket,
+      expiresAt: Date.now() + result.expires_in * 1000, resendAt: Date.now() + result.resend_after * 1000}))
+    setEmailTicket(result.ticket)
+    setEmailCode("")
+    setResendAfter(result.resend_after)
+    setMessage("Код отправлен на почту. Введите его, чтобы создать аккаунт.")
+  }
+
+  async function resendRegistrationCode() {
+    if (busy || resendAfter) return
+    setBusy(true)
+    setMessage("")
+    try { await sendRegistrationCode() }
+    catch (error) { setMessage(error instanceof Error ? error.message : "Не удалось отправить код") }
+    finally { setBusy(false) }
+  }
 
   function acceptSession(result: {token?: string}) {
     // Keep compatibility while the site and agent are deployed separately.
@@ -193,6 +226,10 @@ function Cabinet() {
     setBusy(true)
     setMessage("")
     try {
+      if (authMode === "register" && !emailTicket) {
+        await sendRegistrationCode()
+        return
+      }
       if (authMode === "forgot") {
         await request("/auth/password/request", undefined, { email })
         setMessage("Если такой аккаунт есть, мы отправили ссылку для смены пароля на почту.")
@@ -209,13 +246,16 @@ function Cabinet() {
       }
       const result = authMode === "yandex-register"
         ? await request<{token?: string; user: User}>("/auth/yandex/register", undefined, {ticket: registrationTicket, password, promo_code: promoCode.trim()})
-        : await request<{ token?: string; user: User }>(`/auth/${authMode}`, undefined, { email, password, ...(authMode === "register" ? { promo_code: promoCode.trim() } : {}) })
+        : await request<{ token?: string; user: User }>(`/auth/${authMode}`, undefined, { email, password, ...(authMode === "register" ? { promo_code: promoCode.trim(), ticket: emailTicket, code: emailCode } : {}) })
       acceptSession(result)
       setAuthMode("login")
       setRegistrationTicket("")
       setPassword("")
       setConfirmation("")
       setPromoCode("")
+      setEmailTicket("")
+      setEmailCode("")
+      sessionStorage.removeItem(EMAIL_PROOF_KEY)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Не удалось войти")
     } finally { setBusy(false) }
@@ -265,20 +305,25 @@ function Cabinet() {
           {(authMode === "login" || authMode === "register") && <><button className="cab-yandex" type="button" disabled={!yandexEnabled || busy}
             title={yandexEnabled ? "" : "Доступно после настройки Яндекс ID на сервере"}
             onClick={() => location.assign(`${API}/api/v1/auth/yandex/start`)}>
-            <span className="cab-yandex-mark" aria-hidden="true">Я</span> Продолжить через Яндекс
+            <span className="cab-yandex-mark" aria-hidden="true">Я</span> {authMode === "register" ? "Зарегистрироваться через Яндекс" : "Войти через Яндекс"}
           </button>
           <div className="cab-auth-divider"><span>или по email</span></div></>}
           {authMode === "forgot" || authMode === "reset" || authMode === "yandex-register"
             ? <div className="cab-tabs"><button type="button" disabled={busy} onClick={() => { setAuthMode("login"); setResetToken(""); setRegistrationTicket(""); setPassword(""); setConfirmation("") }}>← Вернуться ко входу</button></div>
-            : <div className="cab-tabs"><button type="button" className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>Войти</button><button type="button" className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>Создать аккаунт</button></div>}
+            : <div className="cab-tabs"><button type="button" disabled={busy} className={authMode === "login" ? "active" : ""} onClick={() => {setAuthMode("login"); setMessage("")}}>Войти</button><button type="button" disabled={busy} className={authMode === "register" ? "active" : ""} onClick={() => {setAuthMode("register"); setMessage("")}}>Создать аккаунт</button></div>}
           {authMode === "reset" ? <p>Придумайте новый пароль для аккаунта.</p>
-            : <label>Email<input type="email" autoComplete="email" required disabled={busy} readOnly={authMode === "yandex-register"} value={email} onChange={(e) => setEmail(e.target.value)} /></label>}
+            : <label>Email<input type="email" autoComplete="email" required disabled={busy} readOnly={authMode === "yandex-register"} value={email} onChange={(e) => {setEmail(e.target.value); setEmailTicket(""); setEmailCode(""); setResendAfter(0); sessionStorage.removeItem(EMAIL_PROOF_KEY)}} /></label>}
           {authMode === "yandex-register" && <p>Завершите регистрацию: пароль позволит входить без Яндекса.</p>}
           {authMode === "forgot" && <><p>Укажите почту аккаунта: использованную при регистрации или полученную от Яндекса.</p>{!resetEnabled && <p role="status">Отправка писем ещё не подключена. Восстановление по почте станет доступно позже.</p>}</>}
           {authMode !== "forgot" && <label>{authMode === "reset" ? "Новый пароль" : "Пароль"}<input type="password" minLength={12} maxLength={256} disabled={busy} autoComplete={authMode === "login" ? "current-password" : "new-password"} required value={password} onChange={(e) => setPassword(e.target.value)} /></label>}
           {["register", "reset", "yandex-register"].includes(authMode) && <><small>Не менее 12 символов.</small><label>Повторите пароль<input type="password" autoComplete="new-password" required minLength={12} maxLength={256} disabled={busy} value={confirmation} onChange={e => setConfirmation(e.target.value)}/></label></>}
           {(authMode === "register" || authMode === "yandex-register") && <><label>Промокод (необязательно)<input autoComplete="off" maxLength={64} disabled={busy} value={promoCode} onChange={e => setPromoCode(e.target.value)} aria-describedby="registration-promo-hint" /></label><small id="registration-promo-hint">Начислим бесплатные сканы по условиям промокода. Его также можно ввести позже в разделе «Аккаунт и оплата».</small></>}
-          <button className="cab-primary" disabled={busy || (authMode === "forgot" && !resetEnabled)}>{busy ? "Подождите…" : authMode === "login" ? "Войти" : authMode === "register" ? "Зарегистрироваться" : authMode === "yandex-register" ? "Завершить регистрацию" : authMode === "forgot" ? "Отправить ссылку" : "Сменить пароль"}</button>
+          {authMode === "register" && emailTicket && <>
+            <label>Код из письма<input ref={codeInput} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required disabled={busy} value={emailCode} onChange={e => setEmailCode(e.target.value.replace(/[^0-9]/g, ""))} aria-describedby="registration-code-hint" /></label>
+            <small id="registration-code-hint">6 цифр. Код действует 10 минут. Если письма нет, проверьте папку «Спам».</small>
+            <button className="cab-refresh" type="button" disabled={busy || resendAfter > 0} onClick={resendRegistrationCode}>{resendAfter > 0 ? `Отправить повторно через ${resendAfter} с` : "Отправить код повторно"}</button>
+          </>}
+          <button className="cab-primary" disabled={busy || (authMode === "forgot" && !resetEnabled)}>{busy ? "Подождите…" : authMode === "login" ? "Войти" : authMode === "register" ? emailTicket ? "Подтвердить почту и создать аккаунт" : "Получить код на почту" : authMode === "yandex-register" ? "Завершить регистрацию" : authMode === "forgot" ? "Отправить ссылку" : "Сменить пароль"}</button>
           {authMode === "login" && <button className="cab-refresh" type="button" onClick={() => setAuthMode("forgot")}>Забыли пароль?</button>}
         </form></section>}
       {message && <p className="cab-message" role="status">{message}</p>}

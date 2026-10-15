@@ -1,3 +1,4 @@
+from server.test_accounts import register_account
 import json
 from contextlib import contextmanager
 from datetime import timedelta
@@ -48,7 +49,7 @@ def feature_setup(tmp_path, monkeypatch, ai=None, screenshot_storage=None):
     monkeypatch.setattr("server.app.uuid.uuid4", lambda: type("Id", (), {"hex": FEATURE_USER})())
     url = f"sqlite:///{tmp_path / 'recompute.db'}"
     client = TestClient(create_app(database_url=url, ai_client=ai or FakeAI(), screenshot_storage=screenshot_storage))
-    res = client.post("/api/v1/auth/register", json={"email": "admin@test.example", "password": "long-test-password-123"})
+    res = register_account(client, json={"email": "admin@test.example", "password": "long-test-password-123"})
     assert res.status_code == 201, res.text
     headers = {"Authorization": "Bearer " + res.json()["token"]}
     _, sessions = make_session_factory(url)
@@ -128,7 +129,7 @@ def test_brand_clarification_is_exact_admin_feature_flag(tmp_path, monkeypatch):
     client, headers, _ = feature_setup(tmp_path, monkeypatch)
     assert client.get("/api/v1/me", headers=headers).json()["brand_clarifications_enabled"] is True
     monkeypatch.setattr("server.app.uuid.uuid4", uuid4)
-    other = client.post("/api/v1/auth/register", json={"email": "other@test.example", "password": "long-test-password-123"})
+    other = register_account(client, json={"email": "other@test.example", "password": "long-test-password-123"})
     other_headers = {"Authorization": "Bearer " + other.json()["token"]}
     body = {"name": "P", "brand_name": "Brand", "config": {"brand_clarification": "only me"}}
     assert client.post("/api/v1/control/projects", headers=other_headers, json=body).status_code == 403

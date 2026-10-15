@@ -1,3 +1,4 @@
+from server.test_accounts import register_account
 import hashlib
 import hmac
 import json
@@ -46,7 +47,7 @@ def setup(tmp_path, monkeypatch, provider=None, admin=False, testing=False):
     provider = provider or FakeCoinso()
     app = create_app(database_url=f"sqlite:///{tmp_path / 'payments.db'}", coinso_client=provider)
     client = TestClient(app)
-    auth = client.post("/api/v1/auth/register", json={"email": "test@example.test", "password": "long-test-password"}).json()
+    auth = register_account(client, json={"email": "test@example.test", "password": "long-test-password"}).json()
     if admin:
         with app.state.payment_sessions() as db:
             db.get(User, auth["user"]["id"]).is_admin = True

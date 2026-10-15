@@ -1,5 +1,6 @@
 """Account-wide schedule and private cloud report contract."""
 
+from server.test_accounts import register_account
 from datetime import date
 
 from fastapi.testclient import TestClient
@@ -9,7 +10,7 @@ from server.models import Check, make_session_factory
 
 
 def _register(client: TestClient, email: str) -> tuple[dict, str]:
-    response = client.post("/api/v1/auth/register", json={
+    response = register_account(client, json={
         "email": email, "password": "a-long-test-password",
     })
     assert response.status_code == 201, response.text

@@ -1,5 +1,6 @@
 """Яндекс ID: одноразовое состояние, регистрация и безопасная привязка."""
 
+from server.test_accounts import register_account
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -81,7 +82,7 @@ def test_yandex_register_login_and_single_use_ticket(tmp_path, monkeypatch):
 
 def test_existing_email_requires_explicit_link(tmp_path, monkeypatch):
     client, fake = setup(tmp_path, monkeypatch)
-    registered = client.post("/api/v1/auth/register", json={
+    registered = register_account(client, json={
         "email": "owner@example.test", "password": "a-long-test-password",
     }).json()
     headers = {"Authorization": f"Bearer {registered['token']}"}
@@ -108,7 +109,7 @@ def test_link_cannot_take_another_users_yandex_id(tmp_path, monkeypatch):
     client, fake = setup(tmp_path, monkeypatch)
     first = callback(client, start(client))
     owner_id = complete_registration(client, first).json()["user"]["id"]
-    second = client.post("/api/v1/auth/register", json={
+    second = register_account(client, json={
         "email": "second@example.test", "password": "a-long-test-password",
     }).json()
     started = client.post("/api/v1/auth/yandex/link/start",
@@ -243,7 +244,7 @@ def test_password_change_revokes_pending_link_and_device_approval(tmp_path, monk
     monkeypatch.setenv("PUBLIC_BASE_URL", "http://127.0.0.1:8757")
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'auth.db'}",
         yandex_client=fake, password_mailer=mailer), base_url="http://127.0.0.1:8757")
-    account = client.post("/api/v1/auth/register", json={
+    account = register_account(client, json={
         "email": "owner@example.test", "password": "a-long-test-password"}).json()
     headers = {"Authorization": "Bearer " + account["token"]}
     link = client.post("/api/v1/auth/yandex/link/start", headers=headers).json()
@@ -265,7 +266,7 @@ def test_password_change_revokes_pending_link_and_device_approval(tmp_path, monk
 
 def test_password_change_during_provider_call_prevents_link(tmp_path, monkeypatch):
     client, fake = setup(tmp_path, monkeypatch)
-    account = client.post("/api/v1/auth/register", json={
+    account = register_account(client, json={
         "email": "owner@example.test", "password": "a-long-test-password"}).json()
     headers = {"Authorization": "Bearer " + account["token"]}
     link = client.post("/api/v1/auth/yandex/link/start", headers=headers).json()

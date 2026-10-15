@@ -1,5 +1,6 @@
 """Денежные инварианты: оплата один раз, списание один раз, сбой без списания."""
 
+from server.test_accounts import register_account
 import hashlib
 import hmac
 import json
@@ -70,7 +71,7 @@ def test_saved_retry_budget_cannot_be_reset_by_rereserve(tmp_path, monkeypatch):
 
     url = f"sqlite:///{tmp_path / 'retry.db'}"
     client = TestClient(create_app(database_url=url, ai_client=FakeAI()))
-    created = client.post('/api/v1/auth/register', json={
+    created = register_account(client, json={
         'email': 'retry@example.test', 'password': 'a-long-test-password'}).json()
     headers = {'Authorization': f"Bearer {created['token']}"}
     engine, sessions = make_session_factory(url)
@@ -101,7 +102,7 @@ def test_payment_and_checks_are_idempotent(tmp_path, monkeypatch):
     app = create_app(database_url=f"sqlite:///{tmp_path / 'server.db'}", coinso_client=coinso)
     client = TestClient(app)
 
-    created = client.post("/api/v1/auth/register", json={
+    created = register_account(client, json={
         "email": "USER@example.test", "password": "a-long-test-password",
     })
     assert created.status_code == 201, created.text
@@ -168,7 +169,7 @@ def test_price_change_preserves_existing_reservations(tmp_path, monkeypatch):
     url = f"sqlite:///{tmp_path / 'price-change.db'}"
     monkeypatch.setenv("CHECK_PRICE_KOPEKS", "200")
     old = TestClient(create_app(database_url=url))
-    created = old.post("/api/v1/auth/register", json={
+    created = register_account(old, json={
         "email": "price@example.test", "password": "a-long-test-password",
     }).json()
     headers = {"Authorization": f"Bearer {created['token']}"}
@@ -213,7 +214,7 @@ def test_payment_status_must_match_order(tmp_path, monkeypatch):
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.test")
     coinso = FakeCoinso()
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'server.db'}", coinso_client=coinso))
-    token = client.post("/api/v1/auth/register", json={
+    token = register_account(client, json={
         "email": "user@example.test", "password": "a-long-test-password",
     }).json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
@@ -232,7 +233,7 @@ def test_managed_analysis_is_once_per_reserved_check_and_paid(tmp_path, monkeypa
     coinso, ai = FakeCoinso(), FakeAI()
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'server.db'}",
                                    coinso_client=coinso, ai_client=ai))
-    token = client.post("/api/v1/auth/register", json={
+    token = register_account(client, json={
         "email": "user@example.test", "password": "a-long-test-password",
     }).json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
@@ -269,7 +270,7 @@ def test_arbiter_is_server_owned_idempotent_and_bounded(tmp_path, monkeypatch):
     coinso, ai = FakeCoinso(), FakeArbiterAI()
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'server.db'}",
                                    coinso_client=coinso, ai_client=ai))
-    token = client.post("/api/v1/auth/register", json={
+    token = register_account(client, json={
         "email": "user@example.test", "password": "a-long-test-password",
     }).json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
@@ -312,7 +313,7 @@ def test_failed_arbiter_stops_after_two_attempts(tmp_path, monkeypatch):
     coinso, ai = FakeCoinso(), FailingAI()
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'server.db'}",
                                    coinso_client=coinso, ai_client=ai))
-    token = client.post("/api/v1/auth/register", json={
+    token = register_account(client, json={
         "email": "user@example.test", "password": "a-long-test-password",
     }).json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
@@ -338,7 +339,7 @@ def test_admin_checks_are_unlimited_and_free(tmp_path, monkeypatch):
     monkeypatch.setenv("COINSO_SECRET_KEY", "test-secret")
     url = f"sqlite:///{tmp_path / 'server.db'}"
     client = TestClient(create_app(database_url=url, ai_client=FakeAI()))
-    created = client.post("/api/v1/auth/register", json={
+    created = register_account(client, json={
         "email": "owner@example.test", "password": "a-long-test-password",
     }).json()
     headers = {"Authorization": f"Bearer {created['token']}"}
