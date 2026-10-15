@@ -1,5 +1,16 @@
 # AIRate current project state
 
+## Balance top-up email (2026-10-15, prepared, not deployed)
+
+Real Coinso credits now atomically queue one HTML/plain-text notification per
+order; test/failed payments and older paid orders are excluded. A bounded SMTP
+worker retries known refusals and leaves ambiguous acceptance for inspection.
+The approved visual style uses the current orange logo as embedded PNG, the
+credited amount and balance snapshot, and a cabinet link. See
+[operation and migration gates](docs/topup-emails.md). SMTP.BZ domain approval,
+verified SMTP configuration and rollout of the new additive migration are still
+required before production delivery. Production remains PR59 / 88c0741.
+
 ## Report history and manual verdict correction (2026-10-14, deployed)
 
 Actual scan dates scroll continuously, newest left; compact system icons,
