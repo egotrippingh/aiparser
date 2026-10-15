@@ -915,29 +915,8 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         return issue_session(db, user)
 
     @app.post("/api/v1/auth/register", status_code=201)
-    def register(body: RegistrationIn, request: Request, response: Response,
-                 db: Session = Depends(db_session)) -> dict:
-        source = source_key(request)
-        guard_auth(db, "register", [(source, 10)])
-        record_auth(db, "register", [source])
-        email = _email(body.email)
-        try:
-            promo_code = normalize_code(body.promo_code) if body.promo_code.strip() else ""
-        except ValueError as exc:
-            raise HTTPException(422, str(exc)) from exc
-        user = User(id=uuid.uuid4().hex, email=email, password_hash=hash_password(body.password))
-        db.add(user)
-        db.add(Wallet(user_id=user.id, balance_kopeks=0))
-        try:
-            db.flush()
-        except IntegrityError as exc:
-            db.rollback()
-            raise HTTPException(409, "Аккаунт с таким email уже есть") from exc
-        if promo_code:
-            redeem_promo(db, user.id, promo_code)
-        db.commit()
-        approve_login_connect(db, body.connect_id, user.id)
-        return {**issue_session(db, user, request, response), "agent_connected": bool(body.connect_id)}
+    def register(body: RegistrationIn):
+        raise HTTPException(503, "Регистрация по почте временно недоступна. Попробуйте регистрацию через Яндекс.")
 
     @app.post("/api/v1/auth/login")
     def login(body: Credentials, request: Request, response: Response, db: Session = Depends(db_session)) -> dict:
