@@ -4,7 +4,8 @@ Updated 2026-10-15. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
-- Published and verified 2026-10-15: PR #60, release `ca1f47394367ee74be01738aa9d7222c448ce97d`, schema `20261015_topup_emails`. Real Coinso credits atomically queue HTML/plain-text notifications; SMTP.BZ is active. CI attempt 2, public readiness, pricing and cabinet HTTP checks passed. [Release evidence](https://github.com/egotrippingh/aiparser/pull/60).
+- Published and verified 2026-10-15: PR #61, release `8f6540fe444c18758b58647c385f74342e653bdd`, schema `20261015_email_registration`. Password registration requires an email code; Yandex registration/login remains available. CI attempt 2, public readiness/assets, SMTP TLS/auth and registration guards passed. [Release evidence](https://github.com/egotrippingh/aiparser/pull/61).
+- PR #60 balance top-up notifications remain active through SMTP.BZ; real Coinso credits atomically queue HTML/plain-text email.
 - PR #59 password completion for Yandex registrations, password settings/recovery and promo availability/limits/expiry remain deployed. Password recovery is now available through the verified SMTP configuration.
 - Manual scan and saved-answer recompute use anchored cost popovers with a fresh server quote, cancellation and stale-quote protection. This frontend release does not change billing API or agent version.
 - New scans cost **120 kopeks per query and service** and automatically use fast timings. Saved-answer recompute costs up to **80 kopeks per eligible answer**; failed analysis is skipped without charge. Saving a brand clarification is free and affects future scans. Clarifications/recompute remain gated to the exact `ivoryya` admin account.
@@ -30,7 +31,7 @@ Updated 2026-10-15. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 Corporate mail: support/hello/noreply@airate.tech remain at REG.RU. SMTP.BZ is approved and enabled in production via connect.smtp.bz:2525 STARTTLS; final-container authentication returned 235. The approved demo HTML test to egorjojori@gmail.com was accepted and the user confirmed Inbox delivery. Existing REG.RU MX/DKIM were preserved; merged SPF, SMTP.BZ DKIM and stats CNAME were verified during setup. Tracking is disabled; transactional mode is enabled. Secrets remain in the private local SMTP file and production .env (0600). Earlier Aéza/REG.RU support ticket status was not rechecked.
 
-Prepared, not deployed: email/password registration now requires a one-use six-digit email code (10 minutes, five wrong attempts) through SMTP.BZ and the approved HTML/plain-text template. The cabinet retains its ticket across reloads and explicitly offers Yandex registration. Existing accounts and Yandex sign-in remain available. Migration `20261015_email_registration` is additive; rollout requires a fresh restored-backup rehearsal and a fallback that rejects password registration without proof. See [registration operation](docs/registration-email.md). Password recovery still sends plain text.
+Deployed: six-digit email code, ten-minute expiry, five wrong attempts, resend cooldown and serialized PostgreSQL email/IP sending limits. No account/wallet/session exists before proof; promo/connect errors roll back the complete registration. The cabinet restores pending confirmation after reload and explicitly offers Yandex registration. The approved HTML/plain-text template and embedded logo are connected to SMTP.BZ. Current password recovery still sends plain text. See [registration operation](docs/registration-email.md).
 
 PR #60 is merged and deployed. Reviewed operator rehearsal and live migration preserved all prior rows/columns in 30 tables; the new queue was empty before workers started. A fresh backup was restored/verified before activation. Compatible fallback source 9b32129, image and checksum-verified archive are retained in /opt/airate/releases/mail-20261015. Final CI run 38685256024 attempt 2 passed; production SMTP/auth/recovery/readiness checks passed with no missing/invalid post-cutover notification rows. Detailed evidence is in the PR and private operator folder; local summary: build/mail-release-20261015/release-evidence.json.
 
@@ -48,3 +49,7 @@ Read [AGENTS.md](AGENTS.md) for verification commands and review rules. Historic
 - [Scan timing and benchmark](docs/scan-delays.md), [answer capture/rendering](docs/answer-readability.md)
 - [Coinso integration](docs/coinso.md)
 - [Historical release evidence](docs/project-state-history-2026-10-01.md) (read only for a specific investigation)
+
+Prepared, not deployed: the user clarified the vidnal.ru report as a metric policy change. Absent AI blocks (`skipped`) now count as checks without mentions in cloud reports, comparisons and filters; technical errors remain excluded. Historical data recalculates on read without writes or paid rescans. Expected Yandex result for 2026-10-14: 10/29 = 34.5%. [Metric policy](docs/mention-statistics.md). Next: complete tests/review and publish the PR into production.
+
+Aéza confirmed outbound SMTP blocking; reply draft is prepared but unsent because browser control stopped. REG.RU 465/587 still time out; SMTP.BZ remains active.

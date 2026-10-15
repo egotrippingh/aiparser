@@ -1,6 +1,7 @@
 import io
 import json
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 import pytest
 from sqlalchemy import event
 
@@ -47,13 +48,13 @@ def test_calendar_daily_dedup_filters_and_comparison(tmp_path):
     res = client.get(base, headers=owner, params=args)
     assert res.status_code == 200, res.text
     data = res.json()
-    assert data['summary'] == {'found':3,'checked':4,'issues':1,'skipped':1,'visibility_pct':75.0}
+    assert data['summary'] == {'found':3,'checked':5,'issues':1,'skipped':1,'visibility_pct':60.0}
     assert data['timeline'][1]['visibility_pct'] is None
     assert data['rows'][0]['cells']['2026-09-01']['google_aio']['id'] == ids[1]
     assert data['rows'][2]['cells'] == {}
-    assert data['comparison']['delta'] == -50
+    assert data['comparison']['delta'] == -66.7
     filtered = client.get(base, headers=owner, params={**args,'include_cards':'false','group':''}).json()
-    assert filtered['summary']['found'] == 0 and filtered['summary']['checked'] == 1
+    assert filtered['summary']['found'] == 0 and filtered['summary']['checked'] == 2
     assert filtered['total'] == 1
     assert filtered['rows'][0]['cells']['2026-09-01']['google_aio']['found'] is False
     filtered = client.get(base, headers=owner, params={**args,'service':'chatgpt','search':'Original'}).json()
@@ -75,6 +76,56 @@ def test_calendar_daily_dedup_filters_and_comparison(tmp_path):
     assert detail['answer_text'] == 'Original answer'
     assert client.get(f'{base}/results/{ids[1]}', headers=other).status_code == 404
     assert client.get(f'{base}/export/mentions', headers=other).status_code == 404
+
+
+def test_absent_ai_block_counts_as_no_mention_across_reports(tmp_path, monkeypatch):
+    client, owner, _, _, project, ids, url = seed_report(tmp_path)
+    base = f"/api/v1/control/projects/{project['id']}/mentions"
+    args = {'date_from': '2026-09-03', 'date_to': '2026-09-03',
+            'service': 'google_aio', 'search': 'Dental'}
+    expected = {'found': 0, 'checked': 1, 'issues': 0, 'skipped': 1, 'visibility_pct': 0.0}
+    for suffix in ('', '/overview'):
+        data = client.get(base + suffix, headers=owner, params=args).json()
+        assert data['summary'] == data['timeline'][0]['services']['google_aio'] == expected
+        assert data['timeline'][0]['visibility_pct'] == 0
+        cell = data['rows'][0]['latest']['google_aio'] if suffix else data['rows'][0]['cells']['2026-09-03']['google_aio']
+        assert cell == {'id': ids[5], 'status': 'skipped', 'found': False, **({'date': '2026-09-03'} if suffix else {})}
+        if suffix:
+            assert data['service_stats']['google_aio']['current'] == expected
+            assert data['rows'][0]['trend']['current'] == expected
+        for option in ('include_cards', 'include_external'):
+            filtered = client.get(base + suffix, headers=owner, params={**args, option: 'false'}).json()
+            assert filtered['summary'] == expected
+        compared = client.get(base + suffix, headers=owner, params={**args, 'date_from': '2026-09-01', 'compare': 'true'}).json()
+        assert compared['comparison']['delta'] == -100
+        if suffix:
+            assert compared['trend']['delta'] == -100
+    monkeypatch.setattr('server.app.utcnow', lambda: datetime(2026, 9, 3, tzinfo=timezone.utc))
+    legacy = client.get('/api/v1/reports', headers=owner, params={'project': project['id'], 'days': 3}).json()
+    assert legacy['summary']['found'] == 3 and legacy['summary']['checked'] == 5
+    assert legacy['summary']['visibility_pct'] == 60
+    assert legacy['summary']['by_service']['google_aio'] == {'found': 2, 'checked': 4}
+    assert legacy['summary']['by_date']['2026-09-03'] == {'found': 1, 'checked': 3}
+    wb = load_workbook(io.BytesIO(client.get(base + '/export/mentions', headers=owner, params=args).content))
+    assert wb['Упоминаемость']['C2'].value == 'Нет AI-блока'
+    notes = dict(list(wb['О выгрузке'].values)[1:])
+    assert 'Отсутствие AI-блока считается проверкой без упоминания' in notes['Упоминаемость']
+    # An AI block appearing without the brand must not lower visibility.
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        db.get(CloudResult, ids[5]).status = 'not_found'
+        db.commit()
+    for suffix in ('', '/overview'):
+        after = client.get(base + suffix, headers=owner, params=args).json()['summary']
+        assert after == {**expected, 'skipped': 0}
+
+
+@pytest.mark.parametrize('status', ['error', 'captcha', 'auth_required', 'limit_reached'])
+def test_technical_issues_are_not_negative_measurements(status):
+    from server.reporting import count, empty_stats
+    stats = empty_stats()
+    count(stats, SimpleNamespace(status=status), True)
+    assert stats == {'found': 0, 'checked': 0, 'issues': 1, 'skipped': 0, 'visibility_pct': None}
 
 
 @pytest.mark.parametrize('source,expected', [
@@ -210,12 +261,12 @@ def test_overview_partial_baselines_are_local_to_query_and_service(tmp_path):
     data = client.get(base, headers=owner, params=args).json()
     assert data['service_stats']['google_aio']['previous']['visibility_pct'] == 0
     assert data['service_stats']['google_aio']['relative'] is None
-    assert data['service_stats']['google_aio']['delta'] == 75
+    assert data['service_stats']['google_aio']['delta'] == 60
     assert data['service_stats']['chatgpt']['delta'] is None
     assert data['rows'][0]['trend']['delta'] == 35
     assert data['rows'][1]['trend']['delta'] is None
     filtered = client.get(base, headers=owner, params={**args,'services':'google_aio','include_cards':'false'}).json()
-    assert filtered['trend']['delta'] == 50
+    assert filtered['trend']['delta'] == 40
     compared = client.get(base, headers=owner, params={**args, 'compare':'true', 'services':'google_aio'}).json()
     assert compared['trend']['current']['visibility_pct'] == 0
     assert compared['trend']['previous']['visibility_pct'] == 100
@@ -337,15 +388,15 @@ def test_multiple_systems_filter_statistics_matrix_and_exports(tmp_path):
     data = res.json()
     assert data['services'] == ['google_aio', 'chatgpt', 'alice']
     assert data['available_services'] == ['google_aio', 'chatgpt', 'perplexity', 'alice']
-    assert data['summary']['checked'] == 5 and data['summary']['found'] == 4
-    assert data['summary']['visibility_pct'] == 80
+    assert data['summary']['checked'] == 6 and data['summary']['found'] == 4
+    assert data['summary']['visibility_pct'] == 66.7
     assert data['dates'] == ['2026-09-01', '2026-09-02', '2026-09-03']
     assert data['timeline'][1]['visibility_pct'] is None
     assert all('perplexity' not in day['services'] for day in data['timeline'])
     assert all('perplexity' not in cells for q in data['rows'] for cells in q['cells'].values())
     compared = client.get(base, headers=owner, params={**args, 'compare':'true'}).json()
     assert compared['comparison']['from']['checked'] == 3
-    assert compared['comparison']['delta'] == -50
+    assert compared['comparison']['delta'] == -66.7
     for kind in ('mentions', 'sources'):
         res = client.get(base+'/export/'+kind, headers=owner, params=args)
         assert res.status_code == 200, res.text

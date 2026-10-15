@@ -74,12 +74,11 @@ def empty_stats():
 
 def count(stats, row, cards, own=None, status=None):
     status = status or row.status
-    if status in ("found", "not_found"):
+    if status in ("found", "not_found", "skipped"):
         stats["checked"] += 1
         stats["found"] += int(found(row, cards, own, status))
+        stats["skipped"] += int(status == "skipped")
         stats["visibility_pct"] = round(100 * stats["found"] / stats["checked"], 1)
-    elif status == "skipped":
-        stats["skipped"] += 1
     else:
         stats["issues"] += 1
 
@@ -325,7 +324,7 @@ def workbook(report, project, kind):
     append(notes, ["Группа", "Все группы" if filters["group"] is None else filters["group"] or "Без группы"])
     append(notes, ["ИИ-системы", ", ".join(SERVICES[s] for s in filters["services"])])
     append(notes, ["Поиск", filters["search"]])
-    append(notes, ["Упоминаемость", "Доля ответов с упоминанием среди успешных проверок. Ошибки и отсутствие AI-блока не входят в знаменатель."])
+    append(notes, ["Упоминаемость", "Доля проверок с упоминанием бренда. Отсутствие AI-блока считается проверкой без упоминания. Технические ошибки исключены из расчёта."])
     append(notes, ["Внешние источники", "Сохранённые ссылки из ответов ИИ, без доменов бренда. Контекст — фрагмент ответа ИИ, не цитата с внешнего сайта."])
     if kind == 'source_summary':
         append(notes, ['Источники', 'Только ответы с упоминанием бренда. Несколько ссылок на домен из одного ответа считаются один раз.'])
