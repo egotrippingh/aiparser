@@ -195,3 +195,15 @@ it("filters comparison rows only by the two displayed dates", () => {
   expect(reportRows(rows,"not_found",false,dates)).toEqual([rows[0],rows[1]])
   expect(reportRows(rows,"found",false)).toEqual([rows[0],rows[1]])
 })
+
+it("includes absent AI blocks as no mention in period and comparison filters", () => {
+  const rows = [
+    {trend:{current:{found:0,checked:1}},latest:{yandex_neuro:{status:"skipped",found:false}},cells:{"2026-10-14":{yandex_neuro:{status:"skipped",found:false}}}},
+    {trend:{current:{found:0,checked:0}},latest:{yandex_neuro:{status:"error",found:false}},cells:{"2026-10-14":{yandex_neuro:{status:"error",found:false}}}},
+    {trend:{current:{found:0,checked:0}},latest:{},cells:{}},
+  ] as unknown as Parameters<typeof reportRows>[0]
+  for (const dates of [undefined, ["2026-10-14"]]) {
+    expect(reportRows(rows,"not_found",false,dates)).toEqual([rows[0]])
+    expect(reportRows(rows,"found",false,dates)).toEqual([])
+  }
+})

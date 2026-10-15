@@ -678,7 +678,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         found = 0
         checked = 0
         for row in rows:
-            if row.status not in ("found", "not_found"):
+            if row.status not in ("found", "not_found", "skipped"):
                 continue
             counted = _counts_as_found(row, include_cards=include_cards)
             checked += 1
