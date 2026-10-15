@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react"
-import { CreditCard, LoaderCircle } from "lucide-react"
+import { Coins, CreditCard, LoaderCircle, Smartphone } from "lucide-react"
 import { accountRequest } from "../account-api"
 import { parseRubles, type Payment } from "../lib/payment"
 
@@ -7,7 +7,7 @@ type Method = "sbp" | "crypto"
 type Options = { configured: boolean; testing: boolean; methods: { method: Method; min_kopeks: number; max_kopeks: number; available: boolean }[] }
 const rubles = (value: number) => new Intl.NumberFormat("ru-RU").format(value / 100) + " ₽"
 
-export function TopupForm({ token, minimum }: { token: string; minimum: number }) {
+export function TopupForm({ token, minimum, checkPrice }: { token: string; minimum: number; checkPrice: number }) {
   const [amount, setAmount] = useState(String(minimum / 100))
   const [method, setMethod] = useState<Method>("sbp")
   const [options, setOptions] = useState<Options | null>(null)
@@ -38,18 +38,18 @@ export function TopupForm({ token, minimum }: { token: string; minimum: number }
       location.assign(payment.payment_url)
     } catch (e) { setError(e instanceof Error ? e.message : "Не удалось создать счёт"); setBusy(false) }
   }
+  const methodLabel = method === "crypto" ? "Криптовалюта" : "СБП"
   return <form id="topup" className="cab-panel cab-topup" onSubmit={submit} aria-busy={busy}>
-    <span className="cab-kicker">ПОПОЛНЕНИЕ</span><h2>Добавить средства</h2>
+    <div className="cab-topup-heading"><div><span className="cab-kicker">ПОПОЛНЕНИЕ</span><h2>Выберите сумму и способ оплаты</h2></div></div>
     {options?.testing && <p className="cab-payment-note">Тестовый режим. Оплата имитируется и не меняет баланс.</p>}
     {options && !options.configured ? <p>Оплата пока настраивается. Напишите <a href="https://t.me/egotrippintg" target="_blank" rel="noreferrer">в поддержку</a>.</p> : <>
-      <fieldset disabled={busy || !options}><legend>Способ оплаты</legend>{(["sbp", "crypto"] as Method[]).map(value => <label className="cab-payment-method" key={value}><input type="radio" name="payment-method" checked={method === value} disabled={!options?.methods.some(row => row.method === value && row.available)} onChange={() => {setMethod(value); setError("")}} />{value === "sbp" ? "СБП" : "Криптовалюта"}</label>)}</fieldset>
-      <label htmlFor="topup-amount">Сумма пополнения, ₽<input id="topup-amount" type="text" inputMode="decimal" autoComplete="off" maxLength={9} value={amount} disabled={busy || !selected} aria-describedby="topup-hint" aria-invalid={!!selected && !valid} onChange={event => {setAmount(event.target.value); setError("")}} /></label>
-      <div className="cab-amount-presets" aria-label="Готовые суммы">{[30000, 100000, 300000, 1000000].filter(value => selected && value >= selected.min_kopeks && value <= selected.max_kopeks).map(value => <button key={value} type="button" aria-pressed={total === value} disabled={busy} onClick={() => setAmount(String(value / 100))}>{rubles(value)}</button>)}</div>
-      <small id="topup-hint">{selected ? `От ${rubles(selected.min_kopeks)} до ${rubles(selected.max_kopeks)}. На баланс зачисляется указанная сумма.` : options ? "Для этого проекта пока нет доступных способов оплаты." : "Получаем доступные способы оплаты…"}</small>
-      {selected && !valid && <p className="cab-payment-error" role="status">Введите сумму в указанном диапазоне, не более двух знаков после запятой.</p>}
-      <button className="cab-primary" disabled={!valid || busy}>{busy ? <LoaderCircle size={17} className="cab-payment-spinner" /> : <CreditCard size={17} />}{busy ? "Создаём счёт…" : "Перейти к оплате"}</button>
-      <small>Coinso может добавить комиссию к оплате. Итоговая сумма показывается на его странице до подтверждения платежа; на баланс AIRate поступит выбранная вами сумма.</small>
-      <small>{method === "crypto" ? "Валюту и сеть выберите на защищённой странице Coinso. Сумма счёта указана в рублях." : "Оплатите через приложение своего банка на странице Coinso."} Баланс обновится после подтверждения платежа.</small>
+      <div className="cab-topup-layout"><div className="cab-topup-controls"><fieldset disabled={busy || !options}><legend>Способ оплаты</legend>{(["sbp", "crypto"] as Method[]).map(value => <label className="cab-payment-method" key={value}><input type="radio" name="payment-method" checked={method === value} disabled={!options?.methods.some(row => row.method === value && row.available)} onChange={() => {setMethod(value); setError("")}} /><span className="cab-method-icon" aria-hidden="true">{value === "sbp" ? <Smartphone size={19} /> : <Coins size={19} />}</span><span><b>{value === "sbp" ? "СБП" : "Криптовалюта"}</b><small>{value === "sbp" ? "В приложении банка" : "Валюта и сеть на странице оплаты"}</small></span></label>)}</fieldset>
+        <label htmlFor="topup-amount">Сумма пополнения, ₽<span className="cab-amount-input"><input id="topup-amount" type="text" inputMode="decimal" autoComplete="off" maxLength={9} value={amount} disabled={busy || !selected} aria-describedby="topup-hint" aria-invalid={!!selected && !valid} onChange={event => {setAmount(event.target.value); setError("")}} /><span aria-hidden="true">₽</span></span></label>
+        <div className="cab-amount-presets" aria-label="Готовые суммы">{[30000, 100000, 300000, 1000000].filter(value => selected && value >= selected.min_kopeks && value <= selected.max_kopeks).map(value => <button key={value} type="button" aria-pressed={total === value} disabled={busy} onClick={() => setAmount(String(value / 100))}>{rubles(value)}</button>)}</div>
+        <small id="topup-hint">{selected ? `От ${rubles(selected.min_kopeks)} до ${rubles(selected.max_kopeks)}. Можно указать свою сумму.` : options ? "Для этого проекта пока нет доступных способов оплаты." : "Получаем доступные способы оплаты…"}</small>
+        {selected && !valid && <p className="cab-payment-error" role="status">Введите сумму в указанном диапазоне, не более двух знаков после запятой.</p>}</div>
+        <aside className="cab-payment-summary" aria-label="Итог пополнения"><h3>Ваше пополнение</h3><dl><div><dt>Способ оплаты</dt><dd>{methodLabel}</dd></div><div className="cab-summary-total"><dt>На баланс</dt><dd>{valid && total !== null ? rubles(total) : "—"}</dd></div></dl><p>{valid && total !== null ? checkPrice > 0 ? `≈ ${Math.floor(total / checkPrice)} проверок по ${rubles(checkPrice)}` : "Обычные проверки бесплатны" : "Укажите корректную сумму"}</p><button className="cab-primary" disabled={!valid || busy}>{busy ? <LoaderCircle size={17} className="cab-payment-spinner" /> : <CreditCard size={17} />}{busy ? "Создаём счёт…" : "Перейти к оплате"}</button><small>Платёжный сервис может взимать комиссию. Итоговую сумму вы увидите до подтверждения оплаты. На баланс поступит выбранная сумма.</small></aside></div>
+      <p className="cab-payment-note">{method === "crypto" ? "Валюту и сеть выберите на странице оплаты. Сумма счёта указана в рублях." : "Оплата откроется на странице оплаты. Выберите банк и подтвердите платёж в его приложении."} Баланс обновится после подтверждения платежа.</p>
     </>}
     {error && <div className="cab-payment-error" role="alert">{error}{!options && <button type="button" className="cab-refresh" onClick={() => setRetry(value => value + 1)}>Повторить</button>}</div>}
   </form>
