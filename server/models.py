@@ -173,6 +173,21 @@ class PaymentOrder(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class TopupEmail(Base):
+    __tablename__ = "topup_emails"
+    __table_args__ = (Index("ix_topup_emails_due", "status", "next_attempt_at"),)
+
+    order_id: Mapped[str] = mapped_column(ForeignKey("payment_orders.id"), primary_key=True)
+    email: Mapped[str] = mapped_column(String(190))
+    amount_kopeks: Mapped[int] = mapped_column(Integer)
+    balance_kopeks: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class Check(Base):
     __tablename__ = "checks"
     __table_args__ = (UniqueConstraint("user_id", "client_check_id"),)
