@@ -1,0 +1,103 @@
+.cab-auth-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  min-height: calc(100vh - 210px);
+  place-items: center;
+  padding: 32px 24px 72px;
+}
+
+.cab-auth-page { display: flex; flex-direction: column; }
+.cab-auth-page > .cab-main { width: 100%; max-width: none; padding: 0; flex: 1; }
+.cab-auth-page .cab-header { background: var(--air-panel); backdrop-filter: none; }
+.cab-auth-page .cab-header-inner { justify-content: space-between; }
+.cab-auth-footer { display: flex; justify-content: space-between; gap: 16px; padding: 18px 48px 26px; color: var(--air-muted); font-size: 12px; }
+.cab-auth-message { margin: 0; font-size: 13px; line-height: 1.6; color: var(--air-muted); }
+
+.cab-auth-wrap .cab-auth {
+  display: grid;
+  gap: 20px;
+  width: min(100%, 376px);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.cab-auth-heading h1 { margin: 0 0 10px; color: var(--air-text); font-size: 29px; font-weight: 600; letter-spacing: -.85px; }
+.cab-auth-heading p { margin: 0; color: var(--air-muted); font-size: 14px; line-height: 1.6; }
+.cab-auth label, .cab-password-field { display: grid; gap: 8px; color: var(--air-text); font-size: 13px; font-weight: 500; }
+.cab-auth input, .app-account .cab-topup input:not([type=radio]), .app-account .cab-promo input, .app-account .cab-password-form input { width: 100%; min-height: 46px; padding: 10px 13px; border: 1px solid var(--air-line-strong); border-radius: 7px; background: var(--air-panel); color: var(--air-text); font: inherit; }
+.cab-auth input:focus, .app-account .cab-topup input:focus, .app-account .cab-promo input:focus, .app-account .cab-password-form input:focus { border-color: var(--air-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--air-accent) 10%, transparent); }
+.cab-yandex { min-height: 48px; border-color: var(--air-line-strong); border-radius: 8px; background: var(--air-panel); color: var(--air-text); font-weight: 600; }
+.cab-yandex:hover:not(:disabled) { background: var(--air-line); border-color: var(--air-line-strong); }
+.cab-yandex-mark { width: 24px; height: 24px; background: transparent; }
+.cab-yandex-mark svg { display: block; width: 24px; height: 24px; }
+.cab-help { color: var(--air-muted); font-size: 13px; }
+.cab-help:hover { color: var(--air-text); text-decoration: underline; text-underline-offset: 4px; }
+.cab-provider-note { margin: -10px 0 0; color: var(--air-quiet); font-size: 12px; line-height: 1.5; text-align: center; }
+.cab-auth-divider { margin: 6px 0; color: var(--air-quiet); }
+.cab-auth-divider:before, .cab-auth-divider:after { background: var(--air-line); }
+.cab-inline-link, .cab-back { padding: 0; border: 0; background: none; color: #b63d21; font: inherit; font-size: 13px; font-weight: 500; text-align: left; }
+.cab-inline-link:hover, .cab-back:hover { text-decoration: underline; text-underline-offset: 4px; }
+.cab-back { min-height: 24px; }
+.cab-code-actions { display: flex; justify-content: space-between; gap: 12px; }
+.cab-promo-details { font-size: 13px; color: var(--air-muted); }
+.cab-promo-details summary { cursor: pointer; }
+.cab-promo-details[open] label { margin-top: 14px; }
+.cab-password-field > span, .cab-amount-input { position: relative; display: block; }
+.cab-password-field input { padding-right: 49px; }
+.cab-password-toggle { position: absolute; right: 3px; top: 3px; display: grid; place-items: center; width: 40px; height: 40px; border: 0; background: transparent; color: var(--air-muted); }
+.cab-auth .cab-primary, .app-account .cab-primary { min-height: 46px; border-radius: 7px; background: var(--air-text); color: #fff; font-weight: 600; }
+.cab-auth .cab-primary:hover:not(:disabled), .app-account .cab-primary:hover:not(:disabled) { background: #153d75; }
+
+.app-account { font-family: Onest, "Segoe UI", sans-serif; }
+.app-account .cab-title-row { align-items: start; margin-bottom: 32px; }
+.app-account .cab-title-row h2 { color: var(--air-text); font-size: 30px; font-weight: 600; }
+.cab-available { min-width: 190px; padding: 6px 0; border: 0; background: transparent; }
+.cab-available span, .cab-available small { display: block; color: var(--air-muted); font-size: 12px; }
+.cab-available small { display: block; margin-top: 5px; max-width: 42ch; line-height: 1.6; }
+.cab-available strong { display: block; margin-top: 5px; color: var(--air-text); font-size: 19px; font-weight: 500; }
+.app-account .cab-billing-grid { display: block; border-top: 1px solid var(--air-line); padding-top: 32px; }
+.air-app .app-account .cab-topup { margin-bottom: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.app-account .cab-topup h2 { color: var(--air-text); font-size: 15px; font-weight: 600; }
+.app-account .cab-topup-layout { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 48px; margin-top: 22px; }
+.app-account .cab-topup-controls { display: grid; align-content: start; gap: 14px; min-width: 0; }
+.app-account .cab-topup-controls > label { display: grid; gap: 8px; font-size: 13px; }
+.app-account .cab-topup fieldset { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 0 14px; }
+.app-account .cab-topup .cab-payment-method { display: flex; align-items: start; gap: 9px; padding: 14px 12px; border-color: var(--air-line); border-radius: 7px; background: var(--air-panel); }
+.app-account .cab-topup .cab-payment-method input { flex: 0 0 16px; width: 16px; height: 16px; min-height: 16px; margin: 3px 0 0; padding: 0; }
+.app-account .cab-payment-method b, .app-account .cab-payment-method small { display: block; }
+.app-account .cab-payment-method b { font-size: 14px; font-weight: 600; }
+.app-account .cab-payment-method small { margin-top: 4px; font-size: 11px; line-height: 1.5; }
+.app-account .cab-topup .cab-payment-method:has(input:checked) { border-color: var(--air-accent); background: color-mix(in srgb, var(--air-accent) 8%, var(--air-panel)); }
+.app-account .cab-method-icon { flex-shrink: 0; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 7px; background: var(--air-raised); color: #b63d21; }
+.app-account .cab-amount-input input { padding-right: 40px; font-size: 22px; height: 56px; font-variant-numeric: tabular-nums; }
+.cab-amount-input > span { position: absolute; right: 16px; top: 16px; color: var(--air-muted); font-size: 20px; }
+.app-account .cab-payment-summary { display: grid; align-self: start; align-content: start; gap: 16px; padding: 24px; border: 1px solid var(--air-line); border-radius: 9px; background: var(--air-panel); }
+.app-account .cab-payment-summary h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.app-account .cab-payment-summary dl { margin: 0; }
+.app-account .cab-payment-summary dl > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 0; color: var(--air-muted); font-size: 13px; }
+.app-account .cab-payment-summary dd { margin: 0; color: var(--air-text); }
+.app-account .cab-summary-total { border-top: 1px solid var(--air-line); }
+.app-account .cab-summary-total dd { font-size: 24px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.app-account .cab-payment-summary p, .app-account .cab-payment-summary small { margin: 0; color: var(--air-muted); font-size: 12px; line-height: 1.65; }
+.app-account .cab-payment-note { max-width: 58ch; border: 0; background: transparent; padding: 0; }
+.app-account .cab-account-tools { display: grid; gap: 24px; border-top: 1px solid var(--air-line); grid-template-columns: 1fr; margin-top: 28px; padding-top: 22px; }
+.air-app .app-account .cab-account-tools > .cab-panel { margin-bottom: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.air-app .app-account .cab-account-tools > .cab-panel:not(.cab-promo) { border-top: 1px solid var(--air-line); padding-top: 22px; }
+.app-account .cab-promo-form { margin: 12px 0 0; }
+
+@media (max-width: 1100px) {
+  .app-account .cab-topup-layout, .app-account .cab-account-tools { grid-template-columns: 1fr; }
+  .app-account .cab-topup-layout { gap: 28px; }
+}
+
+@media (max-width: 480px) {
+  .cab-auth-footer { padding: 18px 24px 26px; }
+  .cab-auth-wrap { padding: 26px 24px 48px; }
+  .app-account .cab-topup fieldset { grid-template-columns: 1fr; }
+  .cab-available small { white-space: normal; }
+  .cab-code-actions { align-items: start; flex-direction: column; }
+}

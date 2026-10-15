@@ -1,6 +1,10 @@
 export const EMAIL_PROOF_KEY = "airate.registration"
 export type EmailProof = {email: string; ticket: string; expiresAt: number; resendAt: number}
 
+export function needsRegistrationPassword(ticket: string, restored: boolean, password: string, confirmation: string) {
+  return !ticket || restored || password.length < 12 || password !== confirmation
+}
+
 export function restoreEmailProof(raw: string | null, now = Date.now()): EmailProof | null {
   try {
     const value = JSON.parse(raw || "null")
