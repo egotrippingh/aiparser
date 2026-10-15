@@ -164,6 +164,9 @@ def test_yandex_http_flow_uses_code_pkce_and_profile_header():
     url = urlparse(oauth.authorize_url("state", "test-verifier"))
     params = parse_qs(url.query)
     assert params["response_type"] == ["code"]
+    assert params["force_confirm"] == ["yes"]
+    assert params["state"] == ["state"]
+    assert params["redirect_uri"] == ["https://example.test/callback"]
     assert params["code_challenge_method"] == ["S256"]
     assert params["code_challenge"] == [challenge("test-verifier")]
     assert oauth.profile("test-code", "test-verifier")["id"] == "123"

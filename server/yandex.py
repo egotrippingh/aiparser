@@ -32,6 +32,7 @@ class YandexOAuth:
             "client_id": self.client_id,
             "redirect_uri": self.redirect_uri,
             "scope": "login:info login:email",
+            "force_confirm": "yes",
             "state": state,
             "code_challenge": challenge(verifier),
             "code_challenge_method": "S256",
