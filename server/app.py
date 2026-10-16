@@ -1369,6 +1369,16 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
     if (web_dir / "index.html").exists():
         app.mount("/assets", StaticFiles(directory=web_dir / "assets"), name="assets")
 
+        @app.api_route("/robots.txt", methods=["GET", "HEAD"], include_in_schema=False)
+        def robots() -> FileResponse:
+            return FileResponse(web_dir / "robots.txt", media_type="text/plain",
+                                headers={"Cache-Control": "no-cache"})
+
+        @app.api_route("/sitemap.xml", methods=["GET", "HEAD"], include_in_schema=False)
+        def sitemap() -> FileResponse:
+            return FileResponse(web_dir / "sitemap.xml", media_type="application/xml",
+                                headers={"Cache-Control": "no-cache"})
+
         @app.get("/", include_in_schema=False)
         def landing() -> FileResponse:
             return FileResponse(web_dir / "index.html", headers={"Cache-Control": "no-cache"})
@@ -1380,17 +1390,20 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         @app.get("/terms/", include_in_schema=False)
         @app.get("/terms", include_in_schema=False)
         def terms_page() -> FileResponse:
-            return FileResponse(web_dir / "terms" / "index.html", headers={"Cache-Control": "no-cache"})
+            return FileResponse(web_dir / "terms" / "index.html",
+                                headers={"Cache-Control": "no-cache", "X-Robots-Tag": "noindex, follow"})
 
         @app.get("/privacy/", include_in_schema=False)
         @app.get("/privacy", include_in_schema=False)
         def privacy_page() -> FileResponse:
-            return FileResponse(web_dir / "privacy" / "index.html", headers={"Cache-Control": "no-cache"})
+            return FileResponse(web_dir / "privacy" / "index.html",
+                                headers={"Cache-Control": "no-cache", "X-Robots-Tag": "noindex, follow"})
 
         @app.get("/cabinet/", include_in_schema=False)
         @app.get("/cabinet", include_in_schema=False)
         def cabinet() -> FileResponse:
-            return FileResponse(web_dir / "cabinet" / "index.html", headers={"Cache-Control": "no-cache"})
+            return FileResponse(web_dir / "cabinet" / "index.html",
+                                headers={"Cache-Control": "no-cache", "X-Robots-Tag": "noindex, follow"})
 
     from contextlib import asynccontextmanager
     if coinso_client and os.environ.get("APP_ENV") == "production":

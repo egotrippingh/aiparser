@@ -30,10 +30,11 @@ const services = [
 ]
 
 function ScannerLayer() {
-  const [reduced, setReduced] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+  const [reduced, setReduced] = useState(true)
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)")
     const update = () => setReduced(media.matches)
+    update()
     media.addEventListener("change", update)
     return () => media.removeEventListener("change", update)
   }, [])
