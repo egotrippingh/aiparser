@@ -15,8 +15,10 @@ not an authority on runtime behavior or permission to run a paid extraction.
    Dynamic routes/DI and some TS test code may not have useful AST edges.
 3. If the graph is absent/stale and an index would help, run
    `graphify extract . --code-only --no-cluster --max-workers 2`.
-   After success save `git rev-parse HEAD` to `graphify-out/source-commit.txt`.
-   Check both that SHA and source changes/untracked files before later reuse.
+   Only after success save `git rev-parse HEAD` to `graphify-out/source-commit.txt`
+   and `git branch --show-current` to `graphify-out/source-branch.txt`.
+   Check both markers and source changes/untracked files before later reuse; never
+   stamp the current branch on a graph copied from a different checkout.
 4. If Graphify is unavailable or misses the symbol, continue with `rg`; do not
    install tools, rebuild repeatedly or read all `graph.json` to solve a one-file task.
 
@@ -24,6 +26,10 @@ Keep `graphify-out/` out of Git. Do not index private data, profiles, secrets,
 generated assets or dependencies. SQL extraction needs the optional `sql` extra;
 without it inspect schema sources directly. An absent graph result is not proof
 that a caller/dependency does not exist.
+
+After a completed source change, refresh once with `graphify update .` and record
+both markers only on success. No rebuild per edit. `scripts/release_status.py`
+reports provenance without refreshing; a dirty checkout remains unverified.
 
 Installation: official package `graphifyy`, executable `graphify`. This project
 verified 0.9.80. In an already-open Windows shell use

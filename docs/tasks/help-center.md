@@ -5,6 +5,9 @@
 - Base: `origin/production` at `8a37da3cc1b3f40947dd7587ed8f553ceab7f787`.
 - Branch: `codex/help-center`; isolated managed worktree. The original checkout's
   unrelated uncommitted work is preserved.
+- Synchronized with newer production `0a80911` (PR #67 workflow improvements);
+  resolved only project-state documentation. Application files remained identical;
+  21 release-status/delivery regression checks passed after synchronization.
 - Authority: user approved the proposed content, public access, implementation and
   preview. Prepare a PR into `production`; publication is not yet authorized.
 

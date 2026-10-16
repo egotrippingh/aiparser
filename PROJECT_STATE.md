@@ -4,23 +4,27 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
-- Published: [PR #70](https://github.com/egotrippingh/aiparser/pull/70), release
-  `8a37da3cc1b3f40947dd7587ed8f553ceab7f787`. Homepage prerendering, metadata,
-  social cards and crawler policy are active; CI/deploy passed and live readiness
-  matched this SHA on 2026-10-16. [Evidence](https://github.com/egotrippingh/aiparser/actions/runs/38941999184).
-- PR #69's parallel backend/frontend gates,
+- Published and readiness verified: [PR #70](https://github.com/egotrippingh/aiparser/pull/70),
+  release `8a37da3cc1b3f40947dd7587ed8f553ceab7f787`. Homepage metadata, canonical/social
+  cards, WebSite markup, build-time rendering, robots/sitemap and utility-page noindex.
+  [Deployment evidence](https://github.com/egotrippingh/aiparser/actions/runs/38941999184).
+  [SEO policy and checks](docs/seo.md). Actual search indexing remains unverified.
+- Published and verified: [PR #69](https://github.com/egotrippingh/aiparser/pull/69),
+  release `5c9ac1aea27802ae2dd00ba61856d3fedae95080`. Parallel backend/frontend gates,
   cached Docker layers and reuse of the tested image are active. Existing backup,
   isolated restore, migration, readiness and rollback gates remain.
 - Session-expiry fixes from PR #68 and retired desktop routes from PR #66 remain live.
+- `production` also includes merged [PR #67](https://github.com/egotrippingh/aiparser/pull/67)
+  at `0a80911`: preview/scoped-check rules, Graphify provenance and the on-demand
+  release-status script. Deployment of that SHA was not rechecked in this task.
 
 ## Prepared, not published
 
-- `codex/help-center`: shared header link styles/email support and eight public
+- [PR #71](https://github.com/egotrippingh/aiparser/pull/71), `codex/help-center`:
+  shared header link styles/email support and eight public
   Fumadocs guides with full HTML, static search, mobile navigation and sitemap.
   [Scope and verification](docs/tasks/help-center.md), [SEO policy](docs/seo.md).
   Preview/implementation approved; publication requires separate authorization.
-- [PR #67](https://github.com/egotrippingh/aiparser/pull/67) contains separate workflow
-  documentation/tooling improvements; it is outside the SEO release scope.
 
 ## Architecture and operating rules
 
