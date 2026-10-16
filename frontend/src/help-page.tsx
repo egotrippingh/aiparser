@@ -10,6 +10,7 @@ import { RootProvider } from "fumadocs-ui/provider/base"
 import { PublicSiteHeader } from "./site-header"
 import { SiteFooter, SUPPORT_EMAIL } from "./site-footer"
 import { HELP_ARTICLES, helpHref, type HelpArticle } from "./help-content"
+import { ProjectVideo } from "./help-video"
 
 const tree = { name: "Справка AIRate", children: HELP_ARTICLES.map(article => ({ type: "page" as const, name: article.label, url: helpHref(article) })) }
 const searchLinks = HELP_ARTICLES.map(article => ({ type: "page" as const, id: article.slug, content: article.label, url: helpHref(article) }))
@@ -78,6 +79,7 @@ export function HelpPage({ article }: { article: HelpArticle }) {
             <DocsBody>
               {article.sections.map(section => <section key={section.id}>
                 <h2 id={section.id}><a href={`#${section.id}`}>{section.title}</a></h2>
+                {article.slug === "quick-start" && section.id === "project" && <ProjectVideo />}
                 {section.body.map(paragraph => <p key={paragraph}>{paragraph}</p>)}
                 {section.steps && <ol>{section.steps.map(step => <li key={step}>{step}</li>)}</ol>}
                 {section.code && <pre><code>{section.code}</code></pre>}

@@ -13,7 +13,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), {
     name: 'prerender-public-pages',
     apply: 'build',
-    async closeBundle() {
+    async writeBundle() {
       const server = await createServer({
         configFile: false,
         root: import.meta.dirname,

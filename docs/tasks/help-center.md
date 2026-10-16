@@ -9,7 +9,7 @@
   resolved only project-state documentation. Application files remained identical;
   21 release-status/delivery regression checks passed after synchronization.
 - Authority: user approved the proposed content, public access, implementation and
-  preview. Prepare a PR into `production`; publication is not yet authorized.
+  preview. User subsequently authorized deployment; PR #71 is published and verified.
 
 ## Scope and acceptance
 
@@ -50,4 +50,16 @@
 - Detailed local logs/screenshots are ignored under
   `graphify-out/qa/help-center-20261016/`; PR records the delivered revision/CI.
 
-Next: review the interactive preview and PR checks. Publication is not authorized.
+Published 2026-10-16 as `203a6023a8f4e1acc59181a89e57176abff48b75` after user
+deployment authorization. Production CI, backup/isolated restore and activation
+passed. Live readiness matches SHA; all eight articles, 11 linked assets, search,
+sitemap and browser navigation/support passed smoke. Detailed evidence is in
+[PR #71](https://github.com/egotrippingh/aiparser/pull/71).
+
+Follow-up: user supplied `createproject.mp4` (54.43s, 1720×1080, 7,091,984 bytes)
+for the quick-start section directly after «Создайте проект». User requested no
+native controls: click/keyboard play-pause, a small paused Play indicator and an
+iPhone-style seek slider. Scrubbing preserves the previous playback state.
+Source video is unchanged; static delivery uses HTTP ranges and metadata preload.
+
+Next: verify the video update and publish it through a PR; indexing remains open.
