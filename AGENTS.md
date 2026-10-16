@@ -45,6 +45,12 @@ already given; do not ask again. A code push alone is not a production-release r
 
 ## Checks and current state
 
+- Use installed `gh` with its saved login for GitHub operations. Do not extract Git
+  credentials or build token wrappers while that login works. Check `gh auth status`
+  only on an authentication error/account change; repeat login only if needed.
+  Network/proxy errors are not proof of expired credentials. On Windows, reuse the
+  enabled system proxy for the current process if necessary; do not change global
+  proxy settings or put tokens/proxy credentials in the repository.
 - Small copy/visual edits: one implementer and the affected viewport or build check.
   Behavior changes: deterministic regression checks; substantial changes also need
   independent review. Money/auth/migrations/data loss also need focused risk review.

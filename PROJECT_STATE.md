@@ -4,7 +4,7 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
-- Prepared 2026-10-16: session-expiry fix ported from `main` commit `619ac9c` onto production `28972c5`. One login notice replaces concurrent 401 banners; password rejection/rotation and stale responses are covered. 103 frontend tests, lint/build, disposable browser expiry check (one notice, no remaining dashboard) and focused independent auth review passed. Release remains pending CI/deployment.
+- Published and verified 2026-10-16: [PR #68](https://github.com/egotrippingh/aiparser/pull/68), release `cbb9d522b3cd7acc050709caba444680d96bb9aa`. Expired sessions show one login notice; current-password rejection and stale responses after cookie rotation are covered. 103 frontend tests, 403 server/support tests, independent reviews, disposable browser check, isolated backup restore, exact live readiness and six JS/CSS asset hashes passed. Existing user sessions were not forcibly expired for live testing. [Deployment evidence](https://github.com/egotrippingh/aiparser/actions/runs/38937559238).
 
 - Published and verified: [PR #66](https://github.com/egotrippingh/aiparser/pull/66),
   release `28972c5157e5c1fd0123703d07db5d993f8a93f7`; schema unchanged

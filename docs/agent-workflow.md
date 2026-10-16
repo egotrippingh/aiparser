@@ -162,6 +162,14 @@ local branch/SHA, origin's current production ref, the branch PR, delivery workf
 runs for the exact local/production SHAs and public `/api/v1/ready`. It changes no
 refs/files, does not deploy and starts no scans, payments, watchers or notifications.
 
+Use `gh`'s saved login/keyring directly; do not wrap commands in Git credential
+extraction or inject a second token while normal login works. Check `gh auth status`
+on an authentication failure or account change, not before every command. A network
+timeout/EOF is a transport failure, not a reason to repeat OAuth. Windows CLI tools
+may need the enabled system proxy copied into `HTTPS_PROXY`/`HTTP_PROXY` for that
+process. Discover the current setting when necessary; do not hard-code workstation
+ports, print credentials, change global proxy settings or store secrets in this repo.
+
 Exit 0 means the queried remote delivery evidence and readiness matched; it does not
 mean the local branch is deployed. Missing tools/authentication, no workflow run,
 pending/failed CI or a production/readiness mismatch exit 1 and remain explicitly
