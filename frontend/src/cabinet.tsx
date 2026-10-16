@@ -10,7 +10,7 @@ import { ControlCenter } from "./control-center"
 import "./cabinet.css"
 import "./account-refresh.css"
 import { AccountBalance } from "./components/account-balance"
-import { Brand } from "./brand"
+import { SiteHeader } from "./site-header"
 import { TopupForm } from "./components/topup-form"
 import { PasswordSettings } from "./components/password-settings"
 import { paymentLabel, type Payment } from "./lib/payment"
@@ -50,7 +50,7 @@ function Cabinet() {
   const [registrationTicket, setRegistrationTicket] = useState(() => new URLSearchParams(location.hash.slice(1)).get("registration_ticket") || "")
   const [savedEmailProof, setSavedEmailProof] = useState(() => restoreEmailProof(sessionStorage.getItem(EMAIL_PROOF_KEY)))
   const [authMode, setAuthMode] = useState<"login" | "register" | "forgot" | "reset" | "yandex-register">(() =>
-    new URLSearchParams(location.hash.slice(1)).has("reset_token") ? "reset" : savedEmailProof ? "register" : "login")
+    new URLSearchParams(location.hash.slice(1)).has("reset_token") ? "reset" : savedEmailProof || new URLSearchParams(location.search).has("register") ? "register" : "login")
   const [email, setEmail] = useState(savedEmailProof?.email || "")
   const [password, setPassword] = useState("")
   const [confirmation, setConfirmation] = useState("")
@@ -310,7 +310,7 @@ function Cabinet() {
         {(wallet?.entries.length || !user.is_admin) && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ИСТОРИЯ</span><h2>Операции по балансу</h2></div><button onClick={walletChanged} className="cab-refresh">Обновить</button></div>{wallet?.entries.length ? <div className="cab-list">{wallet.entries.map((entry) => <div className="cab-entry" key={entry.reference}><span className={entry.amount_kopeks > 0 ? "cab-entry-icon in" : "cab-entry-icon out"}>{entry.amount_kopeks > 0 ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}</span><span><b>{entry.kind === "topup" ? "Пополнение" : entry.kind === "recompute" ? "Пересчёт ответа" : "Проверка запроса"}</b><small>{new Date(entry.created_at).toLocaleString("ru-RU")}</small></span><strong className={entry.amount_kopeks > 0 ? "positive" : ""}>{entry.amount_kopeks > 0 ? "+" : ""}{money(entry.amount_kopeks)}</strong></div>)}</div> : <p className="cab-empty">Пока нет операций по денежному балансу.</p>}</section>}
         {payments.some((p) => p.status === "pending") && <p className="cab-pending">Есть незавершённое пополнение. Если вы уже оплатили, нажмите «Обновить» после возврата на сайт.</p>}</div>}/>
   return <div className="cabinet cab-auth-page">
-    <header className="cab-header"><div className="cab-container cab-header-inner"><Brand className="cab-brand"/><a className="cab-help" href="https://t.me/egotrippintg" target="_blank" rel="noopener noreferrer">Поддержка</a></div></header>
+    <SiteHeader onLogin={() => {if (!busy) {setAuthMode("login"); setResetToken(""); setRegistrationTicket(""); setPassword(""); setConfirmation(""); setMessage("")}}} onRegister={() => {if (!busy) {setAuthMode("register"); setResetToken(""); setRegistrationTicket(""); setPassword(""); setConfirmation(""); setMessage("")}}}/>
     <main className="cab-container cab-main">{checkingSession ? <p role="status">Открываем кабинет…</p> : <section className="cab-auth-wrap"><form className="cab-panel cab-auth" onSubmit={authenticate}>
           {authMode !== "login" && <button className="cab-back" type="button" disabled={busy} onClick={() => { setAuthMode("login"); setResetToken(""); setRegistrationTicket(""); setPassword(""); setConfirmation(""); setMessage("") }}>← Вернуться ко входу</button>}
           <div className="cab-auth-heading"><h1>{authMode === "login" ? "Вход в аккаунт" : confirmingEmail ? "Проверьте почту" : authMode === "register" ? "Создать аккаунт" : authMode === "forgot" ? "Забыли пароль?" : authMode === "reset" ? "Новый пароль" : "Завершите регистрацию"}</h1>

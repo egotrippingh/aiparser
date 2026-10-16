@@ -13,8 +13,7 @@ import {
 
 import "./landing.css"
 import { SiteFooter } from "./site-footer"
-import { Brand } from "./brand"
-import { NewsLink } from "./news-link"
+import { PublicSiteHeader } from "./site-header"
 import { ProductPrinciples } from "./product-principles"
 import Scanner from "./components/reactbits/Scanner"
 import SpotlightCard from "./components/reactbits/SpotlightCard"
@@ -119,28 +118,7 @@ function ReportPreview() {
 export function LandingPage() {
   return (
     <div className="landing" id="top">
-      <header className="site-header">
-        <div className="site-container header-inner">
-          <Brand className="brand" href="#top" />
-          <nav className="desktop-nav" aria-label="Навигация по странице">
-            <a href="#how">Как работает</a>
-            <a href="#approach">Наш подход</a>
-            <a href="#faq">Вопросы</a>
-            <a href={APP_URL}>Личный кабинет</a>
-          </nav>
-          <NewsLink />
-          <a className="header-cta" href={APP_URL}>Открыть кабинет <ArrowUpRight size={16} aria-hidden="true" /></a>
-          <details className="mobile-nav">
-            <summary>Меню <ChevronDown size={16} aria-hidden="true" /></summary>
-            <nav aria-label="Мобильная навигация">
-              <a href="#how">Как работает</a>
-              <a href="#approach">Наш подход</a>
-              <a href="#faq">Вопросы</a>
-              <a href={APP_URL}>Личный кабинет</a>
-            </nav>
-          </details>
-        </div>
-      </header>
+      <PublicSiteHeader/>
 
       <main>
         <section className="hero" aria-labelledby="hero-title">
