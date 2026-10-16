@@ -4,6 +4,11 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
+- Published and readiness verified: [PR #70](https://github.com/egotrippingh/aiparser/pull/70),
+  release `8a37da3cc1b3f40947dd7587ed8f553ceab7f787`. Homepage metadata, canonical/social
+  cards, WebSite markup, build-time rendering, robots/sitemap and utility-page noindex.
+  [Deployment evidence](https://github.com/egotrippingh/aiparser/actions/runs/38941999184).
+  [SEO policy and checks](docs/seo.md). Actual search indexing remains unverified.
 - Published and verified: [PR #69](https://github.com/egotrippingh/aiparser/pull/69),
   release `5c9ac1aea27802ae2dd00ba61856d3fedae95080`. Parallel backend/frontend gates,
   cached Docker layers and reuse of the tested image are active. Existing backup,
@@ -13,12 +18,11 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Prepared, not published
 
-- `codex/homepage-seo`: homepage metadata/canonical/social cards and WebSite markup,
-  build-time rendering, public robots/sitemap and utility-page noindex.
-  [SEO policy and checks](docs/seo.md). Independent review found no blockers;
-  final CI/deployment evidence will be recorded in the delivery PR.
-- [PR #67](https://github.com/egotrippingh/aiparser/pull/67) contains separate workflow
-  documentation/tooling improvements; it is outside the SEO release scope.
+- [PR #67](https://github.com/egotrippingh/aiparser/pull/67): preview/approval rules,
+  scoped checks, audit acceptance lists, Graphify provenance, saved `gh` login and
+  on-demand `scripts/release_status.py`. 17 deterministic checks and independent
+  review passed; current CI evidence is in the PR. Merge/publication authorized by
+  the user; latest production changes are preserved.
 
 ## Architecture and operating rules
 
@@ -43,5 +47,5 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Complete SEO CI, merge into `production`, then verify the exact live release and
-public crawler responses. See [delivery](deploy/DELIVERY.md).
+Complete PR #67 checks, merge into `production` and verify its exact release through
+the existing delivery gates. See [delivery](deploy/DELIVERY.md).
