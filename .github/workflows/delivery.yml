@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  checks:
-    name: Tests and build
+  backend:
+    name: Backend checks
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     services:
@@ -35,11 +35,6 @@ jobs:
           cache-dependency-path: |
             scripts/requirements-ci.txt
             server/requirements.txt
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
       - run: pip install -r scripts/requirements-ci.txt
       - run: python -m pytest server -q --ignore=server/test_browser_addons.py --ignore=server/test_installed_data.py
         env:
@@ -47,26 +42,15 @@ jobs:
       - run: python -m pytest tests/test_telemetry.py -q
       - run: python -m pytest tests/test_brand_clarification.py -q
       - run: python -m pytest tests/test_xmlriver_text.py tests/test_rules.py tests/test_llm_parse.py -q
+      - run: python -m pytest tests/test_delivery_workflow.py -q
       - run: bash -n deploy/release.sh deploy/ssh-gate.sh deploy/provision-ubuntu.sh deploy/setup-delivery.sh
       - name: Validate proxy configuration
         run: docker run --rm -e DOMAIN=airate.test -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-      - run: npm ci && npm test && npm run lint && npm run build
-        working-directory: frontend
-      - name: Verify server image without desktop dependencies
-        run: |
-          docker build -t airate-server:ci -f server/Dockerfile .
-          docker run --rm -e APP_ENV=test -e DATABASE_URL=sqlite:////tmp/account.db --entrypoint python airate-server:ci -c 'from server.app import app; from server.cloud_scans import cloud_tick; assert app and cloud_tick'
 
-  deploy:
-    name: Deploy production
-    needs: checks
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/production'
+  frontend:
+    name: Frontend checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    environment: production
-    concurrency:
-      group: airate-production
-      cancel-in-progress: false
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -76,13 +60,103 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Build frontend from the tested commit
-        run: npm ci && npm run build
+      - run: npm ci && npm test && npm run lint && npm run build
         working-directory: frontend
-      - name: Build release image
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: airate-web-${{ github.sha }}
+          path: web/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  image:
+    name: Build server image
+    needs: frontend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      release_sha256: ${{ steps.archive.outputs.release_sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Remove tracked website output
+        run: git rm -r --ignore-unmatch web
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: airate-web-${{ github.sha }}
+          path: web/
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - name: Build tested server image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: server/Dockerfile
+          load: true
+          tags: airate-web:${{ github.sha }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=airate-server
+          cache-to: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/production' && 'type=gha,mode=max,scope=airate-server' || '' }}
+      - name: Verify server image without desktop dependencies
+        run: docker run --rm -e APP_ENV=test -e DATABASE_URL=sqlite:////tmp/account.db --entrypoint python airate-web:${{ github.sha }} -c 'from server.app import app; from server.cloud_scans import cloud_tick; assert app and cloud_tick'
+      - name: Package production image
+        id: archive
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/production'
+        shell: bash
         run: |
-          docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" -t "airate-web:$GITHUB_SHA" -f server/Dockerfile .
-          docker save "airate-web:$GITHUB_SHA" | gzip -1 > "$RUNNER_TEMP/release.tar.gz"
+          set -euo pipefail
+          archive="$RUNNER_TEMP/release.tar.gz"
+          docker save "airate-web:$GITHUB_SHA" | gzip -1 > "$archive"
+          printf 'release_sha256=%s\n' "$(sha256sum "$archive" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - name: Upload production image
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/production'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: airate-release-${{ github.sha }}
+          path: ${{ runner.temp }}/release.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  checks:
+    name: Tests and build
+    needs: [backend, frontend, image]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every delivery check
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ '${{ needs.backend.result }}' == success ]]
+          [[ '${{ needs.frontend.result }}' == success ]]
+          [[ '${{ needs.image.result }}' == success ]]
+
+  deploy:
+    name: Deploy production
+    needs: [checks, image]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/production'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production
+    concurrency:
+      group: airate-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: airate-release-${{ github.sha }}
+          path: ${{ runner.temp }}
+      - name: Verify release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ needs.image.outputs.release_sha256 }}'
+          [[ "$expected" =~ ^[[:xdigit:]]{64}$ ]]
+          actual=$(sha256sum "$RUNNER_TEMP/release.tar.gz" | cut -d ' ' -f 1)
+          [[ "$actual" == "$expected" ]]
       - name: Upload and activate verified release
         env:
           DEPLOY_KEY: ${{ secrets.AIRATE_DEPLOY_KEY }}

@@ -4,6 +4,8 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
+- Prepared, not deployed 2026-10-16: `codex/deploy-pipeline-speed` runs backend/frontend checks in parallel and deploys the same smoke-tested image with SHA-256 verification; Docker layers use the Actions cache. Required test, backup/isolated restore, schema/readiness and rollback gates remain. Validation and independent review evidence belong in the PR. This chat prepares the PR only; another chat owns the active deployment.
+
 - Prepared 2026-10-16: session-expiry fix ported from `main` commit `619ac9c` onto production `28972c5`. One login notice replaces concurrent 401 banners; password rejection/rotation and stale responses are covered. 103 frontend tests, lint/build, disposable browser expiry check (one notice, no remaining dashboard) and focused independent auth review passed. Release remains pending CI/deployment.
 - Published and verified 2026-10-15: PR #61, release `8f6540fe444c18758b58647c385f74342e653bdd`, schema `20261015_email_registration`. Password registration requires an email code; Yandex registration/login remains available. CI attempt 2, public readiness/assets, SMTP TLS/auth and registration guards passed. [Release evidence](https://github.com/egotrippingh/aiparser/pull/61).
 - PR #60 balance top-up notifications remain active through SMTP.BZ; real Coinso credits atomically queue HTML/plain-text email.
