@@ -35,13 +35,19 @@ For a short read-only snapshot, run `python scripts/release_status.py` in the re
 checkout. It compares exact Git/GitHub/live SHAs and reports unavailable evidence
 honestly; it does not replace the release checks below or run in the background.
 
-1. Work in a feature branch and push it. `Verify and deploy` runs backend tests,
-   frontend tests, a production frontend build and shell syntax checks.
+1. Work in a feature branch and push it. `Verify and deploy` runs backend checks and
+   frontend checks in parallel. The frontend job uploads the tested `web/` build for
+   the image job, which builds and smoke-tests one image from that exact output. The
+   aggregate `Tests and build` check fails unless each of those jobs succeeds.
 2. Open a pull request **into `production`**. The `Tests and build` check must
    pass with the branch up to date. Merge the reviewed change.
-3. The production push runs checks again, then builds a Docker image tagged with
-   the exact commit SHA on a GitHub-hosted runner. The VPS does not need GitHub
-   credentials or a repository checkout to receive releases.
+3. The production push repeats those checks and builds one Docker image tagged with
+   the exact commit SHA on a GitHub-hosted runner. Only that trusted production run
+   saves its smoke-tested image as a short-lived, SHA-named artifact; deploy verifies
+   its SHA-256 before upload. A PR artifact is never reused after merge because the
+   production SHA is built and checked again. The VPS does not need GitHub credentials
+   or a repository checkout to receive releases.
+
 4. An environment restricted to the production branch supplies the dedicated
    SSH key and pinned host key. The SSH account accepts only checksum-verified
    image uploads and deployment commands; it cannot open a shell or forward ports.
@@ -54,6 +60,10 @@ honestly; it does not replace the release checks below or run in the background.
 7. Readiness checks query the database, verify the release SHA and check HTTPS.
    A failed activation restores the previous application image and configuration.
    The database is never erased or automatically rolled back.
+
+Docker's GitHub Actions cache can make a later build warmer; cold and warm cache
+durations vary and are not a release-time guarantee. PRs may read the cache but only
+trusted production runs export to the shared server-image cache.
 
 Deployments are serialized (`cancel-in-progress: false` plus a VPS file lock).
 Changing the Alembic head blocks unattended deployment before stopping the app.
