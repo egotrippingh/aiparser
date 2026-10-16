@@ -31,6 +31,10 @@ The domain and OAuth callback remain unchanged.
 
 ## Release a website/API change
 
+For a short read-only snapshot, run `python scripts/release_status.py` in the relevant
+checkout. It compares exact Git/GitHub/live SHAs and reports unavailable evidence
+honestly; it does not replace the release checks below or run in the background.
+
 1. Work in a feature branch and push it. `Verify and deploy` runs backend tests,
    frontend tests, a production frontend build and shell syntax checks.
 2. Open a pull request **into `production`**. The `Tests and build` check must

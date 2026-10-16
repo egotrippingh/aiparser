@@ -45,6 +45,7 @@ jobs:
         env:
           AIRATE_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/airate_test
       - run: python -m pytest tests/test_telemetry.py -q
+      - run: python -m pytest tests/test_release_status.py -q
       - run: python -m pytest tests/test_brand_clarification.py -q
       - run: python -m pytest tests/test_xmlriver_text.py tests/test_rules.py tests/test_llm_parse.py -q
       - run: bash -n deploy/release.sh deploy/ssh-gate.sh deploy/provision-ubuntu.sh deploy/setup-delivery.sh

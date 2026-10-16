@@ -11,6 +11,19 @@ For a short task, keep the packet in working context. For complex work save
 `docs/tasks/<short-name>.md` (no secrets); update this same file instead of creating
 repeated handover documents. Target 30–60 lines, excluding necessary evidence links.
 
+For a broad audit, enumerate `page/flow | problem | change | acceptance check` first.
+Use that same list through implementation and verification so no agreed page/state
+is missed. Separate unrelated follow-on deliverables; a separate chat is optional.
+Routine reversible technical choices follow existing conventions without approval.
+Ask for missing product decisions, publication authority, prices or data-safety choices.
+
+UI work starts by confirming current `origin/production` and recording its SHA.
+Reuse production components, brand assets, fonts and colors, while preserving newer
+authorized work. Prepare an interactive preview with disposable data, incorporate
+feedback, then implement/release within the approval already given. Preview approval
+alone is not publication authority. Prefer the app's existing components/mocks;
+standalone HTML is appropriate when needed for review or an explicit Figma/export task.
+
 ```text
 Outcome: observable before/after behavior, exact reproduction.
 Base: branch + commit; pre-existing user changes.
@@ -57,15 +70,22 @@ server, no-op Codex hook or paid semantic pipeline is needed for this local work
 
 ```powershell
 graphify extract . --code-only --no-cluster --max-workers 2
-git rev-parse HEAD > graphify-out/source-commit.txt
+if ($LASTEXITCODE -ne 0) { throw 'Graphify refresh failed; keep the previous markers' }
+git rev-parse HEAD | Set-Content -Encoding utf8 graphify-out/source-commit.txt
+git branch --show-current | Set-Content -Encoding utf8 graphify-out/source-branch.txt
 graphify query "analysis_content" --budget 1200
 graphify affected "analysis_content" --depth 2
 ```
 
-Compare the saved SHA to `git rev-parse HEAD`, and inspect `git diff --name-only HEAD`
+Compare the saved branch/SHA to the current checkout, and inspect `git diff --name-only HEAD`
 plus relevant untracked source files. A matching SHA alone does not prove a fresh graph.
 Refresh after relevant edits or checkout before another graph-based conclusion; no
 automatic rebuild per edit/commit. Recreate the marker after a successful refresh.
+Use `graphify update .` once after a completed code change when an existing index is
+available; check its exit code before recording both markers as above. A graph built
+from production belongs to that production checkout; do not stamp a development SHA
+on a copied graph. `scripts/release_status.py` reports missing/mismatched markers and
+conservatively marks dirty working trees unverified; it does not rebuild the graph.
 Use a deliberate code-only rebuild if deletions changed the corpus; inspect Graphify's
 shrink warning before using `--force`. `graphify-out/` is ignored cache, never evidence
 that a code change is correct. With no Graphify, use `rg` and continue.
@@ -109,6 +129,9 @@ diff and relevant test evidence; it must inspect changed code and return blocker
 file/line, failure scenario and missing check. Do not fork the whole conversation or run
 three overlapping reviews. Fix findings and rerun affected checks only. If independent
 review is unavailable, report that limit; do not claim independence for self-review.
+Substantial behavior changes also need independent review. Small copy/visual edits
+use one implementer and an appropriate viewport/build check. New behavior leaves a
+deterministic regression check. Required final CI and backup/restore gates remain.
 
 The current model remains the default. Two failed fix/check cycles trigger a root-cause
 reassessment and a smaller reproduction, not an unlimited retry loop. Escalate only
@@ -119,14 +142,33 @@ or a measured percentage of token savings.
 ## 5. Deliver evidence, preserve production
 
 Before staging: `git diff --check`, review the final file list and generated assets.
-Push only when requested; verify the remote commit and its GitHub check status. A queued
-or running check is pending, not green. Default PR target is `main`. Publishing website/
-API requires a separately authorized PR into `production`; follow `deploy/DELIVERY.md`.
+Deliver authorized work through a feature branch and PR into `production`; verify
+the remote commit and its GitHub check status. A queued or running check is pending,
+not green. Merging/publishing requires user authorization; follow `deploy/DELIVERY.md`.
 That branch triggers deployment after CI with backup/isolated restore, migration checks,
 readiness and application rollback. Never weaken these gates to save tokens/time.
-Installer publication is a separate Windows build/lifecycle/hash-verification action.
+Desktop distribution is retired; historical agent protocols remain for compatibility.
 
 For release-state changes, update `PROJECT_STATE.md` with source branch/SHA and verified
 facts; do not describe main-only code as deployed. End with outcome, actual checks,
 commit/PR and remaining risk. On handover, leave only the current packet with next step
 and evidence links; no full terminal dump or invented success claims.
+
+## 6. Check release state on demand
+
+From the relevant checkout, run `python scripts/release_status.py` (stdlib only;
+Git and authenticated GitHub CLI are needed for complete remote evidence). It reads
+local branch/SHA, origin's current production ref, the branch PR, delivery workflow
+runs for the exact local/production SHAs and public `/api/v1/ready`. It changes no
+refs/files, does not deploy and starts no scans, payments, watchers or notifications.
+
+Exit 0 means the queried remote delivery evidence and readiness matched; it does not
+mean the local branch is deployed. Missing tools/authentication, no workflow run,
+pending/failed CI or a production/readiness mismatch exit 1 and remain explicitly
+unknown/not passing. A dirty tree cannot prove the working files were deployed.
+Assets, signed-in behavior and backup contents still require the normal release checks.
+
+Run this only on request or when release state matters to the task, not after every
+message. Keep summaries short; use bounded existing commands for scan/job status.
+Recheck when the SHA, run state or relevant inputs change. Preserve full logs in
+artifacts/CI and return their paths/links plus the relevant error, not entire logs.
