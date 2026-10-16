@@ -14,6 +14,7 @@ describe("help content", () => {
     const html = renderHelpPage(article)
     expect(new Set(article.sections.map(section => section.id)).size).toBe(article.sections.length)
     expect(html).toContain(`href="${helpHref(article)}"`)
+    expect(helpHref(article)).toBe(`/docs/${article.slug}/`)
     for (const section of article.sections) {
       expect(html).toContain(`id="${section.id}"`)
       expect(html).toContain(`href="#${section.id}"`)
@@ -21,6 +22,15 @@ describe("help content", () => {
     expect(html).toContain("Не нашли ответ?")
     expect(html).toContain('href="mailto:support@airate.tech"')
     expect(html).not.toContain("Меню аккаунта")
+    expect(html.includes("<video")).toBe(article.slug === "quick-start")
+    if (article.slug === "quick-start") {
+      expect(html).toMatch(/id="project".*?<\/h2><div class="help-video"/)
+      expect(html).toContain('aria-label="Воспроизвести видео о создании проекта"')
+      expect(html).toMatch(/<video[^>]*src="\/assets\/help\/create-project.mp4"[^>]*preload="metadata"/)
+      expect(html).not.toMatch(/<video[^>]*(?:controls|autoplay)=/i)
+      expect(html).toContain('aria-label="Перемотка видео о создании проекта"')
+      expect(html).toContain('type="range"')
+    }
   })
 
   it("indexes steps and CSV examples as well as paragraphs", () => {

@@ -4,6 +4,12 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
+- Published and verified: [PR #71](https://github.com/egotrippingh/aiparser/pull/71),
+  release `203a6023a8f4e1acc59181a89e57176abff48b75`. Cabinet header styling,
+  email support and eight public Fumadocs guides/search are live. Full production
+  CI, backup/isolated restore and activation passed; live readiness matches SHA.
+  Eight articles, 11 assets, sitemap and live browser search passed smoke checks.
+  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/38952970914).
 - Published and readiness verified: [PR #70](https://github.com/egotrippingh/aiparser/pull/70),
   release `8a37da3cc1b3f40947dd7587ed8f553ceab7f787`. Homepage metadata, canonical/social
   cards, WebSite markup, build-time rendering, robots/sitemap and utility-page noindex.
@@ -14,17 +20,19 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
   cached Docker layers and reuse of the tested image are active. Existing backup,
   isolated restore, migration, readiness and rollback gates remain.
 - Session-expiry fixes from PR #68 and retired desktop routes from PR #66 remain live.
-- `production` also includes merged [PR #67](https://github.com/egotrippingh/aiparser/pull/67)
+- `production` also includes [PR #67](https://github.com/egotrippingh/aiparser/pull/67)
   at `0a80911`: preview/scoped-check rules, Graphify provenance and the on-demand
-  release-status script. Deployment of that SHA was not rechecked in this task.
+  release-status script; its production CI/readiness passed before PR #71 delivery.
 
 ## Prepared, not published
 
-- [PR #71](https://github.com/egotrippingh/aiparser/pull/71), `codex/help-center`:
-  shared header link styles/email support and eight public
-  Fumadocs guides with full HTML, static search, mobile navigation and sitemap.
-  [Scope and verification](docs/tasks/help-center.md), [SEO policy](docs/seo.md).
-  Preview/implementation approved; publication requires separate authorization.
+- `codex/help-video`: user-provided project-creation video below «Создайте проект»
+  in the quick-start article; click/keyboard play-pause and custom seek slider,
+  without native controls. Public guides move to `/docs/`, header/footer label
+  «Документация»; old `/help/` URLs permanently redirect to matching pages.
+  Local checks passed (115 frontend tests, lint/build, 16 SEO/HTTP tests), browser
+  route/search/video/header checks and independent source/risk review passed.
+  PR #72 CI and publication pending. Base: production `203a602`.
 
 ## Architecture and operating rules
 
@@ -49,6 +57,5 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Review the help-center preview and PR checks; after publication authorization,
-merge into `production` and verify the exact live release and public routes.
-See [delivery](deploy/DELIVERY.md).
+Complete video/route checks and publish the requested documentation update through a PR
+into `production`. Search-engine submission and actual indexing remain open.

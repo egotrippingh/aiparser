@@ -357,5 +357,5 @@ function Cabinet() {
   </div>
 }
 
-if (location.hash === "#/help") location.replace("/help/")
+if (location.hash === "#/help") location.replace("/docs/")
 else initTelemetry().finally(() => createRoot(document.getElementById("root")!, rootOptions).render(<Cabinet />))

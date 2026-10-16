@@ -13,7 +13,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), {
     name: 'prerender-public-pages',
     apply: 'build',
-    async closeBundle() {
+    async writeBundle() {
       const server = await createServer({
         configFile: false,
         root: import.meta.dirname,
@@ -29,18 +29,18 @@ export default defineConfig({
         const html = await readFile(file, 'utf8')
         if (!html.includes('<div id="root"></div>')) throw new Error('Homepage root placeholder is missing')
         await writeFile(file, html.replace('<div id="root"></div>', () => `<div id="root">${renderLandingPage()}</div>`))
-        const helpTemplate = await readFile(path.resolve(import.meta.dirname, '../web/help/index.html'), 'utf8')
+        const helpTemplate = await readFile(path.resolve(import.meta.dirname, '../web/docs/index.html'), 'utf8')
         const { createSearchAPI } = await import('fumadocs-core/search/server')
         const api = createSearchAPI('simple', {
           indexes: HELP_ARTICLES.map(article => ({ title: article.title, description: article.summary, url: helpHref(article), content: helpSearchContent(article) })),
         })
         await writeFile(path.resolve(import.meta.dirname, '../web/assets/help-search.json'), await (await api.staticGET()).text())
         for (const article of HELP_ARTICLES) {
-          const articleDir = path.resolve(import.meta.dirname, `../web/help/${article.slug}`)
+          const articleDir = path.resolve(import.meta.dirname, `../web/docs/${article.slug}`)
           await mkdir(articleDir, { recursive: true })
-          const prerendered = helpTemplate.replace('<title>Помощь AIRate</title>', () => renderHelpHead(article)).replace('<div id="root"></div>', () => `<div id="root">${renderHelpPage(article)}</div>`)
+          const prerendered = helpTemplate.replace('<title>Документация AIRate</title>', () => renderHelpHead(article)).replace('<div id="root"></div>', () => `<div id="root">${renderHelpPage(article)}</div>`)
           await writeFile(path.resolve(articleDir, 'index.html'), prerendered)
-          if (article === HELP_ARTICLES[0]) await writeFile(path.resolve(import.meta.dirname, '../web/help/index.html'), prerendered)
+          if (article === HELP_ARTICLES[0]) await writeFile(path.resolve(import.meta.dirname, '../web/docs/index.html'), prerendered)
         }
         const urls = ['/', ...HELP_ARTICLES.map(helpHref)]
         await writeFile(path.resolve(import.meta.dirname, '../web/sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(url => `  <url><loc>https://airate.tech${url}</loc></url>`).join('\n')}\n</urlset>\n`)
@@ -62,7 +62,7 @@ export default defineConfig({
         privacy: path.resolve(import.meta.dirname, 'privacy/index.html'),
         landing: path.resolve(import.meta.dirname, 'index.html'),
         cabinet: path.resolve(import.meta.dirname, 'cabinet/index.html'),
-        help: path.resolve(import.meta.dirname, 'help/index.html'),
+        docs: path.resolve(import.meta.dirname, 'docs/index.html'),
       },
     },
   },

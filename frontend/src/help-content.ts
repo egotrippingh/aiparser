@@ -200,5 +200,5 @@ export const HELP_ARTICLES: HelpArticle[] = [
   },
 ]
 
-export const helpHref = (article: HelpArticle) => `/help/${article.slug}/`
+export const helpHref = (article: HelpArticle) => `/docs/${article.slug}/`
 export const helpSearchContent = (article: HelpArticle) => article.sections.flatMap(section => [section.title, ...section.body, ...(section.steps || []), section.code || ""]).join("\n")
