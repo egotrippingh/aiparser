@@ -35,7 +35,7 @@ body { margin: 0; font-family: "Onest", "Segoe UI", sans-serif; background: var(
 .help-video { position: relative; width: 100%; margin: 20px 0 24px; overflow: hidden; border: 1px solid var(--air-line); border-radius: 12px; background: var(--air-bg); }
 .help-video-toggle { position: relative; display: block; width: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; }
 .help-video-toggle:focus-visible { outline-offset: -4px; }
-.help-video video { display: block; width: 100%; height: auto; }
+.help-video video { display: block; width: 100%; height: auto; margin: 0; }
 .help-video-icon { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: #153d75db; color: white; pointer-events: none; }
 .help-video:hover .help-video-icon { background: #153d75; }
 .help-video-seek { position: absolute; inset: auto 0 0; padding: 6px 18px 12px; background: linear-gradient(transparent, #10213fb3); color: white; opacity: 0; transition: opacity 140ms ease; }
