@@ -13,16 +13,18 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
   release `5c9ac1aea27802ae2dd00ba61856d3fedae95080`. Parallel backend/frontend gates,
   cached Docker layers and reuse of the tested image are active. Existing backup,
   isolated restore, migration, readiness and rollback gates remain.
-  [Deployment evidence](https://github.com/egotrippingh/aiparser/actions/runs/38939678649).
 - Session-expiry fixes from PR #68 and retired desktop routes from PR #66 remain live.
+- `production` also includes merged [PR #67](https://github.com/egotrippingh/aiparser/pull/67)
+  at `0a80911`: preview/scoped-check rules, Graphify provenance and the on-demand
+  release-status script. Deployment of that SHA was not rechecked in this task.
 
 ## Prepared, not published
 
-- [PR #67](https://github.com/egotrippingh/aiparser/pull/67): preview/approval rules,
-  scoped checks, audit acceptance lists, Graphify provenance, saved `gh` login and
-  on-demand `scripts/release_status.py`. 17 deterministic checks and independent
-  review passed; current CI evidence is in the PR. Merge/publication authorized by
-  the user; latest production changes are preserved.
+- [PR #71](https://github.com/egotrippingh/aiparser/pull/71), `codex/help-center`:
+  shared header link styles/email support and eight public
+  Fumadocs guides with full HTML, static search, mobile navigation and sitemap.
+  [Scope and verification](docs/tasks/help-center.md), [SEO policy](docs/seo.md).
+  Preview/implementation approved; publication requires separate authorization.
 
 ## Architecture and operating rules
 
@@ -47,5 +49,6 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Complete PR #67 checks, merge into `production` and verify its exact release through
-the existing delivery gates. See [delivery](deploy/DELIVERY.md).
+Review the help-center preview and PR checks; after publication authorization,
+merge into `production` and verify the exact live release and public routes.
+See [delivery](deploy/DELIVERY.md).

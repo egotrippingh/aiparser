@@ -5,7 +5,6 @@ import { SCAN_SERVICES, MONTH_DAYS } from "./lib/scan-preferences"
 import { ReportView } from "./report-view"
 import { QueryLibrary } from "./query-library"
 import "./workspace.css"
-import { SUPPORT_URL } from "./site-footer"
 import { SiteHeader } from "./site-header"
 import { IconNavLink } from "./icon-nav-link"
 import { AppChoice } from "./app-choice"
@@ -203,6 +202,7 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
     ["schedule", "Расписание", CalendarClock], ["runs", "История проверок", Play], ...(admin ? [["admin", "Администрирование", ShieldCheck] as const] : []),
   ] as const
   const page = area === "project" ? tab : area === "overview" ? "report" : area === "topup" ? "account" : area
+  useEffect(() => { if (page === "help") location.replace("/help/") }, [page])
   const title = projectId === "new" ? "Новый проект" : ({projects: "Проекты", account: "Аккаунт и оплата", help: "Помощь"} as Record<string, string>)[page] || nav.find(([id]) => id === page)?.[1] || "Обзор видимости"
   const currentRun = runs.find(r => r.id === runDetail)
   function runRows(items: Run[]) {
@@ -221,16 +221,7 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
       </div>
       {error && <div className="cc-alert" role="alert">{error}<button className="btn" onClick={() => refresh().catch(e => setError(e.message))}>Повторить</button><button className="btn icon-only" aria-label="Закрыть сообщение" onClick={() => setError("")}><X size={16}/></button></div>}
       {message && <p className="notice" role="status">{message}</p>}
-      {page === "account" ? account : page === "admin" && admin ? administration : page === "help" ? <><div className="help-grid">{[
-        ["01", "Добавьте бренд и запросы", "Укажите название, варианты написания и домены. Добавьте вопросы, которые ваши клиенты задают ИИ."],
-        ["02", "Настройте расписание", "Выберите ИИ-системы, дни и время. AIRate будет автоматически собирать и проверять ответы."],
-        ["03", "Следите за динамикой", "Сравнивайте видимость по периодам. Открывайте ответы и источники, чтобы понять причины изменений."],
-      ].map(([number, heading, text]) => <section className="panel help-card" key={number}><div className="step-num">{number}</div><h2>{heading}</h2><p>{text}</p></section>)}</div><section className="panel">{[
-        ["Как считается упоминаемость?", "Проверки с упоминанием бренда делятся на количество проверок за выбранный период. Отсутствие AI-блока считается проверкой без упоминания; технические ошибки исключены из расчёта. Карточки можно включить или исключить."],
-        ["С чем сравнивается динамика?", "Выбранный период сравнивается с предыдущим периодом той же длины. Один день — с предыдущим днём. В режиме «Сравнить даты» конечная дата сравнивается с начальной. Разница указана в процентных пунктах; в подсказке также есть относительное изменение в процентах."],
-        ["Когда появляется новый отчёт?", "По мере завершения сбора и проверки ответов. Незавершённые запросы остаются в очереди; до их обработки доступны предыдущие готовые результаты."],
-        ["Как оплачиваются проверки?", "Перед ручным запуском показываем максимальную стоимость. Оплачиваются завершённые проверки с ответом. Проверки выполняются на сервере."],
-      ].map(([heading, text]) => <details className="help-detail" key={heading}><summary>{heading}</summary><p>{text}</p></details>)}</section><p className="page-intro"><a className="btn" href={SUPPORT_URL} target="_blank" rel="noopener noreferrer">Поддержка</a></p></> : ["project","overview"].includes(area) && projectId ? <>
+      {page === "account" ? account : page === "admin" && admin ? administration : page === "help" ? <p className="page-intro">Открываем справку… <a href="/help/">Перейти к справке</a></p> : ["project","overview"].includes(area) && projectId ? <>
         {projectRun && <RunProgress run={projectRun} details={() => {setRunDetail(projectRun.id); runDialog.current?.showModal()}}/>}
         {["report","sources"].includes(tab) && projectId !== "new" ? <ReportView key={projectId} token={token} projectId={projectId} projectServices={selected?.config.services || []} sourcesOnly={tab === "sources"}/> : <ProjectEditor key={projectId} token={token} projectId={projectId} tab={projectId === "new" ? "settings" : tab} brandClarificationsEnabled={brandClarificationsEnabled} saved={refresh} onDirtyChange={noteEditorDirty} walletChanged={walletChanged}/>}
       </> : page === "runs" ? <><div className="filterbar"><label className="search-box"><Search size={15}/><input aria-label="Поиск проверки" placeholder="Поиск по проекту" value={filter} onChange={e => setFilter(e.target.value)}/></label><AppChoice label="Статус проверки" value={runState} options={[{value:"",label:"Все статусы"},...Object.entries(names).map(([value,label]) => ({value,label}))]} change={setRunState}/></div><section className="panel">{loading ? <p className="empty-state" role="status">Загрузка проверок…</p> : runs.length ? runRows(runs.filter(r => (!runState || runStatus(r) === names[runState]) && r.project_name.toLowerCase().includes(filter.toLowerCase()))) : <div className="empty-state">Проверок пока нет. <a href="#/projects">К проектам</a></div>}</section></> : <>

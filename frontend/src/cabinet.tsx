@@ -357,4 +357,5 @@ function Cabinet() {
   </div>
 }
 
-initTelemetry().finally(() => createRoot(document.getElementById("root")!, rootOptions).render(<Cabinet />))
+if (location.hash === "#/help") location.replace("/help/")
+else initTelemetry().finally(() => createRoot(document.getElementById("root")!, rootOptions).render(<Cabinet />))
