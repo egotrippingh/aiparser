@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { createRoot } from "react-dom/client"
 import { ArrowDownLeft, ArrowUpRight, ShieldCheck } from "lucide-react"
-import { ACCOUNT_API as API, COOKIE_SESSION, accountRequest as request, AccountError } from "./account-api"
+import { ACCOUNT_API as API, COOKIE_SESSION, accountRequest as request, AccountError, onSessionExpired } from "./account-api"
 import { AdminScans } from "./admin-scans"
 import { AdminOverview } from "./admin-overview"
 import { ControlCenter } from "./control-center"
@@ -43,6 +43,20 @@ function Cabinet() {
   const [resetEnabled, setResetEnabled] = useState(false)
   const refreshVersion = useRef(0), activeSession = useRef(token)
   activeSession.current = token
+
+  useEffect(() => onSessionExpired(token, () => {
+    refreshVersion.current++
+    activeSession.current = ""
+    sessionStorage.removeItem(TOKEN_KEY)
+    setToken("")
+    setUser(null)
+    setWallet(null)
+    setPayments([])
+    setPassword("")
+    setAuthMode("login")
+    setCheckingSession(false)
+    setMessage("Сессия недействительна. Войдите снова.")
+  }), [token])
 
   function acceptSession(result: {token?: string}) {
     // Keep compatibility while the site and agent are deployed separately.
@@ -129,19 +143,19 @@ function Cabinet() {
       .catch(() => {if (alive) setMessage("Сервер кабинета пока недоступен")})
     if (token) {
       refresh(token).then(async () => {
-        if (!alive) return
+        if (!alive || activeSession.current !== token) return
         const params = new URLSearchParams(location.search)
         const order = params.get("order") || params.get("custom")
         if (order) {
           location.hash = "/account"
           try {
             const payment = await request<Payment>(`/payments/${encodeURIComponent(order)}`, token)
-            if (!alive) return
+            if (!alive || activeSession.current !== token) return
             setMessage(paymentLabel(payment.status))
             await refresh(token)
-          } catch (e) { if (alive) setMessage(e instanceof Error ? e.message : "Не удалось проверить платёж") }
+          } catch (e) { if (alive && activeSession.current === token) setMessage(e instanceof Error ? e.message : "Не удалось проверить платёж") }
         }
-      }).catch(e => { if (!alive) return; if (e instanceof AccountError && e.status === 401) {sessionStorage.removeItem(TOKEN_KEY); setToken(""); setUser(null)} else setMessage(e.message || "Сервер недоступен") }).finally(() => {if (alive) setCheckingSession(false)})
+      }).catch(e => { if (!alive || activeSession.current !== token) return; if (e instanceof AccountError && e.status === 401) {sessionStorage.removeItem(TOKEN_KEY); setToken(""); setUser(null)} else setMessage(e.message || "Сервер недоступен") }).finally(() => {if (alive) setCheckingSession(false)})
     }
     return () => {alive = false}
   }, [token])
@@ -163,8 +177,8 @@ function Cabinet() {
       running = true
       try {
         await Promise.all(payments.filter(p => p.status === "pending").slice(0, 5).map(p => request(`/payments/${p.id}`, token).catch(() => null)))
-        if (!stopped) await refresh(token)
-      } catch (e) { if (!stopped) setMessage(e instanceof Error ? e.message : "Не удалось обновить платёж") }
+        if (!stopped && activeSession.current === token) await refresh(token)
+      } catch (e) { if (!stopped && activeSession.current === token) setMessage(e instanceof Error ? e.message : "Не удалось обновить платёж") }
       finally { running = false }
     }, 15000)
     return () => { stopped = true; clearInterval(timer) }
@@ -200,7 +214,8 @@ function Cabinet() {
     if (editorDirty.current && !window.confirm("Изменения не сохранены. Уйти со страницы?")) return
     refreshVersion.current++
     try { await request("/auth/logout", token, {}) }
-    catch { setMessage("Не удалось выйти. Проверьте связь и повторите."); return }
+    catch { if (activeSession.current === token) setMessage("Не удалось выйти. Проверьте связь и повторите."); return }
+    if (activeSession.current !== token) return
     sessionStorage.removeItem(TOKEN_KEY)
     setToken("")
     setUser(null)
@@ -212,9 +227,9 @@ function Cabinet() {
     setBusy(true)
     try {
       const result = await request<{ authorization_url: string }>("/auth/yandex/link/start", token, {})
-      location.assign(result.authorization_url)
+      if (activeSession.current === token) location.assign(result.authorization_url)
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Не удалось открыть Яндекс ID")
+      if (activeSession.current === token) setMessage(error instanceof Error ? error.message : "Не удалось открыть Яндекс ID")
       setBusy(false)
     }
   }
@@ -228,7 +243,7 @@ function Cabinet() {
           <section className="cab-panel cab-balance"><span className="cab-kicker">ДОСТУПНО ДЛЯ ПРОВЕРОК</span><strong>{user.is_admin ? "Безлимитно" : money(wallet?.available_kopeks || 0)}</strong><p>{user.is_admin ? `Обычные проверки бесплатны.${user.brand_clarifications_enabled ? ` Пересчёт сохранённых ответов — 0,80 ₽ за ответ; доступный баланс ${money(wallet?.available_kopeks || 0)}.` : ""}` : `На балансе ${money(wallet?.balance_kopeks || 0)}${wallet?.reserved_kopeks ? ` · Зарезервировано ${money(wallet.reserved_kopeks)}` : ""}`}</p><div className="cab-balance-foot">{user.is_admin ? "Обычная проверка запроса в ИИ-сервисе · 0 ₽" : `Примерно ${Math.floor((wallet?.available_kopeks || 0) / price)} проверок по текущей цене`}</div><button className="cab-primary" type="button" onClick={() => document.getElementById("topup-amount")?.focus()}>Пополнить баланс</button></section>
           <TopupForm token={token} minimum={minimum} />
         </div>
-        {payments.length > 0 && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ПОПОЛНЕНИЯ</span><h2>История платежей</h2></div><button className="cab-refresh" onClick={() => refresh(token).catch(e => setMessage(e.message))}>Обновить</button></div><div className="cab-list">{payments.map(payment => <div className="cab-entry cab-payment-row" key={payment.id}><span><b>{money(payment.amount_kopeks)} · {payment.method === "crypto" ? "Криптовалюта" : payment.method === "sbp" ? "СБП" : "Банковская оплата"}</b><small>{new Date(payment.created_at).toLocaleString("ru-RU")}</small></span><span className={`cab-payment-status ${payment.status}`} role="status">{paymentLabel(payment.status)}</span>{payment.status === "pending" && payment.payment_url && <a className="cab-download" href={payment.payment_url}>Продолжить оплату</a>}</div>)}</div></section>}
+        {payments.length > 0 && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ПОПОЛНЕНИЯ</span><h2>История платежей</h2></div><button className="cab-refresh" onClick={walletChanged}>Обновить</button></div><div className="cab-list">{payments.map(payment => <div className="cab-entry cab-payment-row" key={payment.id}><span><b>{money(payment.amount_kopeks)} · {payment.method === "crypto" ? "Криптовалюта" : payment.method === "sbp" ? "СБП" : "Банковская оплата"}</b><small>{new Date(payment.created_at).toLocaleString("ru-RU")}</small></span><span className={`cab-payment-status ${payment.status}`} role="status">{paymentLabel(payment.status)}</span>{payment.status === "pending" && payment.payment_url && <a className="cab-download" href={payment.payment_url}>Продолжить оплату</a>}</div>)}</div></section>}
         {(wallet?.entries.length || !user.is_admin) && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ИСТОРИЯ</span><h2>Операции по балансу</h2></div><button onClick={walletChanged} className="cab-refresh">Обновить</button></div>{wallet?.entries.length ? <div className="cab-list">{wallet.entries.map((entry) => <div className="cab-entry" key={entry.reference}><span className={entry.amount_kopeks > 0 ? "cab-entry-icon in" : "cab-entry-icon out"}>{entry.amount_kopeks > 0 ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}</span><span><b>{entry.kind === "topup" ? "Пополнение" : entry.kind === "recompute" ? "Пересчёт ответа" : "Проверка запроса"}</b><small>{new Date(entry.created_at).toLocaleString("ru-RU")}</small></span><strong className={entry.amount_kopeks > 0 ? "positive" : ""}>{entry.amount_kopeks > 0 ? "+" : ""}{money(entry.amount_kopeks)}</strong></div>)}</div> : <p className="cab-empty">Пока нет операций. Пополните баланс, чтобы начать проверки.</p>}</section>}
         {payments.some((p) => p.status === "pending") && <p className="cab-pending">Есть незавершённое пополнение. Если вы уже оплатили, нажмите «Обновить» после возврата на сайт.</p>}</div>}/>
   return <div className="cabinet">
