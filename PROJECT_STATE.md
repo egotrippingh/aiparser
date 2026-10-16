@@ -2,7 +2,9 @@
 
 Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
 
-## Published
+## Current release
+
+- Prepared 2026-10-16: session-expiry fix ported from `main` commit `619ac9c` onto production `28972c5`. One login notice replaces concurrent 401 banners; password rejection/rotation and stale responses are covered. 103 frontend tests, lint/build, disposable browser expiry check (one notice, no remaining dashboard) and focused independent auth review passed. Release remains pending CI/deployment.
 
 - Published and verified: [PR #66](https://github.com/egotrippingh/aiparser/pull/66),
   release `28972c5157e5c1fd0123703d07db5d993f8a93f7`; schema unchanged
@@ -14,9 +16,6 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Prepared, not published
 
-- Session-expiry notice fix: `619ac9c9038d4a6e69ea3b613f7d834bf5f65bfd` on development
-  `main`; 81 frontend tests, lint/build, disposable browser check and focused review
-  recorded. Source: `codex/session-notice-fix`. Carry into a future authorized release.
 - Workflow improvements: [PR #67](https://github.com/egotrippingh/aiparser/pull/67),
   `codex/workflow-efficiency`, updates preview/approval rules,
   scoped checks, task acceptance lists, Graphify provenance and on-demand release status.
@@ -49,8 +48,8 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Review prepared PR #67 for an authorized merge. Retain the session-expiry fix for
-the next authorized application release and verify signed-in navigation then.
+Before merging PR #67, synchronize its base and release facts with the separately
+authorized [session-expiry release #68](https://github.com/egotrippingh/aiparser/pull/68).
 
 Use [delivery](deploy/DELIVERY.md), [workflow](docs/agent-workflow.md) and
 `python scripts/release_status.py` when release state matters. Read historical
