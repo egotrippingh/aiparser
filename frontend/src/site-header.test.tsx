@@ -8,6 +8,10 @@ it("keeps guest entry links separate from account data", () => {
   expect(html).toContain('href="/cabinet/"')
   expect(html).not.toContain("Меню аккаунта")
   expect(html).not.toContain("Выбрать проект")
+  expect(html).toContain('href="/help/"')
+  expect(html).toContain('href="mailto:support@airate.tech"')
+  expect(html).toContain("lucide-mail")
+  expect(html).not.toContain("t.me")
 })
 
 it("links projects from the homepage to the cabinet and preserves the active cabinet tab", () => {
@@ -15,6 +19,8 @@ it("links projects from the homepage to the cabinet and preserves the active cab
   const publicHtml = renderToStaticMarkup(<SiteHeader {...props}/>)
   expect(publicHtml).toContain('href="/cabinet/#/project/one/report"')
   expect(publicHtml).toContain('href="/cabinet/#/topup"')
+  expect(publicHtml).toContain('href="/help/"')
+  expect(publicHtml.match(/href="mailto:support@airate.tech"/g)).toHaveLength(2)
   expect(publicHtml).not.toContain("Регистрация")
   const cabinetHtml = renderToStaticMarkup(<SiteHeader {...props} cabinet projectTab="queries"/>)
   expect(cabinetHtml).toContain('href="#/project/one/queries" aria-current="true"')

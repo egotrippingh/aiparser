@@ -45,6 +45,8 @@ from server.control import register_control
 from server.device_login import pending_connect, approve_login_connect
 from server.browser_sessions import COOKIE_NAME, request_token, web_session_response, register_browser_login, lock_web_session
 
+HELP_SLUGS = {"quick-start", "projects-and-queries", "scans", "schedule", "reports", "answers-and-sources", "billing", "troubleshooting"}
+
 
 class Credentials(BaseModel):
     email: str = Field(min_length=3, max_length=190)
@@ -1398,6 +1400,15 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         def privacy_page() -> FileResponse:
             return FileResponse(web_dir / "privacy" / "index.html",
                                 headers={"Cache-Control": "no-cache", "X-Robots-Tag": "noindex, follow"})
+
+        @app.get("/help/", include_in_schema=False)
+        @app.get("/help", include_in_schema=False)
+        @app.get("/help/{slug}/", include_in_schema=False)
+        @app.get("/help/{slug}", include_in_schema=False)
+        def help_page(slug: str = "quick-start") -> FileResponse:
+            if slug not in HELP_SLUGS:
+                raise HTTPException(404, "Страница не найдена")
+            return FileResponse(web_dir / "help" / slug / "index.html", headers={"Cache-Control": "no-cache"})
 
         @app.get("/cabinet/", include_in_schema=False)
         @app.get("/cabinet", include_in_schema=False)

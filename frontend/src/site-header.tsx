@@ -1,9 +1,9 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react"
-import { BookOpen, BriefcaseBusiness, ChevronDown, CirclePlus, FolderOpen, LogOut, MessageSquare, Plus, Search, Settings, ShieldCheck, Wallet } from "lucide-react"
+import { BookOpen, BriefcaseBusiness, ChevronDown, CirclePlus, FolderOpen, LogOut, Mail, Plus, Search, Settings, ShieldCheck, Wallet } from "lucide-react"
 import { Brand } from "./brand"
 import { ProjectIcon } from "./project-icon"
 import { IconNavLink } from "./icon-nav-link"
-import { SUPPORT_URL } from "./site-footer"
+import { SUPPORT_EMAIL } from "./site-footer"
 import { accountRequest, COOKIE_SESSION } from "./account-api"
 import "./site-header.css"
 
@@ -47,12 +47,12 @@ export function SiteHeader({ email, balance, projects = [], selectedId, loading,
       <a className="sh-all" href={href("projects")}><FolderOpen size={18}/>Все проекты<span>{projects.length}</span></a>
       <div className="sh-project-list">{loading ? <p role="status">Загрузка проектов…</p> : projectError ? <p role="status">Не удалось загрузить проекты. <a href={href("projects")}>Открыть кабинет</a></p> : shown.map(project => <a key={project.id} href={href(`project/${project.id}/${projectTab}`)} aria-current={project.id === selectedId ? "true" : undefined}><ProjectIcon name={project.name} domains={project.config.brand_domains}/><span><strong>{project.name}</strong><small>{project.config.brand_domains[0] || `ID ${project.id}`}</small></span></a>)}{!loading && !projectError && !shown.length && <p>{projects.length ? "Проекты не найдены" : "У вас пока нет проектов"}</p>}</div>
       <a className="sh-create" href={href("project/new/settings")}><Plus size={18}/>Создать проект</a>
-    </Dropdown></div> : <nav className="sh-guest-nav" aria-label="О сервисе"><a href="/#how">Как работает</a><a href="/#approach">Наш подход</a><a href="/#faq">Вопросы</a><a className="sh-mobile-support" href={SUPPORT_URL} target="_blank" rel="noopener noreferrer">Поддержка</a></nav>}
-    <div className="sh-actions"><a className="sh-support" aria-label="Поддержка" href={SUPPORT_URL} target="_blank" rel="noopener noreferrer"><MessageSquare size={21}/><span>Поддержка</span></a>
-      {email ? <><a className="sh-help" aria-label="Помощь" href={href("help")}><BookOpen size={21}/><span>Помощь</span></a><a className="sh-balance" href={href("topup")} aria-label={`Пополнить баланс${balance ? `: ${balance}` : ""}`}><span>{balance || "Баланс"}</span><CirclePlus size={23}/></a>
+    </Dropdown></div> : <nav className="sh-guest-nav" aria-label="О сервисе"><a href="/#how">Как работает</a><a href="/#approach">Наш подход</a><a href="/#faq">Вопросы</a><a href="/help/">Помощь</a><a className="sh-mobile-support" href={SUPPORT_EMAIL}>Поддержка</a></nav>}
+    <div className="sh-actions"><a className="sh-support" aria-label="Поддержка" href={SUPPORT_EMAIL}><Mail size={21}/><span>Поддержка</span></a>
+      {email ? <><a className="sh-help" aria-label="Помощь" href="/help/"><BookOpen size={21}/><span>Помощь</span></a><a className="sh-balance" href={href("topup")} aria-label={`Пополнить баланс${balance ? `: ${balance}` : ""}`}><span>{balance || "Баланс"}</span><CirclePlus size={23}/></a>
         <Dropdown label="Меню аккаунта" trigger={<span className="sh-avatar">{email.slice(0, 2).toUpperCase()}</span>}>
           <div className="sh-identity"><span className="sh-avatar">{email.slice(0, 2).toUpperCase()}</span><span><strong>{email}</strong><small>{admin ? "Администратор" : "Личный аккаунт"}</small></span></div>
-          <a href={href("topup")}><Wallet size={19}/>Пополнить баланс</a><a href={href("account")}><Settings size={19}/>Настройки аккаунта</a><a href={href("help")}><BookOpen size={19}/>Помощь</a>{admin && <a href={href("admin")}><ShieldCheck size={19}/>Администрирование</a>}
+          <a href={href("topup")}><Wallet size={19}/>Пополнить баланс</a><a href={href("account")}><Settings size={19}/>Настройки аккаунта</a><a href="/help/"><BookOpen size={19}/>Помощь</a><a href={SUPPORT_EMAIL}><Mail size={19}/>Поддержка</a>{admin && <a href={href("admin")}><ShieldCheck size={19}/>Администрирование</a>}
           <button type="button" className="sh-logout" onClick={logout}><LogOut size={19}/>Выйти из аккаунта</button>
         </Dropdown></> : <>{onLogin ? <button className="sh-login" onClick={onLogin}>Войти</button> : <a className="sh-login" href={base}>Войти</a>}{onRegister ? <button className="sh-register" onClick={onRegister}>Регистрация</button> : <a className="sh-register" href={`${base}?register=1`}>Регистрация</a>}</>}
     </div>

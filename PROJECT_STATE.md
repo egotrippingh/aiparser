@@ -4,19 +4,21 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
-- Published and verified: [PR #69](https://github.com/egotrippingh/aiparser/pull/69),
-  release `5c9ac1aea27802ae2dd00ba61856d3fedae95080`. Parallel backend/frontend gates,
+- Published: [PR #70](https://github.com/egotrippingh/aiparser/pull/70), release
+  `8a37da3cc1b3f40947dd7587ed8f553ceab7f787`. Homepage prerendering, metadata,
+  social cards and crawler policy are active; CI/deploy passed and live readiness
+  matched this SHA on 2026-10-16. [Evidence](https://github.com/egotrippingh/aiparser/actions/runs/38941999184).
+- PR #69's parallel backend/frontend gates,
   cached Docker layers and reuse of the tested image are active. Existing backup,
   isolated restore, migration, readiness and rollback gates remain.
-  [Deployment evidence](https://github.com/egotrippingh/aiparser/actions/runs/38939678649).
 - Session-expiry fixes from PR #68 and retired desktop routes from PR #66 remain live.
 
 ## Prepared, not published
 
-- `codex/homepage-seo`: homepage metadata/canonical/social cards and WebSite markup,
-  build-time rendering, public robots/sitemap and utility-page noindex.
-  [SEO policy and checks](docs/seo.md). Independent review found no blockers;
-  final CI/deployment evidence will be recorded in the delivery PR.
+- `codex/help-center`: shared header link styles/email support and eight public
+  Fumadocs guides with full HTML, static search, mobile navigation and sitemap.
+  [Scope and verification](docs/tasks/help-center.md), [SEO policy](docs/seo.md).
+  Preview/implementation approved; publication requires separate authorization.
 - [PR #67](https://github.com/egotrippingh/aiparser/pull/67) contains separate workflow
   documentation/tooling improvements; it is outside the SEO release scope.
 
@@ -43,5 +45,6 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Complete SEO CI, merge into `production`, then verify the exact live release and
-public crawler responses. See [delivery](deploy/DELIVERY.md).
+Review the help-center preview and PR checks; after publication authorization,
+merge into `production` and verify the exact live release and public routes.
+See [delivery](deploy/DELIVERY.md).

@@ -2,6 +2,8 @@
 .sh-inner { height: 100%; display: flex; align-items: center; gap: 24px; padding: 0 24px; }
 .sh-header .sh-brand { flex-shrink: 0; width: auto; }
 .sh-header a { text-decoration: none; color: inherit; }
+.air-app .sh-header :is(.sh-brand, .sh-actions > a) { color: inherit; }
+.air-app .sh-header a:hover { text-decoration: none; }
 .sh-header button, .sh-popover button { font: inherit; cursor: pointer; }
 .sh-header svg, .sh-popover svg { flex-shrink: 0; }
 .sh-actions, .sh-guest-nav { display: flex; align-items: center; gap: 24px; }
@@ -55,7 +57,7 @@
 .air-app .sh-popover .sh-create { color: #d64c29; }
 
 .sh-mobile-support { display: none; }
-@media (max-width: 700px) { .sh-guest-nav { justify-content: space-between; gap: 8px; font-size: 12px; } .sh-mobile-support { display: block; } }
+@media (max-width: 700px) { .sh-guest-nav { justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 12px; } .sh-guest-nav a { display: inline-flex; align-items: center; min-height: 28px; } .sh-mobile-support { display: block; } }
 
 .sh-header .sh-project-tools { display: flex; align-items: center; gap: 8px; width: clamp(180px, 27vw, 350px); min-width: 0; }
 .sh-header .sh-project-tools .sh-projects { flex: 1; width: auto; min-width: 0; }
