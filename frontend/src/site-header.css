@@ -56,3 +56,9 @@
 
 .sh-mobile-support { display: none; }
 @media (max-width: 700px) { .sh-guest-nav { justify-content: space-between; gap: 8px; font-size: 12px; } .sh-mobile-support { display: block; } }
+
+.sh-header .sh-project-tools { display: flex; align-items: center; gap: 8px; width: clamp(180px, 27vw, 350px); min-width: 0; }
+.sh-header .sh-project-tools .sh-projects { flex: 1; width: auto; min-width: 0; }
+.sh-header .sh-project-home { display: grid; place-items: center; flex-shrink: 0; width: 42px; height: 42px; border: 1px solid #dce1e8; border-radius: 10px; background: #ffffffb3; color: var(--air-accent, #f25c37); }
+.sh-header .sh-project-home:hover { background: #fff; border-color: #f2ae9c; }
+@media(max-width: 700px) { .sh-header .sh-project-tools { order: 3; width: 100%; } }

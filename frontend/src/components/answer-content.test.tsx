@@ -58,7 +58,7 @@ it("shows the saved cause and honest retry guidance; handles old and empty answe
   expect(html).toContain('&lt;img')
   expect(html).toContain('автоматически не повторяется')
   expect(html).toContain('все запросы заново')
-  expect(renderToStaticMarkup(<ResultIssue status="error"/>)).toContain('Обновите агент')
+  expect(renderToStaticMarkup(<ResultIssue status="error"/>)).toContain('Причина ошибки не сохранена')
   expect(renderToStaticMarkup(<ResultIssue status="found" answer="Answer"/>)).toBe('')
   expect(renderToStaticMarkup(<SourceList sources={[]}/>)).toContain('Сохранённых ссылок')
 })
@@ -180,4 +180,13 @@ it("keeps definitions inside language fences and filters sources from the same c
 it("keeps an unused reference definition when it is the only source text", () => {
   const html = renderToStaticMarkup(<AnswerContent text={"Независимый текст\n\n[unused]: https://unique.test/a"}/>)
   expect(html).toContain('>unused</a>: <a href="https://unique.test/a"')
+})
+
+
+it("keeps collection failures actionable without desktop setup", () => {
+  for (const status of ["auth_required", "captcha", "limit_reached", "error"]) {
+    const html = renderToStaticMarkup(<ResultIssue status={status}/>)
+    expect(html).not.toMatch(/агент|Агент|Установить/)
+    expect(html).toMatch(/проверку|запуск/)
+  }
 })

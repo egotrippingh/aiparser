@@ -367,34 +367,28 @@ def test_admin_checks_are_unlimited_and_free(tmp_path, monkeypatch):
     engine.dispose()
 
 
-def test_agent_download_availability(tmp_path, monkeypatch):
+def test_retired_agent_cannot_be_downloaded_even_with_published_artifacts(tmp_path, monkeypatch):
     archive = tmp_path / "agent.zip"
+    installer = tmp_path / "AIRate-Setup-latest.exe"
+    archive.write_bytes(b"test archive")
+    installer.write_bytes(b"MZinstaller")
     monkeypatch.setenv("AGENT_DOWNLOAD_FILE", str(archive))
+    monkeypatch.setenv("AGENT_INSTALLER_FILE", str(installer))
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'server.db'}"))
     status = client.get("/api/v1/agent-download")
+    assert status.status_code == 200
     assert status.json() == {"available": False, "url": None, "size_bytes": None, "release": None}
-    assert client.get("/downloads/AI-Mentions-Windows.zip").status_code == 404
-    archive.write_bytes(b"test archive")
-    status = client.get("/api/v1/agent-download")
-    assert status.json() == {"available": True, "url": "/downloads/AI-Mentions-Windows.zip", "size_bytes": 12, "release": None}
-    response = client.get("/downloads/AI-Mentions-Windows.zip")
-    assert response.status_code == 200 and response.content == b"test archive"
-    assert client.get("/downloads/AIRate-Setup.exe").status_code == 404
-    installer = tmp_path / "AIRate-Setup-latest.exe"
-    installer.write_bytes(b"MZinstaller")
-    status = client.get("/api/v1/agent-download").json()
-    assert status == {"available": True, "url": "/downloads/AIRate-Setup.exe", "size_bytes": 11, "release": None}
-    response = client.get(status["url"])
-    assert response.content == b"MZinstaller"
-    assert 'filename="AIRate-Setup.exe"' in response.headers["content-disposition"]
-    manifest = archive.with_name("agent-release.json")
-    manifest.write_text(json.dumps({"version": "2026.9.29.3", "installer": {"size_bytes": 11, "sha256": "a" * 64},
-                                    "portable": {"size_bytes": 12, "sha256": "b" * 64}}), encoding="utf-8")
-    assert client.get("/api/v1/agent-download").json()["release"]["version"] == "2026.9.29.3"
-    for invalid_hash in (None, 1, []):
-        manifest.write_text(json.dumps({"version": "2026.9.29.3", "installer": {"size_bytes": 11, "sha256": invalid_hash},
-                                        "portable": {"size_bytes": 12, "sha256": "b" * 64}}), encoding="utf-8")
-        payload = client.get("/api/v1/agent-download").json()
-        assert payload["available"] is True and payload["release"] is None
-    # Previously downloaded agents/links can still retrieve the portable ZIP.
-    assert client.get("/downloads/AI-Mentions-Windows.zip").content == b"test archive"
+    for path in ("/downloads/AI-Mentions-Windows.zip", "/downloads/AIRate-Setup.exe"):
+        response = client.get(path)
+        assert response.status_code == 410
+        assert "content-disposition" not in response.headers
+    assert archive.read_bytes() == b"test archive"
+    assert installer.read_bytes() == b"MZinstaller"
+
+
+def test_retired_agent_pages_redirect_to_cabinet(tmp_path):
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'server.db'}"))
+    for path in ("/app", "/app/", "/app/index.html", "/app/settings?next=https://example.test"):
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 308
+        assert response.headers["location"] == "/cabinet/"

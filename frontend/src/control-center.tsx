@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react"
-import { CalendarClock, ChevronRight, CircleHelp, Flag, FolderOpen, LayoutDashboard, Link, List, Pause, Play, Plus, Search, Settings2, ShieldCheck, Square, User, X } from "lucide-react"
+import { CalendarClock, ChevronRight, Flag, LayoutDashboard, Link, List, Pause, Play, Plus, Search, Settings2, ShieldCheck, Square, X } from "lucide-react"
 import { accountRequest as request } from "./account-api"
 import { SCAN_SERVICES, MONTH_DAYS } from "./lib/scan-preferences"
 import { ReportView } from "./report-view"
@@ -7,6 +7,7 @@ import { QueryLibrary } from "./query-library"
 import "./workspace.css"
 import { SUPPORT_URL } from "./site-footer"
 import { SiteHeader } from "./site-header"
+import { IconNavLink } from "./icon-nav-link"
 import { AppChoice } from "./app-choice"
 import { ServiceMark, isCurrentService } from "./service-mark"
 import { ProjectIcon } from "./project-icon"
@@ -14,6 +15,7 @@ import "./prototype.css"
 import "./app-layout.css"
 import { publicError } from "./lib/public-error"
 import "./control-center.css"
+import "./icon-sidebar.css"
 
 type Query = { id: string; text: string; group_tag: string; active: boolean }
 type Config = { brand_aliases: string[]; brand_domains: string[]; brand_clarification?: string; region_code: string; services: string[]; browser_mode: string; speed_profile: string; parallel: boolean }
@@ -196,13 +198,12 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
   const tab = projectTab || "report"
   const projectLink = (next: string) => projectId ? `#/project/${projectId}/${next}` : "#/projects"
   const nav = [
-    ["report", "Обзор видимости", LayoutDashboard], ["projects", "Проекты", FolderOpen],
+    ["report", "Обзор видимости", LayoutDashboard],
     ["queries", "Запросы", List], ["sources", "Источники", Link], ["settings", "Настройки проекта", Settings2],
-    ["schedule", "Расписание", CalendarClock], ["runs", "История проверок", Play], ["account", "Аккаунт и оплата", User],
-    ["help", "Помощь", CircleHelp], ...(admin ? [["admin", "Администрирование", ShieldCheck] as const] : []),
+    ["schedule", "Расписание", CalendarClock], ["runs", "История проверок", Play], ...(admin ? [["admin", "Администрирование", ShieldCheck] as const] : []),
   ] as const
   const page = area === "project" ? tab : area === "overview" ? "report" : area === "topup" ? "account" : area
-  const title = projectId === "new" ? "Новый проект" : nav.find(([id]) => id === page)?.[1] || "Обзор видимости"
+  const title = projectId === "new" ? "Новый проект" : ({projects: "Проекты", account: "Аккаунт и оплата", help: "Помощь"} as Record<string, string>)[page] || nav.find(([id]) => id === page)?.[1] || "Обзор видимости"
   const currentRun = runs.find(r => r.id === runDetail)
   function runRows(items: Run[]) {
     return <div className="table-scroll"><table><thead><tr><th>Проект / запуск</th><th>Статус</th><th>Проверки</th><th>Действия</th></tr></thead><tbody>{items.map(r => <tr key={r.id}><td><button className="text-link" onClick={() => { setRunDetail(r.id); runDialog.current?.showModal() }}>{r.project_name}</button><small className="row-note">{new Date(r.created_at).toLocaleString("ru-RU")} · {r.scheduled_for ? "По расписанию" : "Вручную"}</small></td><td><span className={`badge ${r.state === "done" ? "green" : r.state === "failed" ? "red" : "blue"}`}>{runStatus(r)}</span></td><td>{r.progress.done || 0} / {r.total}<progress max={r.total || 1} value={r.progress.done || 0} aria-label={`Прогресс ${r.project_name}`}/></td><td><div className="cc-actions">{!terminal(r) && <><button className="btn" disabled={!!busy} onClick={() => action(r.id, () => request(`/control/runs/${r.id}/command`, token, {action:r.desired_state === "paused" ? "resume" : "pause"}))}>{r.desired_state === "paused" ? <Play size={14}/> : <Pause size={14}/>} {r.desired_state === "paused" ? "Продолжить" : "Пауза"}</button><button className="btn" disabled={!!busy} onClick={() => action(r.id, () => request(`/control/runs/${r.id}/command`, token, {action:"stop"}))}><Square size={13}/>Стоп</button></>}<a className="btn" href={`#/project/${r.project_id}/report`}>Отчёт</a></div></td></tr>)}</tbody></table></div>
@@ -211,8 +212,7 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
     <a className="skip-link" href="#app-content" onClick={event => { event.preventDefault(); main.current?.focus() }}>К содержимому</a>
     <SiteHeader cabinet email={email} balance={balance} projects={projects} selectedId={selected?.id} loading={loading} admin={admin} logout={logout} projectTab={["report","queries","sources","settings","schedule"].includes(page) ? page : "report"}/>
     <aside className="sidebar">
-      <nav aria-label="Разделы приложения">{nav.map(([id, label, Icon]) => <a key={id} className="nav-link" aria-current={page === id ? "page" : undefined} href={["report","queries","sources","settings","schedule"].includes(id) ? projectLink(id) : `#/${id}`}><Icon size={17}/>{label}{id === "queries" && <span className="nav-count">{selected?.query_count || 0}</span>}{id === "runs" && activeRuns.length > 0 && <span className="nav-count orange">{activeRuns.length}</span>}</a>)}</nav>
-      <div className="sidebar-bottom"><div className="sidebar-account"><span className="avatar little">{email.slice(0,2).toUpperCase()}</span><div className="account-email">{email}<small>{admin ? "Администратор" : "Личный аккаунт"}</small></div></div></div>
+      <nav aria-label="Разделы приложения">{nav.map(([id, label, Icon]) => <IconNavLink key={id} className="nav-link" label={label} current={page === id} href={["report","queries","sources","settings","schedule"].includes(id) ? projectLink(id) : `#/${id}`}><Icon size={24} strokeWidth={1.7} aria-hidden="true"/></IconNavLink>)}</nav>
     </aside>
     <main ref={main} className="app-main" id="app-content" tabIndex={-1}>
       <div className="breadcrumb"><a href="#/projects">Проекты</a><ChevronRight size={12}/>{selected && <><span>{selected.name}</span><ChevronRight size={12}/></>}<span className="current">{title}</span></div>

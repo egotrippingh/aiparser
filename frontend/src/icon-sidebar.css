@@ -1,0 +1,14 @@
+.air-app { --sidebar: 76px; }
+.air-app .sidebar { width: var(--sidebar); top: 65px; padding: 20px 12px; }
+.air-app .sidebar nav { display: flex; flex-direction: column; gap: 8px; }
+.air-app .sidebar .nav-link { display: grid; place-items: center; width: 48px; min-height: 48px; padding: 0; border: 1px solid transparent; border-radius: 12px; color: #64758a; }
+.air-app .sidebar .nav-link:hover { color: #153d75; background: #f0f4f9; }
+.air-app .sidebar .nav-link[aria-current=page] { color: #153d75; background: #eaf1fb; border-color: #d7e4f5; }
+.air-app .sidebar .nav-link:focus-visible { outline: 2px solid #f25c37; outline-offset: 3px; }
+.air-app .sidebar .nav-link svg { width: 24px; height: 24px; }
+@media(max-width: 700px) {
+  .air-app { --sidebar: 0px; }
+  .air-app .sidebar { position: static; width: auto; padding: 8px 15px; }
+  .air-app .sidebar nav { flex-direction: row; gap: 5px; overflow: auto; padding: 4px; }
+  .air-app .sidebar .nav-link { width: 44px; min-height: 44px; flex-shrink: 0; }
+}

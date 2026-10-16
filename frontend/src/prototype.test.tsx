@@ -33,6 +33,13 @@ it("uses the Gemini logo on the homepage", () => {
   expect(renderToStaticMarkup(<LandingPage/>)).toMatch(/<img[^>]+src="\/assets\/services\/gemini\.png"[^>]+alt="Gemini"/)
 })
 
+it("describes server collection without directing visitors to a desktop agent", () => {
+  vi.stubGlobal("window", {matchMedia:()=>({matches:true})})
+  const html = renderToStaticMarkup(<LandingPage/>)
+  expect(html).not.toMatch(/агент|Агент|на вашем ПК|компьютер выполняет|\/app\/|\.exe|Windows\.zip/)
+  expect(html).toContain("Проверки выполняются на сервере")
+})
+
 it("shows automatic retries as processing but preserves explicit pauses and terminal states", () => {
   expect(runStatus({state:"paused",desired_state:"running",phase:"cloud"})).toBe("В процессе")
   expect(runStatus({state:"running",desired_state:"running",phase:"cloud"})).toBe("В процессе")
@@ -83,11 +90,15 @@ it("limits saved report choices to the project's configured systems", () => {
   expect(reportSelection(null, configured)).toBeNull()
 })
 
-it("keeps all nine app sections and hides administration for an ordinary account", () => {
+it("keeps project tools in an accessible icon rail and account navigation in the header", () => {
   vi.stubGlobal("location", {hash:"#/projects"})
   const props = {token:"test",email:"owner@example.test",balance:"0 ₽",admin:false,account:<p>Wallet</p>,administration:<p>Private admin</p>,message:"",brandClarificationsEnabled:false,onDirtyChange:()=>{},logout:()=>{},walletChanged:()=>{}}
   const html = renderToStaticMarkup(<ControlCenter {...props}/>)
-  for (const label of ["Обзор видимости","Проекты","Запросы","Источники","Настройки проекта","Расписание","История проверок","Аккаунт и оплата","Помощь"]) expect(html).toContain(label)
+  const sidebar = html.match(/<aside class="sidebar">([\s\S]*?)<\/aside>/)![1]
+  for (const label of ["Обзор видимости","Запросы","Источники","Настройки проекта","Расписание","История проверок"]) expect(sidebar).toContain(`aria-label="${label}"`)
+  expect(sidebar).not.toMatch(/Проекты|Аккаунт|Помощь|owner@example|sidebar-account|title=/)
+  expect(sidebar).not.toContain(">Запросы")
+  expect(html).toContain("Меню аккаунта")
   expect(html).not.toMatch(/Администрирование|Компьютеры|Скачать агент|Private admin/)
   expect(renderToStaticMarkup(<ControlCenter {...props} admin/>)).toContain("Администрирование")
 })

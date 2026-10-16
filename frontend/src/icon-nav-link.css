@@ -1,0 +1,8 @@
+.air-nav-tip-positioner { z-index: 100; }
+.air-nav-tip { padding: 10px 14px; border: 1px solid #344760; border-radius: 10px; background: #203651; color: #fff; box-shadow: 0 6px 20px #152c4926; font: 500 13px/1.4 "Manrope", sans-serif; max-width: min(260px, calc(100vw - 24px)); }
+.air-nav-tip-arrow { width: 12px; height: 8px; fill: #203651; }
+.air-nav-tip-arrow[data-side=right] { left: -8px; transform: rotate(-90deg); }
+.air-nav-tip-arrow[data-side=left] { right: -8px; transform: rotate(90deg); }
+.air-nav-tip-arrow[data-side=bottom] { top: -8px; }
+.air-nav-tip-arrow[data-side=top] { bottom: -8px; transform: rotate(180deg); }
+@media (prefers-reduced-motion: no-preference) { .air-nav-tip { transition: opacity 120ms ease; } .air-nav-tip[data-starting-style], .air-nav-tip[data-ending-style] { opacity: 0; } }

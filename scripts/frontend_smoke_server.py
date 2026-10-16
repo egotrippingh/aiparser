@@ -55,8 +55,6 @@ async def qa(request, call_next):
         if request.method == 'POST':
             state.update(await request.json())
         return JSONResponse(state)
-    if path == '/app/':
-        return Response((Path(__file__).resolve().parents[1] / 'web/app/index.html').read_text(encoding='utf-8'), media_type='text/html')
     if path == '/api/desktop/state':
         return JSONResponse({'detail': 'QA: агент временно недоступен'} if state['agent_error'] else state['agent'], status_code=503 if state['agent_error'] else 200)
     if path == '/api/desktop/update/check':
