@@ -89,7 +89,7 @@ def graph_status(root: Path, branch: str, commit: str, dirty: bool) -> str:
         return "unverified: invalid source marker"
     origin = f"indexed {source_branch}@{source}"
     if source != commit or source_branch != branch:
-        return f"{origin}; different checkout, refresh before use"
+        return f"{origin}; different checkout, verify source differences before reuse"
     if dirty:
         return f"{origin}; working tree changed, freshness unverified"
     return f"{origin}; checkout matches (index is not runtime proof)"
