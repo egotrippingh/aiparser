@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://airate.tech/</loc></url>
-  <url><loc>https://airate.tech/help/quick-start/</loc></url>
-  <url><loc>https://airate.tech/help/projects-and-queries/</loc></url>
-  <url><loc>https://airate.tech/help/scans/</loc></url>
-  <url><loc>https://airate.tech/help/schedule/</loc></url>
-  <url><loc>https://airate.tech/help/reports/</loc></url>
-  <url><loc>https://airate.tech/help/answers-and-sources/</loc></url>
-  <url><loc>https://airate.tech/help/billing/</loc></url>
-  <url><loc>https://airate.tech/help/troubleshooting/</loc></url>
+  <url><loc>https://airate.tech/docs/quick-start/</loc></url>
+  <url><loc>https://airate.tech/docs/projects-and-queries/</loc></url>
+  <url><loc>https://airate.tech/docs/scans/</loc></url>
+  <url><loc>https://airate.tech/docs/schedule/</loc></url>
+  <url><loc>https://airate.tech/docs/reports/</loc></url>
+  <url><loc>https://airate.tech/docs/answers-and-sources/</loc></url>
+  <url><loc>https://airate.tech/docs/billing/</loc></url>
+  <url><loc>https://airate.tech/docs/troubleshooting/</loc></url>
 </urlset>

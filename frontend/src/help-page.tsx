@@ -12,7 +12,7 @@ import { SiteFooter, SUPPORT_EMAIL } from "./site-footer"
 import { HELP_ARTICLES, helpHref, type HelpArticle } from "./help-content"
 import { ProjectVideo } from "./help-video"
 
-const tree = { name: "Справка AIRate", children: HELP_ARTICLES.map(article => ({ type: "page" as const, name: article.label, url: helpHref(article) })) }
+const tree = { name: "Документация AIRate", children: HELP_ARTICLES.map(article => ({ type: "page" as const, name: article.label, url: helpHref(article) })) }
 const searchLinks = HELP_ARTICLES.map(article => ({ type: "page" as const, id: article.slug, content: article.label, url: helpHref(article) }))
 
 function HelpSearchDialog(props: SharedProps) {
@@ -31,8 +31,8 @@ function HelpSearchDialog(props: SharedProps) {
 }
 
 const translations = {
-  "Search(search trigger)": "Поиск по справке",
-  "Search(search dialog)": "Поиск по справке",
+  "Search(search trigger)": "Поиск по документации",
+  "Search(search dialog)": "Поиск по документации",
   "Open Search(search trigger)(aria-label)": "Открыть поиск",
   "Close Search(search dialog)(aria-label)": "Закрыть поиск",
   "No results found(search dialog)": "Ничего не найдено. Измените запрос.",
@@ -45,7 +45,7 @@ const translations = {
   "Close Sidebar(aria-label)": "Закрыть меню",
   "Show Sidebar(sidebar)": "Показать меню",
   "Hide Sidebar(sidebar)": "Скрыть меню",
-  "Toggle Menu(mobile menu)(aria-label)": "Разделы справки",
+  "Toggle Menu(mobile menu)(aria-label)": "Разделы документации",
   "Next Page(pagination)": "Следующая статья",
   "Previous Page(pagination)": "Предыдущая статья",
 }
@@ -72,7 +72,7 @@ export function HelpPage({ article }: { article: HelpArticle }) {
     <div ref={header} className="help-site-header"><PublicSiteHeader /></div>
     <FrameworkProvider {...framework}>
       <RootProvider theme={{ enabled: false }} i18n={{ locale: "ru", translations }} search={{ SearchDialog: HelpSearchDialog }}>
-        <DocsLayout tree={tree} nav={{ title: "Справка AIRate", url: "/help/" }} tabs={false} themeSwitch={{ enabled: false }}>
+        <DocsLayout tree={tree} nav={{ title: "Документация AIRate", url: "/docs/" }} tabs={false} themeSwitch={{ enabled: false }}>
           <DocsPage toc={toc} id="help-content" tabIndex={-1}>
             <DocsTitle>{article.title}</DocsTitle>
             <DocsDescription>{article.summary}</DocsDescription>

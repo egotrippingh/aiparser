@@ -11,7 +11,7 @@ export function SiteFooter() {
       <nav aria-label="Документы и поддержка">
         <a href="/terms/">Пользовательское соглашение</a>
         <a href="/privacy/">Политика конфиденциальности</a>
-        <a href="/help/">Справка</a>
+        <a href="/docs/">Документация</a>
         <a href={SUPPORT_EMAIL}>support@airate.tech</a>
       </nav>
     </div>

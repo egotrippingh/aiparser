@@ -3,8 +3,11 @@
 The homepage and eight public help articles are indexable. The build extends the
 homepage sitemap from `frontend/public/` with canonical article URLs from
 `frontend/src/help-content.ts`. It omits invented modification dates, priorities
-and change frequencies. `/help/` is an alias of the quick-start guide and uses
+and change frequencies. `/docs/` is an alias of the quick-start guide and uses
 that guide's canonical URL rather than adding a duplicate sitemap entry.
+Legacy `/help` and known `/help/<article>/` addresses permanently redirect (308)
+to `/docs/`, preserving query parameters and browser section fragments.
+The API explorer is at `/api/docs`; `/docs/` is crawlable public documentation.
 
 - `frontend/index.html`: Russian title/description, canonical, Open Graph,
   Twitter summary card and factual WebSite JSON-LD. The verification tag is retained.

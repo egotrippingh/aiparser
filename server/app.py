@@ -247,7 +247,8 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
     if price <= 0 or min_topup <= 0:
         raise RuntimeError("Цена и минимальное пополнение должны быть положительными")
 
-    app = FastAPI(title="AI Mentions Account API")
+    app = FastAPI(title="AI Mentions Account API", docs_url="/api/docs",
+                  swagger_ui_oauth2_redirect_url="/api/docs/oauth2-redirect")
     from server import scrapeless, provider_tasks
     access_logger = logging.getLogger('uvicorn.access')
     if scrapeless.callback_access_log not in access_logger.filters:
@@ -1401,14 +1402,26 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
             return FileResponse(web_dir / "privacy" / "index.html",
                                 headers={"Cache-Control": "no-cache", "X-Robots-Tag": "noindex, follow"})
 
-        @app.get("/help/", include_in_schema=False)
-        @app.get("/help", include_in_schema=False)
-        @app.get("/help/{slug}/", include_in_schema=False)
-        @app.get("/help/{slug}", include_in_schema=False)
+        @app.api_route("/docs/", methods=["GET", "HEAD"], include_in_schema=False)
+        @app.api_route("/docs", methods=["GET", "HEAD"], include_in_schema=False)
+        @app.api_route("/docs/{slug}/", methods=["GET", "HEAD"], include_in_schema=False)
+        @app.api_route("/docs/{slug}", methods=["GET", "HEAD"], include_in_schema=False)
         def help_page(slug: str = "quick-start") -> FileResponse:
             if slug not in HELP_SLUGS:
                 raise HTTPException(404, "Страница не найдена")
-            return FileResponse(web_dir / "help" / slug / "index.html", headers={"Cache-Control": "no-cache"})
+            return FileResponse(web_dir / "docs" / slug / "index.html", headers={"Cache-Control": "no-cache"})
+
+        @app.api_route("/help/", methods=["GET", "HEAD"], include_in_schema=False)
+        @app.api_route("/help", methods=["GET", "HEAD"], include_in_schema=False)
+        @app.api_route("/help/{slug}/", methods=["GET", "HEAD"], include_in_schema=False)
+        @app.api_route("/help/{slug}", methods=["GET", "HEAD"], include_in_schema=False)
+        def legacy_help_page(request: Request, slug: str | None = None) -> RedirectResponse:
+            if slug is not None and slug not in HELP_SLUGS:
+                raise HTTPException(404, "Страница не найдена")
+            target = f"/docs/{slug}/" if slug else "/docs/"
+            if request.url.query:
+                target += f"?{request.url.query}"
+            return RedirectResponse(target, status_code=308)
 
         @app.get("/cabinet/", include_in_schema=False)
         @app.get("/cabinet", include_in_schema=False)

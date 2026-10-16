@@ -62,4 +62,20 @@ native controls: click/keyboard play-pause, a small paused Play indicator and an
 iPhone-style seek slider. Scrubbing preserves the previous playback state.
 Source video is unchanged; static delivery uses HTTP ranges and metadata preload.
 
-Next: verify the video update and publish it through a PR; indexing remains open.
+User subsequently authorized deployment and requested `/docs/` instead of `/help/`
+and «Документация» in the shared header. Scope includes navigation/search URLs,
+metadata/sitemap, crawl policy and permanent redirects from known legacy pages.
+Move Swagger from `/docs` to `/api/docs` to avoid route/indexing collision.
+Check all article routes, redirect query/fragment retention, unknown-path 404s,
+desktop/mobile header, search and video controls before deployment.
+
+Final follow-up checks: 115 frontend tests, lint and build passed; 16 SEO/HTTP
+tests passed in 27.00s, including 308 GET/HEAD, query retention, 404s, Swagger
+separation and video range delivery. Browser retained query and `#project` after
+redirect, body search opened `/docs/projects-and-queries/`, cabinet header linked
+to `/docs/` with normal colors/no underline, and 320px documentation had no
+horizontal overflow. Video play/pause and seeking still work on the new routes.
+Sol source review found no defects; Astra risk review passed 63 isolated route
+checks. Real iPhone/Safari and actual search indexing remain unverified.
+
+Next: verify the video/documentation update and publish PR #72; indexing remains open.

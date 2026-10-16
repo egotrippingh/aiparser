@@ -14,6 +14,7 @@ describe("help content", () => {
     const html = renderHelpPage(article)
     expect(new Set(article.sections.map(section => section.id)).size).toBe(article.sections.length)
     expect(html).toContain(`href="${helpHref(article)}"`)
+    expect(helpHref(article)).toBe(`/docs/${article.slug}/`)
     for (const section of article.sections) {
       expect(html).toContain(`id="${section.id}"`)
       expect(html).toContain(`href="#${section.id}"`)

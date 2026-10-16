@@ -28,8 +28,11 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 - `codex/help-video`: user-provided project-creation video below «Создайте проект»
   in the quick-start article; click/keyboard play-pause and custom seek slider,
-  without native controls.
-  Final preview/CI and publication pending. Base: production `203a602`.
+  without native controls. Public guides move to `/docs/`, header/footer label
+  «Документация»; old `/help/` URLs permanently redirect to matching pages.
+  Local checks passed (115 frontend tests, lint/build, 16 SEO/HTTP tests), browser
+  route/search/video/header checks and independent source/risk review passed.
+  PR #72 CI and publication pending. Base: production `203a602`.
 
 ## Architecture and operating rules
 
@@ -54,5 +57,5 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Complete video preview/checks and publish the requested help update through a PR
+Complete video/route checks and publish the requested documentation update through a PR
 into `production`. Search-engine submission and actual indexing remain open.
