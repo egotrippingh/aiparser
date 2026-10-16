@@ -28,3 +28,12 @@ it("distinguishes project loading, failure and empty account states", () => {
   expect(failed).not.toContain("У вас пока нет проектов")
   expect(renderToStaticMarkup(<SiteHeader email="test@example.test"/>)).toContain("У вас пока нет проектов")
 })
+
+
+it("separates the all-projects link from the searchable project trigger", () => {
+  const html = renderToStaticMarkup(<SiteHeader email="test@example.test" cabinet/>)
+  const link = html.match(/<a[^>]*aria-label="Все проекты"[^>]*>/)![0]
+  expect(link).toContain('href="#/projects"')
+  expect(html).toMatch(/<button[^>]*aria-label="Выбрать проект"/)
+  expect(html).not.toContain('title="Все проекты"')
+})

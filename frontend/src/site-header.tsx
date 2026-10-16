@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 import { BookOpen, BriefcaseBusiness, ChevronDown, CirclePlus, FolderOpen, LogOut, MessageSquare, Plus, Search, Settings, ShieldCheck, Wallet } from "lucide-react"
 import { Brand } from "./brand"
 import { ProjectIcon } from "./project-icon"
+import { IconNavLink } from "./icon-nav-link"
 import { SUPPORT_URL } from "./site-footer"
 import { accountRequest, COOKIE_SESSION } from "./account-api"
 import "./site-header.css"
@@ -41,12 +42,12 @@ export function SiteHeader({ email, balance, projects = [], selectedId, loading,
   const shown = projects.filter(project => `${project.name} ${project.config.brand_domains.join(" ")} ${project.id}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
   return <header className="sh-header"><div className="sh-inner">
     <Brand className="sh-brand"/>
-    {email ? <Dropdown label="Выбрать проект" className="sh-projects" trigger={<><BriefcaseBusiness size={22}/><span>{selected?.name || "Проекты"}</span></>}>
+    {email ? <div className="sh-project-tools"><IconNavLink className="sh-project-home" label="Все проекты" href={href("projects")} side="bottom"><BriefcaseBusiness size={23} aria-hidden="true"/></IconNavLink><Dropdown label="Выбрать проект" className="sh-projects" trigger={<span>{selected?.name || "Проекты"}</span>}>
       <label className="sh-search"><Search size={18}/><input aria-label="Поиск проекта" placeholder="Найти проект" value={search} onChange={event => setSearch(event.target.value)}/></label>
       <a className="sh-all" href={href("projects")}><FolderOpen size={18}/>Все проекты<span>{projects.length}</span></a>
       <div className="sh-project-list">{loading ? <p role="status">Загрузка проектов…</p> : projectError ? <p role="status">Не удалось загрузить проекты. <a href={href("projects")}>Открыть кабинет</a></p> : shown.map(project => <a key={project.id} href={href(`project/${project.id}/${projectTab}`)} aria-current={project.id === selectedId ? "true" : undefined}><ProjectIcon name={project.name} domains={project.config.brand_domains}/><span><strong>{project.name}</strong><small>{project.config.brand_domains[0] || `ID ${project.id}`}</small></span></a>)}{!loading && !projectError && !shown.length && <p>{projects.length ? "Проекты не найдены" : "У вас пока нет проектов"}</p>}</div>
       <a className="sh-create" href={href("project/new/settings")}><Plus size={18}/>Создать проект</a>
-    </Dropdown> : <nav className="sh-guest-nav" aria-label="О сервисе"><a href="/#how">Как работает</a><a href="/#approach">Наш подход</a><a href="/#faq">Вопросы</a><a className="sh-mobile-support" href={SUPPORT_URL} target="_blank" rel="noopener noreferrer">Поддержка</a></nav>}
+    </Dropdown></div> : <nav className="sh-guest-nav" aria-label="О сервисе"><a href="/#how">Как работает</a><a href="/#approach">Наш подход</a><a href="/#faq">Вопросы</a><a className="sh-mobile-support" href={SUPPORT_URL} target="_blank" rel="noopener noreferrer">Поддержка</a></nav>}
     <div className="sh-actions"><a className="sh-support" aria-label="Поддержка" href={SUPPORT_URL} target="_blank" rel="noopener noreferrer"><MessageSquare size={21}/><span>Поддержка</span></a>
       {email ? <><a className="sh-help" aria-label="Помощь" href={href("help")}><BookOpen size={21}/><span>Помощь</span></a><a className="sh-balance" href={href("topup")} aria-label={`Пополнить баланс${balance ? `: ${balance}` : ""}`}><span>{balance || "Баланс"}</span><CirclePlus size={23}/></a>
         <Dropdown label="Меню аккаунта" trigger={<span className="sh-avatar">{email.slice(0, 2).toUpperCase()}</span>}>
