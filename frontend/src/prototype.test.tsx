@@ -33,6 +33,13 @@ it("uses the Gemini logo on the homepage", () => {
   expect(renderToStaticMarkup(<LandingPage/>)).toMatch(/<img[^>]+src="\/assets\/services\/gemini\.png"[^>]+alt="Gemini"/)
 })
 
+it("describes server collection without directing visitors to a desktop agent", () => {
+  vi.stubGlobal("window", {matchMedia:()=>({matches:true})})
+  const html = renderToStaticMarkup(<LandingPage/>)
+  expect(html).not.toMatch(/агент|Агент|на вашем ПК|компьютер выполняет|\/app\/|\.exe|Windows\.zip/)
+  expect(html).toContain("Проверки выполняются на сервере")
+})
+
 it("shows automatic retries as processing but preserves explicit pauses and terminal states", () => {
   expect(runStatus({state:"paused",desired_state:"running",phase:"cloud"})).toBe("В процессе")
   expect(runStatus({state:"running",desired_state:"running",phase:"cloud"})).toBe("В процессе")
