@@ -1,12 +1,13 @@
 import { useRef, useState } from "react"
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react"
 import { iso, today } from "./lib/dates"
+import { AppChoice } from "./app-choice"
 
 export const shortDate = (value: string) => new Date(value + "T12:00:00").toLocaleDateString("ru-RU", {day:"2-digit",month:"2-digit"})
 export type ReportDateSelection = { mode: "period" | "two" | "monthly" | "custom"; picked: string[]; maxDates: number }
 export const defaultDateSelection: ReportDateSelection = {mode:"period",picked:[],maxDates:30}
 const modes = [{value:"period",label:"Период"},{value:"two",label:"Две даты"},{value:"monthly",label:"Последняя проверка месяца"},{value:"custom",label:"Произвольные даты"}] as const
-const monthNames = Array.from({length:12},(_,i)=>new Date(2026,i,1).toLocaleDateString("ru-RU",{month:"long"}))
+const monthNames = Array.from({length:12},(_,i)=>new Date(2026,i,1).toLocaleDateString("ru-RU",{month:"long"}).replace(/^./,letter=>letter.toLocaleUpperCase("ru-RU")))
 
 export function restoreDateSelection(saved: unknown, from: string, to: string): ReportDateSelection {
   if (!saved || typeof saved!=="object") return defaultDateSelection
@@ -76,9 +77,9 @@ export function ReportCalendar({ from, to, available, selection, change }: {
           const first=new Date(month.getFullYear(),month.getMonth()+shift,1), offset=(first.getDay()+6)%7
           const days=new Date(first.getFullYear(),first.getMonth()+1,0).getDate()
           return <div key={shift} className="calendar-month"><div className="calendar-month-title">{shift===0 ? <>
-            <select aria-label="Первый месяц" value={month.getMonth()} onChange={e=>setMonth(new Date(month.getFullYear(),Number(e.target.value),1))}>{monthNames.map((name,i)=><option key={i} value={i}>{name}</option>)}</select>
+            <AppChoice label="Первый месяц" value={String(month.getMonth())} options={monthNames.map((label,i)=>({value:String(i),label}))} change={value=>setMonth(new Date(month.getFullYear(),Number(value),1))}/>
             <input aria-label="Год первого месяца" type="number" min="1900" max="9998" key={month.getFullYear()} defaultValue={month.getFullYear()} onKeyDown={e=>{if(e.key==="Enter")e.currentTarget.blur()}} onBlur={e=>{const year=Number(e.target.value);if(year>=1900 && year<=9998)setMonth(new Date(year,month.getMonth(),1));else e.target.value=String(month.getFullYear())}}/>
-          </> : first.toLocaleDateString("ru-RU",{month:"long",year:"numeric"})}</div>
+          </> : <><span className="calendar-month-name">{monthNames[first.getMonth()]}</span><span className="calendar-month-year">{first.getFullYear()}</span></>}</div>
           <div className="calendar-grid">{["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].map(day=><small key={day}>{day}</small>)}{Array.from({length:offset},(_,i)=><span key={`blank-${i}`}/>)}{Array.from({length:days},(_,i)=>{
             const day=iso(new Date(first.getFullYear(),first.getMonth(),i+1))
             const selected=draft.mode==="custom" ? draft.picked.includes(day) : draft.mode==="monthly" ? chosen.includes(day) : draft.mode==="two" ? day===start||day===end : day>=start&&day<=end

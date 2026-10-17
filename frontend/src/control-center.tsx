@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react"
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react"
 import { CalendarClock, ChevronRight, Flag, LayoutDashboard, Link, List, Pause, Play, Plus, RefreshCw, Search, Settings2, ShieldCheck, Square, X } from "lucide-react"
 import { Tooltip } from "@base-ui/react/tooltip"
 import { accountRequest as request } from "./account-api"
@@ -38,6 +38,9 @@ export function runStatus(run: Pick<Run,"state"|"desired_state"|"phase">) {
 }
 export function scanPercent(done: number, total: number) {
   return total > 0 ? Math.max(0,Math.min(100,Math.floor(done / total * 20) * 5)) : 0
+}
+export function ScanProgress({ percent }: {percent:number}) {
+  return <span className="scan-pie" role="progressbar" aria-label="Прогресс проверки" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} style={{"--scan-target":`${percent}%`} as CSSProperties}/>
 }
 export const needsAgent = (services: string[]) => services.some(id => !["google_aio", "yandex_neuro", "chatgpt", "perplexity", "gemini"].includes(id))
 const service = (id: string) => SCAN_SERVICES.find(s => s.id === id)?.label || id
@@ -212,7 +215,7 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
   const progress = projectRun ? scanPercent(projectRun.progress.done ?? 0,projectRun.total) : 0
   const scanLabel = projectRun ? `${runStatus(projectRun)}: ${progress}%` : "Проверить видимость"
   const scanControl = <span className="cc-quote-anchor">
-    <Tooltip.Root><Tooltip.Trigger delay={180} render={<button ref={scanButton} className="btn icon-only scan-launch" aria-label={scanLabel} aria-haspopup={projectRun ? undefined : "dialog"} aria-expanded={projectRun ? undefined : scanQuote?.projectId === projectId} aria-disabled={!!projectRun} disabled={!projectRun && (!!busy || !selected?.config.services.length || !selected.active_queries || needsAgent(selected.config.services))} onClick={() => { if (!projectRun) void action(projectId!, () => quoteLaunch(projectId!)) }}/>}>{projectRun ? <svg viewBox="0 0 36 36" role="progressbar" aria-label="Прогресс проверки" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}><circle className="scan-ring-track" cx="18" cy="18" r="15"/><circle className="scan-ring-fill" cx="18" cy="18" r="15" pathLength="100" strokeDasharray={`${progress} 100`} transform="rotate(-90 18 18)"/></svg> : <RefreshCw size={19}/>}</Tooltip.Trigger>
+    <Tooltip.Root><Tooltip.Trigger delay={180} render={<button ref={scanButton} className="btn icon-only scan-launch" aria-label={scanLabel} aria-haspopup={projectRun ? undefined : "dialog"} aria-expanded={projectRun ? undefined : scanQuote?.projectId === projectId} aria-disabled={!!projectRun} disabled={!projectRun && (!!busy || !selected?.config.services.length || !selected.active_queries || needsAgent(selected.config.services))} onClick={() => { if (!projectRun) void action(projectId!, () => quoteLaunch(projectId!)) }}/>}>{projectRun ? <ScanProgress percent={progress}/> : <RefreshCw size={19}/>}</Tooltip.Trigger>
       <Tooltip.Portal><Tooltip.Positioner side="bottom" sideOffset={12} className="air-nav-tip-positioner"><Tooltip.Popup className="air-nav-tip"><Tooltip.Arrow className="air-nav-tip-arrow"/>{scanLabel}</Tooltip.Popup></Tooltip.Positioner></Tooltip.Portal>
     </Tooltip.Root>
     {scanQuote && scanQuote.projectId === projectId && <QuotePopover quote={scanQuote.quote} item="проверок" note="Оплачиваются только завершённые проверки с ответом." action="Запустить" trigger={scanButton} afterConfirm={projectHeading} onCancel={dismissScanQuote} onConfirm={() => { if (scanSubmitting.current) return; scanSubmitting.current = true; const pending = scanQuote; setScanQuote(null); void action(projectId!, () => launch(projectId!, pending.quote)).finally(() => { scanSubmitting.current = false }) }}/>}

@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
-import { ControlCenter, scanPercent, ScheduleDays, runStatus } from "./control-center"
+import { ControlCenter, scanPercent, ScanProgress, ScheduleDays, runStatus } from "./control-center"
 import { ProjectIcon, projectFavicon } from "./project-icon"
 import { choiceIndex } from "./app-choice"
 import { ReportChart, chartDays, chartIndex, linePath } from "./report-chart"
@@ -55,6 +55,16 @@ it("reports real scan progress in bounded five-percent steps", () => {
   expect(scanPercent(0,0)).toBe(0)
   expect(scanPercent(-1,20)).toBe(0)
   expect(scanPercent(100,99)).toBe(100)
+})
+
+it("exposes the progress pie value without displaying a number", () => {
+  for (const percent of [0,35,100]) {
+    const html=renderToStaticMarkup(<ScanProgress percent={percent}/>)
+    expect(html).toContain(`aria-valuenow="${percent}"`)
+    expect(html).toContain(`--scan-target:${percent}%`)
+    expect(html).toMatch(/><\/span>$/)
+    expect(html).not.toMatch(/NaN|Infinity/)
+  }
 })
 
 it("loads project icons only from the first brand domain with safe fallback", () => {

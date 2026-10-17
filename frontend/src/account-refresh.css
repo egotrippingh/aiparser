@@ -29,7 +29,7 @@
 .cab-auth-heading p { margin: 0; color: var(--air-muted); font-size: 14px; line-height: 1.6; }
 .cab-auth label, .cab-password-field { display: grid; gap: 8px; color: var(--air-text); font-size: 13px; font-weight: 500; }
 .cab-auth input, .app-account .cab-topup input:not([type=radio]), .app-account .cab-promo input, .app-account .cab-password-form input { width: 100%; min-height: 46px; padding: 10px 13px; border: 1px solid var(--air-line-strong); border-radius: 7px; background: var(--air-panel); color: var(--air-text); font: inherit; }
-.cab-auth input:focus, .app-account .cab-topup input:focus, .app-account .cab-promo input:focus, .app-account .cab-password-form input:focus { border-color: var(--air-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--air-accent) 10%, transparent); }
+.cab-auth input:focus, .app-account .cab-topup input:focus, .app-account .cab-promo input:focus, .app-account .cab-password-form input:focus { border-color: var(--air-accent); box-shadow: none; }
 .cab-yandex { min-height: 48px; border-color: var(--air-line-strong); border-radius: 8px; background: var(--air-panel); color: var(--air-text); font-weight: 600; }
 .cab-yandex:hover:not(:disabled) { background: var(--air-line); border-color: var(--air-line-strong); }
 .cab-yandex-mark { width: 24px; height: 24px; background: transparent; }

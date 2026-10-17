@@ -50,6 +50,7 @@
 .air-app .cc-query-table input:not([type=checkbox]):hover { border-color: var(--line); }
 .air-app dialog { color-scheme: light; width: min(720px, calc(100vw - 30px)); max-height: calc(100dvh - 40px); overflow: auto; color: var(--text); background: white; border: 1px solid var(--line); }
 .air-app .ws-dialog { padding: 24px; }
+.air-app dialog:focus { outline: none; }
 .air-app .ws-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .air-app .ws-dialog h3 { margin: 18px 0 12px; }
 .air-app .ws-note { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 12px 0; }
@@ -58,10 +59,10 @@
 .air-app .calendar-grid button.in-range { background: #f1f5fb; }
 .air-app .calendar-grid button.endpoint { background: var(--navy); color: white; }
 .air-app .scan-launch { width: 40px; height: 40px; padding: 7px; background: white; color: var(--text); }
-.air-app .scan-launch svg[role=progressbar] { width: 28px; height: 28px; overflow: visible; }
-.scan-ring-track,.scan-ring-fill { fill: none; stroke-width: 3; }
-.scan-ring-track { stroke: #edf0f5; }
-.scan-ring-fill { stroke: var(--orange); stroke-linecap: round; }
+@property --scan-progress { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
+.scan-pie { --scan-progress: var(--scan-target); display: block; width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; background: conic-gradient(var(--orange) var(--scan-progress), #edf0f5 0); transition: --scan-progress 800ms cubic-bezier(.22,1,.36,1); }
+@starting-style { .scan-pie { --scan-progress: 0%; } }
+@media(prefers-reduced-motion:reduce) { .scan-pie { transition: none; } }
 .scan-launch[aria-disabled=true] { cursor: default; }
 .air-app .calendar-dialog { width: min(1120px,calc(100vw - 32px)); padding: 20px 24px 24px; }
 .calendar-layout { display: grid; grid-template-columns: minmax(0,1fr) 250px; gap: 24px; }
@@ -70,12 +71,20 @@
 .calendar-presets button { flex: 1; padding: 8px 5px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
 .calendar-presets button[aria-pressed=true] { background: white; box-shadow: 0 1px 4px #23344812; }
 .calendar-presets button:hover { background: #fff9; }
-.calendar-main .calendar-nav { margin: 12px 0 4px; font-size: 11px; color: var(--muted); }
-.calendar-main .calendar-months { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 18px; }
-.calendar-month-title { display: flex; justify-content: center; align-items: center; gap: 6px; height: 34px; margin-bottom: 12px; font-size: 13px; text-transform: capitalize; color: var(--text); }
-.air-app .calendar-dialog .calendar-month-title select,.air-app .calendar-dialog .calendar-month-title input { min-height: 30px; padding: 4px; border: 1px solid var(--line); border-radius: 5px; background: white; color: var(--text); font: inherit; text-transform: capitalize; }
-.air-app .calendar-dialog .calendar-month-title select { width: 102px; min-width: 0; }
-.air-app .calendar-dialog .calendar-month-title input { width: 66px; min-width: 0; }
+.calendar-main .calendar-nav { margin: 16px 0 12px; font-size: 11px; color: var(--muted); }
+.calendar-main .calendar-months { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 24px; }
+.calendar-month-title { display: flex; justify-content: center; align-items: center; gap: 12px; height: 36px; margin-bottom: 16px; font-size: 13px; color: var(--text); }
+.air-app .calendar-dialog .calendar-month-title .choice-trigger,.air-app .calendar-dialog .calendar-month-title input { height: 32px; min-height: 32px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; background: white; color: var(--text); font: inherit; line-height: 18px; }
+.calendar-month-title .app-choice { width: 110px; min-width: 0; text-align: left; }
+.air-app .calendar-dialog .calendar-month-title input { width: 64px; min-width: 0; text-align: left; }
+.calendar-month-name,.calendar-month-year { color: var(--text); font: inherit; line-height: 32px; }
+.calendar-month-title input { appearance: textfield; }
+.calendar-month-title input::-webkit-inner-spin-button,.calendar-month-title input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.air-app .calendar-dialog :is(input,select,button):focus { outline: none; box-shadow: none; }
+.air-app .calendar-dialog .calendar-month-title .choice-trigger:focus { outline: none; box-shadow: none; }
+.air-app .calendar-dialog :is(input,select,button):focus-visible { background-color: #edf2f7; border-color: #a8b5c5; }
+.air-app .calendar-dialog .calendar-month-title .choice-trigger { gap: 8px; padding-inline: 8px; font-size: 13px; }
+.air-app .calendar-dialog .calendar-month-title .choice-menu { max-height: min(320px,40dvh); }
 .air-app .calendar-grid button { height: 34px; border-radius: 6px; font-size: 12px; }
 .air-app .calendar-grid button:disabled { opacity: .35; cursor: default; }
 .air-app .calendar-grid button.endpoint { background: var(--blue); }
@@ -107,7 +116,7 @@
 .air-app .cab-entry { border-color: var(--line); }
 .air-app .cab-topup h2 { color: var(--text); }
 .air-app .help-card p { margin: 10px 0 25px; line-height: 1.8; color: var(--muted); }
-.air-app .choice-search:focus-within, .air-app .search-box:focus-within { outline: 2px solid var(--blue); outline-offset: 2px; }
+.air-app .choice-search:focus-within, .air-app .search-box:focus-within { outline: none; border-color: #a8b5c5; }
 .air-app .search-box input:focus-visible { outline: 0; }
 .air-app .choice-trigger { max-width: 100%; }
 .air-app .choice-menu { max-width: calc(100vw - 30px); }
