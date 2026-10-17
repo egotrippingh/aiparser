@@ -52,6 +52,7 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 - Prepared, not published: `codex/overview-calendar-preview`, based on production
   `29114ed07637e7c9d9357a5ad638ef668bc259e4`. Compact scan control, chart-only service
   selection and calendar modes with up to 30 dates; no Yandex-update markers.
+  Active ring has no number or click action; progress stays in its tooltip.
   Interactive disposable-data preview awaits user feedback. No real scans or charges.
 
 - Real clarification scan, historical S3 recovery, paid recompute and live PostgreSQL

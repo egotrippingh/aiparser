@@ -62,7 +62,7 @@
 .scan-ring-track,.scan-ring-fill { fill: none; stroke-width: 3; }
 .scan-ring-track { stroke: #edf0f5; }
 .scan-ring-fill { stroke: var(--orange); stroke-linecap: round; }
-.scan-launch text { fill: var(--orange); font-size: 10px; text-anchor: middle; font-weight: 700; }
+.scan-launch[aria-disabled=true] { cursor: default; }
 .air-app .calendar-dialog { width: min(1120px,calc(100vw - 32px)); padding: 20px 24px 24px; }
 .calendar-layout { display: grid; grid-template-columns: minmax(0,1fr) 250px; gap: 24px; }
 .calendar-main { min-width: 0; }
