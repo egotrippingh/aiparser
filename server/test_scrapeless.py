@@ -170,7 +170,7 @@ def test_run_created_while_paused_never_admits_after_resume(tmp_path, monkeypatc
     client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, admin=False)
     created = client.post('/api/v1/control/projects', headers=owner, json={
         'name': 'Mixed pause', 'brand_name': 'Brand', 'queries': [{'text': 'question'}],
-        'config': {'services': ['chatgpt', 'perplexity']},
+        'config': {'services': ['chatgpt', 'perplexity'], 'brand_domains': ['brand.test']},
     })
     assert created.status_code == 201, created.text
     project = created.json()
