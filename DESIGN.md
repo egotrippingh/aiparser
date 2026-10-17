@@ -15,6 +15,9 @@ success/warning/error text. Do not rely on color alone. On narrow screens collap
 into a labelled horizontal list, stack forms and contain table scrolling locally.
 Pointer clicks must not add bright outlines or focus glows. Keep keyboard focus visible
 with a subtle background or border change; calendar controls share one spacing and type style.
+Cabinet dropdowns use the shared AppChoice menu and option styling. Compact toolbar
+buttons and dropdown triggers have 9 px corners and the same 36 px height, including
+icon-only actions; align their edges within each row.
 
 Reduce animation to 150–200 ms state transitions and respect prefers-reduced-motion.
 Always show pending, error, offline and empty states. Avoid replacing a populated form

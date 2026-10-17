@@ -54,7 +54,9 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
   selection and calendar modes with up to 30 dates; no Yandex-update markers.
   Active progress fills clockwise as a solid pie with smooth animation, no number
   or click action; percentage stays in its tooltip. Calendar spacing and month/year
-  controls share one style; pointer focus has no bright outline/glow.
+  controls share one style; mode/limit menus reuse AppChoice. Compact toolbar controls
+  share 36 px height and rounded corners; pointer focus has no bright outline/glow.
+  These conventions are recorded in frontend/AGENTS.md and DESIGN.md.
   Interactive disposable-data preview awaits user feedback. No real scans or charges.
 
 - Real clarification scan, historical S3 recovery, paid recompute and live PostgreSQL

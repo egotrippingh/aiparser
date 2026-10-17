@@ -58,7 +58,8 @@
 .air-app .calendar-grid button { background: white; color: var(--text); }
 .air-app .calendar-grid button.in-range { background: #f1f5fb; }
 .air-app .calendar-grid button.endpoint { background: var(--navy); color: white; }
-.air-app .scan-launch { width: 40px; height: 40px; padding: 7px; background: white; color: var(--text); }
+.air-app .scan-launch { width: 36px; height: 36px; padding: 3px; background: white; color: var(--text); }
+.air-app .filterbar :is(.choice-trigger,.report-calendar-trigger) { min-height: 36px; border-radius: 9px; }
 @property --scan-progress { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
 .scan-pie { --scan-progress: var(--scan-target); display: block; width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; background: conic-gradient(var(--orange) var(--scan-progress), #edf0f5 0); transition: --scan-progress 800ms cubic-bezier(.22,1,.36,1); }
 @starting-style { .scan-pie { --scan-progress: 0%; } }
@@ -93,10 +94,12 @@
 .calendar-key i { width: 6px; height: 6px; background: var(--blue); border-radius: 50%; }
 .calendar-options { display: flex; flex-direction: column; gap: 18px; padding-left: 24px; border-left: 1px solid var(--line); }
 .calendar-options label { display: grid; gap: 7px; color: var(--muted); font-size: 12px; }
-.calendar-options input,.calendar-options select { width: 100%; min-width: 0; min-height: 40px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: white; font: inherit; font-size: 12px; }
+.air-app .calendar-options input,.air-app .calendar-options .choice-trigger { width: 100%; min-width: 0; min-height: 40px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: white; font: inherit; font-size: 12px; }
+.calendar-mode .app-choice { width: 100%; }
+.air-app .calendar-options .choice-trigger:focus { outline: none; box-shadow: none; }
 .calendar-options-bottom { margin-top: auto; padding-top: 16px; }
-.air-app .calendar-options label.calendar-limit { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.air-app .calendar-options .calendar-limit select { width: 70px; }
+.calendar-limit { display: flex; justify-content: space-between; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
+.calendar-limit .app-choice { width: 70px; flex-shrink: 0; }
 .calendar-options-bottom>.btn { justify-content: center; width: 100%; margin-top: 16px; min-height: 42px; }
 .calendar-count { margin-top: 8px; color: var(--muted); font-size: 11px; }
 .calendar-error { margin-top: 10px; font-size: 12px; color: #ad302a; }

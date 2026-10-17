@@ -88,12 +88,12 @@ export function ReportCalendar({ from, to, available, selection, change }: {
         })}</div>
         <p className="calendar-key"><i aria-hidden="true"/>Выполнялась проверка</p>
       </div><div className="calendar-options">
-        <label className="calendar-mode"><span className="sr-only">Режим выбора дат</span><select aria-label="Режим выбора дат" value={draft.mode} onChange={e=>{setDraft({...draft,mode:e.target.value as ReportDateSelection["mode"]});setPickingEnd(false)}}>{modes.map(mode=><option key={mode.value} value={mode.value}>{mode.label}</option>)}</select></label>
+        <div className="calendar-mode"><AppChoice label="Режим выбора дат" value={draft.mode} options={[...modes]} change={value=>{setDraft({...draft,mode:value as ReportDateSelection["mode"]});setPickingEnd(false)}}/></div>
         {draft.mode==="custom" ? <div className="calendar-picked" aria-label="Выбранные даты">{draft.picked.length ? draft.picked.map(day=><button key={day} onClick={()=>pick(day)} aria-label={`Убрать ${day}`}>{shortDate(day)}.{day.slice(0,4)}<X size={13}/></button>) : <p>Выберите даты в календаре</p>}</div> : <>
           <label>Первая дата<input type="date" value={start} onChange={e=>{setStart(e.target.value);setPickingEnd(false);setActivePreset("Произвольный")}}/></label>
           <label>Последняя дата<input type="date" value={end} onChange={e=>{setEnd(e.target.value);setPickingEnd(false);setActivePreset("Произвольный")}}/></label>
         </>}
-        <div className="calendar-options-bottom"><label className="calendar-limit">Максимально дат<select aria-label="Максимально дат" value={draft.maxDates} onChange={e=>setDraft({...draft,maxDates:Number(e.target.value)})}>{[10,15,30].map(n=><option key={n} value={n}>{n}</option>)}</select></label>
+        <div className="calendar-options-bottom"><div className="calendar-limit"><span>Максимально дат</span><AppChoice label="Максимально дат" value={String(draft.maxDates)} options={[10,15,30].map(n=>({value:String(n),label:String(n)}))} change={value=>setDraft({...draft,maxDates:Number(value)})}/></div>
           <p className="calendar-count" role="status">{draft.mode==="two" ? "Сравнение двух дат" : `В отчёте до ${draft.maxDates} дат`}</p>
           {!valid && <p className="calendar-error" role="alert">{!rangeValid ? "Выберите период до 366 дней, начало не позже конца." : draft.mode==="monthly" ? "В этом периоде нет проверок." : `Выберите от 1 до ${draft.maxDates} дат.`}</p>}
           <button className="btn primary" disabled={!valid} onClick={()=>{change(start,end,{...draft,picked:chosen});dialog.current?.close()}}>Применить</button>

@@ -2,6 +2,14 @@
 
 Read root `AGENTS.md`; read `PRODUCT.md` and `DESIGN.md` for UI changes.
 
+- Reuse `AppChoice` for cabinet dropdown menus, including calendar modes and limits;
+  use its shared popup, option and selected states rather than browser-native select menus.
+  Keep toolbar buttons and dropdown triggers rounded (9 px), aligned and equally tall
+  (36 px in compact filter rows). Icon-only actions must match adjacent controls.
+  Pointer clicks must not add bright outlines or focus glows; preserve subtle visible
+  keyboard focus, accessible labels and arrow-key/Escape operation. Check the actual
+  row and open menu in the browser after changing controls.
+
 - React/TypeScript + Vite, existing components/styles; retain Russian copy, the supplied
   white/navy/orange prototype palette, keyboard access, labelled controls, focus and reduced motion. Use native
   controls or installed components before dependencies. Do not edit vendored React Bits
