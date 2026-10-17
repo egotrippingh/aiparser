@@ -100,3 +100,30 @@ No representative human accuracy claim or publication. Default models and curren
 Deterministic checks: 68 detection/evaluation/workflow, 22 planner, 6 AI adapter,
 6 cache/budget and 2 cloud-card cases passed. Independent correctness/risk reviews
 found no remaining blocker; latest full CI evidence belongs in the PR.
+
+## Expanded server-answer audit (authorized 2026-10-17)
+
+User requested 300–500 server answers and confirmed there is no human gold labelling.
+This is a blind agreement/error audit, never accuracy/precision/recall measurement.
+Production data is read-only; no statuses, feedback, billing or runtime models change.
+
+- Only the admin account's five managed providers: 2487 completed captures with frozen
+  run identity/query. Other users and legacy Alice are excluded. Exclude seven feedback
+  results and same-query variants (93 captures); no feedback examples enter the prompt.
+- Frozen stratified selection: 300 answers, 60 per provider, three brands; historical
+  statuses 117 found / 183 not_found are sampling metadata, never gold or model inputs.
+  Text/cards/sources only; source-card title/text is folded into separate card evidence.
+  Screenshots and fetched source pages are outside this audit.
+- Two independent calls per answer: Qwen3.8 Flash (reasoning budget 512) and Pro-0813
+  (effort=none), max output 1024, alternating paired order, four workers, no retries.
+  Provider hard caps: Qwen $0.15/$0.47 and Pro $0.66/$1.98 per million tokens.
+- Shared original $5 cap: prior cost upper bound rounded up to $0.294; all 600 new
+  request ceilings total $4.503357972. Entire $4.797357972 is reserved before any POST.
+  Incomplete runs retain the full reservation; never rerun with the old bound alone.
+- Inputs, original IDs, quotes and individual decisions stay in ignored local private
+  files. Publish aggregate coverage, disagreement, cost and latency only. Review samples
+  remain AI-assisted qualitative analysis, not human gold. No auto-correction of reports.
+
+Audit script/cost/coverage safeguards passed 12 deterministic tests and independent
+correctness/risk rechecks before paid dispatch. Model run is in progress; record final
+aggregate evidence separately after completion.
