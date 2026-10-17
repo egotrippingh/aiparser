@@ -89,3 +89,13 @@ and arbiter token usage, credit/FX/payment fees, hosting/storage and tax assumpt
 Distinguish contribution margin from net profit; show FX and heavy-answer sensitivity.
 Actual token distributions, arbitration share, private discounts and FX purchase rate
 remain unknown until a scoped experiment/accounting input is available.
+
+## Prepared result
+
+One authorized 168-request synthetic run completed. [Results and model choice](../brand-model-comparison.md),
+[economics](../brand-detection-economics.md), [review PR #74](https://github.com/egotrippingh/aiparser/pull/74).
+Known usage $0.054911243664; conservative total reservation $3.1768755228 under $5.
+No representative human accuracy claim or publication. Default models and current price unchanged.
+Deterministic checks: 68 detection/evaluation/workflow, 22 planner, 6 AI adapter,
+5 cache/budget and 2 cloud-card cases passed. Independent correctness/risk reviews
+found no remaining blocker; latest full CI evidence belongs in the PR.

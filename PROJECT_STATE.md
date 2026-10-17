@@ -30,7 +30,8 @@ Updated 2026-10-17. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 - Prepared on `codex/brand-detection-quality`, not published: semantic identity routing,
   neutral arbiter, strict verdict validation, reserved-cache recovery and source-card
   evidence. Independent correctness/risk reviews found no remaining blocker; affected
-  deterministic checks passed, full server gate is pending. No default model/price change.
+  deterministic checks passed. Full server/CI evidence is tracked in
+  [draft PR #74](https://github.com/egotrippingh/aiparser/pull/74). No default model/price change.
   [24-case synthetic comparison](docs/brand-model-comparison.md): Qwen Flash is a candidate
   primary, DeepSeek Pro a candidate arbiter; real 90% precision/recall remains unverified.
 
