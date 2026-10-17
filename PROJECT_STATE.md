@@ -27,6 +27,13 @@ Updated 2026-10-17. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Open checks
 
+- Prepared on `codex/brand-detection-quality`, not published: semantic identity routing,
+  neutral arbiter, strict verdict validation, reserved-cache recovery and source-card
+  evidence. Independent correctness/risk reviews found no remaining blocker; affected
+  deterministic checks passed, full server gate is pending. No default model/price change.
+  [24-case synthetic comparison](docs/brand-model-comparison.md): Qwen Flash is a candidate
+  primary, DeepSeek Pro a candidate arbiter; real 90% precision/recall remains unverified.
+
 - Real clarification scan, historical S3 recovery, paid recompute and live PostgreSQL
   upload/recompute race remain unverified. First real paid top-up email and signed-in
   multi-account Yandex choice remain unverified.
@@ -35,5 +42,6 @@ Updated 2026-10-17. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Collect feedback on the published overview/calendar. Keep the existing production
-backup, isolated restore, readiness and rollback gates for future releases.
+Finish server gates for prepared detection work, then obtain independent human holdout
+labels and collector unit costs before model activation/publication. Keep existing
+production backup, isolated restore, readiness and rollback gates.

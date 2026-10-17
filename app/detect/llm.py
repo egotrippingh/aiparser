@@ -43,9 +43,8 @@ _SYSTEM = """Ты проверяешь, упоминается ли конкре
 # первый вызов ищет упоминание, а этот — выносит окончательное решение вместо
 # человека, поэтому требует прямого ответа и запрещает «возможно».
 _ARBITER_SYSTEM = """Ты выносишь ОКОНЧАТЕЛЬНОЕ решение: упоминается ли бренд в ответе ИИ-поисковика.
-Первая модель уже сказала «найдено», но правила дословного поиска бренд не нашли — то есть
-прямого совпадения по названию или домену в тексте нет. Твоя задача — проверить это и решить
-за человека: перепроверять твой ответ никто не будет.
+Независимо проверь исходные доказательства. Предыдущие модели и правила могли как найти,
+так и пропустить упоминание. Их выводы не являются доказательствами идентичности бренда.
 Считается упоминанием: название бренда или его форма в тексте ответа; ссылка на домен бренда;
 товар или карточка бренда (организация, товар, источник); бренд, видимый только на скриншоте;
 однозначное косвенное указание именно на эту компанию («официальный дистрибьютор X»).
@@ -62,6 +61,7 @@ async def evaluate(
     *,
     brand_name: str,
     aliases: list[str],
+    domains: list[str] | None = None,
     answer_text: str,
     sources: list[str],
     screenshot_bytes: bytes | None,
@@ -77,7 +77,7 @@ async def evaluate(
         return LLMVerdict(found=False, error="Серверный анализ недоступен")
 
     content: list[dict] = [{"type": "text", "text": _build_prompt(
-        brand_name, aliases, answer_text, sources, query, brand_clarification)}]
+        brand_name, aliases, answer_text, sources, query, brand_clarification, domains)}]
     content += _image_parts(screenshot_bytes)
 
     return await _ask_model(_SYSTEM, content, api_key=api_key, model=model,
@@ -127,16 +127,10 @@ async def arbitrate(
     if not managed_check_id:
         return LLMVerdict(found=False, error="Серверный арбитр недоступен")
 
-    said = first_quote or (first_verdict.quote if first_verdict else "")
-    why = first_verdict.reasoning if first_verdict else ""
-    doms = ", ".join(domains) if domains else "(не заданы)"
     text = (
-        _build_prompt(brand_name, aliases, answer_text, sources, query, brand_clarification)
-        + f"\n\nДомены бренда: {doms}\n\n"
-        "Первая модель сочла это упоминанием и сослалась на:\n"
-        f"цитата: {said or '(цитаты не дала)'}\n"
-        f"объяснение: {why or '(без объяснения)'}\n\n"
-        "Проверь это. Правила дословного поиска бренда в тексте и ссылках ничего не нашли."
+        _build_prompt(brand_name, aliases, answer_text, sources, query, brand_clarification, domains)
+        + "\n\n"
+        "Независимо проверь исходные доказательства и вынеси решение."
     )
     content: list[dict] = [{"type": "text", "text": text}]
     content += _image_parts(screenshot_bytes)

@@ -17,7 +17,7 @@ from sqlalchemy.exc import StatementError
 from server.ai import AIError, AIResult, AIRetryAfter
 from server import provider_tasks
 from server.app import create_app
-from server.checks import complete_check
+from server.checks import arbitrate_check, complete_check
 from server.cloud_scans import _analyze_saved, _claim, cloud_tick, worker
 from server.control import schedule_tick
 from server.models import Check, CloudResult, ControlProject, ControlRun, LedgerEntry, ProviderAccount, ProviderTask, ServerCapture, User, Wallet, make_session_factory, utcnow
@@ -103,9 +103,11 @@ def postgres_url():
         engine.dispose()
 
 
-def project_and_run(client, owner, *, services=('google_aio',), schedule=None, queries=None, device=None, legacy=True):
+def project_and_run(client, owner, *, services=('google_aio',), schedule=None, queries=None, device=None, legacy=True,
+                    domains=None):
     body = {'name': 'Project', 'brand_name': 'Brand',
-            'queries': queries or [{'text': 'question'}], 'config': {'services': list(services)}}
+            'queries': queries or [{'text': 'question'}], 'config': {'services': list(services),
+                                                                       'brand_domains': domains or []}}
     if schedule:
         body['schedule'] = schedule
     if device:
@@ -134,10 +136,37 @@ def tick(sessions, ai=None):
     return asyncio.run(cloud_tick(sessions, ai, 120, Collector))
 
 
+@pytest.mark.parametrize('separate_cards', [False, True])
+def test_saved_card_only_evidence_reaches_semantic_analysis(tmp_path, monkeypatch, separate_cards):
+    from server.scrapeless import evidence
+    ai = FakeAI()
+    seen = []
+    def analyze(system, content):
+        seen.append(content[0]['text'])
+        assert 'Brand product' in seen[-1]
+        return AIResult('{"found": true, "confidence": 0.95, "mention_types": ["card"]}', ai.model, {})
+    ai.analyze = analyze
+    client, owner, _, _, sessions = setup(tmp_path, monkeypatch, ai=ai)
+    Collector.answer = evidence({'result_text': 'See the recommendations below.',
+        'citations': [{'url': 'https://dealer.example/item', 'title': 'Brand product'}]})
+    if separate_cards:
+        Collector.answer['cards_text'] = 'Brand product'
+        Collector.answer['source_cards'] = []
+    project_and_run(client, owner)
+    assert tick(sessions, ai)
+    with sessions() as db:
+        result = db.scalar(select(CloudResult))
+        assert result.status == 'found'
+    assert len(seen) == 1
+
+
 def test_cloud_only_durable_evidence_and_owner_scope(tmp_path, monkeypatch):
     client, owner, other, _, sessions = setup(tmp_path, monkeypatch)
+    # This case exercises durable cloud evidence, not semantic identity.  A
+    # verified own-domain source keeps the rules-only fast path by contract.
+    Collector.answer = {**Collector.answer, "sources": ["https://brand.example/about"]}
     Collector.calls = []
-    project, run = project_and_run(client, owner)
+    project, run = project_and_run(client, owner, domains=["brand.example"])
     assert run['device_id'] is None and run['phase'] == 'cloud'
     assert tick(sessions)
     assert Collector.calls == [('google_aio', 'question')]
@@ -151,11 +180,23 @@ def test_cloud_only_durable_evidence_and_owner_scope(tmp_path, monkeypatch):
     detail = client.get(f"/api/v1/control/projects/{project['id']}/mentions/results/{result_id}", headers=owner)
     assert detail.status_code == 200 and detail.headers['cache-control'] == 'no-store'
     assert detail.json()['answer_evidence']['content'] == ['Brand is recommended']
-    assert detail.json()['highlight'] == {'names': ['Brand'], 'domains': []}
+    assert detail.json()['highlight'] == {'names': ['Brand'], 'domains': ['brand.example']}
     assert detail.json()['has_screenshot'] is False
     assert client.get(f"/api/v1/control/projects/{project['id']}/mentions/results/{result_id}", headers=other).status_code == 404
     assert client.get('/api/v1/control/runs', headers=owner).json()[0]['state'] == 'done'
     assert not tick(sessions)
+
+
+def test_arbiter_accepts_a_valid_cached_negative_primary(tmp_path, monkeypatch):
+    _, _, _, user_id, sessions = setup(tmp_path, monkeypatch)
+    ai = FakeAI()
+    with sessions() as db:
+        user = db.get(User, user_id)
+        db.add(Check(user_id=user_id, client_check_id="negative-primary", price_kopeks=0,
+                     analysis_json='{"found": false}', analysis_model=ai.model))
+        db.commit()
+        verdict = arbitrate_check(db, user, "negative-primary", "", [], ai)
+        assert verdict["raw"] == '{"found": false, "confidence": 0.9}'
 
 
 def test_two_cloud_services_finish_one_query(tmp_path, monkeypatch):

@@ -7,7 +7,7 @@ import pytest
 import httpx
 from fastapi.testclient import TestClient
 
-from server.ai import AIRetryAfter, ARBITER_SYSTEM, PRIMARY_SYSTEM, OpenRouterAI
+from server.ai import AIError, AIRetryAfter, ARBITER_SYSTEM, PRIMARY_SYSTEM, OpenRouterAI
 from server.app import create_app
 
 
@@ -39,6 +39,25 @@ def test_models_and_prompts_are_server_owned(monkeypatch):
     assert len(clients) == 1
     ai.close()
     assert clients[0].is_closed
+
+
+def test_model_rejects_truncated_or_invalid_verdict(monkeypatch):
+    original_client = httpx.Client
+    responses = iter([
+        {"choices": [{"finish_reason": "length", "message": {"content": "{"}}]},
+        {"choices": [{"message": {"content": '{"found": 1}'}}]},
+        {"choices": [{"message": {"content": '{"found": true, "confidence": ' + '9' * 400 + '}'}}]},
+    ])
+    monkeypatch.setattr("server.ai.httpx.Client", lambda **kwargs:
+        original_client(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=next(responses))), **kwargs))
+    ai = OpenRouterAI("test-secret")
+    with pytest.raises(AIError, match="оборван"):
+        ai.analyze("", [])
+    with pytest.raises(AIError, match="неполный"):
+        ai.analyze("", [])
+    with pytest.raises(AIError, match="неполный"):
+        ai.analyze("", [])
+    ai.close()
 
 
 def test_server_lifespan_closes_ai_client(tmp_path):

@@ -1,0 +1,91 @@
+# Brand detection quality — proposed experiment and implementation
+
+Base: production `58f0271958352e1ec05aa2e4bb4c7b4737e089b7` (2026-10-17).
+Branch: `codex/brand-detection-quality`. No publication. User authorized a synthetic-only
+OpenRouter comparison, maximum total USD 5; no customer answers or credit purchases.
+
+## Outcome and scope
+
+- Goal: at least 90% precision and recall on separately labelled, held-out answers;
+  report accuracy, coverage, uncertainty, per-provider slices, latency and API cost.
+  Synthetic regression cases establish behavior, not production accuracy.
+- Confirmed baseline failures: Альтодент/Альтодентал, Neighbors/Neighborbrite,
+  Apple/fruit are accepted by rules and bypass semantic analysis/arbiter.
+- Keep owner scope, captures, bounded attempts, caching, settlement, original history,
+  current pricing and old protocol compatibility. No migrations or automatic recompute.
+
+## Rules and routing
+
+- A negative recommendation still mentions a brand. A question-only occurrence,
+  another company, common noun or generic business role is not brand evidence.
+- Own-domain sources keep the fast path unless identity clarification requires checking.
+- Name/card/fuzzy/third-party URL matches are candidates, requiring identity checking
+  by primary in smart mode. This costs additional calls and must be measured.
+- Confident semantic negatives can reject lexical candidates. Explicitly low-confidence
+  negatives and other unresolved cases reach a neutral arbiter, using original evidence.
+  Missing optional confidence in legacy JSON is not an explicit uncertainty score.
+- Never mode retains rules-only behavior. Existing clarification forcing is retained.
+- Transport/schema/truncated-output failures must not silently become not_found or
+  confirmed rule hits; preserve the existing capture/recovery and charging contracts.
+- Use one strict verdict parser. Optional fields may be absent; supplied wrong types,
+  nonfinite/out-of-range confidence and unsupported mention kinds are invalid.
+
+## Work packets
+
+1. Detector/server implementation and deterministic regressions: shared parser, rules,
+   merge, cloud/legacy callers, neutral prompts, server-owned reasoning configuration.
+2. Offline evaluation: synthetic cases and a scorer for saved independent predictions;
+   reject duplicates/unknown IDs and count missing/error predictions in coverage.
+3. Research Gemini, DeepSeek, Qwen and GLM prices/settings; compare them on the same
+   24 synthetic cases. Record exact model/provider/reasoning and all attempted costs.
+   Standalone classification screens candidates; it does not measure production routing.
+4. Independent correctness and billing/recovery review; fix verified defects, run
+   affected tests and full server gates. Prepare a PR into production.
+
+## Evaluation contract
+
+- Split by brand/project and near-duplicate answer before tuning; holdout labels are
+  human-reviewed, with ambiguous identity cases adjudicated separately.
+- Cases cover text, aliases/translit, domain, dealer URL, cards, indirect evidence,
+  same-name companies, common words, query-only mentions, injection and capture failure.
+- Never use model confidence or an LLM judge as the ground-truth label. Keep held-out
+  examples out of project feedback/few-shot prompts used in the same evaluation.
+- Report confusion counts and precision/recall with sample counts and confidence
+  intervals. Undefined metrics remain undefined; errors are not silently excluded.
+- Preserve current production defaults while preparing reasoning controls. Model
+  choice and expanded-route cost/latency remain unverified until the live experiment.
+
+## Checks and open decisions
+
+- Baseline: 35 existing detection/parser/clarification/AI tests passed; three synthetic
+  false-positive probes reproduced. Independent planning/refutation completed.
+- Remaining decisions: labelled real corpus,
+  latency/cost acceptance and whether a third-party URL alone establishes visibility.
+- Actual historical statuses, prices and production model settings remain unchanged.
+
+## Offline scorer (prepared)
+
+`python scripts/evaluate_brand_detection.py --cases tests/fixtures/brand_detection_cases.jsonl --predictions path/to/candidate.jsonl --output path/to/report.json`
+
+Each prediction has a matching `id`, boolean `found` for a decision, or `found:null`
+with a nonempty `error`. Optional `cost_usd` and `latency_s` cover the whole attempted
+pipeline, including retries and arbiter. One file per candidate; multiple files may
+be passed to `--predictions`. No API call, key lookup or production database access.
+
+Missing/error decisions lower end-to-end accuracy and coverage; positive errors also
+lower recall. Precision uses actual positive decisions. Unknown/duplicate IDs and
+invalid types are rejected. Unknown cost stays unknown, not zero. Wilson 95% intervals
+and per-brand/category/provider slices accompany scores. Numerical target checks are
+not a certification of representative, independent human labels.
+
+The 24 initial cases are synthetic development fixtures, not a holdout. Gold-label
+echoes in the scorer's CLI test verify arithmetic only. Scorer checks: 16 passed.
+
+## Price assessment requested
+
+Evaluate retail 1.50 RUB per query/service without changing the current price. Include
+actual collector/actor pricing, nonbilled-result costs, retry amplification, primary
+and arbiter token usage, credit/FX/payment fees, hosting/storage and tax assumptions.
+Distinguish contribution margin from net profit; show FX and heavy-answer sensitivity.
+Actual token distributions, arbitration share, private discounts and FX purchase rate
+remain unknown until a scoped experiment/accounting input is available.

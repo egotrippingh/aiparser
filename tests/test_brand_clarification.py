@@ -6,8 +6,8 @@ from app import billing, config
 from app.db import repo
 from app.detect import llm
 from app.detect.llm import LLMVerdict
-from app.detect.merge import merge
-from app.detect.rules import RuleVerdict
+from app.detect.merge import merge, should_call_llm
+from app.detect.rules import RuleVerdict, evaluate
 from app.detect import recheck
 
 
@@ -33,6 +33,30 @@ def test_clarification_negative_verdict_overrides_rule_but_empty_keeps_rule():
     negative = LLMVerdict(found=False, model="test")
     assert merge(rule, negative, confidence_threshold=0.6, semantic_authoritative=True).status == "not_found"
     assert merge(rule, negative, confidence_threshold=0.6).status == "found"
+
+
+def test_text_candidate_is_checked_in_smart_mode_but_own_domain_is_not():
+    assert should_call_llm(RuleVerdict(found=True, mention_types=["text"], semantic_required=True), "smart")
+    assert not should_call_llm(RuleVerdict(found=True, mention_types=["link"]), "smart")
+
+
+def test_verified_domain_keeps_fast_path_when_text_also_matches():
+    rule = evaluate("Brand recommended", ["https://brand.example/about"], "Brand", [], ["brand.example"])
+    assert rule.found and not rule.semantic_required
+
+
+def test_candidate_low_confidence_positive_or_negative_requires_arbiter():
+    rule = RuleVerdict(found=True, mention_types=["text"], semantic_required=True)
+    low_positive = LLMVerdict(found=True, confidence=0.2, model="test")
+    low_negative = LLMVerdict(found=False, confidence=0.2, model="test")
+    assert merge(rule, low_positive, confidence_threshold=0.6).needs_review
+    assert merge(RuleVerdict(found=False), low_negative, confidence_threshold=0.6).needs_review
+
+
+def test_missing_negative_confidence_does_not_request_arbiter():
+    result = merge(RuleVerdict(found=True, semantic_required=True),
+                   LLMVerdict(found=False, model="test"), confidence_threshold=0.6)
+    assert result.status == "not_found" and not result.needs_review
 
 
 def test_recheck_uses_current_clarification(tmp_path, monkeypatch):
