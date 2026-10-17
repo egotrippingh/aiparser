@@ -31,9 +31,11 @@ Updated 2026-10-17. Repository: `egotrippingh/aiparser`; deployment branch: `pro
   neutral arbiter, strict verdict validation, reserved-cache recovery and source-card
   evidence. Independent correctness/risk reviews found no remaining blocker; affected
   deterministic checks passed. Full server/CI evidence is tracked in
-  [draft PR #74](https://github.com/egotrippingh/aiparser/pull/74). No default model/price change.
-  [24-case synthetic comparison](docs/brand-model-comparison.md): Qwen Flash is a candidate
-  primary, DeepSeek Pro a candidate arbiter; real 90% precision/recall remains unverified.
+  [draft PR #74](https://github.com/egotrippingh/aiparser/pull/74).
+  Full source CI on `4da1a05` passed. [300-answer blind audit](docs/brand-model-audit.md):
+  Qwen 294/300 valid, Pro 288/300; 282/283 complete decisions agree, not an accuracy score.
+  Shared experiment cost upper bound $0.72401 under $5. No default model/price change.
+  Private blinded web labelling is ready. User requested a pause until manual labels.
 
 - Real clarification scan, historical S3 recovery, paid recompute and live PostgreSQL
   upload/recompute race remain unverified. First real paid top-up email and signed-in
@@ -43,6 +45,7 @@ Updated 2026-10-17. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Finish server gates for prepared detection work, then obtain independent human holdout
-labels and collector unit costs before model activation/publication. Keep existing
+Paused at the user's request after the completed experiment. Resume with the user's
+manual JSONL labels, adjudicate ambiguous identity, then calculate quality metrics and
+choose models. Confirm collector unit costs before any activation/publication; keep
 production backup, isolated restore, readiness and rollback gates.

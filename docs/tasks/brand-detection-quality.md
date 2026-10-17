@@ -1,8 +1,10 @@
 # Brand detection quality — proposed experiment and implementation
 
 Base: production `58f0271958352e1ec05aa2e4bb4c7b4737e089b7` (2026-10-17).
-Branch: `codex/brand-detection-quality`. No publication. User authorized a synthetic-only
-OpenRouter comparison, maximum total USD 5; no customer answers or credit purchases.
+Branch: `codex/brand-detection-quality`. No publication. Initially the user authorized
+only synthetic OpenRouter inputs; on 2026-10-17 expanded this to 300–500 admin-owned
+server answers under the same shared USD 5 cap. Other users and credit purchases
+remain excluded.
 
 ## Outcome and scope
 
@@ -125,5 +127,12 @@ Production data is read-only; no statuses, feedback, billing or runtime models c
   remain AI-assisted qualitative analysis, not human gold. No auto-correction of reports.
 
 Audit script/cost/coverage safeguards passed 12 deterministic tests and independent
-correctness/risk rechecks before paid dispatch. Model run is in progress; record final
-aggregate evidence separately after completion.
+correctness/risk rechecks before paid dispatch. The 600-call run completed: Qwen 294/300
+valid, Pro 288/300; 283 complete pairs, 282 agreements and one disagreement. These
+are coverage/agreement, not accuracy. [Aggregate evidence](../brand-model-audit.md).
+New known cost USD 0.262573952328; full unknown-request ceilings USD 0.167426622.
+Shared prior-plus-new upper bound USD 0.724000574328 remains under USD 5.
+Source CI on 4da1a05 passed: https://github.com/egotrippingh/aiparser/actions/runs/39029556855.
+Blinded private web review is ready; user will label later and explicitly requested a
+pause after the run. Phone review cancelled, no human label received. Await human
+JSONL before quality metrics, further paid tests, model activation or publication.
