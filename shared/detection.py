@@ -57,7 +57,7 @@ def parse_verdict(raw: str | None, model: str) -> LLMVerdict | None:
         return None
     try:
         parsed = json.loads(s[i:j + 1])
-    except json.JSONDecodeError:
+    except ValueError:
         return None
     if not isinstance(parsed, dict) or "found" not in parsed:
         return None

@@ -83,7 +83,8 @@ def test_settled_legacy_cache_is_replayed_without_reanalysis_or_rewrite(state):
     assert check.analysis_json == original and check.analysis_attempts == 1 and ai.calls == 0
 
 
-def test_huge_confidence_consumes_attempts_and_is_bounded(state, monkeypatch):
+@pytest.mark.parametrize('digits', [400, 5000])
+def test_huge_confidence_consumes_attempts_and_is_bounded(state, monkeypatch, digits):
     db, user, check = state
     check.analysis_json = check.analysis_usage_json = None
     check.analysis_attempts = 0
@@ -93,7 +94,7 @@ def test_huge_confidence_consumes_attempts_and_is_bounded(state, monkeypatch):
     def handler(request):
         calls.append(request)
         return httpx.Response(200, json={'choices': [{'message': {'content':
-            '{"found":true,"confidence":' + '9' * 400 + '}'}}], 'usage': {'cost': 0.01}})
+            '{"found":true,"confidence":' + '9' * digits + '}'}}], 'usage': {'cost': 0.01}})
     monkeypatch.setattr('server.ai.httpx.Client', lambda **kwargs:
         original_client(transport=httpx.MockTransport(handler), **kwargs))
     ai = OpenRouterAI('synthetic-key')

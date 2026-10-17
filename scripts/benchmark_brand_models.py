@@ -31,6 +31,7 @@ CANDIDATES = {
     "deepseek-pro-none": ("deepseek/deepseek-v4-pro-0813", {"effort": "none"}, "1.32", "3.96"),
     "deepseek-flash": ("deepseek/deepseek-v4.1-flash-1017", {"effort": "low"}, "0.3", "1.2"),
     "qwen": ("qwen/qwen3.8-flash", {"max_tokens": 512}, "0.3", "0.94"),
+    "qwen37": ("qwen/qwen3.7-flash", {"max_tokens": 512}, "0.06", "0.26"),
     "glm": ("z-ai/glm-5.3-flash", {"effort": "low"}, "0.3", "1"),
 }
 

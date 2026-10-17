@@ -123,7 +123,10 @@ class Supplier:
 def create(tmp_path, monkeypatch, *, services=("chatgpt",), queries=None, admin=True, database_url=None):
     monkeypatch.setenv("SCRAPELESS_API_KEY", "fake-key")
     client, owner, other, user_id, sessions = setup(tmp_path, monkeypatch, admin=admin, database_url=database_url)
-    project, run = project_and_run(client, owner, services=services, queries=queries, legacy=False)
+    # Supplier's normal completed answer cites this verified brand source. These
+    # transport/recovery tests intentionally keep the rules-only fast path.
+    project, run = project_and_run(client, owner, services=services, queries=queries,
+                                   legacy=False, domains=["brand.test"])
     return client, owner, other, user_id, sessions, project, run
 
 
@@ -481,7 +484,7 @@ def test_expired_handle_is_rechecked_before_another_paid_submission(tmp_path, mo
     class Rechecked(Supplier):
         async def poll(self, task_id):
             assert task_id == 'expired-id'
-            return (status, scrapeless.evidence({'result_text': 'Brand'}) if status == 'success' else None)
+            return (status, scrapeless.evidence({'result_text': '[Brand](https://brand.test)'}) if status == 'success' else None)
     supplier = Rechecked()
     assert tick(sessions, supplier)
     assert supplier.posts == []
@@ -671,7 +674,7 @@ def test_xml_transient_query_does_not_cool_down_other_queries(tmp_path, monkeypa
         calls.append(prompt)
         if prompt == 'first':
             raise XMLRiverResponseError('XMLRiver: empty answer')
-        return scrapeless.evidence({'result_text': 'Brand is recommended'})
+        return scrapeless.evidence({'result_text': '[Brand](https://brand.test) is recommended'})
 
     monkeypatch.setattr(XMLRiverClient, 'collect', collect)
     assert asyncio.run(_cloud_tick(sessions, None, 120, XMLRiverClient,

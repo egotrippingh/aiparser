@@ -5,11 +5,11 @@
   "max_output_tokens": 4096,
   "workers": 3,
   "budget_usd": "5",
-  "reserved_ceiling_usd": "3.1768755228",
+  "reserved_ceiling_usd": "3.2131664388",
   "cases_sha256": "53057c18af4f6150f65efaa9beae1954181ca4c66f2a4a8d3647a081571e97a5",
-  "known_cost_usd": 0.05491124366399998,
-  "unknown_cost_request_ceiling_usd": 0.23341273199999998,
-  "combined_known_plus_unknown_ceiling_usd": 0.288323975664,
+  "known_cost_usd": 0.05709060116399998,
+  "unknown_cost_request_ceiling_usd": 0.23643982079999998,
+  "combined_known_plus_unknown_ceiling_usd": 0.293530421964,
   "caveats": [
     "Synthetic development set: 11 positive, 13 negative; no production accuracy claim.",
     "Standalone classification; arbitration and collection costs not measured.",
@@ -437,6 +437,67 @@
       ],
       "error_case_ids": {},
       "mean_known_cost_rub_at_100_with_standard_fee_per_decision": 0.010098031845833333
+    },
+    {
+      "candidate": "qwen37",
+      "model": "qwen/qwen3.7-flash",
+      "reasoning_setting": {
+        "max_tokens": 512
+      },
+      "human_holdout_only": false,
+      "target": 0.9,
+      "all_cases_meet_numeric_target": false,
+      "human_holdout_meets_target": null,
+      "human_holdout_lower_bounds_meet_target": null,
+      "overall": {
+        "total": 24,
+        "decided": 22,
+        "errors_or_missing": 2,
+        "tp": 9,
+        "fp": 4,
+        "tn": 9,
+        "fn": 0,
+        "positive_errors": 2,
+        "negative_errors": 0,
+        "coverage": 0.9166666666666666,
+        "accuracy": 0.75,
+        "precision": 0.6923076923076923,
+        "recall": 0.8181818181818182,
+        "conditional_accuracy": 0.8181818181818182,
+        "accuracy_ci95": [
+          0.55100555994846,
+          0.8800063377140499
+        ],
+        "precision_ci95": [
+          0.42369343180549035,
+          0.8731929634428948
+        ],
+        "recall_ci95": [
+          0.523019438039156,
+          0.9486323102539149
+        ]
+      },
+      "human_holdout": null,
+      "known_cost_usd": 0.0021793575,
+      "cost_records": 22,
+      "cost_coverage": 0.9166666666666666,
+      "latency_records": 24,
+      "latency_p50_s": 8.82050000000163,
+      "latency_p95_s": 13.26600000000326,
+      "providers": [
+        "Alibaba"
+      ],
+      "wrong_case_ids": [
+        "lookalike",
+        "spoofed_domain",
+        "card_lookalike",
+        "same_name_other_company"
+      ],
+      "error_case_ids": {
+        "inflection": "RemoteProtocolError",
+        "card_only": "RemoteProtocolError"
+      },
+      "mean_known_cost_rub_at_100_with_standard_fee_per_decision": 0.010451009829545456
     }
   ],
   "models": {
@@ -834,6 +895,51 @@
           "none"
         ],
         "default_effort": "minimal"
+      }
+    },
+    "qwen/qwen3.7-flash": {
+      "id": "qwen/qwen3.7-flash",
+      "created": 1785190561,
+      "pricing": {
+        "prompt": "0.00000003",
+        "completion": "0.00000013",
+        "input_cache_read": "0.000000006",
+        "input_cache_write": "0.000000038",
+        "overrides": [
+          {
+            "min_prompt_tokens": 32000,
+            "prompt": "0.0000001",
+            "completion": "0.0000004",
+            "input_cache_read": "0.00000002",
+            "input_cache_write": "0.000000125"
+          },
+          {
+            "min_prompt_tokens": 256000,
+            "prompt": "0.0000002",
+            "completion": "0.0000008",
+            "input_cache_read": "0.00000004",
+            "input_cache_write": "0.00000025"
+          }
+        ]
+      },
+      "supported_parameters": [
+        "include_reasoning",
+        "logprobs",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "response_format",
+        "seed",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_logprobs",
+        "top_p"
+      ],
+      "reasoning": {
+        "mandatory": false,
+        "default_enabled": true,
+        "supports_max_tokens": true
       }
     }
   },
@@ -3241,6 +3347,371 @@
         "confidence": 0.95,
         "latency_s": 0.8279999999940628
       }
+    ],
+    "qwen37": [
+      {
+        "id": "direct",
+        "found": true,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 0.0001081345,
+        "budget_ceiling_usd": 0.0015100128,
+        "prompt_tokens": 543,
+        "completion_tokens": 598,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 1.0,
+        "latency_s": 9.014999999999418
+      },
+      {
+        "id": "lookalike",
+        "found": true,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 0.0001090775,
+        "budget_ceiling_usd": 0.001509624,
+        "prompt_tokens": 540,
+        "completion_tokens": 605,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 0.95,
+        "latency_s": 8.546999999991385
+      },
+      {
+        "id": "apple_fruit",
+        "found": false,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 0.000105294,
+        "budget_ceiling_usd": 0.0015048288,
+        "prompt_tokens": 530,
+        "completion_tokens": 582,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 0.0,
+        "latency_s": 8.421999999991385
+      },
+      {
+        "id": "apple_company",
+        "found": true,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 9.231e-05,
+        "budget_ceiling_usd": 0.0015063192,
+        "prompt_tokens": 529,
+        "completion_tokens": 588,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 1.0,
+        "latency_s": 8.437999999994645
+      },
+      {
+        "id": "neighbors_people",
+        "found": false,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 9.169e-05,
+        "budget_ceiling_usd": 0.001506384,
+        "prompt_tokens": 530,
+        "completion_tokens": 583,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 0.0,
+        "latency_s": 9.046999999991385
+      },
+      {
+        "id": "neighborbrite",
+        "found": false,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 0.000106559,
+        "budget_ceiling_usd": 0.0015077448,
+        "prompt_tokens": 532,
+        "completion_tokens": 590,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 0.0,
+        "latency_s": 8.235000000000582
+      },
+      {
+        "id": "query_only",
+        "found": false,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 9.19e-05,
+        "budget_ceiling_usd": 0.0015108552,
+        "prompt_tokens": 537,
+        "completion_tokens": 583,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 0.0,
+        "latency_s": 8.76600000000326
+      },
+      {
+        "id": "negative_recommendation",
+        "found": true,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 9.233e-05,
+        "budget_ceiling_usd": 0.0015079392,
+        "prompt_tokens": 534,
+        "completion_tokens": 587,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 1.0,
+        "latency_s": 8.468999999997322
+      },
+      {
+        "id": "own_domain",
+        "found": true,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 0.0001075595,
+        "budget_ceiling_usd": 0.0015069672,
+        "prompt_tokens": 535,
+        "completion_tokens": 596,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 1.0,
+        "latency_s": 7.85899999999674
+      },
+      {
+        "id": "own_subdomain",
+        "found": true,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 0.0001072605,
+        "budget_ceiling_usd": 0.001507032,
+        "prompt_tokens": 535,
+        "completion_tokens": 594,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 1.0,
+        "latency_s": 8.562000000005355
+      },
+      {
+        "id": "spoofed_domain",
+        "found": true,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 9.486e-05,
+        "budget_ceiling_usd": 0.0015088464,
+        "prompt_tokens": 536,
+        "completion_tokens": 606,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 0.95,
+        "latency_s": 9.046000000002095
+      },
+      {
+        "id": "alias",
+        "found": true,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 8.7466e-05,
+        "budget_ceiling_usd": 0.0015120216,
+        "prompt_tokens": 542,
+        "completion_tokens": 595,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 1.0,
+        "latency_s": 9.46799999999348
+      },
+      {
+        "id": "inflection",
+        "found": null,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": null,
+        "budget_ceiling_usd": 0.0015118272,
+        "error": "RemoteProtocolError",
+        "latency_s": 13.26600000000326
+      },
+      {
+        "id": "card_only",
+        "found": null,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": null,
+        "budget_ceiling_usd": 0.0015152616,
+        "error": "RemoteProtocolError",
+        "latency_s": 13.469000000011874
+      },
+      {
+        "id": "card_lookalike",
+        "found": true,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 0.00011776,
+        "budget_ceiling_usd": 0.0015144192,
+        "prompt_tokens": 549,
+        "completion_tokens": 661,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 0.9,
+        "latency_s": 8.969000000011874
+      },
+      {
+        "id": "dealer_product",
+        "found": true,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 9.685e-05,
+        "budget_ceiling_usd": 0.0015155856,
+        "prompt_tokens": 559,
+        "completion_tokens": 616,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 0.95,
+        "latency_s": 9.515999999988708
+      },
+      {
+        "id": "tracking_parameter",
+        "found": false,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 9.239e-05,
+        "budget_ceiling_usd": 0.0015150672,
+        "prompt_tokens": 549,
+        "completion_tokens": 584,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 0.0,
+        "latency_s": 9.937999999994645
+      },
+      {
+        "id": "generic_role",
+        "found": false,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 0.0001080655,
+        "budget_ceiling_usd": 0.0015124752,
+        "prompt_tokens": 541,
+        "completion_tokens": 598,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 1.0,
+        "latency_s": 8.093999999997322
+      },
+      {
+        "id": "same_name_other_company",
+        "found": true,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 8.9406e-05,
+        "budget_ceiling_usd": 0.0015314616,
+        "prompt_tokens": 585,
+        "completion_tokens": 600,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 1.0,
+        "latency_s": 8.875
+      },
+      {
+        "id": "identity_confirmed",
+        "found": true,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 9.573e-05,
+        "budget_ceiling_usd": 0.001529388,
+        "prompt_tokens": 578,
+        "completion_tokens": 603,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 1.0,
+        "latency_s": 9.031000000002678
+      },
+      {
+        "id": "injection_no_evidence",
+        "found": false,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 9.206e-05,
+        "budget_ceiling_usd": 0.0015137712,
+        "prompt_tokens": 551,
+        "completion_tokens": 581,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 1.0,
+        "latency_s": 8.985000000000582
+      },
+      {
+        "id": "unrelated",
+        "found": false,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 0.000105915,
+        "budget_ceiling_usd": 0.0015100128,
+        "prompt_tokens": 535,
+        "completion_tokens": 585,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 1.0,
+        "latency_s": 8.25
+      },
+      {
+        "id": "complete_without_entities",
+        "found": false,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 9.209e-05,
+        "budget_ceiling_usd": 0.001511568,
+        "prompt_tokens": 539,
+        "completion_tokens": 584,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 1.0,
+        "latency_s": 8.25
+      },
+      {
+        "id": "comparison",
+        "found": true,
+        "model": "qwen/qwen3.7-flash",
+        "cost_usd": 9.465e-05,
+        "budget_ceiling_usd": 0.0015115032,
+        "prompt_tokens": 542,
+        "completion_tokens": 603,
+        "reasoning_tokens": 512,
+        "provider": "Alibaba",
+        "returned_model": "qwen/qwen3.7-flash",
+        "finish_reason": "stop",
+        "confidence": 1.0,
+        "latency_s": 8.60899999999674
+      }
     ]
-  }
+  },
+  "batches": [
+    {
+      "configuration_count": 7,
+      "requests": 168,
+      "initial_reservation_usd": "0",
+      "final_reservation_usd": "3.1768755228"
+    },
+    {
+      "configuration_count": 1,
+      "requests": 24,
+      "initial_reservation_usd": "3.1768755228",
+      "final_reservation_usd": "3.2131664388",
+      "created_at_utc": "2026-10-17T11:09:12.765574+00:00"
+    }
+  ]
 }
