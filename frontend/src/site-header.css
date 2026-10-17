@@ -22,7 +22,7 @@
 .sh-popover a:hover, .sh-popover button:hover, .sh-popover a[aria-current=true] { background: #f0f3f7; }
 .sh-popover .sh-search { display: flex; align-items: center; gap: 8px; padding: 11px; margin-bottom: 8px; border-radius: 10px; background: #f0f3f7; color: #748093; }
 .sh-search input { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; color: #242e3d; font: inherit; }
-.sh-search:focus-within { outline: 2px solid #f25c37; outline-offset: 2px; }
+.sh-search:focus-within { background: #e9eef4; }
 .sh-popover .sh-all { font-weight: 600; }
 .sh-all > span { margin-left: auto; color: #748093; font-weight: 400; }
 .sh-project-list { max-height: 360px; overflow: auto; overscroll-behavior: contain; }

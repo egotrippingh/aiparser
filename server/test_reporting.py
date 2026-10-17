@@ -41,6 +41,74 @@ def seed_report(tmp_path):
     return client, owner, other, devices, project, ids, url
 
 
+def test_selected_report_dates_share_summary_sources_and_export(tmp_path):
+    client, owner, other, _, project, _, url = seed_report(tmp_path)
+    base = f"/api/v1/control/projects/{project['id']}/mentions"
+    args = {'date_from': '2026-09-01', 'date_to': '2026-09-03',
+            'report_dates': '2026-09-03', 'max_dates': 30}
+    for suffix in ('', '/overview'):
+        response = client.get(base + suffix, headers=owner, params=args)
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data['dates'] == ['2026-09-03']
+        assert [day['date'] for day in data['timeline']] == ['2026-09-03']
+        assert data['summary']['checked'] == 3
+        if suffix:
+            assert all(item['count'] == 1 for item in data['sources'])
+            assert all(row['trend']['current']['checked'] <= 2 for row in data['rows'])
+    exported = client.get(base + '/export/mentions', headers=owner, params=args)
+    wb = load_workbook(io.BytesIO(exported.content))
+    assert all('2026-09-03' in cell.value for cell in list(wb['Упоминаемость'].rows)[0][2:])
+    assert client.get(base + '/overview', headers=other, params=args).status_code == 404
+    for changes in ({'report_dates': ''}, {'report_dates': '2026-02-30'},
+                    {'report_dates': '2026-09-04'}, {'report_dates': ','.join(['2026-09-03'] * 31)},
+                    {'max_dates': 31}, {'max_dates': 0}, {'compare': True}, {'date_mode':'monthly'}):
+        assert client.get(base + '/overview', headers=owner, params={**args, **changes}).status_code == 422
+    limited = {key: value for key, value in args.items() if key != 'report_dates'}
+    limited['max_dates'] = 1
+    overview = client.get(base + '/overview', headers=owner, params=limited).json()
+    matrix = client.get(base, headers=owner, params=limited).json()
+    assert overview['dates'] == matrix['dates'] == ['2026-09-03']
+    assert overview['summary']['checked'] == matrix['summary']['checked'] == 3
+    assert [day['date'] for day in overview['timeline']] == ['2026-09-03']
+    assert all(item['count'] == 1 for item in overview['sources'])
+    wb = load_workbook(io.BytesIO(client.get(base + '/export/mentions', headers=owner, params=limited).content))
+    assert all('2026-09-03' in cell.value for cell in list(wb['Упоминаемость'].rows)[0][2:])
+    _, sessions = make_session_factory(url)
+    with sessions() as db:
+        user_id = db.get(ControlProject, project['id']).user_id
+        query = project['queries'][0]
+        for day in range(4, 16):
+            db.add(CloudResult(user_id=user_id, device_id='a'*32, local_result_id=100+day,
+                local_project_id=1, project_name=project['name'], brand_name='ESTUS',
+                query_text=query['text'], group_tag=query['group_tag'], query_id=query['id'],
+                project_id=project['id'], service='google_aio', scan_date=f'2026-09-{day:02}',
+                status='found', mention_types_json='["text"]', sources_json='[]'))
+        db.add(CloudResult(user_id=user_id, device_id='a'*32, local_result_id=200,
+            local_project_id=1, project_name=project['name'], brand_name='ESTUS',
+            query_text='Бренд', group_tag='Legacy', query_id='removed-query',
+            project_id=project['id'], service='google_aio', scan_date='2026-09-15',
+            status='found', mention_types_json='["text"]', sources_json='[]'))
+        db.commit()
+    scoped = client.get(base + '/overview', headers=owner, params={
+        'date_from':'2026-09-01','date_to':'2026-09-15','services':'chatgpt','max_dates':10}).json()
+    assert scoped['dates'] == ['2026-09-01','2026-09-03']
+    assert scoped['available_dates'] == ['2026-09-01','2026-09-03']
+    assert scoped['summary']['checked'] == 1 and scoped['summary']['issues'] == 1
+    monthly = client.get(base + '/overview', headers=owner, params={
+        'date_from':'2026-09-01','date_to':'2026-09-15','services':'chatgpt','max_dates':10,'date_mode':'monthly'}).json()
+    assert monthly['dates'] == ['2026-09-03']
+    assert monthly['summary']['checked'] == 1 and monthly['summary']['issues'] == 0
+    empty = client.get(base + '/overview', headers=owner, params={
+        'date_from':'2026-09-01','date_to':'2026-09-15','max_dates':10,'date_mode':'monthly','search':'Not checked'})
+    assert empty.status_code == 200
+    assert empty.json()['dates'] == [] and empty.json()['summary']['checked'] == 0
+    legacy = client.get(base + '/overview', headers=owner, params={
+        'date_from':'2026-09-01','date_to':'2026-09-15','max_dates':10,'date_mode':'monthly','search':'бренд'}).json()
+    assert legacy['available_dates'] == legacy['dates'] == ['2026-09-15']
+    assert legacy['summary']['checked'] == 1
+
+
 def test_calendar_daily_dedup_filters_and_comparison(tmp_path):
     client, owner, other, devices, project, ids, _ = seed_report(tmp_path)
     base = f"/api/v1/control/projects/{project['id']}/mentions"

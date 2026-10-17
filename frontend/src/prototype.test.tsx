@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
-import { ControlCenter, RunProgress, ScheduleDays, runStatus } from "./control-center"
+import { ControlCenter, scanPercent, ScanProgress, ScheduleDays, runStatus } from "./control-center"
 import { ProjectIcon, projectFavicon } from "./project-icon"
 import { choiceIndex } from "./app-choice"
 import { ReportChart, chartDays, chartIndex, linePath } from "./report-chart"
@@ -49,14 +49,22 @@ it("shows automatic retries as processing but preserves explicit pauses and term
   expect(runStatus({state:"done",desired_state:"paused",phase:"cloud"})).toBe("Завершено")
 })
 
-it("renders current project progress including zero and safe totals", () => {
-  const run = {state:"paused",desired_state:"running",phase:"cloud",project_name:"Test",total:20,progress:{done:7},error:null}
-  const html = renderToStaticMarkup(<RunProgress run={run} details={()=>{}}/>)
-  expect(html).toContain("В процессе")
-  expect(html).toContain("7 / 20")
-  expect(html).toMatch(/<progress[^>]*max="20"[^>]*value="7"/)
-  expect(html).toContain('aria-label="Прогресс Test"')
-  expect(renderToStaticMarkup(<RunProgress run={{...run,total:0,progress:{done:0}}} details={()=>{}}/>)).toContain('max="1" value="0"')
+it("reports real scan progress in bounded five-percent steps", () => {
+  expect(scanPercent(7,20)).toBe(35)
+  expect(scanPercent(14,99)).toBe(10)
+  expect(scanPercent(0,0)).toBe(0)
+  expect(scanPercent(-1,20)).toBe(0)
+  expect(scanPercent(100,99)).toBe(100)
+})
+
+it("exposes the progress pie value without displaying a number", () => {
+  for (const percent of [0,35,100]) {
+    const html=renderToStaticMarkup(<ScanProgress percent={percent}/>)
+    expect(html).toContain(`aria-valuenow="${percent}"`)
+    expect(html).toContain(`--scan-target:${percent}%`)
+    expect(html).toMatch(/><\/span>$/)
+    expect(html).not.toMatch(/NaN|Infinity/)
+  }
 })
 
 it("loads project icons only from the first brand domain with safe fallback", () => {

@@ -1,11 +1,11 @@
 import { ScanFeedbackForm, type ScanFeedback, type FeedbackResult } from "./scan-feedback"
 import { AnswerContent, ResultIssue } from "./components/answer-content"
 import { AnswerEvidenceView, EvidenceSources, type AnswerEvidence, type BrandHighlight } from "./components/answer-evidence"
-import { useEffect, useRef, useState, type CSSProperties } from "react"
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import { Download, RefreshCw, Search, X } from "lucide-react"
 import { accountDownload, accountRequest } from "./account-api"
 import { today } from "./lib/dates"
-import { ReportCalendar, shortDate } from "./report-calendar"
+import { ReportCalendar, shortDate, defaultDateSelection, restoreDateSelection, type ReportDateSelection } from "./report-calendar"
 import { AppChoice } from "./app-choice"
 import { ReportChart } from "./report-chart"
 import { ServiceMark, isCurrentService, serviceColors, serviceName as name } from "./service-mark"
@@ -54,17 +54,22 @@ export function reportSelection(saved: unknown, allowed = SCAN_SERVICES.map(serv
   const services = [...new Set(saved.filter(id=>isCurrentService(id) && allowed.includes(id)))]
   return services.length ? services : null
 }
-export function ReportView({ token, projectId, projectServices, sourcesOnly = false }: {token:string;projectId:string;projectServices:string[];sourcesOnly?:boolean}) {
+export function ReportView({ token, projectId, projectServices, sourcesOnly = false, scanControl }: {token:string;projectId:string;projectServices:string[];sourcesOnly?:boolean;scanControl?:ReactNode}) {
   const availableServices = [...new Set(projectServices.filter(isCurrentService))]
   const rangeKey = `aimt.report.range.${projectId}`
   const [range,setRange] = useState<{from:string;to:string}|null>(() => {
     try { return reportRange(JSON.parse(localStorage.getItem(rangeKey) || "null")) } catch { return null }
   })
-  function chooseRange(from: string, to: string) {
+  const [dateSelection,setDateSelection] = useState<ReportDateSelection>(() => {
+    try { const saved=JSON.parse(localStorage.getItem(rangeKey) || "null"); return range ? restoreDateSelection(saved?.selection,range.from,range.to) : defaultDateSelection } catch { return defaultDateSelection }
+  })
+  const compare = dateSelection.mode === "two"
+  function chooseRange(from: string, to: string, selection: ReportDateSelection) {
+    setDateSelection(selection)
     const next = {from,to}; setRange(next)
-    try { localStorage.setItem(rangeKey,JSON.stringify(next)) } catch { /* Private browsing may disable storage. */ }
+    try { localStorage.setItem(rangeKey,JSON.stringify({...next,selection})) } catch { /* Private browsing may disable storage. */ }
   }
-  const [compare,setCompare] = useState(false), [cards,setCards] = useState(true), [external,setExternal] = useState(true)
+  const [cards,setCards] = useState(true), [external,setExternal] = useState(true)
   const serviceKey = `aimt.report.services.${projectId}`
   const [selectedServices,setSelectedServices] = useState<string[]|null>(() => {
     try { return reportSelection(JSON.parse(sessionStorage.getItem(serviceKey) || "null")) } catch { return null }
@@ -82,10 +87,13 @@ export function ReportView({ token, projectId, projectServices, sourcesOnly = fa
   const [loadedFilters, setLoadedFilters] = useState("")
   const [historyWindow,setHistoryWindow] = useState({filters:"",offset:0,limit:14})
   const base = `/control/projects/${encodeURIComponent(projectId)}/mentions`
-  const params = new URLSearchParams({include_cards:String(cards),include_external:String(external),compare:String(compare && !sourcesOnly),date_to:range?.to||today()})
+  const params = new URLSearchParams({include_cards:String(cards),include_external:String(external),compare:String(compare),date_to:range?.to||today()})
   if (!sourcesOnly) params.set("search",search)
   params.set("services",(selection || availableServices).join(","))
   if (range?.from) params.set("date_from",range.from)
+  params.set("max_dates",String(dateSelection.maxDates))
+  params.set("date_mode",dateSelection.mode === "monthly" ? "monthly" : "period")
+  if (dateSelection.mode === "custom") params.set("report_dates",dateSelection.picked.join(","))
   if (group !== "*") params.set("group",group)
   const historyFilters = params.toString()
   const historyOffset = historyWindow.filters === historyFilters ? historyWindow.offset : 0
@@ -153,12 +161,10 @@ export function ReportView({ token, projectId, projectServices, sourcesOnly = fa
     return <button disabled={!cell || loading || stale} className={cell?.found?"found":""} title={cell ? cellLabel(cell) : "Не проверялось"} aria-label={`${query.text} · ${name(id)} · ${day || cell?.date || ""} · ${cell ? cellLabel(cell) : "Не проверялось"}`} onClick={() => cell && openResult(cell.id)}>{cell?.found?"✓":cell?.status==="skipped"?"н/д":cell && !["found","not_found"].includes(cell.status)?"!":"—"}</button>
   }
   return <section aria-busy={loading || stale}>
-    <div className="filterbar">{report && <ReportCalendar from={range?.from||report.date_from} to={range?.to||report.date_to} available={report.available_dates} change={chooseRange}/>}
-      <AppChoice label="Системы в отчёте" value={selection?.length === 1 ? selection[0] : selection ? "custom" : "all"} options={[{value:"all",label:"Все ИИ-системы"},...availableServices.map(id => ({value:id,label:name(id)})),...(selection && selection.length > 1 ? [{value:"custom",label:"Выбрано несколько"}] : [])]} change={value => {if(value!=="custom")chooseServices(value==="all"?null:[value])}}/>
+    <div className="filterbar">{scanControl}{report && <ReportCalendar from={range?.from||report.date_from} to={range?.to||report.date_to} available={report.available_dates} selection={{...dateSelection,mode:compare ? "two" : dateSelection.mode === "two" ? "period" : dateSelection.mode}} change={chooseRange}/>}
       <AppChoice label="Группа запросов" value={group} searchable options={[{value:"*",label:"Все группы"},{value:"",label:"Без группы"},...(report?.groups || []).map(label => ({value:label,label}))]} change={setGroup}/>
       <label className="report-switch"><input type="checkbox" role="switch" checked={external} onChange={e => setExternal(e.target.checked)}/>Внешние источники</label>
       <label className="report-switch"><input type="checkbox" role="switch" checked={cards} onChange={e => setCards(e.target.checked)}/>Учитывать карточки</label>
-      {!sourcesOnly && <AppChoice label="Режим отчёта" value={compare?"compare":"period"} options={[{value:"period",label:"За период"},{value:"compare",label:"Сравнить даты"}]} change={value => setCompare(value==="compare")}/>}
       <span className="spacer"/><button className="btn" disabled={!!exporting||!report?.services.length||loading||stale} onClick={() => exportReport(sourcesOnly?"sources":"mentions")}><Download size={14}/>{exporting?"Готовим…":"Экспорт XLSX"}</button><button className="btn icon-only" aria-label="Обновить отчёт" disabled={loading || stale} onClick={() => setTick(n=>n+1)}><RefreshCw size={14}/></button>
     </div>
     {!external && <p className="notice" role="status">Учитываются только ответы со ссылкой на домены бренда из настроек проекта. Если домены не указаны, упоминания не засчитываются.</p>}

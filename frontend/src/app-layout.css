@@ -34,6 +34,7 @@
 .air-app .cc-quote-popover { background: white; color: var(--text); border: 1px solid var(--line); box-shadow: 0 8px 32px #24354c24; }
 .air-app .cc-quote-popover p, .air-app .cc-quote-popover small { color: var(--muted); }
 .air-app .cc-quote-cancel { color: var(--muted); }
+.air-app .filterbar .cc-quote-popover { left: 0; right: auto; }
 .air-app .cc-two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .air-app .ql-layout { background: white; border: 1px solid var(--line); border-radius: 13px; overflow: hidden; }
 .air-app .ql-groups { background: #fafbfc; }
@@ -49,6 +50,7 @@
 .air-app .cc-query-table input:not([type=checkbox]):hover { border-color: var(--line); }
 .air-app dialog { color-scheme: light; width: min(720px, calc(100vw - 30px)); max-height: calc(100dvh - 40px); overflow: auto; color: var(--text); background: white; border: 1px solid var(--line); }
 .air-app .ws-dialog { padding: 24px; }
+.air-app dialog:focus { outline: none; }
 .air-app .ws-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .air-app .ws-dialog h3 { margin: 18px 0 12px; }
 .air-app .ws-note { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 12px 0; }
@@ -56,6 +58,56 @@
 .air-app .calendar-grid button { background: white; color: var(--text); }
 .air-app .calendar-grid button.in-range { background: #f1f5fb; }
 .air-app .calendar-grid button.endpoint { background: var(--navy); color: white; }
+.air-app .scan-launch { width: 36px; height: 36px; padding: 3px; background: white; color: var(--text); }
+.air-app .filterbar :is(.choice-trigger,.report-calendar-trigger) { min-height: 36px; border-radius: 9px; }
+@property --scan-progress { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
+.scan-pie { --scan-progress: var(--scan-target); display: block; width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; background: conic-gradient(var(--orange) var(--scan-progress), #edf0f5 0); transition: --scan-progress 800ms cubic-bezier(.22,1,.36,1); }
+@starting-style { .scan-pie { --scan-progress: 0%; } }
+@media(prefers-reduced-motion:reduce) { .scan-pie { transition: none; } }
+.scan-launch[aria-disabled=true] { cursor: default; }
+.air-app .calendar-dialog { width: min(1120px,calc(100vw - 32px)); padding: 20px 24px 24px; }
+.calendar-layout { display: grid; grid-template-columns: minmax(0,1fr) 250px; gap: 24px; }
+.calendar-main { min-width: 0; }
+.calendar-presets { display: flex; gap: 3px; padding: 4px; border-radius: 8px; background: #f0f2f6; }
+.calendar-presets button { flex: 1; padding: 8px 5px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
+.calendar-presets button[aria-pressed=true] { background: white; box-shadow: 0 1px 4px #23344812; }
+.calendar-presets button:hover { background: #fff9; }
+.calendar-main .calendar-nav { margin: 16px 0 12px; font-size: 11px; color: var(--muted); }
+.calendar-main .calendar-months { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 24px; }
+.calendar-month-title { display: flex; justify-content: center; align-items: center; gap: 12px; height: 36px; margin-bottom: 16px; font-size: 13px; color: var(--text); }
+.air-app .calendar-dialog .calendar-month-title .choice-trigger,.air-app .calendar-dialog .calendar-month-title input { height: 32px; min-height: 32px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; background: white; color: var(--text); font: inherit; line-height: 18px; }
+.calendar-month-title .app-choice { width: 110px; min-width: 0; text-align: left; }
+.air-app .calendar-dialog .calendar-month-title input { width: 64px; min-width: 0; text-align: left; }
+.calendar-month-name,.calendar-month-year { color: var(--text); font: inherit; line-height: 32px; }
+.calendar-month-title input { appearance: textfield; }
+.calendar-month-title input::-webkit-inner-spin-button,.calendar-month-title input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.air-app .calendar-dialog :is(input,select,button):focus { outline: none; box-shadow: none; }
+.air-app .calendar-dialog .calendar-month-title .choice-trigger:focus { outline: none; box-shadow: none; }
+.air-app .calendar-dialog :is(input,select,button):focus-visible { background-color: #edf2f7; border-color: #a8b5c5; }
+.air-app .calendar-dialog .calendar-month-title .choice-trigger { gap: 8px; padding-inline: 8px; font-size: 13px; }
+.air-app .calendar-dialog .calendar-month-title .choice-menu { max-height: min(320px,40dvh); }
+.air-app .calendar-grid button { height: 34px; border-radius: 6px; font-size: 12px; }
+.air-app .calendar-grid button:disabled { opacity: .35; cursor: default; }
+.air-app .calendar-grid button.endpoint { background: var(--blue); }
+.calendar-grid button:not(.endpoint) i { color: var(--blue); }
+.calendar-key { display: flex; align-items: center; gap: 8px; margin: 24px 0 0; font-size: 12px; color: var(--muted); }
+.calendar-key i { width: 6px; height: 6px; background: var(--blue); border-radius: 50%; }
+.calendar-options { display: flex; flex-direction: column; gap: 18px; padding-left: 24px; border-left: 1px solid var(--line); }
+.calendar-options label { display: grid; gap: 7px; color: var(--muted); font-size: 12px; }
+.air-app .calendar-options input,.air-app .calendar-options .choice-trigger { width: 100%; min-width: 0; min-height: 40px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: white; font: inherit; font-size: 12px; }
+.calendar-mode .app-choice { width: 100%; }
+.air-app .calendar-options .choice-trigger:focus { outline: none; box-shadow: none; }
+.calendar-options-bottom { margin-top: auto; padding-top: 16px; }
+.calendar-limit { display: flex; justify-content: space-between; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
+.calendar-limit .app-choice { width: 70px; flex-shrink: 0; }
+.calendar-options-bottom>.btn { justify-content: center; width: 100%; margin-top: 16px; min-height: 42px; }
+.calendar-count { margin-top: 8px; color: var(--muted); font-size: 11px; }
+.calendar-error { margin-top: 10px; font-size: 12px; color: #ad302a; }
+.calendar-picked { min-height: 170px; max-height: 230px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 8px; font-size: 12px; }
+.calendar-picked button { display: flex; width: 100%; justify-content: space-between; align-items: center; padding: 6px; border: 0; background: transparent; color: var(--text); cursor: pointer; }
+.calendar-picked button:hover { background: #f1f5fb; }
+@media(max-width:1000px) { .calendar-layout { grid-template-columns: minmax(0,1fr) 220px; gap: 16px; } .calendar-main .calendar-months { grid-template-columns: repeat(2,minmax(0,1fr)); } .calendar-main .calendar-month:last-child { display: none; } .calendar-presets { flex-wrap: wrap; } .calendar-presets button { flex: 1 0 28%; } .calendar-options { padding-left: 16px; } }
+@media(max-width:620px) { .air-app .calendar-dialog { padding: 16px; } .calendar-layout { grid-template-columns: minmax(0,1fr); } .calendar-main .calendar-months { grid-template-columns: 1fr; } .calendar-main .calendar-months>.calendar-month+div { display: none; } .calendar-options { padding: 16px 0 0; border-left: 0; border-top: 1px solid var(--line); gap: 12px; } .calendar-main .calendar-key { margin-top: 14px; } .calendar-picked { min-height: 90px; max-height: 130px; } .calendar-options-bottom { padding-top: 0; } }
 .air-app .app-account .cab-panel { border-radius: 13px; padding: 26px; margin-bottom: 20px; }
 .air-app .app-account .cab-title-row { margin-bottom: 20px; }
 .air-app .app-account h2 { margin-bottom: 12px; }
@@ -67,8 +119,10 @@
 .air-app .cab-entry { border-color: var(--line); }
 .air-app .cab-topup h2 { color: var(--text); }
 .air-app .help-card p { margin: 10px 0 25px; line-height: 1.8; color: var(--muted); }
-.air-app .choice-search:focus-within, .air-app .search-box:focus-within { outline: 2px solid var(--blue); outline-offset: 2px; }
+.air-app .choice-search:focus-within, .air-app .search-box:focus-within { outline: none; border-color: #a8b5c5; }
 .air-app .search-box input:focus-visible { outline: 0; }
+.air-app .table-toolbar :is(.search-box,.choice-trigger) { height: 36px; min-height: 36px; box-sizing: border-box; }
+.air-app .continuous-report table { border: 1px solid #d9e0e9; border-bottom: 0; }
 .air-app .choice-trigger { max-width: 100%; }
 .air-app .choice-menu { max-width: calc(100vw - 30px); }
 .air-app .choice-search input:focus-visible { outline: 0; }

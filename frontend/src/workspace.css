@@ -101,7 +101,7 @@
 .calendar-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
 .calendar-grid small{text-align:center;color:var(--air-muted);padding-bottom:8px;font-size:11px}
 .calendar-grid button{position:relative;height:34px;min-width:0;padding:0;border:0;background:transparent;color:var(--air-text);border-radius:6px;font-size:12px}
-.calendar-grid button:hover{outline:1px solid var(--air-accent)}
+.calendar-grid button:hover{background:#e9eff7}
 .calendar-grid button.in-range{background:var(--air-line)}.calendar-grid button.endpoint{background:var(--air-accent);color:var(--air-panel)}
 .calendar-grid i{position:absolute;bottom:3px;left:calc(50% - 2px);width:4px;height:4px;background:currentColor;border-radius:50%}
 .report-detail{width:min(860px,calc(100vw - 32px))}
