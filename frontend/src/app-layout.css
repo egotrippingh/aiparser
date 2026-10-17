@@ -121,6 +121,8 @@
 .air-app .help-card p { margin: 10px 0 25px; line-height: 1.8; color: var(--muted); }
 .air-app .choice-search:focus-within, .air-app .search-box:focus-within { outline: none; border-color: #a8b5c5; }
 .air-app .search-box input:focus-visible { outline: 0; }
+.air-app .table-toolbar :is(.search-box,.choice-trigger) { height: 36px; min-height: 36px; box-sizing: border-box; }
+.air-app .continuous-report table { border: 1px solid #d9e0e9; border-bottom: 0; }
 .air-app .choice-trigger { max-width: 100%; }
 .air-app .choice-menu { max-width: calc(100vw - 30px); }
 .air-app .choice-search input:focus-visible { outline: 0; }

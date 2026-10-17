@@ -57,6 +57,7 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
   controls share one style; mode/limit menus reuse AppChoice. Compact toolbar controls
   share 36 px height and rounded corners; pointer focus has no bright outline/glow.
   These conventions are recorded in frontend/AGENTS.md and DESIGN.md.
+  Report search/filter heights match; the history table has top and side borders.
   Interactive disposable-data preview awaits user feedback. No real scans or charges.
 
 - Real clarification scan, historical S3 recovery, paid recompute and live PostgreSQL
