@@ -30,13 +30,24 @@ class MergedVerdict:
 
 def merge(rule: RuleVerdict, llm: LLMVerdict | None, *, confidence_threshold: float,
           semantic_authoritative: bool = False) -> MergedVerdict:
-    if semantic_authoritative and llm and not llm.found:
-        return MergedVerdict(status="not_found", detected_by="llm", llm_model=llm.model)
+    confidence = llm.confidence if llm and llm.confidence is not None else 0.0
+    if llm and not llm.found and llm.confidence is not None and confidence < confidence_threshold:
+        return MergedVerdict(status="not_found", confidence=confidence, detected_by="llm",
+                             needs_review=True, llm_model=llm.model)
+    if (semantic_authoritative or rule.semantic_required) and llm and not llm.found:
+        return MergedVerdict(status="not_found", confidence=llm.confidence, detected_by="llm",
+                             llm_model=llm.model)
+    if rule.semantic_required and llm and llm.found and llm.confidence is not None and confidence < confidence_threshold:
+        return MergedVerdict(
+            status="found", mention_types=sorted(set(rule.mention_types) | set(llm.mention_types)),
+            confidence=confidence, evidence_quote=rule.evidence_quote or llm.quote,
+            detected_by="both", needs_review=True, llm_model=llm.model,
+        )
     if rule.found and llm and llm.found:
         return MergedVerdict(
             status="found",
             mention_types=sorted(set(rule.mention_types) | set(llm.mention_types)),
-            confidence=max(llm.confidence, 0.95),
+            confidence=max(confidence, 0.95),
             evidence_quote=rule.evidence_quote or llm.quote,
             detected_by="both",
             llm_model=llm.model,
@@ -51,11 +62,11 @@ def merge(rule: RuleVerdict, llm: LLMVerdict | None, *, confidence_threshold: fl
             detected_by="rules",
         )
 
-    if llm and llm.found and llm.confidence >= confidence_threshold:
+    if llm and llm.found and confidence >= confidence_threshold:
         return MergedVerdict(
             status="found",
             mention_types=llm.mention_types or ["indirect"],
-            confidence=llm.confidence,
+            confidence=confidence,
             evidence_quote=llm.quote,
             detected_by="llm",
             # Правила не нашли ничего, а LLM нашла — это ровно тот случай,
@@ -65,12 +76,12 @@ def merge(rule: RuleVerdict, llm: LLMVerdict | None, *, confidence_threshold: fl
             llm_model=llm.model,
         )
 
-    if llm and llm.found and llm.confidence < confidence_threshold:
+    if llm and llm.found and confidence < confidence_threshold:
         # LLM что-то заподозрила, но неуверенно — не считаем found, но
         # оставляем след для ручной проверки, а не молча теряем сигнал.
         return MergedVerdict(
             status="not_found",
-            confidence=llm.confidence,
+            confidence=confidence,
             evidence_quote=llm.quote,
             detected_by="llm",
             needs_review=True,
@@ -119,7 +130,7 @@ def with_arbiter(result: MergedVerdict, verdict: LLMVerdict) -> MergedVerdict:
         return MergedVerdict(
             status="found",
             mention_types=verdict.mention_types or ["indirect"],
-            confidence=verdict.confidence or 0.8,
+            confidence=verdict.confidence if verdict.confidence is not None else 0.8,
             evidence_quote=verdict.quote or result.evidence_quote,
             detected_by="arbiter",
             needs_review=False,
@@ -128,7 +139,7 @@ def with_arbiter(result: MergedVerdict, verdict: LLMVerdict) -> MergedVerdict:
     return MergedVerdict(
         status="not_found",
         mention_types=[],
-        confidence=verdict.confidence or None,
+        confidence=verdict.confidence,
         evidence_quote=None,
         detected_by="arbiter",
         needs_review=False,
@@ -141,6 +152,6 @@ def should_call_llm(rule: RuleVerdict, llm_mode: str) -> bool:
         return False
     if llm_mode == "always":
         return True
-    # "smart" (по умолчанию): не тратим вызов, если правила уже нашли прямое
-    # совпадение по домену/тексту — экономия там, где LLM ничего не добавит.
-    return not rule.found
+    # Own-domain links are conclusive. Other lexical evidence can collide with
+    # a similarly named company and is only a candidate in smart mode.
+    return not rule.found or rule.semantic_required

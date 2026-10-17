@@ -351,6 +351,35 @@ def test_llm_error_is_saved_with_result(monkeypatch, tmp_path):
     assert result["answer_text"] == capture.answer_text
 
 
+@pytest.mark.parametrize('analysis_error', [False, True])
+def test_deep_check_after_uncertain_negative_never_masks_analysis_error(monkeypatch, tmp_path, analysis_error):
+    pid, _ = _project(1)
+    project = {**repo.get_project(pid), 'deep_check_depth': 1}
+    sid = repo.create_scan(pid, ['google_aio'], {})
+    controller = orchestrator.ScanController(sid, pid, 1, TODAY)
+    capture = SimpleNamespace(shown=True, screenshot_bytes=b'raw', answer_text='Advice',
+                              sources=['https://dealer.example/guide'], extra={})
+    class Adapter:
+        async def ask(self, *_args, **_kwargs): pass
+        async def capture(self, _page): return capture
+    async def primary(**_kwargs):
+        return orchestrator.llm_mod.LLMVerdict(found=False, confidence=0.1,
+            error='unavailable' if analysis_error else None)
+    calls = []
+    async def deep(*args, **kwargs):
+        calls.append(args)
+        return SimpleNamespace(found=True, url='https://dealer.example/guide', quote='Бренд')
+    monkeypatch.setattr(orchestrator.imaging, 'to_webp', lambda _: b'webp')
+    monkeypatch.setattr(orchestrator.config, 'screenshot_dir', lambda *_: tmp_path)
+    monkeypatch.setattr(orchestrator.llm_mod, 'evaluate', primary)
+    monkeypatch.setattr(orchestrator.deep_mod, 'check_sources', deep)
+    status = asyncio.run(orchestrator._run_one(project, repo.list_queries(pid)[0], 'google_aio',
+        Adapter(), object(), {'managed_llm': True, 'llm_confidence_threshold': 0.6, 'arbiter': False},
+        0.5, '', 'test-model', 'smart', controller))
+    assert status == ('error' if analysis_error else 'found')
+    assert bool(calls) is not analysis_error
+
+
 def test_xmlriver_last_request_state_changes_after_capture_failure(monkeypatch):
     from app.scanner.adapters.base import AdapterError, Capture
     from app.scanner.adapters.xmlriver import XMLRiverAdapter, geography

@@ -1,39 +1,17 @@
 # AIRate current project state
 
-Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
+Updated 2026-10-17. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
 
 ## Current release
 
-- Published and verified: [PR #71](https://github.com/egotrippingh/aiparser/pull/71),
-  release `203a6023a8f4e1acc59181a89e57176abff48b75`. Cabinet header styling,
-  email support and eight public Fumadocs guides/search are live. Full production
-  CI, backup/isolated restore and activation passed; live readiness matches SHA.
-  Eight articles, 11 assets, sitemap and live browser search passed smoke checks.
-  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/38952970914).
-- Published and readiness verified: [PR #70](https://github.com/egotrippingh/aiparser/pull/70),
-  release `8a37da3cc1b3f40947dd7587ed8f553ceab7f787`. Homepage metadata, canonical/social
-  cards, WebSite markup, build-time rendering, robots/sitemap and utility-page noindex.
-  [Deployment evidence](https://github.com/egotrippingh/aiparser/actions/runs/38941999184).
-  [SEO policy and checks](docs/seo.md). Actual search indexing remains unverified.
-- Published and verified: [PR #69](https://github.com/egotrippingh/aiparser/pull/69),
-  release `5c9ac1aea27802ae2dd00ba61856d3fedae95080`. Parallel backend/frontend gates,
-  cached Docker layers and reuse of the tested image are active. Existing backup,
-  isolated restore, migration, readiness and rollback gates remain.
-- Session-expiry fixes from PR #68 and retired desktop routes from PR #66 remain live.
-- `production` also includes [PR #67](https://github.com/egotrippingh/aiparser/pull/67)
-  at `0a80911`: preview/scoped-check rules, Graphify provenance and the on-demand
-  release-status script; its production CI/readiness passed before PR #71 delivery.
-
-## Prepared, not published
-
-- `codex/help-video`: user-provided project-creation video below «Создайте проект»
-  in the quick-start article; click/keyboard play-pause and custom seek slider,
-  without native controls. Public guides move to `/docs/`, header/footer label
-  «Документация»; old `/help/` URLs permanently redirect to matching pages.
-  Local checks passed (115 frontend tests, lint/build, 16 SEO/HTTP tests), browser
-  route/search/video/header checks and independent source/risk review passed.
-  PR #72 CI and publication pending. Base: production `203a602`.
-
+- Published and verified: [PR #73](https://github.com/egotrippingh/aiparser/pull/73),
+  release `58f0271958352e1ec05aa2e4bb4c7b4737e089b7`. Overview scan control,
+  clockwise progress, calendar modes (up to 30 dates), consistent dropdowns and
+  report-table controls/borders are live. All production gates, backup/isolated
+  restore, activation and public readiness passed; live assets match the reviewed
+  build. [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/38988130062).
+- This includes PR #72: quick-start project video and `/docs/` guide routes.
+  Previous cabinet/header, SEO, auth and deployment changes remain live.
 ## Architecture and operating rules
 
 - `server/`: FastAPI, PostgreSQL, all five managed providers, billing and recovery.
@@ -49,16 +27,15 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Open checks
 
-- Prepared, not published: `codex/overview-calendar-preview`, based on production
-  `29114ed07637e7c9d9357a5ad638ef668bc259e4`. Compact scan control, chart-only service
-  selection and calendar modes with up to 30 dates; no Yandex-update markers.
-  Active progress fills clockwise as a solid pie with smooth animation, no number
-  or click action; percentage stays in its tooltip. Calendar spacing and month/year
-  controls share one style; mode/limit menus reuse AppChoice. Compact toolbar controls
-  share 36 px height and rounded corners; pointer focus has no bright outline/glow.
-  These conventions are recorded in frontend/AGENTS.md and DESIGN.md.
-  Report search/filter heights match; the history table has top and side borders.
-  Interactive disposable-data preview awaits user feedback. No real scans or charges.
+- Prepared on `codex/brand-detection-quality`, not published: semantic identity routing,
+  neutral arbiter, strict verdict validation, reserved-cache recovery and source-card
+  evidence. Independent correctness/risk reviews found no remaining blocker; affected
+  deterministic checks passed. Full server/CI evidence is tracked in
+  [draft PR #74](https://github.com/egotrippingh/aiparser/pull/74).
+  Full source CI on `4da1a05` passed. [300-answer blind audit](docs/brand-model-audit.md):
+  Qwen 294/300 valid, Pro 288/300; 282/283 complete decisions agree, not an accuracy score.
+  Shared experiment cost upper bound $0.72401 under $5. No default model/price change.
+  Private blinded web labelling is ready. User requested a pause until manual labels.
 
 - Real clarification scan, historical S3 recovery, paid recompute and live PostgreSQL
   upload/recompute race remain unverified. First real paid top-up email and signed-in
@@ -68,5 +45,7 @@ Updated 2026-10-16. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Review the overview/calendar preview with the user, incorporate feedback, then complete
-delivery gates and release only with publication authorization.
+Paused at the user's request after the completed experiment. Resume with the user's
+manual JSONL labels, adjudicate ambiguous identity, then calculate quality metrics and
+choose models. Confirm collector unit costs before any activation/publication; keep
+production backup, isolated restore, readiness and rollback gates.
