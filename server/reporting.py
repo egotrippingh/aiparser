@@ -34,6 +34,9 @@ class ReportOptions(BaseModel):
     limit: int = Field(default=50, ge=1, le=200)
     date_offset: int = Field(default=0, ge=0)
     date_limit: int = Field(default=4, ge=1, le=64)
+    max_dates: int | None = Field(default=None, ge=1, le=30)
+    report_dates: str | None = Field(default=None, max_length=329)
+    date_mode: Literal['period', 'monthly'] = 'period'
 
 
 def owned_project(db, user_id, project_id):
@@ -88,12 +91,23 @@ def collect_report(db, project, options, *, with_sources=False, compact=False):
     corrections = {e["result_id"]: e for e in json.loads(project.config_json).get(KEY, [])}
     own = None if options.include_external else brand_hosts(project)
     scope = (CloudResult.user_id == project.user_id, CloudResult.project_id == project.id)
-    available_dates = list(db.scalars(select(CloudResult.scan_date).where(*scope).distinct()
-                                      .order_by(CloudResult.scan_date)))
     end = options.date_to or utcnow().date()
     start = options.date_from or max(date.min, end - timedelta(days=min(29, end.toordinal() - 1)))
     if start > end or (end - start).days > 365:
         raise HTTPException(422, "Выберите период от 1 до 366 дней, начало не позже конца")
+    picked = None
+    if options.date_mode == 'monthly' and (options.compare or options.report_dates is not None):
+        raise HTTPException(422, "Выберите один режим дат отчёта")
+    if options.report_dates is not None:
+        if options.compare:
+            raise HTTPException(422, "Выберите сравнение двух дат или произвольные даты")
+        try:
+            values = options.report_dates.split(',')
+            picked = sorted({date.fromisoformat(value).isoformat() for value in values})
+        except ValueError as exc:
+            raise HTTPException(422, "Выберите корректные даты отчёта") from exc
+        if not 1 <= len(values) <= (options.max_dates or 30) or any(day < start.isoformat() or day > end.isoformat() for day in picked):
+            raise HTTPException(422, "Выберите до 30 дат внутри периода отчёта")
     if options.service and options.service not in SERVICES:
         raise HTTPException(422, "Неизвестная ИИ-система")
     selected = None
@@ -111,6 +125,19 @@ def collect_report(db, project, options, *, with_sources=False, compact=False):
     queries = {q["id"]: {"id": q["id"], "text": q["text"], "group_tag": q.get("group_tag", ""), "cells": {}}
                for q in json.loads(project.queries_json)}
     by_text = {q["text"]: q["id"] for q in queries.values()}
+    date_scope = [*scope, CloudResult.service.in_(selected if selected is not None else SERVICES)]
+    if options.group is not None or options.search:
+        matching_dates = set()
+        metadata = db.execute(select(CloudResult.scan_date, CloudResult.query_id,
+            CloudResult.query_text, CloudResult.group_tag).where(*date_scope).distinct())
+        for day, query_id, text, group_tag in metadata:
+            query = queries.get(query_id) or queries.get(by_text.get(text)) or {'text': text, 'group_tag': group_tag or ''}
+            if (options.group is None or query['group_tag'] == options.group) and options.search.casefold() in query['text'].casefold():
+                matching_dates.add(day)
+        available_dates = sorted(matching_dates)
+    else:
+        available_dates = list(db.scalars(select(CloudResult.scan_date).where(*date_scope).distinct()
+                                          .order_by(CloudResult.scan_date)))
     columns = [
         CloudResult.id, CloudResult.query_id, CloudResult.query_text, CloudResult.group_tag,
         CloudResult.service, CloudResult.scan_date, CloudResult.status, CloudResult.mention_types_json,
@@ -137,7 +164,20 @@ def collect_report(db, project, options, *, with_sources=False, compact=False):
     daily = {key: row for key, row in daily.items() if key[0] in queries}
     service_ids = [s for s in SERVICES if s in selected] if selected is not None else available_services
     table_dates = sorted({start.isoformat(), end.isoformat()}) if options.compare else sorted(
+        {key[2] for key in daily} if options.max_dates is not None else
         measurement_dates if compact else {start.isoformat(), end.isoformat()} | measurement_dates)
+    if picked is not None:
+        table_dates = picked
+        daily = {key: row for key, row in daily.items() if key[2] in picked}
+    if options.date_mode == 'monthly':
+        last_by_month = {}
+        for day in sorted({key[2] for key in daily}):
+            last_by_month[day[:7]] = day
+        table_dates = list(last_by_month.values())[-(options.max_dates or 30):]
+    if options.max_dates is not None and not options.compare:
+        table_dates = table_dates[-options.max_dates:]
+    if picked is not None or options.max_dates is not None or options.date_mode == 'monthly':
+        daily = {key: row for key, row in daily.items() if key[2] in table_dates}
     # Page dates from the most recent measurements, then present each window chronologically.
     window = table_dates if options.compare else sorted(list(reversed(table_dates))[options.date_offset:options.date_offset + options.date_limit])
     summary = empty_stats()
@@ -168,11 +208,13 @@ def collect_report(db, project, options, *, with_sources=False, compact=False):
             "dates": table_dates, "visible_dates": window, "services": service_ids,
             "available_services": available_services, "groups": group_names,
             "summary": summary, "comparison": comparison,
-            "timeline": [{"date": d, **stats} for d, stats in by_date.items()],
+            "timeline": [{"date": d, **stats} for d, stats in by_date.items()
+                         if picked is None and options.max_dates is None and options.date_mode == 'period' or d in table_dates],
             "total": len(rows), "rows": rows, "measurements": selected_measurements,
             "filters": {"include_cards": options.include_cards, "include_external": options.include_external, "group": options.group,
                         "service": options.service, "services": service_ids,
-                        "search": options.search, "compare": options.compare}}
+                        "search": options.search, "compare": options.compare,
+                        "report_dates": picked, "max_dates": options.max_dates, "date_mode": options.date_mode}}
 
 
 def overview_report(db, project, options):
@@ -182,11 +224,17 @@ def overview_report(db, project, options):
     report = collect_report(db, project, options, with_sources=True, compact=True)
     start, end = date.fromisoformat(report['date_from']), date.fromisoformat(report['date_to'])
     length = (end - start).days + 1
-    has_baseline = options.compare or start.toordinal() > length
+    selected_days = report['dates'] if options.report_dates is not None or options.max_dates is not None or options.date_mode == 'monthly' else None
+    has_baseline = (options.compare or start.toordinal() > length) and (selected_days is None or bool(selected_days))
     baseline_end = start if options.compare else start - timedelta(days=1) if has_baseline else None
     baseline_start = start if options.compare else start - timedelta(days=length) if has_baseline else None
+    baseline_dates = None
+    if selected_days is not None and not options.compare and has_baseline:
+        baseline_dates = ','.join((date.fromisoformat(day) - timedelta(days=length)).isoformat()
+                                  for day in selected_days)
     baseline = collect_report(db, project, options.model_copy(update={
-        'date_from': baseline_start, 'date_to': baseline_end, 'compare': False}), compact=True) if has_baseline else {'measurements': []}
+        'date_from': baseline_start, 'date_to': baseline_end, 'compare': False,
+        'report_dates': baseline_dates, 'date_mode': 'period'}), compact=True) if has_baseline else {'measurements': []}
     own = brand_hosts(project)
     allowed = None if options.include_external else own
 
@@ -204,7 +252,7 @@ def overview_report(db, project, options):
 
     current, services, queries, _ = totals(report, end.isoformat() if options.compare else None)
     previous, previous_services, previous_queries, previous_days = totals(baseline)
-    expected_days = 1 if options.compare else length
+    expected_days = 1 if options.compare else len(selected_days) if selected_days is not None else length
 
     def trend(now, before, complete):
         left, right = before['visibility_pct'], now['visibility_pct']
@@ -319,6 +367,12 @@ def workbook(report, project, kind):
     append(notes, ["Период", report["date_from"] + " — " + report["date_to"]])
     filters = report["filters"]
     append(notes, ["Режим", "Сравнение двух дат" if filters["compare"] and kind != 'source_summary' else "За период"])
+    if filters.get('report_dates') is not None:
+        append(notes, ['Выбранные даты', ', '.join(filters['report_dates'])])
+    if filters.get('max_dates') is not None:
+        append(notes, ['Максимально дат', filters['max_dates']])
+    if filters.get('date_mode') == 'monthly':
+        append(notes, ['Выбор дат', 'Последняя проверка месяца'])
     append(notes, ["Карточки товаров", "Учитываются" if filters["include_cards"] else "Исключены из упоминаний"])
     append(notes, ["Учёт внешних источников", "Учитываются" if filters["include_external"] else "Исключены из упоминаний"])
     append(notes, ["Группа", "Все группы" if filters["group"] is None else filters["group"] or "Без группы"])
