@@ -1,0 +1,528 @@
+{
+  "created_at_utc": "2026-10-17T12:10:50.912183+00:00",
+  "code_sha": "4da1a051015b00543545260378af94dc7a7c6758",
+  "mode": "Unlabelled blind agreement audit, NOT accuracy/precision/recall",
+  "case_count": 300,
+  "requests": 600,
+  "input_sha256": "c6b634513daa5f15316ff7b18eb9e7396595bd911d50cb44e2a89fd4add1f787",
+  "prompt_sha256": "20273f0081d6b710d938e0c29c47f6f4ae3796249d6a1e7d6c653255d1b75594",
+  "settings": {
+    "started_at_utc": "2026-10-17T11:38:15.787324+00:00",
+    "completed_at_utc": "2026-10-17T12:10:50.912183+00:00",
+    "max_output_tokens": 1024,
+    "workers": 4,
+    "automatic_retries": 0,
+    "models": {
+      "qwen3.8-flash": [
+        "qwen/qwen3.8-flash",
+        {
+          "max_tokens": 512
+        },
+        "0.15",
+        "0.47"
+      ],
+      "deepseek-pro-0813": [
+        "deepseek/deepseek-v4-pro-0813",
+        {
+          "effort": "none"
+        },
+        "0.66",
+        "1.98"
+      ]
+    }
+  },
+  "sampling": {
+    "account_scope": "admin only; no other users",
+    "eligible_frozen_captures": 2487,
+    "feedback_and_query_variants_excluded": 93,
+    "eligible_after_exclusion": 2394,
+    "per_source_provider": 60,
+    "brand_sizes": [
+      173,
+      124,
+      3
+    ],
+    "historical_status_sampling_metadata_only": {
+      "found": 117,
+      "not_found": 183
+    },
+    "screenshots_and_source_pages_checked": false
+  },
+  "budget": {
+    "previous_cost_bound_usd": "0.294",
+    "maximum_shared_usd": "5",
+    "reserved_new_ceiling_usd": "4.5033579720",
+    "reserved_shared_ceiling_usd": "4.7973579720",
+    "new_known_cost_usd": "0.262573952328",
+    "new_unknown_full_request_ceiling_usd": "0.1674266220",
+    "shared_known_plus_unknown_upper_usd": "0.724000574328"
+  },
+  "report": {
+    "total_cases": 300,
+    "both_decided": 283,
+    "both_decision_coverage": 0.9433333333333334,
+    "agreement_among_both_decided": 0.9964664310954063,
+    "table": {
+      "q+_p+": 101,
+      "q+_p-": 1,
+      "q-_p+": 0,
+      "q-_p-": 181
+    },
+    "per_candidate": {
+      "qwen3.8-flash": {
+        "expected": 300,
+        "attempted": 300,
+        "decided": 294,
+        "errors": 6,
+        "missing": 0,
+        "decision_coverage": 0.98,
+        "known_cost_usd": 0.155704428,
+        "cost_records": 296,
+        "unknown_cost_request_ceiling_usd": 0.014958702,
+        "known_plus_unknown_ceiling_usd": 0.17066313,
+        "latency_p50_s": 7.773499999995693,
+        "latency_p95_s": 14.593999999997322,
+        "prompt_tokens_reported": 762377,
+        "completion_tokens_reported": 117753,
+        "reasoning_tokens_reported": 90668
+      },
+      "deepseek-pro-0813": {
+        "expected": 300,
+        "attempted": 300,
+        "decided": 288,
+        "errors": 12,
+        "missing": 0,
+        "decision_coverage": 0.96,
+        "known_cost_usd": 0.106869524328,
+        "cost_records": 288,
+        "unknown_cost_request_ceiling_usd": 0.15246792,
+        "known_plus_unknown_ceiling_usd": 0.259337444328,
+        "latency_p50_s": 2.8044999999910942,
+        "latency_p95_s": 13.718999999997322,
+        "prompt_tokens_reported": 800322,
+        "completion_tokens_reported": 23962,
+        "reasoning_tokens_reported": 0
+      }
+    },
+    "all_attempts": {
+      "expected": 600,
+      "attempted": 600,
+      "decided": 582,
+      "errors": 18,
+      "missing": 0,
+      "decision_coverage": 0.97,
+      "known_cost_usd": 0.262573952328,
+      "cost_records": 584,
+      "unknown_cost_request_ceiling_usd": 0.167426622,
+      "known_plus_unknown_ceiling_usd": 0.430000574328,
+      "latency_p50_s": 4.999499999998079,
+      "latency_p95_s": 14.593999999997322,
+      "prompt_tokens_reported": 1562699,
+      "completion_tokens_reported": 141715,
+      "reasoning_tokens_reported": 90668
+    },
+    "slices": {
+      "provider": {
+        "chatgpt": {
+          "total_cases": 60,
+          "both_decided": 59,
+          "both_decision_coverage": 0.9833333333333333,
+          "agreement_among_both_decided": 1.0,
+          "table": {
+            "q+_p+": 20,
+            "q+_p-": 0,
+            "q-_p+": 0,
+            "q-_p-": 39
+          },
+          "per_candidate": {
+            "qwen3.8-flash": {
+              "expected": 60,
+              "attempted": 60,
+              "decided": 60,
+              "errors": 0,
+              "missing": 0,
+              "decision_coverage": 1.0,
+              "known_cost_usd": 0.043331534,
+              "cost_records": 60,
+              "unknown_cost_request_ceiling_usd": 0,
+              "known_plus_unknown_ceiling_usd": 0.043331534,
+              "latency_p50_s": 8.953000000001339,
+              "latency_p95_s": 15.828000000008615,
+              "prompt_tokens_reported": 219029,
+              "completion_tokens_reported": 27328,
+              "reasoning_tokens_reported": 21716
+            },
+            "deepseek-pro-0813": {
+              "expected": 60,
+              "attempted": 60,
+              "decided": 59,
+              "errors": 1,
+              "missing": 0,
+              "decision_coverage": 0.9833333333333333,
+              "known_cost_usd": 0.030032046192,
+              "cost_records": 59,
+              "unknown_cost_request_ceiling_usd": 0.0096990696,
+              "known_plus_unknown_ceiling_usd": 0.039731115792,
+              "latency_p50_s": 2.812000000005355,
+              "latency_p95_s": 4.515999999988708,
+              "prompt_tokens_reported": 225244,
+              "completion_tokens_reported": 5046,
+              "reasoning_tokens_reported": 0
+            }
+          },
+          "all_attempts": {
+            "expected": 120,
+            "attempted": 120,
+            "decided": 119,
+            "errors": 1,
+            "missing": 0,
+            "decision_coverage": 0.9916666666666667,
+            "known_cost_usd": 0.073363580192,
+            "cost_records": 119,
+            "unknown_cost_request_ceiling_usd": 0.0096990696,
+            "known_plus_unknown_ceiling_usd": 0.083062649792,
+            "latency_p50_s": 6.1560000000026776,
+            "latency_p95_s": 13.172000000005937,
+            "prompt_tokens_reported": 444273,
+            "completion_tokens_reported": 32374,
+            "reasoning_tokens_reported": 21716
+          }
+        },
+        "gemini": {
+          "total_cases": 60,
+          "both_decided": 57,
+          "both_decision_coverage": 0.95,
+          "agreement_among_both_decided": 0.9824561403508771,
+          "table": {
+            "q+_p+": 4,
+            "q+_p-": 1,
+            "q-_p+": 0,
+            "q-_p-": 52
+          },
+          "per_candidate": {
+            "qwen3.8-flash": {
+              "expected": 60,
+              "attempted": 60,
+              "decided": 58,
+              "errors": 2,
+              "missing": 0,
+              "decision_coverage": 0.9666666666666667,
+              "known_cost_usd": 0.031424818,
+              "cost_records": 58,
+              "unknown_cost_request_ceiling_usd": 0.01119798,
+              "known_plus_unknown_ceiling_usd": 0.042622798,
+              "latency_p50_s": 6.000499999994645,
+              "latency_p95_s": 9.437000000005355,
+              "prompt_tokens_reported": 171241,
+              "completion_tokens_reported": 17538,
+              "reasoning_tokens_reported": 12742
+            },
+            "deepseek-pro-0813": {
+              "expected": 60,
+              "attempted": 60,
+              "decided": 59,
+              "errors": 1,
+              "missing": 0,
+              "decision_coverage": 0.9833333333333333,
+              "known_cost_usd": 0.024528768696,
+              "cost_records": 59,
+              "unknown_cost_request_ceiling_usd": 0.0250898472,
+              "known_plus_unknown_ceiling_usd": 0.049618615896,
+              "latency_p50_s": 2.444999999999709,
+              "latency_p95_s": 4.671999999991385,
+              "prompt_tokens_reported": 187365,
+              "completion_tokens_reported": 4078,
+              "reasoning_tokens_reported": 0
+            }
+          },
+          "all_attempts": {
+            "expected": 120,
+            "attempted": 120,
+            "decided": 117,
+            "errors": 3,
+            "missing": 0,
+            "decision_coverage": 0.975,
+            "known_cost_usd": 0.055953586696,
+            "cost_records": 117,
+            "unknown_cost_request_ceiling_usd": 0.036287827200000004,
+            "known_plus_unknown_ceiling_usd": 0.092241413896,
+            "latency_p50_s": 4.515499999994063,
+            "latency_p95_s": 9.14100000000326,
+            "prompt_tokens_reported": 358606,
+            "completion_tokens_reported": 21616,
+            "reasoning_tokens_reported": 12742
+          }
+        },
+        "google_aio": {
+          "total_cases": 60,
+          "both_decided": 53,
+          "both_decision_coverage": 0.8833333333333333,
+          "agreement_among_both_decided": 1.0,
+          "table": {
+            "q+_p+": 25,
+            "q+_p-": 0,
+            "q-_p+": 0,
+            "q-_p-": 28
+          },
+          "per_candidate": {
+            "qwen3.8-flash": {
+              "expected": 60,
+              "attempted": 60,
+              "decided": 59,
+              "errors": 1,
+              "missing": 0,
+              "decision_coverage": 0.9833333333333333,
+              "known_cost_usd": 0.030106604,
+              "cost_records": 59,
+              "unknown_cost_request_ceiling_usd": 0.001461024,
+              "known_plus_unknown_ceiling_usd": 0.031567628,
+              "latency_p50_s": 7.734499999998661,
+              "latency_p95_s": 15.187999999994645,
+              "prompt_tokens_reported": 150508,
+              "completion_tokens_reported": 22518,
+              "reasoning_tokens_reported": 17110
+            },
+            "deepseek-pro-0813": {
+              "expected": 60,
+              "attempted": 60,
+              "decided": 53,
+              "errors": 7,
+              "missing": 0,
+              "decision_coverage": 0.8833333333333333,
+              "known_cost_usd": 0.019521078,
+              "cost_records": 53,
+              "unknown_cost_request_ceiling_usd": 0.08975933999999999,
+              "known_plus_unknown_ceiling_usd": 0.10928041799999999,
+              "latency_p50_s": 2.7809999999881256,
+              "latency_p95_s": 21.60899999999674,
+              "prompt_tokens_reported": 147155,
+              "completion_tokens_reported": 4713,
+              "reasoning_tokens_reported": 0
+            }
+          },
+          "all_attempts": {
+            "expected": 120,
+            "attempted": 120,
+            "decided": 112,
+            "errors": 8,
+            "missing": 0,
+            "decision_coverage": 0.9333333333333333,
+            "known_cost_usd": 0.049627682,
+            "cost_records": 112,
+            "unknown_cost_request_ceiling_usd": 0.091220364,
+            "known_plus_unknown_ceiling_usd": 0.140848046,
+            "latency_p50_s": 5.585500000008324,
+            "latency_p95_s": 21.60899999999674,
+            "prompt_tokens_reported": 297663,
+            "completion_tokens_reported": 27231,
+            "reasoning_tokens_reported": 17110
+          }
+        },
+        "perplexity": {
+          "total_cases": 60,
+          "both_decided": 57,
+          "both_decision_coverage": 0.95,
+          "agreement_among_both_decided": 1.0,
+          "table": {
+            "q+_p+": 29,
+            "q+_p-": 0,
+            "q-_p+": 0,
+            "q-_p-": 28
+          },
+          "per_candidate": {
+            "qwen3.8-flash": {
+              "expected": 60,
+              "attempted": 60,
+              "decided": 58,
+              "errors": 2,
+              "missing": 0,
+              "decision_coverage": 0.9666666666666667,
+              "known_cost_usd": 0.026593862,
+              "cost_records": 59,
+              "unknown_cost_request_ceiling_usd": 0.002299698,
+              "known_plus_unknown_ceiling_usd": 0.02889356,
+              "latency_p50_s": 9.523500000002969,
+              "latency_p95_s": 14.187999999994645,
+              "prompt_tokens_reported": 114992,
+              "completion_tokens_reported": 26233,
+              "reasoning_tokens_reported": 20569
+            },
+            "deepseek-pro-0813": {
+              "expected": 60,
+              "attempted": 60,
+              "decided": 59,
+              "errors": 1,
+              "missing": 0,
+              "decision_coverage": 0.9833333333333333,
+              "known_cost_usd": 0.018107114184,
+              "cost_records": 59,
+              "unknown_cost_request_ceiling_usd": 0.0104026032,
+              "known_plus_unknown_ceiling_usd": 0.028509717384000002,
+              "latency_p50_s": 3.061999999998079,
+              "latency_p95_s": 4.828000000008615,
+              "prompt_tokens_reported": 127884,
+              "completion_tokens_reported": 5360,
+              "reasoning_tokens_reported": 0
+            }
+          },
+          "all_attempts": {
+            "expected": 120,
+            "attempted": 120,
+            "decided": 117,
+            "errors": 3,
+            "missing": 0,
+            "decision_coverage": 0.975,
+            "known_cost_usd": 0.044700976184,
+            "cost_records": 118,
+            "unknown_cost_request_ceiling_usd": 0.012702301200000002,
+            "known_plus_unknown_ceiling_usd": 0.057403277384,
+            "latency_p50_s": 5.210500000001048,
+            "latency_p95_s": 13.187000000005355,
+            "prompt_tokens_reported": 242876,
+            "completion_tokens_reported": 31593,
+            "reasoning_tokens_reported": 20569
+          }
+        },
+        "yandex_neuro": {
+          "total_cases": 60,
+          "both_decided": 57,
+          "both_decision_coverage": 0.95,
+          "agreement_among_both_decided": 1.0,
+          "table": {
+            "q+_p+": 23,
+            "q+_p-": 0,
+            "q-_p+": 0,
+            "q-_p-": 34
+          },
+          "per_candidate": {
+            "qwen3.8-flash": {
+              "expected": 60,
+              "attempted": 60,
+              "decided": 59,
+              "errors": 1,
+              "missing": 0,
+              "decision_coverage": 0.9833333333333333,
+              "known_cost_usd": 0.02424761,
+              "cost_records": 60,
+              "unknown_cost_request_ceiling_usd": 0,
+              "known_plus_unknown_ceiling_usd": 0.02424761,
+              "latency_p50_s": 7.734499999998661,
+              "latency_p95_s": 13.514999999999418,
+              "prompt_tokens_reported": 106607,
+              "completion_tokens_reported": 24136,
+              "reasoning_tokens_reported": 18531
+            },
+            "deepseek-pro-0813": {
+              "expected": 60,
+              "attempted": 60,
+              "decided": 58,
+              "errors": 2,
+              "missing": 0,
+              "decision_coverage": 0.9666666666666667,
+              "known_cost_usd": 0.014680517256,
+              "cost_records": 58,
+              "unknown_cost_request_ceiling_usd": 0.01751706,
+              "known_plus_unknown_ceiling_usd": 0.032197577256000004,
+              "latency_p50_s": 2.945499999994354,
+              "latency_p95_s": 13.718999999997322,
+              "prompt_tokens_reported": 112674,
+              "completion_tokens_reported": 4765,
+              "reasoning_tokens_reported": 0
+            }
+          },
+          "all_attempts": {
+            "expected": 120,
+            "attempted": 120,
+            "decided": 117,
+            "errors": 3,
+            "missing": 0,
+            "decision_coverage": 0.975,
+            "known_cost_usd": 0.038928127256,
+            "cost_records": 118,
+            "unknown_cost_request_ceiling_usd": 0.01751706,
+            "known_plus_unknown_ceiling_usd": 0.056445187256,
+            "latency_p50_s": 5.4375,
+            "latency_p95_s": 13.562999999994645,
+            "prompt_tokens_reported": 219281,
+            "completion_tokens_reported": 28901,
+            "reasoning_tokens_reported": 18531
+          }
+        }
+      }
+    },
+    "brand_group_sizes": [
+      173,
+      124,
+      3
+    ]
+  },
+  "cost_and_endpoints": {
+    "qwen3.8-flash": {
+      "endpoint_counts": {
+        "Alibaba": 296,
+        "unknown": 4
+      },
+      "returned_model_counts": {
+        "qwen/qwen3.8-flash": 296,
+        "unknown": 4
+      },
+      "error_types": {
+        "RemoteProtocolError": 2,
+        "ReadTimeout": 1,
+        "ConnectError": 1,
+        "invalid_verdict": 2
+      },
+      "positive_decisions": 107,
+      "actual_known_usd": "0.155704428",
+      "unknown_full_request_ceiling_usd": "0.014958702",
+      "mean_model_cost_upper_rub_fx100_fee055": "0.0600165340500",
+      "mean_known_receipts_per_attempt_rub_fx100_fee055": "0.05475605718000",
+      "repriced_token_coverage": 296,
+      "no_cache_offpeak_mean_upper_rub_fx100_fee055": "0.06493847197000",
+      "no_cache_peak_mean_upper_rub_fx100_fee055": "0.06493847197000"
+    },
+    "deepseek-pro-0813": {
+      "endpoint_counts": {
+        "Baidu": 287,
+        "unknown": 12,
+        "StreamLake": 1
+      },
+      "returned_model_counts": {
+        "deepseek/deepseek-v4-pro-0813": 288,
+        "unknown": 12
+      },
+      "error_types": {
+        "RemoteProtocolError": 6,
+        "ReadTimeout": 3,
+        "ConnectError": 3
+      },
+      "positive_decisions": 102,
+      "actual_known_usd": "0.106869524328",
+      "unknown_full_request_ceiling_usd": "0.1524679200",
+      "mean_model_cost_upper_rub_fx100_fee055": "0.09120033458868000",
+      "mean_known_receipts_per_attempt_rub_fx100_fee055": "0.03758244938868000",
+      "repriced_token_coverage": 288,
+      "no_cache_offpeak_mean_upper_rub_fx100_fee055": "0.2560573620000",
+      "no_cache_peak_mean_upper_rub_fx100_fee055": "0.5121147240000"
+    }
+  },
+  "human_gold": "No human labels imported as of this report; user will review the blinded web packet later",
+  "limitations": [
+    "Three brands, heavily concentrated in two; source-provider stratification is not production prevalence.",
+    "Same prepared primary prompt; production cascade, collector costs and retries not measured.",
+    "Router endpoints/quantization/discounts differ; cannot isolate causal effect of reasoning.",
+    "All individual answers, identities, case IDs, quotes and verdicts excluded from public evidence."
+  ],
+  "manual_review": {
+    "case_count": 300,
+    "first_independent_spot_sample": 20,
+    "default_labels": 0,
+    "model_verdicts_hidden": true,
+    "storage": "local browser only; explicit human JSONL export",
+    "phone_review": "cancelled by user; no phone label received"
+  },
+  "source_ci": {
+    "conclusion": "success",
+    "url": "https://github.com/egotrippingh/aiparser/actions/runs/39029556855"
+  }
+}

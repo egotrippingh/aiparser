@@ -17,7 +17,7 @@ from sqlalchemy.exc import StatementError
 from server.ai import AIError, AIResult, AIRetryAfter
 from server import provider_tasks
 from server.app import create_app
-from server.checks import complete_check
+from server.checks import arbitrate_check, complete_check
 from server.cloud_scans import _analyze_saved, _claim, cloud_tick, worker
 from server.control import schedule_tick
 from server.models import Check, CloudResult, ControlProject, ControlRun, LedgerEntry, ProviderAccount, ProviderTask, ServerCapture, User, Wallet, make_session_factory, utcnow
@@ -29,7 +29,7 @@ class Collector:
     calls = []
     answer = {'shown': True, 'main_text': 'Brand is recommended', 'cards_text': '',
               'answer_text': 'Brand is recommended', 'html': '<p>Brand is recommended</p>',
-              'content': ['Brand is recommended'], 'sources': [], 'source_cards': [], 'products': []}
+              'content': ['Brand is recommended'], 'sources': ['https://brand.test/about'], 'source_cards': [], 'products': []}
 
     def __init__(self, service, geo):
         self.service = service
@@ -62,7 +62,7 @@ def reset_collector(monkeypatch):
     monkeypatch.setattr(Collector, 'answer', {
         'shown': True, 'main_text': 'Brand is recommended', 'cards_text': '',
         'answer_text': 'Brand is recommended', 'html': '<p>Brand is recommended</p>',
-        'content': ['Brand is recommended'], 'sources': [], 'source_cards': [], 'products': []})
+        'content': ['Brand is recommended'], 'sources': ['https://brand.test/about'], 'source_cards': [], 'products': []})
     monkeypatch.setattr(Collector, 'calls', [])
 
 
@@ -103,9 +103,11 @@ def postgres_url():
         engine.dispose()
 
 
-def project_and_run(client, owner, *, services=('google_aio',), schedule=None, queries=None, device=None, legacy=True):
+def project_and_run(client, owner, *, services=('google_aio',), schedule=None, queries=None, device=None, legacy=True,
+                    domains=None):
     body = {'name': 'Project', 'brand_name': 'Brand',
-            'queries': queries or [{'text': 'question'}], 'config': {'services': list(services)}}
+            'queries': queries or [{'text': 'question'}], 'config': {'services': list(services),
+                                                                       'brand_domains': ['brand.test'] if domains is None else domains}}
     if schedule:
         body['schedule'] = schedule
     if device:
@@ -134,10 +136,37 @@ def tick(sessions, ai=None):
     return asyncio.run(cloud_tick(sessions, ai, 120, Collector))
 
 
+@pytest.mark.parametrize('separate_cards', [False, True])
+def test_saved_card_only_evidence_reaches_semantic_analysis(tmp_path, monkeypatch, separate_cards):
+    from server.scrapeless import evidence
+    ai = FakeAI()
+    seen = []
+    def analyze(system, content):
+        seen.append(content[0]['text'])
+        assert 'Brand product' in seen[-1]
+        return AIResult('{"found": true, "confidence": 0.95, "mention_types": ["card"]}', ai.model, {})
+    ai.analyze = analyze
+    client, owner, _, _, sessions = setup(tmp_path, monkeypatch, ai=ai)
+    Collector.answer = evidence({'result_text': 'See the recommendations below.',
+        'citations': [{'url': 'https://dealer.example/item', 'title': 'Brand product'}]})
+    if separate_cards:
+        Collector.answer['cards_text'] = 'Brand product'
+        Collector.answer['source_cards'] = []
+    project_and_run(client, owner)
+    assert tick(sessions, ai)
+    with sessions() as db:
+        result = db.scalar(select(CloudResult))
+        assert result.status == 'found'
+    assert len(seen) == 1
+
+
 def test_cloud_only_durable_evidence_and_owner_scope(tmp_path, monkeypatch):
     client, owner, other, _, sessions = setup(tmp_path, monkeypatch)
+    # This case exercises durable cloud evidence, not semantic identity.  A
+    # verified own-domain source keeps the rules-only fast path by contract.
+    Collector.answer = {**Collector.answer, "sources": ["https://brand.example/about"]}
     Collector.calls = []
-    project, run = project_and_run(client, owner)
+    project, run = project_and_run(client, owner, domains=["brand.example"])
     assert run['device_id'] is None and run['phase'] == 'cloud'
     assert tick(sessions)
     assert Collector.calls == [('google_aio', 'question')]
@@ -151,11 +180,23 @@ def test_cloud_only_durable_evidence_and_owner_scope(tmp_path, monkeypatch):
     detail = client.get(f"/api/v1/control/projects/{project['id']}/mentions/results/{result_id}", headers=owner)
     assert detail.status_code == 200 and detail.headers['cache-control'] == 'no-store'
     assert detail.json()['answer_evidence']['content'] == ['Brand is recommended']
-    assert detail.json()['highlight'] == {'names': ['Brand'], 'domains': []}
+    assert detail.json()['highlight'] == {'names': ['Brand'], 'domains': ['brand.example']}
     assert detail.json()['has_screenshot'] is False
     assert client.get(f"/api/v1/control/projects/{project['id']}/mentions/results/{result_id}", headers=other).status_code == 404
     assert client.get('/api/v1/control/runs', headers=owner).json()[0]['state'] == 'done'
     assert not tick(sessions)
+
+
+def test_arbiter_accepts_a_valid_cached_negative_primary(tmp_path, monkeypatch):
+    _, _, _, user_id, sessions = setup(tmp_path, monkeypatch)
+    ai = FakeAI()
+    with sessions() as db:
+        user = db.get(User, user_id)
+        db.add(Check(user_id=user_id, client_check_id="negative-primary", price_kopeks=0,
+                     analysis_json='{"found": false}', analysis_model=ai.model))
+        db.commit()
+        verdict = arbitrate_check(db, user, "negative-primary", "", [], ai)
+        assert verdict["raw"] == '{"found": false, "confidence": 0.9}'
 
 
 def test_two_cloud_services_finish_one_query(tmp_path, monkeypatch):
@@ -302,7 +343,7 @@ def test_model_cooldown_without_http_does_not_spend_attempt_budget(tmp_path, mon
     ai = CoolingAI()
     client, owner, _, _, sessions = setup(tmp_path, monkeypatch, ai=ai)
     Collector.answer = {**Collector.answer, 'main_text': 'No match',
-                        'answer_text': 'No match', 'content': ['No match']}
+                        'answer_text': 'No match', 'content': ['No match'], 'sources': []}
     _, run = project_and_run(client, owner)
     assert tick(sessions, ai)
     with sessions() as db:
@@ -327,7 +368,7 @@ def test_transient_model_limit_waits_and_recovers_without_manual_resume(
     ai = RateAI()
     client, owner, _, _, sessions = setup(tmp_path, monkeypatch, ai=ai)
     Collector.answer = {**Collector.answer, 'main_text': 'No match',
-                        'answer_text': 'No match', 'content': ['No match']}
+                        'answer_text': 'No match', 'content': ['No match'], 'sources': []}
     _, run = project_and_run(client, owner)
     assert tick(sessions, ai)
     with sessions() as db:
@@ -349,7 +390,7 @@ def test_stop_during_model_cooldown_prevents_another_paid_call(tmp_path, monkeyp
     ai = RateAI()
     client, owner, _, _, sessions = setup(tmp_path, monkeypatch, ai=ai)
     Collector.answer = {**Collector.answer, 'main_text': 'No match',
-                        'answer_text': 'No match', 'content': ['No match']}
+                        'answer_text': 'No match', 'content': ['No match'], 'sources': []}
     _, run = project_and_run(client, owner)
     outcome = []
     thread = threading.Thread(target=lambda: outcome.append(tick(sessions, ai)))
@@ -374,7 +415,7 @@ def test_model_rate_retries_stop_at_four_actual_attempts(tmp_path, monkeypatch):
     ai = RateAI()
     client, owner, _, _, sessions = setup(tmp_path, monkeypatch, ai=ai)
     Collector.answer = {**Collector.answer, 'main_text': 'No match',
-                        'answer_text': 'No match', 'content': ['No match']}
+                        'answer_text': 'No match', 'content': ['No match'], 'sources': []}
     _, run = project_and_run(client, owner)
     assert tick(sessions, ai)
     assert ai.calls == 4 and Collector.calls == [('google_aio', 'question')]
@@ -389,7 +430,7 @@ def test_saved_capture_resumes_after_ai_failure_without_recollection(tmp_path, m
     client, owner, _, _, sessions = setup(tmp_path, monkeypatch, ai=ai)
     Collector.calls = []
     Collector.answer = {**Collector.answer, 'main_text': 'No relevant name',
-                        'answer_text': 'No relevant name', 'content': ['No relevant name']}
+                        'answer_text': 'No relevant name', 'content': ['No relevant name'], 'sources': []}
     _, run = project_and_run(client, owner)
     ai.fail = True
     assert tick(sessions, ai)
@@ -416,7 +457,7 @@ def test_malformed_primary_verdict_retries_saved_answer_once(tmp_path, monkeypat
     ai = FakeAI()
     client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, ai=ai, admin=False)
     answer = Collector.answer
-    Collector.answer = {**answer, 'main_text': 'No name', 'answer_text': 'No name'}
+    Collector.answer = {**answer, 'main_text': 'No name', 'answer_text': 'No name', 'sources': []}
     Collector.calls = []
     _, run = project_and_run(client, owner)
     with sessions() as db:
@@ -454,7 +495,7 @@ def test_malformed_arbiter_verdict_retries_saved_answer_once(tmp_path, monkeypat
     ai = FakeAI()
     client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, ai=ai, admin=False)
     answer = Collector.answer
-    Collector.answer = {**answer, 'main_text': 'No name', 'answer_text': 'No name'}
+    Collector.answer = {**answer, 'main_text': 'No name', 'answer_text': 'No name', 'sources': []}
     Collector.calls = []
     _, run = project_and_run(client, owner)
     with sessions() as db:
@@ -497,7 +538,7 @@ def test_primary_attempt_budget_finishes_error_without_charge(tmp_path, monkeypa
     ai = FakeAI()
     client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, ai=ai, admin=False)
     monkeypatch.setattr(Collector, 'answer', {**Collector.answer,
-        'main_text': 'No name', 'answer_text': 'No name'})
+        'main_text': 'No name', 'answer_text': 'No name', 'sources': []})
     Collector.calls = []
     _, run = project_and_run(client, owner)
     with sessions() as db:
@@ -536,7 +577,7 @@ def test_arbiter_attempt_budget_finishes_error_with_one_charge(tmp_path, monkeyp
     ai = FakeAI()
     client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, ai=ai, admin=False)
     monkeypatch.setattr(Collector, 'answer', {**Collector.answer,
-        'main_text': 'No name', 'answer_text': 'No name'})
+        'main_text': 'No name', 'answer_text': 'No name', 'sources': []})
     Collector.calls = []
     _, run = project_and_run(client, owner)
     with sessions() as db:
@@ -768,7 +809,7 @@ def test_stop_reuses_cached_verdict_without_another_model_or_charge(tmp_path, mo
         db.add(Check(user_id=user_id, client_check_id=key, price_kopeks=120,
             analysis_attempts=1, analysis_json='{"found": false, "confidence": 0.9}',
             analysis_model=ai.model))
-        payload = {**Collector.answer, 'main_text': 'No name', 'answer_text': 'No name'}
+        payload = {**Collector.answer, 'main_text': 'No name', 'answer_text': 'No name', 'sources': []}
         db.add(ServerCapture(run_id=run['id'], query_id=query_id, service='google_aio',
             check_id=key, answer_json=json.dumps(payload)))
         db.commit()
@@ -897,7 +938,7 @@ def test_stop_during_ai_keeps_result_and_one_charge(tmp_path, monkeypatch):
         db.commit()
     Collector.calls = []
     answer = Collector.answer
-    Collector.answer = {**answer, 'main_text': 'No name', 'answer_text': 'No name', 'content': ['No name']}
+    Collector.answer = {**answer, 'main_text': 'No name', 'answer_text': 'No name', 'content': ['No name'], 'sources': []}
     def stop_during_analyze(system, content):
         assert client.post(f"/api/v1/control/runs/{run['id']}/command", headers=owner,
                            json={'action': 'stop'}).status_code == 200
@@ -922,7 +963,7 @@ def test_stop_after_capture_avoids_new_model_call(tmp_path, monkeypatch):
         db.get(Wallet, user_id).balance_kopeks = 500
         db.commit()
     answer = Collector.answer
-    Collector.answer = {**answer, 'main_text': 'No name', 'answer_text': 'No name', 'content': ['No name']}
+    Collector.answer = {**answer, 'main_text': 'No name', 'answer_text': 'No name', 'content': ['No name'], 'sources': []}
     original = Collector.collect
     async def stop_then_answer(self, query, *, should_continue=None):
         result = await original(self, query, should_continue=should_continue)
@@ -1362,7 +1403,7 @@ def test_fast_capture_is_analyzed_while_sibling_provider_waits(tmp_path, monkeyp
     release = asyncio.Event()
     model_started = threading.Event()
     answer = {**Collector.answer, 'main_text': 'No match', 'answer_text': 'No match',
-              'content': ['No match']}
+              'content': ['No match'], 'sources': []}
 
     class StreamingCollector(Collector):
         def __init__(self, service, geo, *, max_attempts):
@@ -1629,7 +1670,7 @@ def test_postgres_twenty_models_overlap_while_collection_keeps_running(
 
         async def collect(self, query, *, should_continue=None):
             return {**self.answer, 'main_text': 'No match', 'answer_text': 'No match',
-                    'content': ['No match']}
+                    'content': ['No match'], 'sources': []}
 
     ai = BlockingAI()
     client, owner, _, _, sessions = setup(tmp_path, monkeypatch, ai=ai, database_url=postgres_url)
@@ -1674,7 +1715,7 @@ def test_postgres_stale_model_cache_is_settled_once_by_new_owner(
 
         async def collect(self, query, *, should_continue=None):
             return {**self.answer, 'main_text': 'No match', 'answer_text': 'No match',
-                    'content': ['No match']}
+                    'content': ['No match'], 'sources': []}
 
     ai = BlockingAI()
     client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, ai=ai,

@@ -20,7 +20,7 @@ from sqlalchemy import and_, or_, select, update, func
 from sqlalchemy.orm import aliased
 
 from app.detect import rules
-from app.detect.merge import merge, with_arbiter
+from app.detect.merge import merge, should_call_llm, with_arbiter
 from server.ai import AIRetryAfter
 from server.checks import analyze_check, arbitrate_check, complete_check, reserve_checks
 from server.models import Check, CloudResult, ControlRun, ProviderTask, ServerCapture, User, utcnow
@@ -792,14 +792,24 @@ async def _process_saved_pair(sessions, ai_client, run_id, token, snapshot, quer
     config = snapshot["config"]
     sources = payload.get("sources", [])[:50]
     answer = payload.get("answer_text") or ""
+    card_parts = [payload.get("cards_text") or ""]
+    for card in (payload.get("source_cards") or [])[:50]:
+        if isinstance(card, dict):
+            card_parts.extend(value[:6000] for field in ("title", "text")
+                              if isinstance(value := card.get(field), str))
+    cards = "\n".join(card_parts)[:60000]
+    # Some collectors already include cards in answer_text; others save them separately.
     rule = rules.evaluate(payload.get("main_text") or answer, sources, snapshot["brand_name"],
-        config.get("brand_aliases", []), config.get("brand_domains", []), card_text=payload.get("cards_text", ""))
+        config.get("brand_aliases", []), config.get("brand_domains", []), card_text=cards)
     clarification = config.get("brand_clarification", "")
     llm = None
-    if clarification or not rule.found:
+    # Cloud routing is server-owned; project payloads cannot suppress a
+    # required semantic check by supplying a legacy client llm_mode.
+    if clarification or should_call_llm(rule, "smart"):
         content = [{"type": "text", "text": _build_prompt(snapshot["brand_name"],
             config.get("brand_aliases", []), answer, sources, query["text"], clarification,
-            text_only=True)}]
+            config.get("brand_domains", []),
+            text_only=True, cards_text=cards if cards not in answer else "")}]
         try:
             if shutdown_event and shutdown_event.is_set():
                 return False if keep_lease else _yield_shutdown(sessions, run_id, token)
@@ -836,7 +846,7 @@ async def _process_saved_pair(sessions, ai_client, run_id, token, snapshot, quer
             return True
     verdict = merge(rule, llm, confidence_threshold=0.7, semantic_authoritative=bool(clarification))
     if verdict.needs_review and llm is not None:
-        text = content[0]["text"] + "\n\nПервая модель сочла упоминание найденным: " + (llm.quote or "")
+        text = content[0]["text"] + "\n\nНезависимо проверь исходные доказательства и вынеси решение."
         try:
             if shutdown_event and shutdown_event.is_set():
                 return False if keep_lease else _yield_shutdown(sessions, run_id, token)

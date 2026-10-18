@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from server.ai import AIError, AIResult, AIRetryAfter
 from server.models import Check, FreeScanBalance, LedgerEntry, Wallet
 from server.scan_feedback import analysis_content
+from shared.detection import parse_verdict
 
 
 def _held(db, user_id):
@@ -83,11 +84,18 @@ def analyze_check(db, user, check_id, system, content, ai_client, *, retry_saved
         Check.client_check_id == check_id).with_for_update()).scalar_one_or_none()
     if not check:
         raise HTTPException(404, "Проверка не зарезервирована")
+    invalid_cache = (check.status == "reserved" and check.analysis_json and
+                     parse_verdict(check.analysis_json, check.analysis_model or ai_client.model) is None)
+    if invalid_cache:
+        # Old servers cached looser JSON; keep its spend and attempt budget during recovery.
+        check.analysis_json = None
     if check.analysis_json:
         return {"raw": check.analysis_json, "model": check.analysis_model or ai_client.model}
     if check.status != "reserved":
         raise HTTPException(409, "Проверка уже закрыта")
     if check.analysis_attempts >= (4 if retry_saved else 2):
+        if invalid_cache:
+            db.commit()
         raise HTTPException(409, "Лимит попыток анализа исчерпан")
     check.analysis_attempts += 1
     try:
@@ -100,7 +108,7 @@ def analyze_check(db, user, check_id, system, content, ai_client, *, retry_saved
         db.commit()
         raise HTTPException(429 if isinstance(exc, AIRetryAfter) and exc.retryable else 502, str(exc),
             headers={"Retry-After": str(exc.seconds)} if isinstance(exc, AIRetryAfter) else None) from exc
-    if accumulate_usage:
+    if accumulate_usage or check.analysis_usage_json:
         usage = _usage_with_previous(check.analysis_usage_json, usage)
     check.analysis_json, check.analysis_model, check.analysis_usage_json = raw, model, usage
     db.commit()
@@ -116,13 +124,19 @@ def arbitrate_check(db, user, check_id, system, content, ai_client, *, retry_sav
     if not check:
         raise HTTPException(404, "Проверка не зарезервирована")
     fallback = getattr(ai_client, "arbiter_model", ai_client.model)
+    invalid_cache = (check.status == "reserved" and check.arbitration_json and
+                     parse_verdict(check.arbitration_json, check.arbitration_model or fallback) is None)
+    if invalid_cache:
+        check.arbitration_json = None
     if check.arbitration_json:
         return {"raw": check.arbitration_json, "model": check.arbitration_model or fallback}
-    if not check.analysis_json or not json.loads(check.analysis_json).get("found"):
-        raise HTTPException(409, "Арбитр доступен только после положительного первого анализа")
+    if not check.analysis_json or parse_verdict(check.analysis_json, check.analysis_model or ai_client.model) is None:
+        raise HTTPException(409, "Арбитр доступен только после корректного первого анализа")
     if check.status not in ("reserved", "settled"):
         raise HTTPException(409, "Проверка закрыта без оплаты")
     if check.arbitration_attempts >= (4 if retry_saved else 2):
+        if invalid_cache:
+            db.commit()
         raise HTTPException(409, "Лимит попыток арбитра исчерпан")
     check.arbitration_attempts += 1
     try:
@@ -135,7 +149,7 @@ def arbitrate_check(db, user, check_id, system, content, ai_client, *, retry_sav
         db.commit()
         raise HTTPException(429 if isinstance(exc, AIRetryAfter) and exc.retryable else 502, str(exc),
             headers={"Retry-After": str(exc.seconds)} if isinstance(exc, AIRetryAfter) else None) from exc
-    if accumulate_usage:
+    if accumulate_usage or check.arbitration_usage_json:
         usage = _usage_with_previous(check.arbitration_usage_json, usage)
     check.arbitration_json, check.arbitration_model, check.arbitration_usage_json = raw, model, usage
     db.commit()

@@ -47,9 +47,21 @@ def test_garbage_and_empty():
     assert parse_verdict('{"ok": true}', "m") is None
 
 
-def test_odd_types_do_not_crash():
-    v = parse_verdict('{"found": 1, "confidence": "высокая", "mention_types": null}', "m")
-    assert v and v.found and v.confidence == 0.0 and v.mention_types == []
+def test_odd_types_are_rejected():
+    assert parse_verdict('{"found": 1, "confidence": "высокая", "mention_types": null}', "m") is None
+
+
+def test_optional_confidence_stays_distinct_from_explicit_low_confidence():
+    assert parse_verdict('{"found": false}', "m").confidence is None
+    assert parse_verdict('{"found": false, "confidence": 0}', "m").confidence == 0
+
+
+def test_invalid_confidence_and_mention_kind_are_rejected():
+    assert parse_verdict('{"found": true, "confidence": true}', "m") is None
+    assert parse_verdict('{"found": true, "confidence": 1.1}', "m") is None
+    assert parse_verdict('{"found": true, "mention_types": ["unknown"]}', "m") is None
+    assert parse_verdict('{"found": false, "confidence": null}', "m") is None
+    assert parse_verdict('{"found": true, "confidence": ' + '9' * 400 + '}', "m") is None
 
 
 if __name__ == "__main__":

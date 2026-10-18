@@ -7,7 +7,8 @@ import pytest
 import httpx
 from fastapi.testclient import TestClient
 
-from server.ai import AIRetryAfter, ARBITER_SYSTEM, PRIMARY_SYSTEM, OpenRouterAI
+from server.ai import (AIError, AIRetryAfter, ARBITER_MODEL, ARBITER_SYSTEM, PRIMARY_MODEL,
+                       PRIMARY_SYSTEM, VISION_ARBITER_MODEL, OpenRouterAI)
 from server.app import create_app
 
 
@@ -39,6 +40,109 @@ def test_models_and_prompts_are_server_owned(monkeypatch):
     assert len(clients) == 1
     ai.close()
     assert clients[0].is_closed
+
+
+def test_selected_defaults_send_reasoning_for_all_three_methods(monkeypatch):
+    calls = []
+    original_client = httpx.Client
+
+    for name in ("OPENROUTER_PRIMARY_MODEL", "OPENROUTER_ARBITER_MODEL",
+                 "OPENROUTER_PRIMARY_REASONING_EFFORT", "OPENROUTER_ARBITER_REASONING_EFFORT",
+                 "OPENROUTER_PRIMARY_MAX_OUTPUT_TOKENS", "OPENROUTER_ARBITER_MAX_OUTPUT_TOKENS"):
+        monkeypatch.delenv(name, raising=False)
+
+    def handle(request):
+        calls.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"found": false}'}}]})
+
+    monkeypatch.setattr("server.ai.httpx.Client", lambda **kwargs:
+        original_client(transport=httpx.MockTransport(handle), **kwargs))
+    ai = OpenRouterAI("test-secret")
+    content = [{"type": "text", "text": "test"}]
+    ai.analyze("", content)
+    ai.arbitrate("", content)
+    ai.recompute("identity", content)
+    assert [call["model"] for call in calls] == [PRIMARY_MODEL, ARBITER_MODEL, PRIMARY_MODEL]
+    assert [call["max_tokens"] for call in calls] == [1024, 1024, 1024]
+    assert calls[0]["reasoning"] == calls[2]["reasoning"] == {"max_tokens": 512, "exclude": True}
+    assert calls[1]["reasoning"] == {"effort": "none", "exclude": True}
+    assert calls[0]["provider"] == calls[2]["provider"] == {"sort": "price", "require_parameters": True}
+    assert calls[1]["provider"] == {"sort": "price", "require_parameters": True,
+                                     "quantizations": ["fp8", "fp16", "bf16", "fp32", "unknown"]}
+    ai.close()
+
+
+def test_model_overrides_preserve_explicit_reasoning_and_skip_qwen_budget(monkeypatch):
+    calls = []
+    original_client = httpx.Client
+    monkeypatch.setenv("OPENROUTER_PRIMARY_MODEL", "google/gemini-3.8-flash")
+    monkeypatch.setenv("OPENROUTER_ARBITER_MODEL", "google/gemini-3.8-flash")
+    monkeypatch.setenv("OPENROUTER_PRIMARY_REASONING_EFFORT", "none")
+    monkeypatch.setenv("OPENROUTER_ARBITER_REASONING_EFFORT", "high")
+    monkeypatch.setenv("OPENROUTER_PRIMARY_MAX_OUTPUT_TOKENS", "512")
+
+    def handle(request):
+        calls.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"found": false}'}}]})
+
+    monkeypatch.setattr("server.ai.httpx.Client", lambda **kwargs:
+        original_client(transport=httpx.MockTransport(handle), **kwargs))
+    ai = OpenRouterAI("test-secret")
+    ai.analyze("", [])
+    ai.arbitrate("", [])
+    assert calls[0]["reasoning"] == {"effort": "none", "exclude": True}
+    assert calls[1]["reasoning"] == {"effort": "high", "exclude": True}
+    assert calls[0]["max_tokens"] == 512
+    assert "provider" not in calls[0] and "provider" not in calls[1]
+    ai.close()
+
+
+def test_qwen_default_rejects_small_output_before_creating_client(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_PRIMARY_MODEL", PRIMARY_MODEL)
+    monkeypatch.delenv("OPENROUTER_PRIMARY_REASONING_EFFORT", raising=False)
+    monkeypatch.setenv("OPENROUTER_PRIMARY_MAX_OUTPUT_TOKENS", "512")
+    monkeypatch.setattr("server.ai.httpx.Client", lambda **kwargs: pytest.fail("client created"))
+    with pytest.raises(ValueError, match="at least 1024"):
+        OpenRouterAI("test-secret")
+
+
+def test_deepseek_arbiter_keeps_image_evidence_with_gemini_fallback(monkeypatch):
+    calls = []
+    original_client = httpx.Client
+
+    def handle(request):
+        calls.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"found": false}'}}]})
+
+    monkeypatch.setattr("server.ai.httpx.Client", lambda **kwargs:
+        original_client(transport=httpx.MockTransport(handle), **kwargs))
+    ai = OpenRouterAI("test-secret", arbiter_model=ARBITER_MODEL)
+    image = {"type": "image_url", "image_url": {"url": "data:image/webp;base64,AA=="}}
+    ai.arbitrate("", [{"type": "text", "text": "test"}, image])
+    assert calls[0]["model"] == VISION_ARBITER_MODEL
+    assert calls[0]["messages"][1]["content"][1] == image
+    assert "reasoning" not in calls[0]
+    assert "provider" not in calls[0]
+    ai.close()
+
+
+def test_model_rejects_truncated_or_invalid_verdict(monkeypatch):
+    original_client = httpx.Client
+    responses = iter([
+        {"choices": [{"finish_reason": "length", "message": {"content": "{"}}]},
+        {"choices": [{"message": {"content": '{"found": 1}'}}]},
+        {"choices": [{"message": {"content": '{"found": true, "confidence": ' + '9' * 400 + '}'}}]},
+    ])
+    monkeypatch.setattr("server.ai.httpx.Client", lambda **kwargs:
+        original_client(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=next(responses))), **kwargs))
+    ai = OpenRouterAI("test-secret")
+    with pytest.raises(AIError, match="оборван"):
+        ai.analyze("", [])
+    with pytest.raises(AIError, match="неполный"):
+        ai.analyze("", [])
+    with pytest.raises(AIError, match="неполный"):
+        ai.analyze("", [])
+    ai.close()
 
 
 def test_server_lifespan_closes_ai_client(tmp_path):

@@ -28,6 +28,9 @@ class RuleVerdict:
     mention_types: list[str] = field(default_factory=list)
     evidence_quote: str | None = None
     matched_forms: list[str] = field(default_factory=list)
+    # A lexical/card/third-party URL hit needs semantic identity checking.
+    # Own-domain links remain a deterministic fast path.
+    semantic_required: bool = False
 
 
 def _find_quote(original_text: str, normalized_text: str, form: str, radius: int = 60, idx: int | None = None) -> str:
@@ -80,6 +83,7 @@ def check_text(
                 mention_types=["text"],
                 evidence_quote=_find_quote(text, norm_text, form, idx=idx),
                 matched_forms=[form],
+                semantic_required=True,
             )
 
     if not fuzzy:
@@ -100,6 +104,7 @@ def check_text(
                     mention_types=["text"],
                     evidence_quote=_find_quote(text, norm_text, w),
                     matched_forms=[form],
+                    semantic_required=True,
                 )
 
     return RuleVerdict(found=False)
@@ -156,7 +161,7 @@ def check_marketplace_mention(sources: list[str], brand_name: str, aliases: list
             if form in norm_url:
                 mtype = "marketplace" if any(m in host for m in MARKETPLACE_DOMAINS) else "url"
                 return RuleVerdict(found=True, mention_types=[mtype], evidence_quote=url,
-                                   matched_forms=[form])
+                                   matched_forms=[form], semantic_required=True)
     return RuleVerdict(found=False)
 
 
@@ -177,7 +182,7 @@ def check_cards(card_text: str, brand_name: str, aliases: list[str]) -> RuleVerd
     if not v.found:
         return v
     return RuleVerdict(found=True, mention_types=["card"], evidence_quote=v.evidence_quote,
-                       matched_forms=v.matched_forms)
+                       matched_forms=v.matched_forms, semantic_required=True)
 
 
 def evaluate(
@@ -218,4 +223,8 @@ def evaluate(
         if t not in seen:
             seen.append(t)
 
-    return RuleVerdict(found=True, mention_types=seen, evidence_quote=quote, matched_forms=forms)
+    # A source on the brand's own domain is verified evidence.  It remains the
+    # fast path even when the response also repeats a lexical brand form.
+    own_domain = any("link" in hit.mention_types for hit in hits)
+    return RuleVerdict(found=True, mention_types=seen, evidence_quote=quote, matched_forms=forms,
+                       semantic_required=not own_domain and any(hit.semantic_required for hit in hits))

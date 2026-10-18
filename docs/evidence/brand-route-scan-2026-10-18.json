@@ -1,0 +1,102 @@
+{
+  "run_state": "done",
+  "desired_state": "running",
+  "results": 303,
+  "statuses": {
+    "not_found": 203,
+    "found": 100
+  },
+  "captures": 303,
+  "checks": 303,
+  "primary_attempts": 303,
+  "arbiter_attempts": 21,
+  "primary_checks": 303,
+  "arbiter_checks": 21,
+  "primary_retry_checks": 0,
+  "arbiter_retry_checks": 0,
+  "collector_submissions": 303,
+  "collector_admissions": 303,
+  "collector_retry_admission_checks": 0,
+  "collector_retry_submit_queries": 0,
+  "task_states": {
+    "completed": 303
+  },
+  "primary_model": "qwen/qwen3.8-flash",
+  "arbiter_model": "deepseek/deepseek-v4-pro-0813",
+  "primary_reasoning": {
+    "max_tokens": 512,
+    "exclude": true
+  },
+  "arbiter_reasoning": {
+    "effort": "none",
+    "exclude": true
+  },
+  "max_output_tokens": 1024,
+  "fx_rub_usd": 88,
+  "collector_usd_each": "0.0018",
+  "openrouter_standard_fee": "0.055",
+  "human_accuracy_measured": false,
+  "production_history_changed": false,
+  "unknown_model_cost_upper_usd": "0",
+  "research_spend_upper_including_prior_and_reserved_collectors_usd": "2.648051924275320",
+  "model_known_usd": "0.235100775696",
+  "model_unknown_cost_calls": 0,
+  "model_http_requests": 324,
+  "model_pre_http_rejections": 0,
+  "estimated_collector_usd": "0.5454",
+  "known_plus_estimated_rub": "69.821956015616640",
+  "known_plus_estimated_rub_per_finished": "0.2304354984013750495049504950",
+  "elapsed_s": 317.32,
+  "completed_utc": "2026-10-18T20:06:11.870893+00:00",
+  "source_revision": "4fdf75246026e7e4fde0e1dcd90b8517e222eb1a",
+  "provider": "chatgpt",
+  "query_count": 303,
+  "attempt_histogram": {
+    "1 primary + 0 arbiter": 282,
+    "1 primary + 1 arbiter": 21
+  },
+  "rule_only_checks": 0,
+  "eight_attempt_checks": 0,
+  "model_providers": {
+    "Alibaba": 303,
+    "Baidu": 21
+  },
+  "collection_country": "US",
+  "measurement_scope": "one admin project, actual collectors and cloud cascade in disposable PostgreSQL",
+  "setup_interruption": "Disposable clone omitted schedule timezone; fixed only test setup and reused30 captures/10 successful primary caches. Not a model/provider failure.",
+  "private_data_committed": false,
+  "per_check_rub_with_given_collector_price": {
+    "mean": "0.2304354984013750495049504950",
+    "median": "0.225705843440",
+    "p95_nearest_rank": "0.280741924999360",
+    "min": "0.178169906640",
+    "max": "0.335821557431360",
+    "above_1_50": 0
+  },
+  "completed_primary_http_requests": 303,
+  "completed_arbiter_http_requests": 21,
+  "model_failed_http_requests": 0,
+  "model_latency_s": {
+    "primary": {
+      "median": 12.669,
+      "max": 22.371
+    },
+    "arbiter": {
+      "median": 2.243,
+      "max": 3.08
+    }
+  },
+  "stage_cost_usd": {
+    "primary": "0.223502532",
+    "arbiter": "0.011598243696"
+  },
+  "arbitration_found_transitions": {
+    "False -> False": 21
+  },
+  "arbitration_fraction": "0.06930693069306930693069306931",
+  "elapsed_definition": "Resumed execution only; excludes the first36.41 seconds and operator correction pause.",
+  "research_control": "Research-wide USD5 authorization preserved with research-only request price ceilings and total collection guard. No per-check monetary cutoff in production adapter.",
+  "collector_price_provenance": "User supplied USD1.80/1000; collection invoice not independently reconciled.",
+  "source_ci": "https://github.com/egotrippingh/aiparser/actions/runs/39161263810",
+  "completed_research_shared_upper_usd_including_fee_and_collector_estimate": "1.557251924275320"
+}
