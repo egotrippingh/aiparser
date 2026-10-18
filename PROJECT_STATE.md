@@ -34,14 +34,16 @@ Updated 2026-10-18. Repository: `egotrippingh/aiparser`; deployment branch: `pro
   [draft PR #74](https://github.com/egotrippingh/aiparser/pull/74).
   Full source CI on `4da1a05` passed. [300-answer blind audit](docs/brand-model-audit.md):
   Qwen 294/300 valid, Pro 288/300; 282/283 complete decisions agree, not an accuracy score.
-  Shared experiment cost upper bound $0.72401 under $5. No default model/price change.
+  Earlier audit upper bound $0.72401 under $5. Selected model defaults prepared; tariff unchanged.
   [First human pilot](docs/brand-human-pilot.md): 21 saved labels, all resolved after one explicit
   human adjudication. Qwen agrees 21/21; Pro 20/21 including one connection failure. No semantic mistake
   among returned decisions yet; 90% remains unconfirmed. Private web review continues.
   Proposed Qwen primary / Pro-none arbiter and ChatGPT $1.80/1000 at FX88 economics
   are approved on 18 Oct; user accepts rare unprofitable checks. No per-check monetary
-  cutoff. Preparing selected defaults, technical recovery checks and a fresh 303-query
-  ChatGPT-only geosoft-dent scan in disposable state (no production history writes).
+  cutoff. [Fresh303-query ChatGPT scan](docs/brand-route-scan.md) completed in isolated
+  PostgreSQL:21 arbiters (6.9%), zero model/collector retries, mean0.23044RUB, max0.33582RUB
+  at user FX88/collector price. No production history writes. Independent reviews clear;
+  [full source CI4fdf752](https://github.com/egotrippingh/aiparser/actions/runs/39161263810) passed.
 
 - Real clarification scan, historical S3 recovery, paid recompute and live PostgreSQL
   upload/recompute race remain unverified. First real paid top-up email and signed-in
@@ -51,7 +53,7 @@ Updated 2026-10-18. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Implement and independently review the approved Qwen-primary / DeepSeek-arbiter defaults,
-run the authorized isolated geosoft-dent ChatGPT scan and record actual arbitration,
-retry and cost statistics. Continue human labels separately; 90% remains unconfirmed.
+Complete approved model rollout through PR74 after final checks; synchronize installed
+Compose and stale model overrides. Source and isolated paid scan are verified;
+production activation is not yet done. Continue human labels separately;90% remains unconfirmed.
 Retain production backup, isolated restore, readiness and rollback gates.
