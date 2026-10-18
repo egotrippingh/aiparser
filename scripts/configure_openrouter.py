@@ -18,8 +18,8 @@ def main() -> None:
     managed_names = ("OPENROUTER_API_KEY=", "OPENROUTER_PRIMARY_MODEL=", "OPENROUTER_ARBITER_MODEL=")
     lines = [line for line in lines if not line.startswith(managed_names)]
     lines.extend((f"OPENROUTER_API_KEY={key}",
-                  "OPENROUTER_PRIMARY_MODEL=google/gemini-3.1-flash-lite",
-                  "OPENROUTER_ARBITER_MODEL=google/gemini-3.8-flash"))
+                  "OPENROUTER_PRIMARY_MODEL=qwen/qwen3.8-flash",
+                  "OPENROUTER_ARBITER_MODEL=deepseek/deepseek-v4-pro-0813"))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("Saved OpenRouter server configuration in ignored server/.env")
 

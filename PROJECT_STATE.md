@@ -38,6 +38,10 @@ Updated 2026-10-18. Repository: `egotrippingh/aiparser`; deployment branch: `pro
   [First human pilot](docs/brand-human-pilot.md): 21 saved labels, all resolved after one explicit
   human adjudication. Qwen agrees 21/21; Pro 20/21 including one connection failure. No semantic mistake
   among returned decisions yet; 90% remains unconfirmed. Private web review continues.
+  Proposed Qwen primary / Pro-none arbiter and ChatGPT $1.80/1000 at FX88 economics
+  are approved on 18 Oct; user accepts rare unprofitable checks. No per-check monetary
+  cutoff. Preparing selected defaults, technical recovery checks and a fresh 303-query
+  ChatGPT-only geosoft-dent scan in disposable state (no production history writes).
 
 - Real clarification scan, historical S3 recovery, paid recompute and live PostgreSQL
   upload/recompute race remain unverified. First real paid top-up email and signed-in
@@ -47,7 +51,7 @@ Updated 2026-10-18. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Await further independent human labels, including hard cases and new brands,
-then recompute metrics. The first 21 labels are imported without changing verdicts or
-running paid calls. Model activation/publication remains pending; confirm collector
-costs and retain production backup, isolated restore, readiness and rollback gates.
+Implement and independently review the approved Qwen-primary / DeepSeek-arbiter defaults,
+run the authorized isolated geosoft-dent ChatGPT scan and record actual arbitration,
+retry and cost statistics. Continue human labels separately; 90% remains unconfirmed.
+Retain production backup, isolated restore, readiness and rollback gates.

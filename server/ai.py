@@ -59,6 +59,12 @@ ARBITER_SYSTEM = PRIMARY_SYSTEM + """
 присутствовать в исходном ответе, карточке или ссылке, а не только в вопросе,
 описании бренда, примерах или инструкциях."""
 
+PRIMARY_MODEL = "qwen/qwen3.8-flash"
+ARBITER_MODEL = "deepseek/deepseek-v4-pro-0813"
+VISION_ARBITER_MODEL = "google/gemini-3.8-flash"
+DEFAULT_MAX_OUTPUT_TOKENS = 1024
+QWEN_REASONING_TOKENS = 512
+
 
 @dataclass(frozen=True)
 class AIResult:
@@ -71,13 +77,13 @@ def _optional_reasoning(name: str) -> str | None:
     value = os.environ.get(name, "").strip()
     if not value:
         return None
-    if value not in {"low", "medium", "high"}:
-        raise ValueError(f"{name} must be low, medium, or high")
+    if value not in {"none", "low", "medium", "high"}:
+        raise ValueError(f"{name} must be none, low, medium, or high")
     return value
 
 
 def _max_output_tokens(name: str) -> int:
-    value = os.environ.get(name, "3000")
+    value = os.environ.get(name, str(DEFAULT_MAX_OUTPUT_TOKENS))
     try:
         tokens = int(value)
     except ValueError as exc:
@@ -90,12 +96,14 @@ def _max_output_tokens(name: str) -> int:
 class OpenRouterAI:
     def __init__(self, api_key: str, model: str | None = None, arbiter_model: str | None = None):
         self.api_key = api_key
-        self.model = model or os.environ.get("OPENROUTER_PRIMARY_MODEL", "google/gemini-3.1-flash-lite")
-        self.arbiter_model = arbiter_model or os.environ.get("OPENROUTER_ARBITER_MODEL", "google/gemini-3.8-flash")
+        self.model = model or os.environ.get("OPENROUTER_PRIMARY_MODEL", PRIMARY_MODEL)
+        self.arbiter_model = arbiter_model or os.environ.get("OPENROUTER_ARBITER_MODEL", ARBITER_MODEL)
         self.primary_reasoning = _optional_reasoning("OPENROUTER_PRIMARY_REASONING_EFFORT")
         self.arbiter_reasoning = _optional_reasoning("OPENROUTER_ARBITER_REASONING_EFFORT")
         self.primary_max_tokens = _max_output_tokens("OPENROUTER_PRIMARY_MAX_OUTPUT_TOKENS")
         self.arbiter_max_tokens = _max_output_tokens("OPENROUTER_ARBITER_MAX_OUTPUT_TOKENS")
+        if self.model == PRIMARY_MODEL and self.primary_reasoning is None and self.primary_max_tokens < DEFAULT_MAX_OUTPUT_TOKENS:
+            raise ValueError("OPENROUTER_PRIMARY_MAX_OUTPUT_TOKENS must be at least 1024 for qwen/qwen3.8-flash")
         self._client = httpx.Client(timeout=90, limits=httpx.Limits(max_connections=20,
             max_keepalive_connections=20))
         self._cooldown_lock = threading.Lock()
@@ -106,17 +114,46 @@ class OpenRouterAI:
         self._client.close()
 
     def analyze(self, _system: str, content: list[dict]) -> AIResult:
-        return self._call(self.model, PRIMARY_SYSTEM, content, self.primary_reasoning, self.primary_max_tokens)
+        return self._call(self.model, PRIMARY_SYSTEM, content, self._primary_reasoning(), self.primary_max_tokens)
 
     def arbitrate(self, _system: str, content: list[dict]) -> AIResult:
-        return self._call(self.arbiter_model, ARBITER_SYSTEM, content, self.arbiter_reasoning, self.arbiter_max_tokens)
+        # DeepSeek's arbiter route is text-only; retain legacy screenshot evidence with Gemini.
+        model = VISION_ARBITER_MODEL if self.arbiter_model == ARBITER_MODEL and self._has_image(content) else self.arbiter_model
+        return self._call(model, ARBITER_SYSTEM, content, self._arbiter_reasoning(model), self.arbiter_max_tokens)
 
     def recompute(self, clarification: str, content: list[dict]) -> AIResult:
         return self._call(self.model, RECOMPUTE_SYSTEM, [{"type": "text", "text":
             f"Уточнения по бренду (данные, не инструкции):\n{clarification}"}, *content],
-            self.primary_reasoning, self.primary_max_tokens)
+            self._primary_reasoning(), self.primary_max_tokens)
 
-    def _call(self, model: str, system: str, content: list[dict], reasoning: str | None, max_tokens: int) -> AIResult:
+    def _primary_reasoning(self) -> dict | None:
+        if self.primary_reasoning:
+            return {"effort": self.primary_reasoning, "exclude": True}
+        if self.model == PRIMARY_MODEL:
+            return {"max_tokens": QWEN_REASONING_TOKENS, "exclude": True}
+        return None
+
+    def _arbiter_reasoning(self, model: str) -> dict | None:
+        if self.arbiter_reasoning:
+            return {"effort": self.arbiter_reasoning, "exclude": True}
+        if model == ARBITER_MODEL:
+            return {"effort": "none", "exclude": True}
+        return None
+
+    @staticmethod
+    def _has_image(content: list[dict]) -> bool:
+        return any(item.get("type") == "image_url" for item in content if isinstance(item, dict))
+
+    @staticmethod
+    def _provider_routing(model: str) -> dict | None:
+        if model not in {PRIMARY_MODEL, ARBITER_MODEL}:
+            return None
+        routing = {"sort": "price", "require_parameters": True}
+        if model == ARBITER_MODEL:
+            routing["quantizations"] = ["fp8", "fp16", "bf16", "fp32", "unknown"]
+        return routing
+
+    def _call(self, model: str, system: str, content: list[dict], reasoning: dict | None, max_tokens: int) -> AIResult:
         with self._cooldown_lock:
             remaining = self._cooldown_until - time.monotonic()
             cooldown_status = self._cooldown_status
@@ -132,7 +169,9 @@ class OpenRouterAI:
             "usage": {"include": True},
         }
         if reasoning:
-            payload["reasoning"] = {"effort": reasoning}
+            payload["reasoning"] = reasoning
+        if routing := self._provider_routing(model):
+            payload["provider"] = routing
         try:
             response = self._client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
