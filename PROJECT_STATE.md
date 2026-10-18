@@ -1,6 +1,6 @@
 # AIRate current project state
 
-Updated 2026-10-17. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
+Updated 2026-10-18. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
 
 ## Current release
 
@@ -35,7 +35,9 @@ Updated 2026-10-17. Repository: `egotrippingh/aiparser`; deployment branch: `pro
   Full source CI on `4da1a05` passed. [300-answer blind audit](docs/brand-model-audit.md):
   Qwen 294/300 valid, Pro 288/300; 282/283 complete decisions agree, not an accuracy score.
   Shared experiment cost upper bound $0.72401 under $5. No default model/price change.
-  Private blinded web labelling is ready. User requested a pause until manual labels.
+  [First human pilot](docs/brand-human-pilot.md): 21 saved labels, all resolved after one explicit
+  human adjudication. Qwen agrees 21/21; Pro 20/21 including one connection failure. No semantic mistake
+  among returned decisions yet; 90% remains unconfirmed. Private web review continues.
 
 - Real clarification scan, historical S3 recovery, paid recompute and live PostgreSQL
   upload/recompute race remain unverified. First real paid top-up email and signed-in
@@ -45,7 +47,7 @@ Updated 2026-10-17. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Paused at the user's request after the completed experiment. Resume with the user's
-manual JSONL labels, adjudicate ambiguous identity, then calculate quality metrics and
-choose models. Confirm collector unit costs before any activation/publication; keep
-production backup, isolated restore, readiness and rollback gates.
+Await further independent human labels, including hard cases and new brands,
+then recompute metrics. The first 21 labels are imported without changing verdicts or
+running paid calls. Model activation/publication remains pending; confirm collector
+costs and retain production backup, isolated restore, readiness and rollback gates.

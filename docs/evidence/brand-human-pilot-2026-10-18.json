@@ -1,0 +1,95 @@
+{
+  "client_date": "2026-10-18",
+  "reviewed_count": 21,
+  "definite_count": 21,
+  "uncertain_count": 0,
+  "label_counts": {
+    "present": 10,
+    "absent": 11
+  },
+  "input_sha256": "c6b634513daa5f15316ff7b18eb9e7396595bd911d50cb44e2a89fd4add1f787",
+  "human_labels_sha256": "1eb5ed2ec1ff80a490b0510dcb5806cb62aa9183d568ca9d979ae21b3cbe7397",
+  "original_human_labels_sha256": "a69fb5487df2cdf663d4bd4005ba0564de68380e06f111187897054e78aacfdd",
+  "explicit_human_adjudications": 1,
+  "ui_open_card_at_export": 22,
+  "interpretation": "Human-labelled research pilot, not representative holdout or 90 percent certification",
+  "per_model": {
+    "qwen3.8-flash": {
+      "overall": {
+        "total": 21,
+        "decided": 21,
+        "errors_or_missing": 0,
+        "tp": 10,
+        "fp": 0,
+        "tn": 11,
+        "fn": 0,
+        "positive_errors": 0,
+        "negative_errors": 0,
+        "coverage": 1.0,
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "conditional_accuracy": 1.0,
+        "accuracy_ci95": [
+          0.8453609810751531,
+          1.0
+        ],
+        "precision_ci95": [
+          0.7224672001371107,
+          0.9999999999999999
+        ],
+        "recall_ci95": [
+          0.7224672001371107,
+          0.9999999999999999
+        ]
+      },
+      "error_types": {}
+    },
+    "deepseek-pro-0813": {
+      "overall": {
+        "total": 21,
+        "decided": 20,
+        "errors_or_missing": 1,
+        "tp": 9,
+        "fp": 0,
+        "tn": 11,
+        "fn": 0,
+        "positive_errors": 1,
+        "negative_errors": 0,
+        "coverage": 0.9523809523809523,
+        "accuracy": 0.9523809523809523,
+        "precision": 1.0,
+        "recall": 0.9,
+        "conditional_accuracy": 1.0,
+        "accuracy_ci95": [
+          0.7733063992587743,
+          0.9915440121901737
+        ],
+        "precision_ci95": [
+          0.7008549515804559,
+          1.0
+        ],
+        "recall_ci95": [
+          0.5958499732047615,
+          0.9821237869049271
+        ]
+      },
+      "error_types": {
+        "ConnectError": 1
+      }
+    }
+  },
+  "provider_counts": {
+    "perplexity": 4,
+    "gemini": 4,
+    "google_aio": 4,
+    "yandex_neuro": 5,
+    "chatgpt": 4
+  },
+  "limitations": [
+    "First20 cases were preselected, four per source provider; one additional Yandex case was labelled.",
+    "Research pilot concentrated in the same existing brands; not representative of production or unseen brands.",
+    "Models and prompts were frozen before these human labels; no new model calls or tuning.",
+    "Connection failures count as end-to-end failures; received verdict correctness is also reported."
+  ]
+}

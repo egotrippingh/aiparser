@@ -136,3 +136,14 @@ Source CI on 4da1a05 passed: https://github.com/egotrippingh/aiparser/actions/ru
 Blinded private web review is ready; user will label later and explicitly requested a
 pause after the run. Phone review cancelled, no human label received. Await human
 JSONL before quality metrics, further paid tests, model activation or publication.
+
+## First human pilot (2026-10-18)
+
+Imported 21 explicit human labels; the UI is on card 22, still unlabelled. The single
+uncertain identity was resolved as absent by the user's chat confirmation and updated
+in the web export; original labels remain privately preserved. Final class counts:
+10 present / 11 absent. Qwen agrees 21/21; Pro 20/21 with one ConnectError on a positive
+case, not a semantic misclassification. Both returned verdict sets agree with the human.
+[Metrics and confidence intervals](../brand-human-pilot.md). This is a research pilot,
+not representative holdout or confirmation of 90%. No paid reruns, prompt/model tuning,
+history changes or activation. Await additional independent labels before final choice.
