@@ -3,11 +3,11 @@ import json
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, select
 
 from openpyxl import load_workbook
 from server.test_control import setup
-from server.models import CloudResult, ControlProject, make_session_factory
+from server.models import CloudResult, ControlProject, ProjectMember, User, make_session_factory
 
 
 def seed_report(tmp_path):
@@ -39,6 +39,19 @@ def seed_report(tmp_path):
             db.add(row); db.flush(); ids.append(row.id)
         db.commit()
     return client, owner, other, devices, project, ids, url
+
+
+def test_shared_viewer_reads_results_but_cannot_edit_feedback(tmp_path):
+    client, owner, viewer, _, project, ids, url = seed_report(tmp_path)
+    with make_session_factory(url)[1]() as db:
+        viewer_id = db.scalar(select(User.id).where(User.email == 'other@test.example'))
+        db.add(ProjectMember(project_id=project['id'], user_id=viewer_id, role='viewer'))
+        db.commit()
+    base = f"/api/v1/control/projects/{project['id']}/mentions"
+    assert client.get(base + '/overview', headers=viewer).status_code == 200
+    assert client.get(base + f'/results/{ids[1]}', headers=viewer).status_code == 200
+    assert client.put(base + f'/results/{ids[1]}/feedback', headers=viewer,
+                      json={'label': 'false_positive'}).status_code == 404
 
 
 def test_selected_report_dates_share_summary_sources_and_export(tmp_path):

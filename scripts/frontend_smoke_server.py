@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -17,13 +18,20 @@ os.environ['APP_ENV'] = 'test'
 import uvicorn
 from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
+from sqlalchemy import select
 from server.test_reporting import seed_report
-from server.models import CloudResult, make_session_factory
+from server.models import CloudResult, ControlProject, Wallet, make_session_factory, utcnow
 
 work = Path(tempfile.mkdtemp(prefix='airate-frontend-'))
-client, owner, _, _, project, ids, url = seed_report(work)
+client, owner, member, _, project, ids, url = seed_report(work)
+actors = {'owner': owner, 'member': member}
 _, sessions = make_session_factory(url)
 with sessions() as db:
+    results = db.scalars(select(CloudResult).where(CloudResult.project_id == project['id'])).all()
+    date_shift = utcnow().date() - max(date.fromisoformat(row.scan_date) for row in results)
+    for row in results:
+        row.scan_date = (date.fromisoformat(row.scan_date) + date_shift).isoformat()
+    db.get(Wallet, db.get(ControlProject, project['id']).user_id).balance_kopeks = 10000
     db.get(CloudResult, ids[1]).check_id = 'qa-a'
     db.get(CloudResult, ids[-1]).check_id = 'qa-b'
     db.commit()
@@ -34,7 +42,7 @@ second = client.post('/api/v1/control/projects', headers=owner, json={
 }).json()
 qa_release = {'version': '2026.9.29.3', 'installer': {'size_bytes': 100, 'sha256': 'a' * 64},
               'portable': {'size_bytes': 50, 'sha256': 'b' * 64}}
-state = {'save': 'pass', 'shot': 'pass', 'report': 'pass', 'wallet_kopeks': None,
+state = {'actor': 'owner', 'save': 'pass', 'shot': 'pass', 'report': 'pass', 'wallet_kopeks': None,
          'unauthenticated': False, 'login_fields': [], 'seen': [], 'agent_error': False,
          'update_release': qa_release, 'update_error': '',
          'agent': {'configured': True, 'connected': True, 'has_token': True,
@@ -53,7 +61,10 @@ async def qa(request, call_next):
     path = request.url.path
     if path == '/__qa/state':
         if request.method == 'POST':
-            state.update(await request.json())
+            changes = await request.json()
+            if 'actor' in changes and changes['actor'] not in actors:
+                return JSONResponse({'detail': 'Unknown disposable actor'}, status_code=422)
+            state.update(changes)
         return JSONResponse(state)
     if path == '/api/desktop/state':
         return JSONResponse({'detail': 'QA: агент временно недоступен'} if state['agent_error'] else state['agent'], status_code=503 if state['agent_error'] else 200)
@@ -92,14 +103,14 @@ async def qa(request, call_next):
         label = 'B' if 'shot-b' in path else 'A'
         return Response(f'<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="400" height="200" fill="#39483d"/><text x="20" y="100" fill="white">TEST SCREENSHOT {label}</text></svg>', media_type='image/svg+xml')
     if path.startswith('/api/v1/'):
-        request.scope['headers'] = [(key, value) for key, value in request.scope['headers'] if key.lower() != b'authorization'] + [(b'authorization', owner['Authorization'].encode())]
+        request.scope['headers'] = [(key, value) for key, value in request.scope['headers'] if key.lower() != b'authorization'] + [(b'authorization', actors[state['actor']]['Authorization'].encode())]
     if path == '/api/v1/auth/login':
         fields = sorted((await request.json()).keys())
         state['login_fields'] = fields
         if 'connect_id' in fields:
             return JSONResponse({'detail': 'QA: скрытое подключение устройства'}, status_code=403)
         state['unauthenticated'] = False
-        return JSONResponse({'token': owner['Authorization'].removeprefix('Bearer ')})
+        return JSONResponse({'token': actors[state['actor']]['Authorization'].removeprefix('Bearer ')})
     if state['unauthenticated'] and path.startswith(('/api/v1/me', '/api/v1/wallet', '/api/v1/payments', '/api/v1/control/')):
         return JSONResponse({'detail': 'QA: войдите в аккаунт'}, status_code=401)
     if path == '/api/v1/auth/logout':

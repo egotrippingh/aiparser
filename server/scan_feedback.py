@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import load_only
 
-from server.models import Check, CloudResult, ControlProject, Screenshot, ServerCapture, User, utcnow
+from server.models import Check, CloudResult, ControlProject, ControlRun, Screenshot, ServerCapture, User, utcnow
 from server.public_errors import public_error
 from server.storage import StorageError
 
@@ -57,14 +57,23 @@ def learning_context(project):
                           for e in examples], ensure_ascii=False))
 
 
-def result_detail(db, row):
+def trusted_run(db, row):
+    if not row.run_id or not row.check_id:
+        return None
+    return db.scalar(select(ControlRun).where(ControlRun.id == row.run_id,
+        ControlRun.user_id == row.user_id, ControlRun.project_id == row.project_id,
+        ControlRun.id + ":" + row.query_id + ":" + row.service == row.check_id))
+
+
+def result_detail(db, row, *, shared=False):
     project = db.get(ControlProject, row.project_id) if row.project_id else None
     feedback = feedback_for(project, row.id) if project and project.user_id == row.user_id else None
     visible_feedback = ({k: feedback[k] for k in ("label", "comment", "updated_at")} |
                         {"active": feedback["label"] != "correct" and feedback["identity"] == identity(project)}) if feedback else None
-    check = db.scalar(select(Check).where(Check.user_id == row.user_id, Check.client_check_id == row.check_id)) if row.check_id else None
+    run = trusted_run(db, row) if shared else True
+    check = db.scalar(select(Check).where(Check.user_id == row.user_id, Check.client_check_id == row.check_id)) if row.check_id and run else None
     capture = db.scalar(select(ServerCapture).where(ServerCapture.run_id == row.run_id,
-        ServerCapture.check_id == row.check_id)) if row.run_id and row.check_id else None
+        ServerCapture.check_id == row.check_id)) if row.run_id and row.check_id and run else None
     evidence = json.loads(capture.answer_json) if capture else None
     if (not isinstance(evidence, dict) or evidence.get("shown") is not True
             or any(not isinstance(evidence.get(field), list)
@@ -75,7 +84,7 @@ def result_detail(db, row):
             "status": effective_status(row, feedback), "original_status": row.status,
             "answer_text": row.answer_text, "error_message": public_error(row.error_message),
             "evidence_quote": row.evidence_quote, "sources": json.loads(row.sources_json or "[]"),
-            "mention_types": json.loads(row.mention_types_json or "[]"), "check_id": row.check_id,
+            "mention_types": json.loads(row.mention_types_json or "[]"), "check_id": row.check_id if run else None,
             "feedback": visible_feedback,
             "answer_evidence": evidence,
             "highlight": {"names": evidence.get("brand_names", []), "domains": evidence.get("brand_domains", [])} if evidence else None,
@@ -111,10 +120,11 @@ def register_scan_feedback(app, db_session, current_user, screenshot_storage=Non
     @router.put("/control/projects/{project_id}/mentions/results/{result_id}/feedback")
     def save_feedback(project_id: str, result_id: int, body: FeedbackIn, response: Response,
                       user=Depends(current_user), db=Depends(db_session)):
-        from server.reporting import owned_project
-        project = owned_project(db, user.id, project_id)
-        row = db.get(CloudResult, result_id)
-        if not row or row.user_id != user.id or row.project_id != project_id:
+        from server.project_access import project_access
+        project, _ = project_access(db, user.id, project_id, edit=True, lock=True)
+        row = db.scalar(select(CloudResult).where(CloudResult.id == result_id,
+            CloudResult.user_id == project.user_id, CloudResult.project_id == project_id))
+        if not row:
             raise HTTPException(404, "Результат не найден")
         if body.label is not None:
             if row.brand_name != project.brand_name:
@@ -141,7 +151,30 @@ def register_scan_feedback(app, db_session, current_user, screenshot_storage=Non
         db.commit()
         db.refresh(project)
         response.headers["Cache-Control"] = "no-store"
-        return result_detail(db, row)
+        return result_detail(db, row, shared=user.id != project.user_id)
+
+    @router.get("/control/projects/{project_id}/mentions/results/{result_id}/screenshot")
+    def project_screenshot(project_id: str, result_id: int, response: Response,
+                           user=Depends(current_user), db=Depends(db_session)):
+        if screenshot_storage is None:
+            raise HTTPException(503, "Хранение скриншотов ещё не настроено")
+        from server.project_access import project_access
+        project, _ = project_access(db, user.id, project_id)
+        row = db.scalar(select(CloudResult).where(CloudResult.id == result_id,
+            CloudResult.user_id == project.user_id, CloudResult.project_id == project.id))
+        if row is None or not row.check_id or (user.id != project.user_id and not trusted_run(db, row)):
+            raise HTTPException(404, "Скриншот не найден")
+        key = db.scalar(select(Screenshot.object_key).join(Check, Screenshot.check_id == Check.id).where(
+            Check.user_id == project.user_id, Check.client_check_id == row.check_id,
+            Screenshot.created_at > utcnow() - timedelta(days=90)))
+        if not key:
+            raise HTTPException(404, "Скриншот не найден")
+        try:
+            url = screenshot_storage.download_url(key)
+        except StorageError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        response.headers["Cache-Control"] = "no-store"
+        return {"url": url, "expires_in": 300}
 
     @router.get("/admin/scan-results")
     def review(response: Response, options: ReviewOptions = Depends(), user=Depends(admin), db=Depends(db_session)):

@@ -14,15 +14,16 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import func, select, update, delete, or_
+from sqlalchemy import and_, func, select, update, delete, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server.agent_schemas import SCHEDULABLE_IDS
 from server.ai import AIError
 from server.browser_sessions import lock_web_session, request_token
-from server.models import (AgentDevice, Check, CloudResult, ControlLink, ControlProject, ControlRun, ProviderAccount, ServerCapture,
+from server.models import (AgentDevice, Check, CloudResult, ControlLink, ControlProject, ControlRun, ProjectMember, ProviderAccount, ServerCapture,
                            DeviceConnect, DeviceGrant, LedgerEntry, Screenshot, SessionToken, User, Wallet, utcnow)
+from server.project_access import owner_project, project_access
 from server.public_errors import public_error, public_progress
 from server.promos import free_scans_payload, free_scans_state, reserve_run_credits
 from server.reporting import SERVICES
@@ -189,7 +190,20 @@ class ImportIn(BaseModel):
     project: ProjectIn
 
 
-def project_payload(row, detail=True, brand_clarifications_enabled=False):
+class MemberIn(BaseModel):
+    email: str = Field(min_length=3, max_length=190)
+    role: str = Field(pattern="^(editor|viewer)$")
+
+    @field_validator("email")
+    @classmethod
+    def normalized_email(cls, value):
+        value = value.strip().lower()
+        if "@" not in value:
+            raise ValueError("Укажите email зарегистрированного пользователя")
+        return value
+
+
+def project_payload(row, detail=True, brand_clarifications_enabled=False, role="owner"):
     queries = json.loads(row.queries_json)
     config = json.loads(row.config_json)
     config["services"] = [s for s in config.get("services", ["google_aio"]) if s != "alice"]
@@ -197,10 +211,13 @@ def project_payload(row, detail=True, brand_clarifications_enabled=False):
     if not brand_clarifications_enabled:
         config.pop("brand_clarification", None)
     payload = {"id": row.id, "revision": row.revision, "name": row.name,
-               "brand_name": row.brand_name, "device_id": row.device_id,
+               "brand_name": row.brand_name, "device_id": row.device_id if role == "owner" else None,
                "config": config, "schedule": json.loads(row.schedule_json),
                "query_count": len(queries), "active_queries": sum(q["active"] for q in queries),
-               "updated_at": aware(row.updated_at).isoformat()}
+               "updated_at": aware(row.updated_at).isoformat(), "role": role,
+               "shared": role != "owner", "brand_clarifications_enabled": brand_clarifications_enabled}
+    if role != "owner":
+        payload["schedule"]["device_id"] = None
     if detail:
         payload["queries"] = queries
     return payload
@@ -318,10 +335,15 @@ def schedule_tick(sessions, now=None, feature_user_id=""):
             if now - aware(run.scheduled_for) > timedelta(hours=24):
                 run.state, run.active_project_key = "missed", None
         db.commit()
-        projects = db.scalars(select(ControlProject).where(ControlProject.archived.is_(False))).all()
-        for project in projects:
+        project_ids = db.scalars(select(ControlProject.id).where(ControlProject.archived.is_(False))).all()
+        for project_id in project_ids:
+            project = db.scalar(select(ControlProject).where(ControlProject.id == project_id,
+                ControlProject.archived.is_(False)).with_for_update())
+            if project is None:
+                continue
             schedule = Schedule.model_validate(json.loads(project.schedule_json))
             if not schedule.enabled:
+                db.commit()
                 continue
             local = now.astimezone(ZoneInfo(schedule.timezone))
             for day_offset in (1, 0):
@@ -348,6 +370,7 @@ def schedule_tick(sessions, now=None, feature_user_id=""):
                 except (IntegrityError, HTTPException):
                     # Active project or unready device; another tick can retry within the slot window.
                     db.rollback()
+            db.commit()
 
 
 def register_control(app, db_session, current_user, sessions, *, check_price_kopeks=120,
@@ -456,10 +479,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         return grant
 
     def owned_project(db, user_id, project_id):
-        row = db.get(ControlProject, project_id)
-        if not row or row.user_id != user_id or row.archived:
-            raise HTTPException(404, "Проект не найден")
-        return row
+        return project_access(db, user_id, project_id)[0]
 
     def validate_assignment(db, user_id, body):
         needs_agent = bool(agent_services(body.config.model_dump()))
@@ -487,8 +507,12 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
 
     @router.get("/projects")
     def projects(user=Depends(web_user), db=Depends(db_session)):
-        return [project_payload(p, False, brand_enabled(user)) for p in db.scalars(select(ControlProject).where(
-            ControlProject.user_id == user.id, ControlProject.archived.is_(False)).order_by(ControlProject.created_at))]
+        rows = db.execute(select(ControlProject, ProjectMember.role).outerjoin(ProjectMember, and_(
+            ProjectMember.project_id == ControlProject.id, ProjectMember.user_id == user.id)).where(
+            ControlProject.archived.is_(False), or_(ControlProject.user_id == user.id, ProjectMember.user_id == user.id)
+        ).order_by(ControlProject.created_at)).all()
+        return [project_payload(row, False, brand_enabled(db.get(User, row.user_id)),
+                                "owner" if row.user_id == user.id else role) for row, role in rows]
 
     @router.post("/projects", status_code=201)
     def add_project(body: ProjectIn, user=Depends(web_user), db=Depends(db_session)):
@@ -500,14 +524,20 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
 
     @router.get("/projects/{project_id}")
     def get_project(project_id: str, user=Depends(web_user), db=Depends(db_session)):
-        return project_payload(owned_project(db, user.id, project_id), brand_clarifications_enabled=brand_enabled(user))
+        row, role = project_access(db, user.id, project_id)
+        return project_payload(row, brand_clarifications_enabled=brand_enabled(db.get(User, row.user_id)), role=role)
 
     @router.put("/projects/{project_id}")
     def save_project(project_id: str, body: ProjectIn, user=Depends(web_user), db=Depends(db_session)):
-        row = owned_project(db, user.id, project_id)
-        validate_clarification(user, body)
-        validate_assignment(db, user.id, body)
-        if not brand_enabled(user) and clarification_for(row):
+        row, role = project_access(db, user.id, project_id, edit=True, lock=True)
+        owner = db.get(User, row.user_id)
+        if role != "owner":
+            body = body.model_copy(deep=True)
+            body.device_id = row.device_id
+            body.schedule.device_id = json.loads(row.schedule_json).get("device_id")
+        validate_clarification(owner, body)
+        validate_assignment(db, row.user_id, body)
+        if not brand_enabled(owner) and clarification_for(row):
             body = body.model_copy(deep=True)
             body.config.brand_clarification = clarification_for(row)
         values = project_values(body, row.schedule_json)
@@ -519,11 +549,11 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         if result.rowcount != 1:
             raise HTTPException(409, "Проект изменён на другом устройстве. Обновите страницу перед сохранением.")
         db.commit(); db.refresh(row)
-        return project_payload(row, brand_clarifications_enabled=brand_enabled(user))
+        return project_payload(row, brand_clarifications_enabled=brand_enabled(owner), role=role)
 
     @router.delete("/projects/{project_id}")
     def archive_project(project_id: str, user=Depends(web_user), db=Depends(db_session)):
-        row = owned_project(db, user.id, project_id)
+        row = owner_project(db, user.id, project_id, lock=True)
         if db.scalar(select(ControlRun.id).where(ControlRun.active_project_key == row.id)):
             raise HTTPException(409, "Сначала остановите проверку проекта")
         row.archived = True; db.commit()
@@ -531,29 +561,31 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
 
     @router.get("/projects/{project_id}/quote")
     def scan_quote(project_id: str, user=Depends(web_user), db=Depends(db_session)):
-        row = owned_project(db, user.id, project_id)
+        row, role = project_access(db, user.id, project_id, edit=True)
         config = json.loads(row.config_json)
         accounts = {account.service: account for account in db.scalars(select(ProviderAccount).where(
             ProviderAccount.service.in_(config["services"]))).all()}
         active_services = [service for service in config["services"] if service not in CLOUD_SERVICES or not accounts.get(service) or not accounts[service].paused]
         queries = sum(q["active"] for q in json.loads(row.queries_json))
         count = queries * len(active_services)
-        unit = 0 if user.is_admin else check_price_kopeks
-        balances = free_scans_payload(db, user.id)
+        owner = db.get(User, row.user_id)
+        unit = 0 if owner.is_admin else check_price_kopeks
+        balances = free_scans_payload(db, owner.id)
         free = sum(min(queries, balances[service]["available"]) for service in active_services
-                   if service in CLOUD_SERVICES) if not user.is_admin else 0
+                   if service in CLOUD_SERVICES) if not owner.is_admin else 0
         return {"count": count, "free_count": free, "unit_kopeks": unit, "total_kopeks": (count - free) * unit,
-                "available_kopeks": available_kopeks(db, user.id), "revision": row.revision,
+                "available_kopeks": available_kopeks(db, owner.id), "revision": row.revision,
                 "free_scans_state": free_scans_state(balances),
-                "provider_state": provider_state_fingerprint(accounts, config["services"])}
+                "provider_state": provider_state_fingerprint(accounts, config["services"]),
+                "payer": "owner"}
 
     @router.post("/projects/{project_id}/runs", status_code=201)
     def launch(project_id: str, body: LaunchIn, user=Depends(web_user), db=Depends(db_session)):
-        row = owned_project(db, user.id, project_id)
+        row, role = project_access(db, user.id, project_id, edit=True, lock=True)
         request_key = f"manual:{row.id}:{body.request_id}"
         existing = db.scalar(select(ControlRun).where(ControlRun.request_key == request_key))
         if existing:
-            return run_payload(existing, device_for(db, user.id, existing.device_id) if existing.device_id else None)
+            return run_payload(existing, device_for(db, row.user_id, existing.device_id) if existing.device_id else None)
         if body.revision is not None and row.revision != body.revision:
             raise HTTPException(409, "Проект изменён. Проверьте сумму ещё раз.")
         services = json.loads(row.config_json)["services"]
@@ -567,19 +599,56 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             if body.provider_state is not None and provider_state_fingerprint(accounts, services) != body.provider_state:
                 raise HTTPException(409, "Состояние ИИ-систем изменилось. Проверьте сумму ещё раз.")
         device_id = body.device_id or row.device_id
-        db.execute(select(Wallet).where(Wallet.user_id == user.id).with_for_update()).scalar_one()
-        if body.free_scans_state is not None and body.free_scans_state != free_scans_state(free_scans_payload(db, user.id)):
+        owner = db.get(User, row.user_id)
+        db.execute(select(Wallet).where(Wallet.user_id == owner.id).with_for_update()).scalar_one()
+        if body.free_scans_state is not None and body.free_scans_state != free_scans_state(free_scans_payload(db, owner.id)):
             raise HTTPException(409, "Остаток бесплатных сканов изменился. Проверьте сумму ещё раз.")
         try:
             run = create_run(db, row, device_id, request_key,
-                             brand_clarifications_enabled=brand_enabled(user))
+                             brand_clarifications_enabled=brand_enabled(owner))
             db.commit()
         except IntegrityError:
             db.rollback()
             run = db.scalar(select(ControlRun).where(ControlRun.request_key == f"manual:{row.id}:{body.request_id}"))
             if run is None:
                 raise HTTPException(409, "У проекта уже есть проверка в очереди или в работе")
-        return run_payload(run, device_for(db, user.id, run.device_id) if run.device_id else None)
+        return run_payload(run, device_for(db, row.user_id, run.device_id) if run.device_id else None)
+
+    @router.get("/projects/{project_id}/members")
+    def members(project_id: str, user=Depends(web_user), db=Depends(db_session)):
+        project = owner_project(db, user.id, project_id)
+        rows = db.execute(select(ProjectMember, User.email).join(User, User.id == ProjectMember.user_id).where(
+            ProjectMember.project_id == project.id).order_by(User.email)).all()
+        return [{"email": user.email, "role": "owner"} for user in [db.get(User, project.user_id)]] + [
+            {"email": email, "role": member.role} for member, email in rows]
+
+    @router.put("/projects/{project_id}/members")
+    def save_member(project_id: str, body: MemberIn, user=Depends(web_user), db=Depends(db_session)):
+        project = owner_project(db, user.id, project_id, lock=True)
+        member_user = db.scalar(select(User).where(User.email == body.email))
+        if member_user is None:
+            raise HTTPException(422, "Пользователь с таким email не зарегистрирован")
+        if member_user.id == project.user_id:
+            raise HTTPException(422, "Владелец проекта уже имеет полный доступ")
+        member = db.get(ProjectMember, {"project_id": project.id, "user_id": member_user.id})
+        if member is None:
+            db.add(ProjectMember(project_id=project.id, user_id=member_user.id, role=body.role))
+        else:
+            member.role = body.role
+        db.commit()
+        return {"email": member_user.email, "role": body.role}
+
+    @router.delete("/projects/{project_id}/members/{email}")
+    def remove_member(project_id: str, email: str, user=Depends(web_user), db=Depends(db_session)):
+        project = owner_project(db, user.id, project_id, lock=True)
+        member_user = db.scalar(select(User).where(User.email == email.strip().lower()))
+        if member_user is None or member_user.id == project.user_id:
+            raise HTTPException(404, "Участник не найден")
+        member = db.get(ProjectMember, {"project_id": project.id, "user_id": member_user.id})
+        if member is None:
+            raise HTTPException(404, "Участник не найден")
+        db.delete(member); db.commit()
+        return {"ok": True}
 
     @router.get("/projects/{project_id}/recompute/quote")
     def recompute_quote(project_id: str, from_date: str, user=Depends(web_user), db=Depends(db_session)):
@@ -704,25 +773,49 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         devices = {d.device_id: d for d in db.scalars(select(AgentDevice).where(AgentDevice.user_id == user.id))}
         recent = select(ControlRun.id).where(ControlRun.user_id == user.id,
             ControlRun.state.in_(TERMINAL)).order_by(ControlRun.created_at.desc()).limit(100)
-        return [run_payload(r, devices.get(r.device_id)) for r in db.scalars(select(ControlRun).where(
+        owned = [run_payload(r, devices.get(r.device_id)) for r in db.scalars(select(ControlRun).where(
             ControlRun.user_id == user.id,
             or_(ControlRun.state.not_in(TERMINAL), ControlRun.id.in_(recent))).order_by(ControlRun.created_at.desc()))]
+        shared_recent = select(ControlRun.id).join(ControlProject, ControlProject.id == ControlRun.project_id).join(
+            ProjectMember, ProjectMember.project_id == ControlProject.id).where(
+            ProjectMember.user_id == user.id, ProjectMember.role == "editor", ControlProject.archived.is_(False),
+            ControlRun.user_id == ControlProject.user_id, ControlRun.state.in_(TERMINAL)
+        ).order_by(ControlRun.created_at.desc()).limit(100)
+        shared = []
+        for run in db.scalars(select(ControlRun).join(ControlProject, ControlProject.id == ControlRun.project_id).join(
+            ProjectMember, ProjectMember.project_id == ControlProject.id).where(
+            ProjectMember.user_id == user.id, ProjectMember.role == "editor", ControlProject.archived.is_(False),
+            ControlRun.user_id == ControlProject.user_id,
+            or_(ControlRun.state.not_in(TERMINAL), ControlRun.id.in_(shared_recent))
+        ).order_by(ControlRun.created_at.desc())):
+            payload = run_payload(run)
+            payload.update(device_id=None, device_name="Сервер")
+            shared.append(payload)
+        return owned + shared
 
     @router.post("/runs/{run_id}/command")
     def command(run_id: str, body: CommandIn, user=Depends(web_user), db=Depends(db_session)):
-        row = db.scalar(select(ControlRun).where(ControlRun.id == run_id).with_for_update())
-        if not row or row.user_id != user.id:
+        project_id = db.scalar(select(ControlRun.project_id).where(ControlRun.id == run_id))
+        if project_id is None:
             raise HTTPException(404, "Проверка не найдена")
-        if row.state in TERMINAL:
+        project, _ = project_access(db, user.id, project_id, edit=True, lock=True)
+        row = db.scalar(select(ControlRun).where(ControlRun.id == run_id,
+            ControlRun.project_id == project.id).with_for_update().execution_options(populate_existing=True))
+        if row is None:
+            raise HTTPException(404, "Проверка не найдена")
+        if row.state in TERMINAL and not (body.action == "stop" and row.state == "cancelled"):
             raise HTTPException(409, "Проверка уже завершена")
+        if row.state == "cancelled":
+            return {"ok": True}
         row.desired_state = {"pause": "paused", "resume": "running", "stop": "cancelled"}[body.action]
         if body.action == "stop" and (row.state == "queued" or
                 (row.phase == "agent" and row.lease_until and aware(row.lease_until) < utcnow())):
             from server.checks import complete_check
-            for check in db.scalars(select(Check).where(Check.user_id == user.id,
+            owner = db.get(User, row.user_id)
+            for check in db.scalars(select(Check).where(Check.user_id == owner.id,
                     Check.client_check_id.startswith(row.id + ":"), Check.status == "reserved",
                     Check.free_scan_service.is_not(None))):
-                complete_check(db, user, check.client_check_id, "skipped", commit=False)
+                complete_check(db, owner, check.client_check_id, "skipped", commit=False)
             row.state = "cancelled"
             row.active_project_key = row.active_device_key = None
             row.lease_token = None

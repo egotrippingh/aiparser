@@ -19,7 +19,7 @@ NEW_TABLES = {"auth_failures", "password_resets", "scan_preferences", "agent_dev
               "control_projects", "control_runs", "control_links", "device_grants", "device_connect",
               "browser_login_tickets", "server_captures", "provider_accounts", "provider_tasks", "news_posts",
               "promo_codes", "promo_redemptions", "free_scan_balances", "yandex_registrations", "topup_emails",
-              "email_registrations"}
+              "email_registrations", "project_members"}
 
 
 def upgrade_database(database_url: str) -> None:

@@ -1,17 +1,23 @@
 # AIRate current project state
 
-Updated 2026-10-18. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
+Updated 2026-10-19. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
 
 ## Current release
 
-- Published and verified: [PR #73](https://github.com/egotrippingh/aiparser/pull/73),
-  release `58f0271958352e1ec05aa2e4bb4c7b4737e089b7`. Overview scan control,
-  clockwise progress, calendar modes (up to 30 dates), consistent dropdowns and
-  report-table controls/borders are live. All production gates, backup/isolated
-  restore, activation and public readiness passed; live assets match the reviewed
-  build. [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/38988130062).
-- This includes PR #72: quick-start project video and `/docs/` guide routes.
-  Previous cabinet/header, SEO, auth and deployment changes remain live.
+- Published source: [PR #74](https://github.com/egotrippingh/aiparser/pull/74),
+  `112cd86b7133c30a32938dc5d0ae0320165687d4`. Production CI and exact public
+  readiness matched on 19 October. Runtime model overrides were not rechecked.
+  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39162386180).
+- Earlier cabinet, documentation, SEO, auth and deployment work remains included.
+
+## Prepared work
+
+- `codex/project-access`: permanent visible project IDs; owner-managed email sharing,
+  editor/viewer roles and owner-funded editor scans. Not published. Independent
+  correctness/risk reviews are clear; final server/CI and browser checks are in progress.
+  Additive head `20261019_project_members` requires reviewed migration admission
+  and a compatible rollback image before publication. [Scope and gates](docs/project-access-task.md).
+
 ## Architecture and operating rules
 
 - `server/`: FastAPI, PostgreSQL, all five managed providers, billing and recovery.
@@ -27,23 +33,11 @@ Updated 2026-10-18. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Open checks
 
-- Prepared on `codex/brand-detection-quality`, not published: semantic identity routing,
-  neutral arbiter, strict verdict validation, reserved-cache recovery and source-card
-  evidence. Independent correctness/risk reviews found no remaining blocker; affected
-  deterministic checks passed. Full server/CI evidence is tracked in
-  [draft PR #74](https://github.com/egotrippingh/aiparser/pull/74).
-  Full source CI on `4da1a05` passed. [300-answer blind audit](docs/brand-model-audit.md):
-  Qwen 294/300 valid, Pro 288/300; 282/283 complete decisions agree, not an accuracy score.
-  Earlier audit upper bound $0.72401 under $5. Selected model defaults prepared; tariff unchanged.
-  [First human pilot](docs/brand-human-pilot.md): 21 saved labels, all resolved after one explicit
-  human adjudication. Qwen agrees 21/21; Pro 20/21 including one connection failure. No semantic mistake
-  among returned decisions yet; 90% remains unconfirmed. Private web review continues.
-  Proposed Qwen primary / Pro-none arbiter and ChatGPT $1.80/1000 at FX88 economics
-  are approved on 18 Oct; user accepts rare unprofitable checks. No per-check monetary
-  cutoff. [Fresh303-query ChatGPT scan](docs/brand-route-scan.md) completed in isolated
-  PostgreSQL:21 arbiters (6.9%), zero model/collector retries, mean0.23044RUB, max0.33582RUB
-  at user FX88/collector price. No production history writes. Independent reviews clear;
-  [full source CI4fdf752](https://github.com/egotrippingh/aiparser/actions/runs/39161263810) passed.
+- Model source rollout is published; installed Compose/model overrides still need
+  confirmation. Human accuracy target of 90% remains unconfirmed; continue labels
+  separately. Approved Qwen primary / Pro-none arbiter, unchanged tariff and no
+  per-check monetary cutoff remain. Evidence: [model audit](docs/brand-model-audit.md),
+  [human pilot](docs/brand-human-pilot.md), [isolated scan](docs/brand-route-scan.md).
 
 - Real clarification scan, historical S3 recovery, paid recompute and live PostgreSQL
   upload/recompute race remain unverified. First real paid top-up email and signed-in
@@ -53,7 +47,6 @@ Updated 2026-10-18. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Complete approved model rollout through PR74 after final checks; synchronize installed
-Compose and stale model overrides. Source and isolated paid scan are verified;
-production activation is not yet done. Continue human labels separately;90% remains unconfirmed.
-Retain production backup, isolated restore, readiness and rollback gates.
+Finish project-access verification, deliver its PR and disposable interactive preview,
+then collect UI/release approval. Retain production backup, isolated restore, migration
+admission, readiness and rollback gates; do not publish without separate approval.
