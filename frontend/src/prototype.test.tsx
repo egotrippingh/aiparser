@@ -28,9 +28,14 @@ it("restores only valid calendar ranges within the report limit", () => {
   for (const value of [null, [], "bad", {from:"2026-02-30",to:"2026-03-01"}, {from:"2026-10-02",to:"2026-10-01"}, {from:"2025-01-01",to:"2026-01-02"}, {from:"0000-01-01",to:"0000-01-01"}, {from:3,to:"2026-01-01"}]) expect(reportRange(value)).toBeNull()
 })
 
-it("uses the Gemini logo on the homepage", () => {
+it("describes all five providers and keeps a responsive still before animation loads", () => {
   vi.stubGlobal("window", {matchMedia:()=>({matches:true})})
-  expect(renderToStaticMarkup(<LandingPage/>)).toMatch(/<img[^>]+src="\/assets\/services\/gemini\.png"[^>]+alt="Gemini"/)
+  const html = renderToStaticMarkup(<LandingPage/>).split('</section>')[0]
+  for (const name of ["Google", "Яндекса", "Gemini", "ChatGPT", "Perplexity"]) expect(html).toContain(name)
+  expect(html).toContain('<picture class="hero-still"')
+  expect(html).toContain('media="(max-width: 680px)"')
+  expect(html).toContain('Попробовать')
+  expect(html).not.toContain('Войти в кабинет')
 })
 
 it("describes server collection without directing visitors to a desktop agent", () => {

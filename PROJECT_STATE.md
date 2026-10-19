@@ -1,23 +1,22 @@
 # AIRate current project state
 
-Updated 2026-10-19. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
+Updated 2026-10-20. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
 
 ## Current release
 
-- Published source: [PR #74](https://github.com/egotrippingh/aiparser/pull/74),
-  `112cd86b7133c30a32938dc5d0ae0320165687d4`. Production CI and exact public
-  readiness matched on 19 October. Runtime model overrides were not rechecked.
-  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39162386180).
+- Published and readiness verified: [PR #75](https://github.com/egotrippingh/aiparser/pull/75),
+  `08053d4fcd4aa26d95952c2adb8ba23b44ff06a8`. Production CI and exact public
+  readiness match. Shared projects, owner/editor/viewer roles and owner-funded
+  scans are included. [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39321679472).
 - Earlier cabinet, documentation, SEO, auth and deployment work remains included.
 
 ## Prepared work
 
-- [PR #75](https://github.com/egotrippingh/aiparser/pull/75): permanent visible project IDs; owner-managed email sharing,
-  editor/viewer roles and owner-funded editor scans. Not published. Independent
-  correctness/risk reviews are clear. Frontend 119 tests, lint/build and disposable
-  owner/editor/viewer desktop/mobile checks passed; backend/PG gates are tracked in the PR.
-  Additive head `20261019_project_members` requires reviewed migration admission
-  and a compatible rollback image before publication. [Scope and gates](docs/project-access-task.md).
+- Approved responsive Lottie hero implemented in `codex/landing-lottie`, not yet
+  published. Original Figma artwork, mobile background without texture, one CTA,
+  12-second scan/data/report loop, pause and reduced-motion fallback.
+  125 frontend tests, lint/build and independent review passed.
+  [Implementation and checks](docs/landing-hero.md).
 
 ## Architecture and operating rules
 
@@ -48,6 +47,6 @@ Updated 2026-10-19. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Review the project-access PR and disposable interactive preview, then collect UI/release
-approval. Retain production backup, isolated restore, migration
-admission, readiness and rollback gates; do not publish without separate approval.
+Deliver the approved responsive hero through a reviewed PR into production, then
+verify exact public readiness and artwork assets. Publication is authorized for
+this hero. Retain backup, isolated restore, migration and rollback gates.

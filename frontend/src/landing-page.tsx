@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react"
+import type { ReactNode } from "react"
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -15,31 +15,11 @@ import "./landing.css"
 import { SiteFooter } from "./site-footer"
 import { PublicSiteHeader } from "./site-header"
 import { ProductPrinciples } from "./product-principles"
-import Scanner from "./components/reactbits/Scanner"
+import { LandingHeroAnimation } from "./components/landing-hero-animation"
 import SpotlightCard from "./components/reactbits/SpotlightCard"
 import { ProcessFlow } from "./components/process-flow"
 
 const APP_URL = import.meta.env.VITE_APP_URL || "/cabinet/"
-
-const services = [
-  ["ChatGPT", "/assets/services/chatgpt.svg?v=20261012"],
-  ["Perplexity", "/assets/services/perplexity.svg?v=20261012"],
-  ["Gemini", "/assets/services/gemini.png"],
-  ["Яндекс Поиск с Алисой", "/assets/services/alice.svg"],
-  ["Google AI Overview", "/assets/services/google.svg"],
-]
-
-function ScannerLayer() {
-  const [reduced, setReduced] = useState(true)
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-reduced-motion: reduce)")
-    const update = () => setReduced(media.matches)
-    update()
-    media.addEventListener("change", update)
-    return () => media.removeEventListener("change", update)
-  }, [])
-  return <div className="hero-scanner" aria-hidden="true">{!reduced && <Scanner color1="#827c65" color2="#b4a084" color3="#adb8a0" speed={0.18} sweepSpeed={0.14} sweepWidth={1.8} scale={1.2} frequency={1.5} ripple={0.26} bandDensity={8} glow={0.24} brightness={1.2} opacity={1} mouseInteraction={false} scanline={false} grain={false} />}</div>
-}
 
 // Set either source when demo GIFs are ready. Until then, each slot renders
 // an animated product illustration in the same rounded frame.
@@ -123,19 +103,11 @@ export function LandingPage() {
 
       <main>
         <section className="hero" aria-labelledby="hero-title">
-          <ScannerLayer />
-          <div className="site-container hero-inner">
-            <div className="hero-copy">
-              <h1 id="hero-title">Смотрите, где ИИ упоминает <span>ваш бренд.</span></h1>
-              <p>Проверяйте свои запросы в пяти ИИ-системах. Сохраняйте ответы, смотрите источник каждого упоминания и сравнивайте видимость по датам.</p>
-              <div className="hero-actions">
-                <a className="button button-primary" href={APP_URL}>Начать проверку <ArrowUpRight size={18} aria-hidden="true" /></a>
-                <a className="text-link" href={APP_URL}>Войти в кабинет <ArrowUpRight size={17} aria-hidden="true" /></a>
-              </div>
-              <p className="hero-setup">Войдите в кабинет, создайте проект и добавьте запросы. Проверки выполняются на сервере без установки программы.</p>
-              <div className="hero-services">{services.map(([name, src]) => <img key={name} src={src} alt={name} title={name} />)}</div>
-            </div>
+          <div className="hero-intro">
+            <h1 id="hero-title">Смотрите, где<br/>ИИ упоминает ваш бренд.</h1>
+            <a className="hero-try" href={APP_URL}>Попробовать <span aria-hidden="true">→</span></a>
           </div>
+          <LandingHeroAnimation/>
         </section>
 
         <section className="proof-section" aria-label="Пример интерфейса отчёта"><div className="site-container proof-layout"><div className="proof-copy"><h2>Каждое упоминание видно в деталях.</h2><p>Смотрите ответы по каждому запросу и системе. Данные остаются под рукой для сравнения.</p></div><ReportPreview /></div></section>
