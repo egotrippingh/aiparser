@@ -70,7 +70,7 @@ schedule continue for the owner. Revocation does not stop/refund an accepted run
 
 Implementation and deterministic test source: `8d1954add9ca2202f5e802a5cd7278d4be917435`.
 [PR #75](https://github.com/egotrippingh/aiparser/pull/75) tracks the final backend,
-PostgreSQL concurrency and image gates. No production migration or publication ran.
+PostgreSQL concurrency and image gates.
 
 - Independent correctness and authorization/money/migration reviews closed their
   findings. Regression tests cover owner promo refunds, fresh worker state,
@@ -89,3 +89,26 @@ PostgreSQL concurrency and image gates. No production migration or publication r
 
 Legacy attachments without verifiable run/project provenance remain visible to
 the owner; members receive the saved result but not unproven check/capture data.
+
+## Published release
+
+The user explicitly authorized deployment after reviewing the preview.
+[PR #75](https://github.com/egotrippingh/aiparser/pull/75) merged as
+`08053d4fcd4aa26d95952c2adb8ba23b44ff06a8`.
+[Production CI](https://github.com/egotrippingh/aiparser/actions/runs/39321679472)
+passed all jobs, including 383 server tests with PostgreSQL races, 119 frontend
+tests, image smoke checks and deployment. HTTPS readiness returned this exact SHA;
+the healthy container and image labels matched. Public cabinet JS contains the
+access interface; unauthenticated member read/write/revoke requests return 401.
+Role flows were checked with disposable preview data, not real production accounts;
+no paid scan or sharing of a real project was used as a release probe.
+
+Independent Astra review accepted the exact one-off operator scripts. Both the
+restored-copy rehearsal and drained live migration preserved all 32 existing
+tables' columns and canonical row hashes. Fresh backup/isolated restore and
+compatible fallback readiness passed. Live backup is
+`aiparser-20261019T204237Z-854985.dump`; operator proofs and saved fallback archive
+remain private on the VPS in `/opt/airate/releases/access-20261019`.
+See [rollback instructions](../deploy/DELIVERY.md#project-sharing-schema-on-19-october-2026).
+The migration-head gate, restricted CI account and backup gates were retained.
+Backups remain VPS-local; off-VPS protection is not verified.
