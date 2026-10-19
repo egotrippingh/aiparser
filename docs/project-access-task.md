@@ -65,3 +65,27 @@ the live database. Test owner/editor/viewer and revocation after activation.
 
 An action accepted before revocation may complete; existing runs and the saved
 schedule continue for the owner. Revocation does not stop/refund an accepted run.
+
+## Verification evidence
+
+Implementation and deterministic test source: `8d1954add9ca2202f5e802a5cd7278d4be917435`.
+[PR #75](https://github.com/egotrippingh/aiparser/pull/75) tracks the final backend,
+PostgreSQL concurrency and image gates. No production migration or publication ran.
+
+- Independent correctness and authorization/money/migration reviews closed their
+  findings. Regression tests cover owner promo refunds, fresh worker state,
+  owner feature eligibility, archived runs, device assignment and private evidence.
+- Frontend: 119 tests passed, lint exited 0 (existing warnings), production build
+  exited 0. Browser checks covered unknown email, add/change/revoke, project switch,
+  all roles, ID copy, read-only detail/export, owner-funded quote, keyboard and 390px.
+- Local full server run before the final test fixes: 347 passed, 36 skipped and
+  four failures. All four passed after the targeted fixes: the migration expectation
+  includes the new empty table; three XML-only timing tests now isolate an unused
+  HTTP client. Original timing limits/assertions and production scan code are unchanged.
+- The new focused authorization suite passed 3 tests locally; its 3 PostgreSQL
+  race cases require the CI database. SQLite is not evidence of PostgreSQL locking.
+- Graphify AST-only update succeeded on the source commit above (4533 nodes,
+  13332 edges); local index/provenance files remain ignored by Git.
+
+Legacy attachments without verifiable run/project provenance remain visible to
+the owner; members receive the saved result but not unproven check/capture data.

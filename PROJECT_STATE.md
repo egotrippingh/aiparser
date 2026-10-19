@@ -12,9 +12,10 @@ Updated 2026-10-19. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Prepared work
 
-- `codex/project-access`: permanent visible project IDs; owner-managed email sharing,
+- [PR #75](https://github.com/egotrippingh/aiparser/pull/75): permanent visible project IDs; owner-managed email sharing,
   editor/viewer roles and owner-funded editor scans. Not published. Independent
-  correctness/risk reviews are clear; final server/CI and browser checks are in progress.
+  correctness/risk reviews are clear. Frontend 119 tests, lint/build and disposable
+  owner/editor/viewer desktop/mobile checks passed; backend/PG gates are tracked in the PR.
   Additive head `20261019_project_members` requires reviewed migration admission
   and a compatible rollback image before publication. [Scope and gates](docs/project-access-task.md).
 
@@ -47,6 +48,6 @@ Updated 2026-10-19. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Finish project-access verification, deliver its PR and disposable interactive preview,
-then collect UI/release approval. Retain production backup, isolated restore, migration
+Review the project-access PR and disposable interactive preview, then collect UI/release
+approval. Retain production backup, isolated restore, migration
 admission, readiness and rollback gates; do not publish without separate approval.
