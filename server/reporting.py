@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import load_only
 
 from server.models import CloudResult, ControlProject, utcnow
+from server.project_access import project_access
 
 SERVICES = {"google_aio": "Google AI Overview", "chatgpt": "ChatGPT", "perplexity": "Perplexity",
             "alice": "Алиса AI", "yandex_neuro": "Яндекс Поиск с Алисой", "gemini": "Gemini"}
@@ -40,10 +41,7 @@ class ReportOptions(BaseModel):
 
 
 def owned_project(db, user_id, project_id):
-    project = db.get(ControlProject, project_id)
-    if not project or project.user_id != user_id or project.archived:
-        raise HTTPException(404, "Проект не найден")
-    return project
+    return project_access(db, user_id, project_id)[0]
 
 
 def source_host(source):
@@ -425,13 +423,14 @@ def register_reports(app, db_session, current_user):
     @router.get("/results/{result_id}")
     def detail(project_id: str, result_id: int, response: Response,
                user=Depends(current_user), db=Depends(db_session)):
-        owned_project(db, user.id, project_id)
-        row = db.get(CloudResult, result_id)
-        if not row or row.user_id != user.id or row.project_id != project_id:
+        project = owned_project(db, user.id, project_id)
+        row = db.scalar(select(CloudResult).where(CloudResult.id == result_id,
+            CloudResult.user_id == project.user_id, CloudResult.project_id == project_id))
+        if not row:
             raise HTTPException(404, "Результат не найден")
         from server.scan_feedback import result_detail
         response.headers["Cache-Control"] = "no-store"
-        return result_detail(db, row)
+        return result_detail(db, row, shared=user.id != project.user_id)
 
     @router.get("/export/{kind}")
     def export(project_id: str, kind: Literal["mentions", "sources"], options: ReportOptions = Depends(),

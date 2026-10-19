@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from server.app import create_app
 from server.control import schedule_tick
-from server.models import AgentDevice, ControlRun, ControlProject, ProviderAccount, make_session_factory, utcnow
+from server.models import AgentDevice, Check, ControlRun, ControlProject, FreeScanBalance, ProjectMember, ProviderAccount, User, Wallet, make_session_factory, utcnow
 
 
 @pytest.fixture(autouse=True)
@@ -116,6 +116,104 @@ def test_device_assignment_ownership_and_durable_queue(tmp_path):
     assert client.post(f"/api/v1/control/agent/runs/{run['id']}", headers=devices[1], json=payload).status_code == 404
     assert client.post(f"/api/v1/control/agent/runs/{run['id']}", headers=devices[0], json=payload).status_code == 200
     assert client.get('/api/v1/control/runs', headers=owner).json()[0]['state'] == 'done'
+
+
+def test_project_members_roles_owner_wallet_and_revocation(tmp_path):
+    client, owner, other, devices, url = setup(tmp_path)
+    def register(email):
+        response = register_account(client, json={'email': email, 'password': 'long-test-password-123'})
+        return {'Authorization': 'Bearer ' + response.json()['token']}
+    editor, viewer, outsider = register('editor@test.example'), register('viewer@test.example'), register('outsider@test.example')
+    project = client.post('/api/v1/control/projects', headers=owner, json={
+        'name': 'Shared', 'brand_name': 'Brand', 'queries': [{'text': 'question'}],
+        'config': {'services': ['chatgpt']},
+    }).json()
+    base = f"/api/v1/control/projects/{project['id']}"
+    assert client.put(base + '/members', headers=other, json={'email': 'editor@test.example', 'role': 'editor'}).status_code == 404
+    assert client.put(base + '/members', headers=owner, json={'email': 'missing@test.example', 'role': 'editor'}).status_code == 422
+    assert client.put(base + '/members', headers=owner, json={'email': 'EDITOR@test.example ', 'role': 'editor'}).json() == {'email': 'editor@test.example', 'role': 'editor'}
+    assert client.put(base + '/members', headers=owner, json={'email': 'editor@test.example', 'role': 'editor'}).status_code == 200
+    assert client.put(base + '/members', headers=owner, json={'email': 'owner@test.example', 'role': 'editor'}).status_code == 422
+    assert client.put(base + '/members', headers=owner, json={'email': 'editor@test.example', 'role': 'owner'}).status_code == 422
+    assert client.put(base + '/members', headers=owner, json={'email': 'viewer@test.example', 'role': 'viewer'}).status_code == 200
+    listed = client.get('/api/v1/control/projects', headers=editor).json()
+    assert listed[0]['role'] == 'editor' and listed[0]['device_id'] is None
+    assert client.get(base + '/members', headers=editor).status_code == 403
+    assert client.put(base + '/members', headers=editor, json={'email': 'outsider@test.example', 'role': 'editor'}).status_code == 403
+    assert client.delete(base, headers=editor).status_code == 403
+    assert client.get(base, headers=viewer).json()['role'] == 'viewer'
+    assert client.get(base, headers=devices[0]).status_code == 403
+    assert client.get(base + '/quote', headers=viewer).status_code == 404
+    assert client.post(base + '/runs', headers=viewer, json={'request_id': uuid.uuid4().hex}).status_code == 404
+    assert client.put(base, headers=viewer, json={k: project[k] for k in ('revision','name','brand_name','device_id','config','schedule','queries')}).status_code == 404
+    assert client.get(base, headers=outsider).status_code == 404
+    with make_session_factory(url)[1]() as db:
+        owner_id = db.get(ControlProject, project['id']).user_id
+        db.get(Wallet, owner_id).balance_kopeks = 1000
+        db.commit()
+    quote = client.get(base + '/quote', headers=editor).json()
+    assert quote['payer'] == 'owner' and quote['available_kopeks'] == 1000
+    launched = client.post(base + '/runs', headers=editor, json={'request_id': uuid.uuid4().hex,
+        'revision': quote['revision'], 'provider_state': quote['provider_state'], 'free_scans_state': quote['free_scans_state']})
+    assert launched.status_code == 201, launched.text
+    with make_session_factory(url)[1]() as db:
+        run = db.get(ControlRun, launched.json()['id'])
+        assert run.user_id == db.get(ControlProject, project['id']).user_id
+    assert client.delete(base + '/members/editor@test.example', headers=owner).status_code == 200
+    assert client.get(base, headers=editor).status_code == 404
+    assert client.put(base, headers=editor, json={k: project[k] for k in ('revision','name','brand_name','device_id','config','schedule','queries')}).status_code == 404
+    with make_session_factory(url)[1]() as db:
+        editor_id = db.scalar(select(User.id).where(User.email == 'editor@test.example'))
+        assert db.get(ProjectMember, {'project_id': project['id'], 'user_id': editor_id}) is None
+
+
+def test_editor_stop_releases_owner_promo_once_and_archived_shared_runs_disappear(tmp_path):
+    client, owner, _, _, url = setup(tmp_path)
+    editor_result = register_account(client, json={'email': 'editor-stop@test.example', 'password': 'long-test-password-123'})
+    editor = {'Authorization': 'Bearer ' + editor_result.json()['token']}
+    project = client.post('/api/v1/control/projects', headers=owner, json={
+        'name': 'Shared', 'brand_name': 'Brand', 'queries': [{'text': 'question'}], 'config': {'services': ['chatgpt']},
+    }).json()
+    base = f"/api/v1/control/projects/{project['id']}"
+    assert client.put(base + '/members', headers=owner, json={'email': 'editor-stop@test.example', 'role': 'editor'}).status_code == 200
+    with make_session_factory(url)[1]() as db:
+        source = db.get(ControlProject, project['id'])
+        db.add(FreeScanBalance(user_id=source.user_id, service='chatgpt', remaining=0))
+        run = ControlRun(id='f' * 32, user_id=source.user_id, project_id=source.id, phase='cloud',
+            active_project_key=source.id, request_key='stop-promo', snapshot_json=json.dumps(project), progress_json='{}')
+        db.add(run)
+        db.add(Check(user_id=source.user_id, client_check_id=f"{run.id}:{project['queries'][0]['id']}:chatgpt",
+            price_kopeks=0, free_scan_service='chatgpt'))
+        db.commit()
+    route = '/api/v1/control/runs/' + 'f' * 32 + '/command'
+    assert client.post(route, headers=editor, json={'action': 'stop'}).status_code == 200
+    assert client.post(route, headers=editor, json={'action': 'stop'}).status_code == 200
+    with make_session_factory(url)[1]() as db:
+        source = db.get(ControlProject, project['id'])
+        check = db.scalar(select(Check).where(Check.client_check_id.startswith('f' * 32)))
+        assert check.status == 'released'
+        assert db.get(FreeScanBalance, (source.user_id, 'chatgpt')).remaining == 1
+    assert client.delete(base, headers=owner).status_code == 200
+    assert client.get('/api/v1/control/runs', headers=editor).json() == []
+
+
+def test_editor_save_preserves_owner_device_assignment(tmp_path):
+    client, owner, _, _, url = setup(tmp_path)
+    editor_result = register_account(client, json={'email': 'editor-device@test.example', 'password': 'long-test-password-123'})
+    editor = {'Authorization': 'Bearer ' + editor_result.json()['token']}
+    body = {'name': 'Legacy', 'brand_name': 'Brand', 'device_id': 'a' * 32, 'queries': [{'text': 'question'}],
+            'config': {'services': ['chatgpt']}, 'schedule': {'enabled': True, 'device_id': 'a' * 32, 'month_days': [1]}}
+    project = client.post('/api/v1/control/projects', headers=owner, json=body).json()
+    base = f"/api/v1/control/projects/{project['id']}"
+    assert client.put(base + '/members', headers=owner, json={'email': 'editor-device@test.example', 'role': 'editor'}).status_code == 200
+    shared = client.get(base, headers=editor).json()
+    assert shared['device_id'] is None and shared['schedule']['device_id'] is None
+    shared['name'] = 'Edited'
+    saved = client.put(base, headers=editor, json={k: shared[k] for k in ('revision','name','brand_name','device_id','config','schedule','queries')})
+    assert saved.status_code == 200, saved.text
+    with make_session_factory(url)[1]() as db:
+        row = db.get(ControlProject, project['id'])
+        assert row.device_id == 'a' * 32 and json.loads(row.schedule_json)['device_id'] == 'a' * 32
 
 
 def test_yandex_run_uses_server_without_device_capability(tmp_path, monkeypatch):

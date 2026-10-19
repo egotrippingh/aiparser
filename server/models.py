@@ -221,6 +221,16 @@ class Check(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class ProjectMember(Base):
+    __tablename__ = "project_members"
+    __table_args__ = (CheckConstraint("role IN ('editor', 'viewer')", name="ck_project_member_role"),)
+
+    project_id: Mapped[str] = mapped_column(ForeignKey("control_projects.id"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True, index=True)
+    role: Mapped[str] = mapped_column(String(12))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Screenshot(Base):
     __tablename__ = "screenshots"
 

@@ -6,6 +6,7 @@ import os
 import threading
 import time
 import uuid
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -1030,7 +1031,13 @@ def test_worker_log_omits_database_parameters(monkeypatch, caplog):
     assert secret not in caplog.text
 
 
-def test_worker_database_wait_does_not_delay_server_heartbeat(monkeypatch):
+@pytest.fixture
+def xml_only_transport(monkeypatch):
+    # These XML timing checks do not use the unrelated HTTP provider transport.
+    monkeypatch.setattr('server.cloud_scans.scrapeless.ScrapelessClient', nullcontext)
+
+
+def test_worker_database_wait_does_not_delay_server_heartbeat(monkeypatch, xml_only_transport):
     entered = threading.Event()
     finished = threading.Event()
 
@@ -1396,7 +1403,7 @@ def test_throttled_older_runs_do_not_starve_google_after_twenty(tmp_path, monkey
         assert db.get(ControlRun, google['id']).state == 'done'
 
 
-def test_fast_capture_is_analyzed_while_sibling_provider_waits(tmp_path, monkeypatch):
+def test_fast_capture_is_analyzed_while_sibling_provider_waits(tmp_path, monkeypatch, xml_only_transport):
     ai = FakeAI()
     client, owner, _, _, sessions = setup(tmp_path, monkeypatch, ai=ai)
     _, run = project_and_run(client, owner, queries=[{'text': 'fast'}, {'text': 'slow'}])
@@ -1436,7 +1443,7 @@ def test_fast_capture_is_analyzed_while_sibling_provider_waits(tmp_path, monkeyp
             CloudResult.query_text == 'fast')) is not None
 
 
-def test_each_engine_refills_while_other_engine_waits(tmp_path, monkeypatch):
+def test_each_engine_refills_while_other_engine_waits(tmp_path, monkeypatch, xml_only_transport):
     client, owner, _, _, sessions = setup(tmp_path, monkeypatch)
     project_and_run(client, owner, services=('google_aio', 'yandex_neuro'),
         queries=[{'text': 'q0'}, {'text': 'q1'}])
