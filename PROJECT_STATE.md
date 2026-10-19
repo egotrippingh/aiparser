@@ -4,20 +4,19 @@ Updated 2026-10-19. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
-- Published source: [PR #74](https://github.com/egotrippingh/aiparser/pull/74),
-  `112cd86b7133c30a32938dc5d0ae0320165687d4`. Production CI and exact public
-  readiness matched on 19 October. Runtime model overrides were not rechecked.
-  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39162386180).
+- Published: project IDs, email sharing, owner/editor/viewer rights and owner-funded
+  editor scans, [PR #75](https://github.com/egotrippingh/aiparser/pull/75).
+  Production CI and exact public readiness passed on 19 October.
+  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39321679472),
+  [migration and rollback](deploy/DELIVERY.md#project-sharing-schema-on-19-october-2026).
 - Earlier cabinet, documentation, SEO, auth and deployment work remains included.
 
 ## Prepared work
 
-- [PR #75](https://github.com/egotrippingh/aiparser/pull/75): permanent visible project IDs; owner-managed email sharing,
-  editor/viewer roles and owner-funded editor scans. Not published. Independent
-  correctness/risk reviews are clear. Frontend 119 tests, lint/build and disposable
-  owner/editor/viewer desktop/mobile checks passed; backend/PG gates are tracked in the PR.
-  Additive head `20261019_project_members` requires reviewed migration admission
-  and a compatible rollback image before publication. [Scope and gates](docs/project-access-task.md).
+- No unpublished application changes in this delivery. Sharing correctness/risk
+  reviews, 383 server tests (including PostgreSQL races), 119 frontend tests,
+  lint/build and disposable owner/editor/viewer desktop/mobile checks passed.
+  [Scope and evidence](docs/project-access-task.md).
 
 ## Architecture and operating rules
 
@@ -48,6 +47,5 @@ Updated 2026-10-19. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Review the project-access PR and disposable interactive preview, then collect UI/release
-approval. Retain production backup, isolated restore, migration
-admission, readiness and rollback gates; do not publish without separate approval.
+Collect real-user feedback on project sharing. Keep the compatible rollback image
+and verified backup; continue the separate model/scan checks above.

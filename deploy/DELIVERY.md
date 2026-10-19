@@ -77,6 +77,23 @@ GitHub environment/branch-protection availability for private repositories
 depends on the account plan. Check those controls before changing visibility;
 do not move environment secrets into unrestricted PR jobs as a workaround.
 
+### Project sharing schema on 19 October 2026
+
+Head `20261019_project_members` adds the membership table. The reviewed operator
+procedure in `/opt/airate/releases/access-20261019` restored a verified backup,
+tested migration/metadata/readiness without workers, then drained production and
+repeated backup, migration and canonical preservation. All 32 existing tables
+retained their columns and contents; the new table was empty before activation.
+Live pre-migration backup: `aiparser-20261019T204237Z-854985.dump`.
+
+Rollback uses `airate-web:access-rollback-20261019`, AIRATE_RELEASE
+`112cd86b7133c30a32938dc5d0ae0320165687d4`. It keeps that release's application
+behavior and adds only the reviewed metadata, migration and admission list.
+The image and checksum-verified saved archive remain in the operator directory.
+The unmodified `112cd86` image cannot start against this schema. Never downgrade
+or restore the live DB for application rollback. The migration-head gate and
+restricted CI access remain unchanged; backups are still VPS-local.
+
 ## VPS files and recovery
 
 - `/opt/airate/deploy/.env`: secrets, mode 0600; never in Git or the image.
