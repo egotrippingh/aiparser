@@ -96,8 +96,11 @@ def test_homepage_ships_content_metadata_and_a_real_social_image(client):
     schema = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', html, re.S).group(1))
     assert schema["@type"] == "WebSite" and schema["name"] == "AIRate"
     assert schema["url"] == head.canonicals[0]
-    assert len(re.findall(r"<h1\b", html)) == 1
-    assert "Смотрите, где ИИ упоминает" in html and "Какие ИИ-системы доступны?" in html
+    headings = re.findall(r"<h1\b[^>]*>(.*?)</h1>", html, re.S)
+    assert len(headings) == 1
+    heading_text = " ".join(re.sub(r"<[^>]+>", " ", headings[0]).split())
+    assert heading_text == "Смотрите, где ИИ упоминает ваш бренд."
+    assert "Какие ИИ-системы доступны?" in html
 
 
 def test_utility_pages_are_crawlable_but_not_indexable_and_unknown_pages_are_404(client):
