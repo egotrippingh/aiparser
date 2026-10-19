@@ -241,8 +241,9 @@ def test_migration_preserves_existing_accounts_sessions_and_balances(tmp_path):
                     for table in inspect(db).get_table_names() if table != "alembic_version"}
     upgrade_database(url)
     with engine.connect() as db:
-        assert set(inspect(db).get_table_names()) == set(previous) | {"alembic_version", "email_registrations"}
+        assert set(inspect(db).get_table_names()) == set(previous) | {"alembic_version", "email_registrations", "project_members"}
         for table, digest in previous.items():
             assert fingerprint([dict(row) for row in db.execute(text(f'SELECT * FROM "{table}"')).mappings()]) == digest
         assert db.scalar(text("SELECT count(*) FROM email_registrations")) == 0
+        assert db.scalar(text("SELECT count(*) FROM project_members")) == 0
     engine.dispose()
