@@ -4,20 +4,21 @@ Updated 2026-10-20. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
-- Published and verified: [PR #77](https://github.com/egotrippingh/aiparser/pull/77),
-  `304260aa4d80145b1c0d68ac3a9914a60a5e7aff`. Responsive Lottie hero, original
-  Figma artwork, texture-free mobile gradient, one CTA and static fallback.
-  Production CI, backup/isolated restore, exact readiness, four artwork hashes,
-  ten entry assets and live browser rendering passed.
-  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39333805953).
+- Published and verified: [PR #78](https://github.com/egotrippingh/aiparser/pull/78),
+  `7733f664a47413d3e3f0aa064394179498830a06`. Compact landing header and hero fill
+  one dynamic viewport; no pause UI. Portrait/landscape Lottie art fits without cropping.
+  125 frontend tests, lint/build, 12 viewport cases, guest/account menus, production
+  CI, backup/isolated restore, exact readiness, four artwork hashes and ten entry
+  assets passed. Live desktop/tablet/phone/landscape dimensions and console checked.
+  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39386874879).
 - Shared projects (#75), cabinet, documentation, SEO and auth remain included.
 
 ## Prepared work
 
-- Prepared on `codex/hero-viewport` from production `304260a`: remove pause UI,
-  compact the landing header, and fit header + hero to one dynamic viewport.
-  Portrait/landscape compositions fit the remaining height without cropping.
-  [Implementation and checks](docs/landing-hero.md). Not yet published.
+- Prepared from production 7733f664: stable 100svh hero height replaces
+  100dvh to prevent artwork rescaling with mobile browser bars. CSS-only;
+  Lottie motion and responsive rotation remain. [Details](docs/landing-hero.md).
+  Real-device Safari/Android rendering remains unverified.
 
 ## Architecture and operating rules
 
@@ -48,5 +49,5 @@ Updated 2026-10-20. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Deliver the requested viewport adjustment through a PR into production, then
-verify the exact release and live layout. Retain existing delivery gates.
+Collect feedback on the published hero. Start subsequent changes from current
+origin/production and preserve approved work; retain existing delivery gates.
