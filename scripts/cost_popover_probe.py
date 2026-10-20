@@ -161,11 +161,11 @@ with tempfile.TemporaryDirectory(prefix='airate-cost-card-', ignore_cleanup_erro
             await page.reload(wait_until='commit')
             await start.wait_for(state='visible')
             quote = client.get(f'/api/v1/control/projects/{project["id"]}/quote', headers=headers).json()
-            assert quote['unit_kopeks'] == quote['total_kopeks'] == 120
+            assert quote['unit_kopeks'] == quote['total_kopeks'] == 165
             await start.click()
             card = page.get_by_role('dialog', name='Подтверждение: Запустить')
             await card.wait_for(state='visible')
-            assert '1,20' in await card.inner_text()
+            assert '1,65' in await card.inner_text()
             assert not paid_posts
             await card.get_by_role('button', name='Запустить', exact=True).click()
             for _ in range(30):
@@ -175,7 +175,7 @@ with tempfile.TemporaryDirectory(prefix='airate-cost-card-', ignore_cleanup_erro
             assert len(client.get('/api/v1/control/runs', headers=headers).json()) == 1
             assert len(paid_posts) == 1
             assert not errors, errors
-            print('cost popovers OK: real 1.20/0.80 quotes, no POST before confirm, one each after, Esc/cancel, desktop/mobile bounds')
+            print('cost popovers OK: real 1.65/0.80 quotes, no POST before confirm, one each after, Esc/cancel, desktop/mobile bounds')
             await browser.close()
 
     try:

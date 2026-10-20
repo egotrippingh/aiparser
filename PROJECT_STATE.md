@@ -4,21 +4,25 @@ Updated 2026-10-20. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
-- Published and verified: [PR #78](https://github.com/egotrippingh/aiparser/pull/78),
-  `7733f664a47413d3e3f0aa064394179498830a06`. Compact landing header and hero fill
-  one dynamic viewport; no pause UI. Portrait/landscape Lottie art fits without cropping.
-  125 frontend tests, lint/build, 12 viewport cases, guest/account menus, production
-  CI, backup/isolated restore, exact readiness, four artwork hashes and ten entry
-  assets passed. Live desktop/tablet/phone/landscape dimensions and console checked.
-  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39386874879).
+- Published and verified: [PR #79](https://github.com/egotrippingh/aiparser/pull/79),
+  `80d6415e79096b371c208bf572878ccdb28f2728`. Stable `100svh` prevents hero
+  rescaling with mobile browser bars. Lottie, compact header and responsive
+  rotation remain. 125 frontend tests, lint/build, four viewport/scroll cases,
+  PR and production CI passed. Live readiness, stable CSS rule, mobile Lottie,
+  scroll dimensions and console checked.
+  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39390857829).
 - Shared projects (#75), cabinet, documentation, SEO and auth remain included.
 
 ## Prepared work
 
-- Prepared from production 7733f664: stable 100svh hero height replaces
-  100dvh to prevent artwork rescaling with mobile browser bars. CSS-only;
-  Lottie motion and responsive rotation remain. [Details](docs/landing-hero.md).
-  Real-device Safari/Android rendering remains unverified.
+- Tariff update prepared from production `80d6415`: new checks/server runs cost
+  165 kopeks. Confirmed server runs and reservations keep their price; stale quotes
+  are rejected. Pause/top-up/manual-resume regression passes, including insufficient
+  164 and exact 165, no repeated work/debits. Independent money review passed.
+  125 frontend tests, lint/build and desktop/mobile quote UI passed; full server
+  suite and delivery are pending. Remove the installed Compose tariff override
+  before activation so image rollback also rolls back price; verify live pricing165.
+  No migration or recompute80 change.
 
 ## Architecture and operating rules
 
@@ -49,5 +53,5 @@ Updated 2026-10-20. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Collect feedback on the published hero. Start subsequent changes from current
+Collect feedback on mobile scrolling from a physical phone. Start subsequent changes from current
 origin/production and preserve approved work; retain existing delivery gates.

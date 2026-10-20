@@ -251,11 +251,13 @@ def device_for(db, user_id, device_id):
     return row
 
 
-def create_run(db, project, device_id, key, scheduled_for=None, brand_clarifications_enabled=False):
+def create_run(db, project, device_id, key, scheduled_for=None, brand_clarifications_enabled=False,
+               check_price_kopeks=165):
     existing = db.scalar(select(ControlRun).where(ControlRun.request_key == key))
     if existing:
         return existing
     snap = project_payload(project, brand_clarifications_enabled=brand_clarifications_enabled)
+    snap["check_price_kopeks"] = check_price_kopeks
     if not snap["config"]["services"]:
         raise HTTPException(422, "Выберите доступный ИИ-сервис в настройках проекта")
     cloud = [s for s in snap["config"]["services"] if s in CLOUD_SERVICES]
@@ -318,14 +320,15 @@ def create_run(db, project, device_id, key, scheduled_for=None, brand_clarificat
     return row
 
 
-def provider_state_fingerprint(accounts, services):
+def provider_state_fingerprint(accounts, services, check_price_kopeks):
     state = [(service, bool(accounts.get(service) and accounts[service].paused),
               aware(accounts[service].last_paused_at).isoformat() if accounts.get(service) and accounts[service].last_paused_at else None)
              for service in sorted(set(services) & CLOUD_SERVICES)]
-    return hashlib.sha256(json.dumps(state, separators=(",", ":")).encode()).hexdigest()
+    # Bind existing clients' opaque quote token to the tariff as well as availability.
+    return hashlib.sha256(json.dumps([check_price_kopeks, state], separators=(",", ":")).encode()).hexdigest()
 
 
-def schedule_tick(sessions, now=None, feature_user_id=""):
+def schedule_tick(sessions, now=None, feature_user_id="", check_price_kopeks=165):
     now = now or utcnow()
     with sessions() as db:
         # Only historical agent work depends on PC availability.
@@ -365,7 +368,8 @@ def schedule_tick(sessions, now=None, feature_user_id=""):
                     with db.begin_nested():
                         user = db.get(User, project.user_id)
                         create_run(db, project, schedule.device_id or project.device_id, key, slot,
-                                   brand_clarifications_enabled=bool(feature_user_id and user and user.is_admin and user.id == feature_user_id))
+                                   brand_clarifications_enabled=bool(feature_user_id and user and user.is_admin and user.id == feature_user_id),
+                                   check_price_kopeks=check_price_kopeks)
                     db.commit()
                 except (IntegrityError, HTTPException):
                     # Active project or unready device; another tick can retry within the slot window.
@@ -373,7 +377,7 @@ def schedule_tick(sessions, now=None, feature_user_id=""):
             db.commit()
 
 
-def register_control(app, db_session, current_user, sessions, *, check_price_kopeks=120,
+def register_control(app, db_session, current_user, sessions, *, check_price_kopeks=165,
                      brand_clarifications_user_id="", ai_client=None, screenshot_storage=None):
     router = APIRouter(prefix="/api/v1/control")
 
@@ -576,7 +580,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         return {"count": count, "free_count": free, "unit_kopeks": unit, "total_kopeks": (count - free) * unit,
                 "available_kopeks": available_kopeks(db, owner.id), "revision": row.revision,
                 "free_scans_state": free_scans_state(balances),
-                "provider_state": provider_state_fingerprint(accounts, config["services"]),
+                "provider_state": provider_state_fingerprint(accounts, config["services"], check_price_kopeks),
                 "payer": "owner"}
 
     @router.post("/projects/{project_id}/runs", status_code=201)
@@ -596,8 +600,8 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             changed_availability = any(account.paused or account.last_paused_at for account in accounts.values())
             if body.provider_state is None and changed_availability:
                 raise HTTPException(409, "Состояние ИИ-систем изменилось. Проверьте сумму ещё раз.")
-            if body.provider_state is not None and provider_state_fingerprint(accounts, services) != body.provider_state:
-                raise HTTPException(409, "Состояние ИИ-систем изменилось. Проверьте сумму ещё раз.")
+            if body.provider_state is not None and provider_state_fingerprint(accounts, services, check_price_kopeks) != body.provider_state:
+                raise HTTPException(409, "Стоимость или доступность ИИ-систем изменилась. Проверьте сумму ещё раз.")
         device_id = body.device_id or row.device_id
         owner = db.get(User, row.user_id)
         db.execute(select(Wallet).where(Wallet.user_id == owner.id).with_for_update()).scalar_one()
@@ -605,7 +609,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             raise HTTPException(409, "Остаток бесплатных сканов изменился. Проверьте сумму ещё раз.")
         try:
             run = create_run(db, row, device_id, request_key,
-                             brand_clarifications_enabled=brand_enabled(owner))
+                             brand_clarifications_enabled=brand_enabled(owner), check_price_kopeks=check_price_kopeks)
             db.commit()
         except IntegrityError:
             db.rollback()
@@ -1028,7 +1032,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         async def loop():
             while True:
                 try:
-                    await run_in_threadpool(schedule_tick, sessions, None, brand_clarifications_user_id)
+                    await run_in_threadpool(schedule_tick, sessions, None, brand_clarifications_user_id, check_price_kopeks)
                 except Exception as exc:
                     import telemetry
                     telemetry.capture(exc, component="server", operation="scheduler")

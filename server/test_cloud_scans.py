@@ -125,6 +125,7 @@ def project_and_run(client, owner, *, services=('google_aio',), schedule=None, q
             row = db.get(ControlRun, launched.json()['id'])
             snapshot = json.loads(row.snapshot_json)
             snapshot.pop('collection_policy', None)
+            snapshot.pop('check_price_kopeks', None)
             snapshot['cloud_services'] = [s for s in services if s in ('google_aio', 'yandex_neuro')]
             row.snapshot_json = json.dumps(snapshot)
             if set(services) - set(snapshot['cloud_services']):
@@ -328,6 +329,59 @@ def test_insufficient_funds_blocks_provider_call(tmp_path, monkeypatch):
         assert row.state == row.desired_state == 'paused'
         assert db.scalar(select(ServerCapture)) is None
         assert db.scalar(select(Check)) is None
+
+
+def test_balance_exhaustion_waits_for_topup_and_resumes_without_recharging(tmp_path, monkeypatch):
+    monkeypatch.delenv('CHECK_PRICE_KOPEKS', raising=False)
+    client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, admin=False)
+    with sessions() as db:
+        db.get(Wallet, user_id).balance_kopeks = 330
+        db.commit()
+    _, run = project_and_run(client, owner, legacy=False,
+        queries=[{'text': 'first'}, {'text': 'second'}, {'text': 'third'}])
+    command = f"/api/v1/control/runs/{run['id']}/command"
+
+    class PaidCollector(Collector):
+        def __init__(self, service, geo, *, max_attempts):
+            super().__init__(service, geo)
+
+    def batch_tick():
+        # A different worker default must not reprice this already-confirmed run.
+        return asyncio.run(cloud_tick(sessions, None, 200, PaidCollector,
+            prefetch_limits={'google_aio': 3}))
+
+    assert batch_tick()
+    assert len(Collector.calls) == 2
+    with sessions() as db:
+        row = db.get(ControlRun, run['id'])
+        assert row.state == row.desired_state == 'paused'
+        assert 'Недостаточно средств' in row.error
+        assert db.get(Wallet, user_id).balance_kopeks == 0
+        assert len(db.scalars(select(CloudResult)).all()) == 2
+        db.get(Wallet, user_id).balance_kopeks += 164
+        db.commit()
+
+    assert not batch_tick()
+    assert len(Collector.calls) == 2  # A top-up alone does not resume a paused scan.
+    assert client.post(command, headers=owner, json={'action': 'resume'}).status_code == 200
+    assert batch_tick()
+    assert len(Collector.calls) == 2  # 164 kopeks still cannot buy a 165-kopeck check.
+    with sessions() as db:
+        row = db.get(ControlRun, run['id'])
+        assert row.state == row.desired_state == 'paused'
+        db.get(Wallet, user_id).balance_kopeks += 1
+        db.commit()
+
+    assert client.post(command, headers=owner, json={'action': 'resume'}).status_code == 200
+    assert batch_tick()
+    assert sorted(query for _, query in Collector.calls) == ['first', 'second', 'third']
+    with sessions() as db:
+        assert db.get(ControlRun, run['id']).state == 'done'
+        assert db.get(Wallet, user_id).balance_kopeks == 0
+        assert len(db.scalars(select(CloudResult)).all()) == 3
+        assert [entry.amount_kopeks for entry in db.scalars(select(LedgerEntry))] == [-165] * 3
+        assert all(check.status == 'settled' and check.price_kopeks == 165
+                   for check in db.scalars(select(Check)))
 
 
 def test_model_cooldown_without_http_does_not_spend_attempt_budget(tmp_path, monkeypatch):

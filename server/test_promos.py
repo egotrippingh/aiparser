@@ -186,9 +186,9 @@ def test_stream_stop_settles_free_and_paid_and_refunds_unstarted(tmp_path, monke
         assert len(db.scalars(select(CloudResult)).all()) == 3
         checks = db.scalars(select(Check)).all()
         assert sorted((c.status, c.price_kopeks) for c in checks) == [
-            ('released', 0), ('settled', 0), ('settled', 120)]
+            ('released', 0), ('settled', 0), ('settled', 165)]
         assert db.get(FreeScanBalance, (user_id, 'google_aio')).remaining == 1
-        assert db.get(Wallet, user_id).balance_kopeks == 380
+        assert db.get(Wallet, user_id).balance_kopeks == 335
         assert len(db.scalars(select(LedgerEntry)).all()) == 1
 
 
@@ -202,7 +202,7 @@ def test_quote_free_reservation_cancel_and_stale_quote(tmp_path, monkeypatch):
     project = client.post('/api/v1/control/projects', headers=other, json=body).json()
     path = f"/api/v1/control/projects/{project['id']}"
     quote = client.get(path + '/quote', headers=other).json()
-    assert quote['count'] == 4 and quote['free_count'] == 2 and quote['total_kopeks'] == 240
+    assert quote['count'] == 4 and quote['free_count'] == 2 and quote['total_kopeks'] == 330
     launch_body = {'request_id': uuid4().hex, 'free_scans_state': quote['free_scans_state']}
     run = client.post(path + '/runs', headers=other, json=launch_body).json()
     assert client.post(path + '/runs', headers=other, json=launch_body).json()['id'] == run['id']

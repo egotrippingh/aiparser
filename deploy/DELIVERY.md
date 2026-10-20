@@ -79,6 +79,22 @@ do not move environment secrets into unrestricted PR jobs as a workaround.
 
 ## VPS files and recovery
 
+### Check tariff from 20 October 2026
+
+New server runs and standalone check reservations cost 165 kopeks. Before activating
+the tariff release, remove the `CHECK_PRICE_KOPEKS` environment mapping from installed
+Compose. The application's versioned default then changes the price with its image:
+new image165, previous image120 on rollback. An old key in the host `.env` is unused.
+Image delivery does not install Compose changes. Keep a protected copy and use the
+release lock; do not restart the running application before normal backup/restore
+deployment. Verify resolved/running web environment has no price override and public
+`/api/v1/pricing` returns165 after activation. Confirmed server runs
+retain their snapshot price; older runs without a tariff snapshot retain 120.
+Existing reservations settle at their recorded price. Paused scans require
+«Продолжить» after sufficient top-up; completed checks are not repeated.
+
+### Runtime files
+
 - `/opt/airate/deploy/.env`: secrets, mode 0600; never in Git or the image.
 - `/usr/local/sbin/airate-ssh-gate`: restricted SSH entry point, root-owned.
 - `/usr/local/sbin/airate-release`: deployment and rollback, root-owned.
