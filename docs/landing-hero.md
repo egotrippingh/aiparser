@@ -11,9 +11,11 @@ card details, gradients, logos and sparkles are embedded in the Lottie JSON.
 The desktop background is the original Figma SVG. Narrow or portrait screens use
 source-color radial gradients without texture. Portrait viewports use the tall
 composition; landscape viewports use the wide one. The existing header is more
-compact on the landing page only. Its measured height is subtracted from 100dvh,
-so the header and hero together fill one viewport. Artwork fits the remaining
-space without cropping; the next section begins at the bottom of the first screen.
+compact on the landing page only. Its measured height is subtracted from 100svh,
+so the header and hero together fill the viewport with browser controls expanded.
+This stable height prevents artwork rescaling as mobile browser bars hide/reappear
+during scrolling; actual window resizing and rotation still adapt the layout.
+Artwork fits the remaining space without cropping.
 
 Both 60fps compositions loop in 12 seconds. Scanners finish before data reaches
 the report; checks accumulate to 3, 9 and 12 of 15 square cells. Percentages,
