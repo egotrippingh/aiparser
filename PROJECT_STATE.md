@@ -20,8 +20,9 @@ Updated 2026-10-20. Repository: `egotrippingh/aiparser`; deployment branch: `pro
   are rejected. Pause/top-up/manual-resume regression passes, including insufficient
   164 and exact 165, no repeated work/debits. Independent money review passed.
   125 frontend tests, lint/build and desktop/mobile quote UI passed; full server
-  suite and delivery are pending. Install protected VPS env/Compose tariff before
-  activation and verify live pricing165. No migration or recompute80 change.
+  suite and delivery are pending. Remove the installed Compose tariff override
+  before activation so image rollback also rolls back price; verify live pricing165.
+  No migration or recompute80 change.
 
 ## Architecture and operating rules
 
