@@ -4,19 +4,20 @@ Updated 2026-10-20. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
-- Published and readiness verified: [PR #75](https://github.com/egotrippingh/aiparser/pull/75),
-  `08053d4fcd4aa26d95952c2adb8ba23b44ff06a8`. Production CI and exact public
-  readiness match. Shared projects, owner/editor/viewer roles and owner-funded
-  scans are included. [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39321679472).
-- Earlier cabinet, documentation, SEO, auth and deployment work remains included.
+- Published and verified: [PR #77](https://github.com/egotrippingh/aiparser/pull/77),
+  `304260aa4d80145b1c0d68ac3a9914a60a5e7aff`. Responsive Lottie hero, original
+  Figma artwork, texture-free mobile gradient, one CTA and static fallback.
+  Production CI, backup/isolated restore, exact readiness, four artwork hashes,
+  ten entry assets and live browser rendering passed.
+  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39333805953).
+- Shared projects (#75), cabinet, documentation, SEO and auth remain included.
 
 ## Prepared work
 
-- Approved responsive Lottie hero implemented in `codex/landing-lottie`, not yet
-  published. Original Figma artwork, mobile background without texture, one CTA,
-  12-second scan/data/report loop, pause and reduced-motion fallback.
-  125 frontend tests, lint/build and independent review passed.
-  [Implementation and checks](docs/landing-hero.md).
+- Prepared on `codex/hero-viewport` from production `304260a`: remove pause UI,
+  compact the landing header, and fit header + hero to one dynamic viewport.
+  Portrait/landscape compositions fit the remaining height without cropping.
+  [Implementation and checks](docs/landing-hero.md). Not yet published.
 
 ## Architecture and operating rules
 
@@ -47,6 +48,5 @@ Updated 2026-10-20. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Deliver the approved responsive hero through a reviewed PR into production, then
-verify exact public readiness and artwork assets. Publication is authorized for
-this hero. Retain backup, isolated restore, migration and rollback gates.
+Deliver the requested viewport adjustment through a PR into production, then
+verify the exact release and live layout. Retain existing delivery gates.

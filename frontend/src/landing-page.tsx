@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import { useEffect, useRef, type ReactNode } from "react"
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -97,8 +97,19 @@ function ReportPreview() {
 }
 
 export function LandingPage() {
+  const page = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const root = page.current
+    const header = root?.querySelector<HTMLElement>(".sh-header")
+    if (!root || !header) return
+    const measure = () => root.style.setProperty("--landing-header-height", `${header.getBoundingClientRect().height}px`)
+    const observer = new ResizeObserver(measure)
+    observer.observe(header)
+    measure()
+    return () => observer.disconnect()
+  }, [])
   return (
-    <div className="landing" id="top">
+    <div className="landing" id="top" ref={page}>
       <PublicSiteHeader/>
 
       <main>
