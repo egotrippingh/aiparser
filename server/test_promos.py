@@ -186,9 +186,9 @@ def test_stream_stop_settles_free_and_paid_and_refunds_unstarted(tmp_path, monke
         assert len(db.scalars(select(CloudResult)).all()) == 3
         checks = db.scalars(select(Check)).all()
         assert sorted((c.status, c.price_kopeks) for c in checks) == [
-            ('released', 0), ('settled', 0), ('settled', 120)]
+            ('released', 0), ('settled', 0), ('settled', 165)]
         assert db.get(FreeScanBalance, (user_id, 'google_aio')).remaining == 1
-        assert db.get(Wallet, user_id).balance_kopeks == 380
+        assert db.get(Wallet, user_id).balance_kopeks == 335
         assert len(db.scalars(select(LedgerEntry)).all()) == 1
 
 

@@ -175,7 +175,7 @@ def test_run_created_while_paused_never_admits_after_resume(tmp_path, monkeypatc
     assert created.status_code == 201, created.text
     project = created.json()
     with sessions() as db:
-        db.get(Wallet, user_id).balance_kopeks = 120
+        db.get(Wallet, user_id).balance_kopeks = 165
         account = db.get(ProviderAccount, 'chatgpt')
         account.paused, account.last_paused_at = True, utcnow()
         db.commit()
@@ -252,7 +252,7 @@ def test_late_pause_waits_for_release_before_retrying_next_service(tmp_path, mon
     client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, admin=False)
     project, run = project_and_run(client, owner, services=('chatgpt', 'perplexity'), legacy=False)
     with sessions() as db:
-        db.get(Wallet, user_id).balance_kopeks = 120
+        db.get(Wallet, user_id).balance_kopeks = 165
         db.commit()
     original = provider_tasks.skip_if_paused
     paused = False
@@ -447,7 +447,7 @@ def test_expired_task_recovers_new_checks_after_cooldown(tmp_path, monkeypatch):
     with sessions() as db:
         task = db.scalar(select(ProviderTask))
         assert task.state == 'completed'
-        assert db.get(Wallet, user_id).balance_kopeks == 380
+        assert db.get(Wallet, user_id).balance_kopeks == 335
         assert len(db.scalars(select(Check)).all()) == 1
         assert db.get(ControlRun, run['id']).state == 'done'
         assert json.loads(task.history_json) == [{'task_id': 'task-1', 'state': 'expired'}]
@@ -566,7 +566,7 @@ def test_postgres_late_expired_answer_cannot_overwrite_new_owner(tmp_path, monke
         db.commit()
     assert tick(sessions, supplier)
     with sessions() as db:
-        assert db.get(Wallet, user_id).balance_kopeks == 380
+        assert db.get(Wallet, user_id).balance_kopeks == 335
         assert len(db.scalars(select(Check)).all()) == 1
         assert db.scalar(select(CloudResult)).status == 'found'
 
@@ -761,7 +761,7 @@ def test_known_failed_task_retries_without_error_report_or_double_client_charge(
     assert tick(sessions,supplier)
     with sessions() as db:
         assert db.get(ControlRun,run['id']).state == 'done'
-        assert db.get(Wallet,user_id).balance_kopeks == 380
+        assert db.get(Wallet,user_id).balance_kopeks == 335
         assert db.scalar(select(Check)).status == 'settled'
         assert db.scalar(select(CloudResult)).status == 'found'
         assert db.scalar(select(ProviderTask)).attempts == 2
@@ -806,7 +806,7 @@ def test_failed_tasks_recover_after_three_attempts_with_cooldown_and_one_charge(
     assert not tick(sessions, supplier)
     with sessions() as db:
         assert db.get(ControlRun, run["id"]).state == "done"
-        assert db.get(Wallet, user_id).balance_kopeks == 380
+        assert db.get(Wallet, user_id).balance_kopeks == 335
         assert len(db.scalars(select(Check)).all()) == 1
         assert db.scalar(select(Check)).status == "settled"
         assert db.scalar(select(ProviderTask)).attempts == 4

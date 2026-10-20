@@ -63,7 +63,7 @@ def test_cancelled_live_reserved_and_settled_replay_is_idempotent(tmp_path):
     for endpoint in ('analyze', 'arbitrate'):
         assert client.post(f'/api/v1/checks/{keys[0]}/{endpoint}', headers=devices[0], json=body).status_code == 200
     assert ai.calls == 1 and ai.arbiter_calls == 1
-    assert client.get('/api/v1/wallet', headers=owners[0]).json()['balance_kopeks'] == 9880
+    assert client.get('/api/v1/wallet', headers=owners[0]).json()['balance_kopeks'] == 9835
     with sessions() as db:
         run = db.get(ControlRun, run_id)
         run.state = 'paused'
