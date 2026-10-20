@@ -33,22 +33,27 @@ a:focus-visible, summary:focus-visible { outline: 3px solid var(--air-accent); o
 .header-cta:hover { background: var(--air-accent); transform: translateY(-2px); }
 .mobile-nav { display: none; }
 
-.hero { position: relative; color: #080808; background: #fff url("./assets/landing/figma-background.svg") center / cover; }
+.landing .sh-header { height: auto; min-height: 52px; }
+.landing .sh-inner { height: auto; min-height: 52px; padding-block: 4px; row-gap: 4px; }
+.hero { position: relative; display: flex; flex-direction: column; height: calc(100dvh - var(--landing-header-height, 52px)); min-height: 0; overflow: hidden; color: #080808; background: #fff url("./assets/landing/figma-background.svg") center / cover; }
 .hero-intro { padding: 24px 16px 0; text-align: center; font-family: Arial, sans-serif; }
 .hero h1 { margin: 0; font-size: clamp(28px, 2.72vw, 35px); font-weight: 500; letter-spacing: -.8px; line-height: 1.02; }
 .hero-try { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 44px; margin-top: 22px; padding: 11px 17px; border-radius: 24px; background: #000; color: #fff; font-size: 13px; }
 .hero-try:hover { background: #282828; }
-.hero-animation { max-width: 1212px; margin-inline: auto; }
-.hero-artwork { position: relative; width: 100%; aspect-ratio: 1000 / 400; }
+.hero-intro { flex-shrink: 0; }
+.hero-animation { flex: 1; min-height: 0; width: 100%; }
+.hero-artwork { position: relative; width: 100%; height: 100%; }
 .hero-still, .hero-still img, .hero-lottie { position: absolute; inset: 0; width: 100%; height: 100%; }
 .hero-still img { display: block; object-fit: contain; }
 .hero-lottie { visibility: hidden; }
 .hero-artwork.is-ready .hero-still { visibility: hidden; }
 .hero-artwork.is-ready .hero-lottie { visibility: visible; }
-.hero-playback { display: flex; align-items: center; justify-content: flex-end; min-height: 48px; padding: 0 16px 4px; }
-.hero-playback button { min-height: 44px; padding: 8px 12px; border: 0; border-radius: 8px; background: #ffffffc9; color: #45372e; font: 12px Arial, sans-serif; cursor: pointer; }
-.hero-playback button:focus-visible { outline: 2px solid #45372e; outline-offset: 2px; }
-@media (max-width: 680px) {
+@media (max-width: 700px) {
+  .landing { --landing-header-height: 95px; }
+  .landing .sh-guest-nav { flex-wrap: nowrap; justify-content: flex-start; gap: 16px; overflow-x: auto; scrollbar-width: none; }
+  .landing .sh-guest-nav a { flex-shrink: 0; min-height: 32px; white-space: nowrap; }
+}
+@media (max-width: 680px), (max-aspect-ratio: 1/1) {
   .hero { background-image:
     radial-gradient(ellipse 90% 46% at 48% 12%,#fff 28%,#ffffff00 100%),
     radial-gradient(ellipse 90% 46% at 118% 24%,#fedc86 0%,#fedc8600 100%),
@@ -57,8 +62,13 @@ a:focus-visible, summary:focus-visible { outline: 3px solid var(--air-accent); o
     radial-gradient(ellipse 80% 30% at 0% 110%,#fedc86 0%,#fedc8600 100%); }
   .hero h1 { font-size: 28px; line-height: 1.1; letter-spacing: -.5px; }
   .hero-try { margin-top: 20px; padding: 13px 24px; font-size: 16px; }
-  .hero-animation { max-width: 480px; }
-  .hero-artwork { aspect-ratio: 390 / 560; margin-top: 20px; }
+  .hero-animation { padding-top: 20px; }
+}
+@media (max-height: 500px) {
+  .hero-intro { padding-top: 8px; }
+  .hero h1 { font-size: 22px; }
+  .hero-try { margin-top: 8px; min-height: 44px; padding: 8px 16px; font-size: 13px; }
+  .hero-animation { padding-top: 4px; }
 }
 
 .button { display: inline-flex; align-items: center; justify-content: center; gap: 21px; min-height: 54px; padding: 0 21px; border: 1px solid transparent; border-radius: 12px; font-size: 14px; font-weight: 800; transition: background .2s ease, transform .2s ease, border-color .2s ease; }

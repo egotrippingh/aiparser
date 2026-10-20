@@ -19,7 +19,7 @@ beforeEach(() => {
   mobile = new Media()
   reduced = new Media()
   events = {}
-  vi.stubGlobal("window", { matchMedia: (query: string) => query.includes("max-width") ? mobile : reduced })
+  vi.stubGlobal("window", { matchMedia: (query: string) => query.includes("prefers-reduced-motion") ? reduced : mobile })
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ w: 1000 }) }))
   loadAnimation.mockReturnValue(item)
 })

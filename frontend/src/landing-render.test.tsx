@@ -14,4 +14,6 @@ it("renders the actual homepage without browser globals or private account data"
   expect(html).toContain('src="/assets/landing/hero-desktop-static-v13.webp"')
   expect(html).toContain('srcSet="/assets/landing/hero-mobile-static-v13.webp"')
   expect(html).not.toContain('/src/assets/')
+  expect(html).not.toContain('hero-playback')
+  expect(html).not.toContain('Приостановить анимацию')
 })
