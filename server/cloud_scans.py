@@ -623,6 +623,8 @@ async def _cloud_tick(sessions, ai_client, price, collector_factory,
     if not claim:
         return False
     run_id, token, snapshot = claim
+    # Runs created before tariff snapshots used 120 kopeks; never reprice a confirmed run.
+    price = snapshot.get("check_price_kopeks", 120)
     with sessions() as db:
         run = _owned_locked(db, run_id, token)
         if run:

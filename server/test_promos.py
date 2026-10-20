@@ -202,7 +202,7 @@ def test_quote_free_reservation_cancel_and_stale_quote(tmp_path, monkeypatch):
     project = client.post('/api/v1/control/projects', headers=other, json=body).json()
     path = f"/api/v1/control/projects/{project['id']}"
     quote = client.get(path + '/quote', headers=other).json()
-    assert quote['count'] == 4 and quote['free_count'] == 2 and quote['total_kopeks'] == 240
+    assert quote['count'] == 4 and quote['free_count'] == 2 and quote['total_kopeks'] == 330
     launch_body = {'request_id': uuid4().hex, 'free_scans_state': quote['free_scans_state']}
     run = client.post(path + '/runs', headers=other, json=launch_body).json()
     assert client.post(path + '/runs', headers=other, json=launch_body).json()['id'] == run['id']

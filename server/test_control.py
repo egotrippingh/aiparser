@@ -55,6 +55,34 @@ def setup(tmp_path):
     return client, owner, other, devices, url
 
 
+def test_price_change_rejects_stale_quote_and_freezes_confirmed_run(tmp_path, monkeypatch):
+    monkeypatch.setenv('CHECK_PRICE_KOPEKS', '120')
+    old, owner, _, _, url = setup(tmp_path)
+    project = old.post('/api/v1/control/projects', headers=owner, json={
+        'name': 'Tariff', 'brand_name': 'Brand', 'queries': [{'text': 'question'}],
+        'config': {'services': ['chatgpt']}}).json()
+    path = f"/api/v1/control/projects/{project['id']}"
+    old_quote = old.get(path + '/quote', headers=owner).json()
+    assert old_quote['unit_kopeks'] == old_quote['total_kopeks'] == 120
+    body = {'request_id': uuid.uuid4().hex, 'revision': old_quote['revision'],
+            'provider_state': old_quote['provider_state'], 'free_scans_state': old_quote['free_scans_state']}
+
+    monkeypatch.delenv('CHECK_PRICE_KOPEKS')
+    current = TestClient(create_app(database_url=url))
+    rejected = current.post(path + '/runs', headers=owner, json=body)
+    assert rejected.status_code == 409 and 'Проверьте сумму' in rejected.json()['detail']
+    assert current.get('/api/v1/control/runs', headers=owner).json() == []
+    quote = current.get(path + '/quote', headers=owner).json()
+    assert quote['unit_kopeks'] == quote['total_kopeks'] == 165
+    launched = current.post(path + '/runs', headers=owner,
+        json={**body, 'provider_state': quote['provider_state'], 'check_price_kopeks': 1})
+    assert launched.status_code == 201, launched.text
+    with current.app.state.payment_sessions() as db:
+        assert json.loads(db.get(ControlRun, launched.json()['id']).snapshot_json)['check_price_kopeks'] == 165
+    # Retrying the original request retrieves its run without creating or repricing it.
+    assert current.post(path + '/runs', headers=owner, json=body).json()['id'] == launched.json()['id']
+
+
 def test_runs_keep_old_active_checks_outside_recent_history_limit(tmp_path):
     client, owner, other, devices, _ = setup(tmp_path)
     project = client.post('/api/v1/control/projects', headers=owner, json={
@@ -274,12 +302,13 @@ def test_schedule_runs_on_server_and_deduplicates(tmp_path):
     schedule_tick(sessions, before)
     assert client.get('/api/v1/control/runs', headers=owner).json() == []
     due = before + timedelta(minutes=1)
-    schedule_tick(sessions, due); schedule_tick(sessions, due)
+    schedule_tick(sessions, due, check_price_kopeks=175); schedule_tick(sessions, due)
     with sessions() as db:
         rows = list(db.scalars(select(ControlRun)))
         assert len(rows) == 1
         assert rows[0].device_id is None and rows[0].phase == 'cloud'
         assert rows[0].project_id == project['id']
+        assert json.loads(rows[0].snapshot_json)['check_price_kopeks'] == 175
     assert client.post('/api/v1/control/agent/poll', headers=devices[0], json={}).json()['run'] is None
     # Server work is independent of PC presence and is not marked missed.
     schedule_tick(sessions, due + timedelta(hours=25))

@@ -44,7 +44,7 @@ function Cabinet() {
   const [user, setUser] = useState<User | null>(null)
   const [wallet, setWallet] = useState<Wallet | null>(null)
   const [payments, setPayments] = useState<Payment[]>([])
-  const [price, setPrice] = useState(120)
+  const [price, setPrice] = useState(165)
   const [minimum, setMinimum] = useState(30000)
   const [resetToken, setResetToken] = useState(() => new URLSearchParams(location.hash.slice(1)).get("reset_token") || "")
   const [registrationTicket, setRegistrationTicket] = useState(() => new URLSearchParams(location.hash.slice(1)).get("registration_ticket") || "")
