@@ -260,6 +260,18 @@ def overview_report(db, project, options):
                 'baseline_complete': complete, 'baseline_from': baseline_start.isoformat() if baseline_start else None,
                 'baseline_to': baseline_end.isoformat() if baseline_end else None}
 
+    scan_dates = sorted({row.scan_date for _, row in report['measurements']})
+    first_date, last_date = (scan_dates[0], scan_dates[-1]) if scan_dates else (None, None)
+    first, _, first_queries, _ = totals(report, first_date) if first_date else (empty_stats(), {}, {}, {})
+    last, _, last_queries, _ = totals(report, last_date) if last_date else (empty_stats(), {}, {}, {})
+
+    def period_trend(now, before):
+        return {**trend(now, before, len(scan_dates) > 1),
+                'baseline_from': first_date, 'baseline_to': first_date}
+
+    report['period_from'], report['period_to'] = first_date, last_date
+    report['period_trend'] = period_trend(last, first)
+
     complete = len({r.scan_date for _, r in baseline['measurements']}) == expected_days
     report['trend'] = trend(current, previous, complete)
     report['summary'] = current
@@ -267,6 +279,8 @@ def overview_report(db, project, options):
         len({r.scan_date for _, r in baseline['measurements'] if r.service == s}) == expected_days)
         for s in report['services']}
     for query in report['rows']:
+        query['period_trend'] = period_trend(last_queries.get(query['id'], empty_stats()),
+                                            first_queries.get(query['id'], empty_stats()))
         query['trend'] = trend(queries.get(query['id'], empty_stats()), previous_queries.get(query['id'], empty_stats()),
                               len(previous_days.get(query['id'], set())) == expected_days)
         query.setdefault('latest', {})

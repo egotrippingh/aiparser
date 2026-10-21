@@ -1,4 +1,4 @@
-"""Lost submission callbacks and bounded recovery, with fake providers only."""
+"""Lost submission callbacks and paced recovery, with fake providers only."""
 import asyncio
 import json
 import logging
@@ -92,11 +92,44 @@ def test_timed_out_unknown_retries_same_check_and_old_callback_is_ignored(tmp_pa
         assert len(db.scalars(select(Check)).all()) == 1
 
 
-def test_unknown_retry_budget_frees_slot_without_reposting_forever(tmp_path, monkeypatch):
+@pytest.mark.parametrize('state', ['uncertain', 'retry_exhausted'])
+@pytest.mark.parametrize('use_postgres', [False, True])
+def test_complete_run_recovers_after_three_unknown_submissions(
+        tmp_path, monkeypatch, request, state, use_postgres):
+    url = request.getfixturevalue('postgres_url') if use_postgres else None
+    client, _, _, user_id, sessions, project, run = create(
+        tmp_path, monkeypatch, admin=False, database_url=url)
+    task = intent(sessions, run, project, state=state, old=True)
+    with sessions() as db:
+        db.get(ProviderTask, task.check_id).attempts = 3
+        db.commit()
+    supplier = Supplier()
+    if state == 'retry_exhausted':
+        provider_tasks.recover_scrapeless(sessions)
+        with sessions() as db:
+            assert db.get(ProviderTask, task.check_id).state == 'retry_exhausted'
+    assert tick(sessions, supplier)
+    assert len(supplier.posts) == 1
+    assert callback(client, task).status_code == 404
+    with sessions() as db:
+        assert db.get(ProviderTask, task.check_id).state == 'completed'
+        assert db.get(ProviderTask, task.check_id).attempts == 4
+        assert db.get(ControlRun, run['id']).state == 'done'
+        assert json.loads(db.get(ControlRun, run['id']).progress_json)['cloud_done'] == 1
+        assert db.get(Wallet, user_id).balance_kopeks == 380
+        assert len(db.scalars(select(Check)).all()) == 1
+        assert len(db.scalars(select(CloudResult)).all()) == 1
+
+
+def test_legacy_unknown_submission_still_requires_reconciliation(tmp_path, monkeypatch):
     _, _, _, _, sessions, project, run = create(tmp_path, monkeypatch)
     task = intent(sessions, run, project, old=True)
     with sessions() as db:
         db.get(ProviderTask, task.check_id).attempts = 3
+        current = db.get(ControlRun, run['id'])
+        snapshot = json.loads(current.snapshot_json)
+        snapshot.pop('collection_policy')
+        current.snapshot_json = json.dumps(snapshot)
         db.commit()
     supplier = Supplier()
     assert tick(sessions, supplier)
@@ -150,10 +183,12 @@ def test_early_callback_survives_post_outcomes(tmp_path, monkeypatch, outcome):
 
 
 @pytest.mark.parametrize('desired', ['paused', 'cancelled'])
-def test_timed_out_task_respects_pause_and_stop(tmp_path, monkeypatch, desired):
+@pytest.mark.parametrize('state', ['uncertain', 'retry_exhausted'])
+def test_timed_out_task_respects_pause_and_stop(tmp_path, monkeypatch, desired, state):
     _, _, _, _, sessions, project, run = create(tmp_path, monkeypatch)
-    task = intent(sessions, run, project, old=True)
+    task = intent(sessions, run, project, state=state, old=True)
     with sessions() as db:
+        db.get(ProviderTask, task.check_id).attempts = 3
         db.get(ControlRun, run['id']).desired_state = desired
         db.commit()
     provider_tasks.recover_scrapeless(sessions)
@@ -161,7 +196,7 @@ def test_timed_out_task_respects_pause_and_stop(tmp_path, monkeypatch, desired):
     tick(sessions, supplier)
     assert supplier.posts == []
     with sessions() as db:
-        assert db.get(ProviderTask, task.check_id).state == ('skipped' if desired == 'cancelled' else 'rejected')
+        assert db.get(ProviderTask, task.check_id).state == ('skipped' if desired == 'cancelled' else 'retry_exhausted' if state == 'retry_exhausted' else 'rejected')
 
 
 def test_live_submitting_owner_is_not_replaced(tmp_path, monkeypatch):
@@ -176,24 +211,43 @@ def test_live_submitting_owner_is_not_replaced(tmp_path, monkeypatch):
         assert saved.state == 'submitting' and saved.submission_token == task.submission_token
 
 
-def test_three_lost_confirmations_stop_reposting_and_release_capacity(tmp_path, monkeypatch):
-    _, _, _, _, sessions, project, run = create(tmp_path, monkeypatch)
+def test_lost_confirmations_keep_retrying_with_cooldown_and_one_charge(tmp_path, monkeypatch):
+    _, _, _, user_id, sessions, project, run = create(tmp_path, monkeypatch, admin=False)
     task = intent(sessions, run, project, old=True)
     supplier = Supplier()
     supplier.unknown = True
-    for _ in range(2):
+    with sessions() as db:
+        db.get(ProviderTask, task.check_id).history_json = json.dumps(
+            [{'task_id': None, 'state': 'uncertain'}] * 32)
+        db.commit()
+    for _ in range(4):
         assert tick(sessions, supplier)
+        with sessions() as db:
+            assert db.get(ProviderTask, task.check_id).state == 'uncertain'
+            assert db.scalar(select(CloudResult)) is None
+            assert db.get(Wallet, user_id).balance_kopeks == 500
+            db.get(ControlRun, run['id']).retry_at = None
+            db.commit()
+        posts = len(supplier.posts)
+        assert tick(sessions, supplier)
+        assert len(supplier.posts) == posts  # No immediate duplicate POST.
         with sessions() as db:
             db.get(ProviderTask, task.check_id).updated_at = utcnow() - timedelta(minutes=16)
             db.get(ControlRun, run['id']).lease_until = utcnow() - timedelta(seconds=1)
             db.get(ControlRun, run['id']).retry_at = utcnow() - timedelta(seconds=1)
             db.commit()
+    supplier.unknown = False
     assert tick(sessions, supplier)
-    assert len(supplier.posts) == 2  # The original intent was attempt one.
+    assert len(supplier.posts) == 5  # The original intent was attempt one.
     with sessions() as db:
         saved = db.get(ProviderTask, task.check_id)
-        assert saved.attempts == 3 and saved.state == 'retry_exhausted'
-        assert db.scalar(select(CloudResult)) is None
+        assert saved.attempts == 6 and saved.state == 'completed'
+        assert len(json.loads(saved.history_json)) == 32
+        assert db.get(ControlRun, run['id']).state == 'done'
+        assert db.get(Wallet, user_id).balance_kopeks == 380
+        assert len(db.scalars(select(Check)).all()) == 1
+        assert db.scalar(select(Check)).status == 'settled'
+        assert len(db.scalars(select(CloudResult)).all()) == 1
 
 
 def test_postgres_callback_and_timeout_are_serialized(tmp_path, monkeypatch, postgres_url):

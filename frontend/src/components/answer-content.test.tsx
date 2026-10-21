@@ -1,6 +1,6 @@
 import { expect, it } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
-import { AnswerContent, ResultIssue, SourceList, sourcesOf, renderedSources } from "./answer-content"
+import { AnswerContent, ResultIssue, SourceList, sourceLabel, sourcesOf, renderedSources } from "./answer-content"
 import { publicError } from "../lib/public-error"
 
 it("keeps collection suppliers private in historical errors", () => {
@@ -44,6 +44,26 @@ it("only hides the confirmed ChatGPT map prefix and keeps its saved text availab
   expect(html).not.toContain('<p>4.9')
   expect(html).toContain('Исходный текст')
   expect(renderToStaticMarkup(<AnswerContent text={'4.9\nBudget 5-7\nUseful prose'} service="chatgpt"/>)).toContain('4.9')
+})
+
+it("normalizes escaped prose and strong tags without interpreting HTML or code", () => {
+  const html = renderToStaticMarkup(<AnswerContent text={'1\\. Пункт <strong>важный</strong> — интернет\\-магазин\\: пример\n\n`<strong>code</strong> \\:`\n\n<script>keep</script>'}/>)
+  expect(html).toContain('<ol start="1"><li value="1">Пункт <strong>важный</strong> — интернет-магазин: пример</li></ol>')
+  expect(html).toContain('<code>&lt;strong&gt;code&lt;/strong&gt; \\:</code>')
+  expect(html).toContain('&lt;script&gt;keep&lt;/script&gt;')
+})
+
+it("moves Yandex source tails to the shared list and keeps readable safe labels", () => {
+  const sources = ['https://пример.рф/%D1%82%D0%BE%D0%B2%D0%B0%D1%80#:~:text=%D1%84%D1%80%D0%B0%D0%B3%D0%BC%D0%B5%D0%BD%D1%82']
+  const text = 'Ответ с [ссылкой](https://other.test/item)\n\nИсточники:\n- https://пример.рф/%D1%82%D0%BE%D0%B2%D0%B0%D1%80#:~:text=%D1%84%D1%80%D0%B0%D0%B3%D0%BC%D0%B5%D0%BD%D1%82'
+  const html = renderToStaticMarkup(<><AnswerContent text={text} service="yandex_neuro" sources={sources}/><SourceList sources={renderedSources(text, sources, "yandex_neuro")}/></>)
+  expect(html).toContain('Ответ с')
+  const display = html.split('<details')[0]
+  expect(display).not.toContain('Источники:')
+  expect(html).toContain('пример.рф/товар')
+  expect(display).not.toContain(':~:text')
+  expect(renderedSources(text, sources, "yandex_neuro")).toEqual(sources)
+  expect(sourceLabel(sources[0])).toBe('пример.рф/товар')
 })
 
 it("uses saved source URLs only for unambiguous bare domains and keeps code literal", () => {
@@ -182,6 +202,22 @@ it("keeps an unused reference definition when it is the only source text", () =>
   expect(html).toContain('>unused</a>: <a href="https://unique.test/a"')
 })
 
+
+it("preserves Yandex prose after a sources heading and source examples inside code", () => {
+  const source = "https://source.test/"
+  const text = `Ответ\n\nИсточники\n${source}\nЗаключение остаётся.\n\n\`\`\`text\nSources\n${source}\n\`\`\``
+  const html = renderToStaticMarkup(<AnswerContent text={text} sources={[source]} service="yandex_neuro"/>)
+  expect(html).toContain("Заключение остаётся.")
+  expect(html).toContain(`<pre><code>Sources\n${source}</code></pre>`)
+})
+
+it("decodes saved IDN hostnames for display while preserving the punycode href", () => {
+  const source = "https://xn--e1afmkfd.xn--p1ai/%D1%82%D0%B5%D1%81%D1%82#:~:text=long"
+  expect(sourceLabel(source)).toBe("пример.рф/тест")
+  const html = renderToStaticMarkup(<SourceList sources={[source]}/>)
+  expect(html).toContain(`href="${source}"`)
+  expect(html).toContain(">пример.рф/тест</a>")
+})
 
 it("keeps collection failures actionable without desktop setup", () => {
   for (const status of ["auth_required", "captcha", "limit_reached", "error"]) {

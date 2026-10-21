@@ -1,6 +1,6 @@
 import { createElement, Fragment, useRef, useState, type ReactNode } from "react"
 import { ChevronLeft, ChevronRight, ImageOff } from "lucide-react"
-import { AnswerContent, renderedSources, sourcesOf } from "./answer-content"
+import { AnswerContent, renderedSources, sourceLabel, sourcesOf } from "./answer-content"
 import { highlightedText, brandLink, type BrandHighlight } from "./brand-highlight"
 import "./answer-evidence.css"
 
@@ -56,6 +56,7 @@ export function evidenceSources(evidence: AnswerEvidence, sources: string[], ser
   const add = (value?: string) => { const safe = sourcesOf(value ? [value] : [])[0]; if (safe) rendered.add(new URL(safe).href) }
   const walk = (nodes: AnswerNode[]) => nodes.forEach(node => { if (typeof node !== "string") { if (node.tag === "a") add(node.href); walk(node.children) } })
   if (evidence.format === "markdown") return renderedSources(evidence.answer_text || "", sources, service)
+  if (service === "yandex_neuro") return sourcesOf(sources)
   walk(evidence.content)
   evidence.products.forEach(product => add(product.url))
   evidence.source_cards.forEach(card => add(card.url))
@@ -64,7 +65,7 @@ export function evidenceSources(evidence: AnswerEvidence, sources: string[], ser
 
 export function HighlightedSources({ sources, brand }: { sources: string[]; brand?: BrandHighlight }) {
   const values = sourcesOf(sources)
-  return values.length ? <ol className="answer-sources">{values.map(value => <li key={value}><AnswerLink href={value} brand={brand}>{highlightedText(value, brand)}</AnswerLink></li>)}</ol> : <p className="answer-note">Сохранённых ссылок на источники нет.</p>
+  return values.length ? <ol className="answer-sources">{values.map(value => <li key={value}><AnswerLink href={value} brand={brand}>{highlightedText(sourceLabel(value), brand)}</AnswerLink></li>)}</ol> : <p className="answer-note">Сохранённых ссылок на источники нет.</p>
 }
 
 export function EvidenceSources({ evidence, sources, answerText, service, brand }: { evidence?: AnswerEvidence | null; sources: string[]; answerText?: string | null; service?: string; brand?: BrandHighlight }) {
