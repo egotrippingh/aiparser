@@ -41,6 +41,53 @@ def seed_report(tmp_path):
     return client, owner, other, devices, project, ids, url
 
 
+def test_period_change_uses_actual_first_and_last_scans_not_calendar_edges_or_window(tmp_path):
+    client, owner, _, _, project, _, _ = seed_report(tmp_path)
+    path = f"/api/v1/control/projects/{project['id']}/mentions/overview"
+    params = {'date_from': '2026-08-31', 'date_to': '2026-09-05',
+              'services': 'google_aio', 'max_dates': 30, 'date_limit': 1}
+    data = client.get(path, headers=owner, params=params).json()
+    assert data['period_from'] == '2026-09-01'
+    assert data['period_to'] == '2026-09-03'
+    assert data['period_trend']['previous']['visibility_pct'] == 100
+    assert data['period_trend']['current']['visibility_pct'] == 0
+    assert data['period_trend']['delta'] == -100
+    assert data['rows'][0]['period_trend']['delta'] == -100
+    assert data['rows'][1]['period_trend']['delta'] == -100
+    assert data['rows'][2]['period_trend']['delta'] is None
+    older = client.get(path, headers=owner, params={**params, 'date_offset': 1}).json()
+    assert older['period_trend'] == data['period_trend']
+    assert older['rows'][0]['period_trend'] == data['rows'][0]['period_trend']
+    compared = client.get(path, headers=owner, params={**params,
+        'date_from': '2026-09-01', 'date_to': '2026-09-03', 'compare': True}).json()
+    assert compared['trend']['delta'] == data['period_trend']['delta']
+    assert compared['rows'][0]['trend']['delta'] == data['rows'][0]['period_trend']['delta']
+
+
+def test_period_change_needs_two_scans_and_keeps_missing_query_endpoint_unknown(tmp_path):
+    client, owner, _, _, project, ids, url = seed_report(tmp_path)
+    path = f"/api/v1/control/projects/{project['id']}/mentions/overview"
+    single = client.get(path, headers=owner, params={
+        'date_from': '2026-09-01', 'date_to': '2026-09-01'}).json()
+    assert single['period_trend']['delta'] is None
+    assert all(row['period_trend']['delta'] is None for row in single['rows'])
+    empty = client.get(path, headers=owner, params={
+        'date_from': '2026-09-02', 'date_to': '2026-09-02'}).json()
+    assert empty['period_from'] is empty['period_to'] is None
+    assert empty['period_trend']['delta'] is None
+    with make_session_factory(url)[1]() as db:
+        db.get(CloudResult, ids[2]).scan_date = '2026-09-02'
+        db.commit()
+    missing = client.get(path, headers=owner, params={
+        'date_from': '2026-09-01', 'date_to': '2026-09-03'}).json()
+    assert missing['rows'][1]['period_trend']['delta'] is None
+    picked = client.get(path, headers=owner, params={
+        'date_from': '2026-09-01', 'date_to': '2026-09-03',
+        'max_dates': 30, 'report_dates': '2026-09-02,2026-09-03'}).json()
+    assert picked['period_from'] == '2026-09-02'
+    assert picked['period_to'] == '2026-09-03'
+
+
 def test_shared_viewer_reads_results_but_cannot_edit_feedback(tmp_path):
     client, owner, viewer, _, project, ids, url = seed_report(tmp_path)
     with make_session_factory(url)[1]() as db:

@@ -9,7 +9,7 @@ import time
 import uuid
 from datetime import timedelta, timezone
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
 
 from server.models import Check, ControlRun, ProviderAccount, ProviderTask, ServerCapture, User, utcnow
 from server.scrapeless import CollectionDeferred, Rejected, SubmissionUnknown
@@ -85,12 +85,12 @@ def admit(sessions, run_id, token, query_id, service, limit):
                 .values(revision=ProviderAccount.revision + 1)).rowcount:
             raise RuntimeError("Provider account migration is missing")
         task = db.get(ProviderTask, check_id)
-        if task and task.state not in ("rejected", "expired"):
+        if task and task.state not in ("rejected", "expired", "retry_exhausted"):
             db.commit()
             return task, False
         run = db.get(ControlRun, run_id)
         now = utcnow()
-        if task and task.state == "expired" and (not run or
+        if task and task.state in ("expired", "retry_exhausted") and (not run or
                 json.loads(run.snapshot_json).get("collection_policy") != "complete"):
             db.commit()
             return task, False
@@ -111,13 +111,13 @@ def admit(sessions, run_id, token, query_id, service, limit):
         if active >= limit:
             return None, False
         if task:
-            if task.attempts >= 3 or task.state == "expired":
+            if task.attempts >= 3 or task.state in ("expired", "retry_exhausted"):
                 if json.loads(run.snapshot_json).get("collection_policy") != "complete":
                     raise CollectionDeferred("Лимит попыток сбора исчерпан; требуется проверка администратора")
                 # Keep retrying new checks after a durable cooldown, without a paid retry storm.
                 if _aware(task.updated_at) + timedelta(minutes=15) > now:
                     raise CollectionDeferred("Сервис сбора временно недоступен; автоматическая перепроверка ожидает повторной попытки")
-            task.history_json = json.dumps([*json.loads(task.history_json),
+            task.history_json = json.dumps([*json.loads(task.history_json)[-31:],
                 {"task_id": task.task_id, "state": task.state}])
             task.attempts += 1
             task.state, task.task_id = "submitting", None
@@ -189,22 +189,25 @@ def recover_scrapeless(sessions):
             db.execute(update(ProviderAccount).where(ProviderAccount.service == service)
                 .values(revision=ProviderAccount.revision + 1))
             tasks = db.scalars(select(ProviderTask).where(ProviderTask.service == service,
-                ProviderTask.state.in_(('submitting', 'uncertain')),
+                or_(ProviderTask.state.in_(('submitting', 'uncertain')),
+                    and_(ProviderTask.state == 'retry_exhausted', select(ControlRun.id).where(
+                        ControlRun.id == ProviderTask.run_id, ControlRun.desired_state == 'cancelled').exists())),
                 ProviderTask.task_id.is_(None), ProviderTask.updated_at <= now - timedelta(minutes=15))).all()
             for task in tasks:
                 run = db.get(ControlRun, task.run_id)
                 if (task.state == 'submitting' and run and run.lease_token and run.lease_until
                         and _aware(run.lease_until) >= now):
                     continue
-                task.history_json = json.dumps([*json.loads(task.history_json),
+                eligible = (run and run.state in ('queued', 'running', 'paused') and
+                    json.loads(run.snapshot_json).get('collection_policy') == 'complete')
+                # Automatic retries keep only the latest 32 attempt transitions.
+                task.history_json = json.dumps([*json.loads(task.history_json)[-31:],
                     {'task_id': None, 'state': task.state}])
                 task.submission_token = uuid.uuid4().hex
                 if run and run.desired_state == 'cancelled':
                     _skip_and_release(db, run, task, task.check_id, task.query_id, service, now)
                 else:
-                    eligible = (run and run.state in ('queued', 'running', 'paused') and
-                        json.loads(run.snapshot_json).get('collection_policy') == 'complete')
-                    task.state = 'rejected' if eligible and task.attempts < 3 else 'retry_exhausted'
+                    task.state = 'rejected' if eligible else 'retry_exhausted'
             db.commit()
 
 
@@ -246,6 +249,7 @@ async def collect(sessions, client, run_id, token, query, service, country, limi
         task = db.get(ProviderTask, f"{run_id}:{query['id']}:{service}")
         complete = bool(task and task.state == "expired" and
             json.loads(db.get(ControlRun, run_id).snapshot_json).get("collection_policy") == "complete")
+        complete_policy = json.loads(db.get(ControlRun, run_id).snapshot_json).get("collection_policy") == "complete"
     fresh = False
     if complete:
         if _aware(task.updated_at) + timedelta(minutes=15) > utcnow():
@@ -261,7 +265,7 @@ async def collect(sessions, client, run_id, token, query, service, country, limi
             return payload
         if status not in ("expired", "failed"):
             raise CollectionDeferred("Созданная задача ожидает получения сохранённого ответа")
-    if task and task.state in ("rejected", "expired"):
+    if task and task.state in ("rejected", "expired", "retry_exhausted"):
         task = None
     admission_deadline = time.monotonic() + 5
     while task is None:
@@ -337,6 +341,8 @@ async def collect(sessions, client, run_id, token, query, service, country, limi
         if status in ("failed", "expired"):
             failed(sessions, task, expired=status == "expired", cooldown=0)
             raise CollectionDeferred("Сервис сбора не завершил задачу; запрос ожидает повторной обработки")
+        if complete_policy:
+            break  # Keep the accepted ID; let other runs use the worker while it waits.
         await asyncio.sleep(1)
     raise CollectionDeferred("Сервис сбора ещё не завершил задачу; получение продолжится по её идентификатору")
 

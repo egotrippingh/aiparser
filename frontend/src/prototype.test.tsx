@@ -4,11 +4,20 @@ import { ControlCenter, scanPercent, ScanProgress, ScheduleDays, runStatus } fro
 import { ProjectIcon, projectFavicon } from "./project-icon"
 import { choiceIndex } from "./app-choice"
 import { ReportChart, chartDays, chartIndex, linePath } from "./report-chart"
-import { reportRange, reportRows, reportSelection, trendText, trendTone, type Trend } from "./report-view"
+import { reportDisplayRows, reportRange, reportRows, reportSelection, trendText, trendTone, type Trend } from "./report-view"
 import { isCurrentService } from "./service-mark"
 import { LandingPage } from "./landing-page"
 
 afterEach(() => vi.unstubAllGlobals())
+
+it("opens the project list without project context or an icon rail", () => {
+  vi.stubGlobal("location", {hash:"#/projects"})
+  const html = renderToStaticMarkup(<ControlCenter token="test" email="owner@example.test" balance="0 ₽" admin={false} account={null} administration={null} message="" brandClarificationsEnabled={false} onDirtyChange={()=>{}} logout={()=>{}} walletChanged={()=>{}}/>)
+  expect(html).toContain('air-app projects-page')
+  expect(html).not.toContain('<aside class="sidebar">')
+  expect(html).toContain('<span>Выбрать проект</span>')
+  expect(html).toContain('aria-label="Поиск проекта"')
+})
 
 it("offers days 1–28 and a last-day flag without converting legacy dates", () => {
   const html = renderToStaticMarkup(<ScheduleDays days={[]} lastDay={true} change={()=>{}}/> )
@@ -104,7 +113,7 @@ it("limits saved report choices to the project's configured systems", () => {
 })
 
 it("keeps project tools in an accessible icon rail and account navigation in the header", () => {
-  vi.stubGlobal("location", {hash:"#/projects"})
+  vi.stubGlobal("location", {hash:"#/project/one/report"})
   const props = {token:"test",email:"owner@example.test",balance:"0 ₽",admin:false,account:<p>Wallet</p>,administration:<p>Private admin</p>,message:"",brandClarificationsEnabled:false,onDirtyChange:()=>{},logout:()=>{},walletChanged:()=>{}}
   const html = renderToStaticMarkup(<ControlCenter {...props}/>)
   const sidebar = html.match(/<aside class="sidebar">([\s\S]*?)<\/aside>/)![1]
@@ -205,6 +214,11 @@ it("filters the observable verdict, without counting excluded product cards as a
   expect(reportRows(rows,"not_found",false)).toEqual([rows[0],rows[2]])
   expect(reportRows(rows,"",true)[0]).toBe(rows[1])
   expect(rows[0].trend.current.visibility_pct).toBe(0)
+})
+
+it("keeps period mentions in the selected-period filter while showing endpoint trends", () => {
+  const row = {trend:{current:{found:1,checked:2}},period_trend:{current:{found:0,checked:1}},latest:{}} as unknown as Parameters<typeof reportRows>[0][number]
+  expect(reportDisplayRows([row],"found",false,false)).toEqual([{...row,trend:row.period_trend}])
 })
 
 it("filters comparison rows only by the two displayed dates", () => {

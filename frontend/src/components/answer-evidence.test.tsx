@@ -1,6 +1,6 @@
 import { expect, it } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
-import { AnswerEvidenceView, HighlightedSources, brandLink, safeProductImage } from "./answer-evidence"
+import { AnswerEvidenceView, HighlightedSources, brandLink, evidenceSources, safeProductImage } from "./answer-evidence"
 
 const brand = {names:["Tuvio","Тувио"],domains:["tuvio.test"]}
 it("formats supplier Markdown and highlights brand text and links safely", () => {
@@ -16,6 +16,11 @@ it("formats supplier Markdown and highlights brand text and links safely", () =>
 it("uses the same saved source context for Markdown evidence links", () => {
   const html = renderToStaticMarkup(<AnswerEvidenceView evidence={{format:"markdown",answer_text:"example.test/path",content:[],products:[],source_cards:[]}} sources={["https://example.test/path"]}/>)
   expect(html).toContain('href="https://example.test/path"')
+})
+it("keeps structured Yandex sources in the common source block", () => {
+  const source = "https://example.test/item#:~:text=fragment"
+  const evidence = {content:[{tag:"a",href:source,children:["Источник"]}],products:[],source_cards:[]}
+  expect(evidenceSources(evidence,[source],"yandex_neuro")).toEqual([source])
 })
 it("renders XML structure and red brand accents without injecting provider markup", () => {
   const html = renderToStaticMarkup(<AnswerEvidenceView brand={brand} evidence={{content:[{tag:"h2",children:["TUVIO и Тувио"]},{tag:"p",children:["Не tuvioshop. ",{tag:"a",href:"https://shop.tuvio.test/a",children:["Официальный сайт"]},{tag:"script",children:["alert(1)"]},{tag:"a",href:"javascript:alert(1)",children:["плохая ссылка"]}]}],products:[],source_cards:[]}}/> )

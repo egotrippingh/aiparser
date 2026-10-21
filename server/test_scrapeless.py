@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import event, select, update
 
 from server import provider_tasks, scrapeless
 from server.cloud_scans import _claim, _cloud_tick
@@ -530,6 +530,123 @@ def test_occupied_or_quota_service_yields_without_blocking_healthy_service(
         results = db.scalars(select(CloudResult)).all()
         assert len(results) == 2 and all(row.service == 'perplexity' for row in results)
         assert db.get(ControlRun, run['id']).lease_token is None
+
+
+@pytest.mark.parametrize('slow_service', ['google_aio', 'yandex_neuro', 'chatgpt', 'perplexity', 'gemini'])
+def test_slow_provider_does_not_delay_other_four_services(tmp_path, monkeypatch, slow_service):
+    from shared.xmlriver import XMLRiverClient
+    services = ('google_aio', 'yandex_neuro', 'chatgpt', 'perplexity', 'gemini')
+    _, _, _, _, sessions, _, run = create(tmp_path, monkeypatch, services=services)
+    engine = sessions.kw['bind']
+    engine.dispose()
+
+    @event.listens_for(engine, 'connect')
+    def fast_disposable_sqlite(connection, _):
+        connection.execute('PRAGMA synchronous=OFF')
+
+    async def scenario():
+        release = asyncio.Event()
+
+        async def xml_collect(self, prompt, *, should_continue=None):
+            if self.service_id == slow_service:
+                await release.wait()
+            return scrapeless.evidence({'result_text': '# Brand\n\n**Recommended** [source](https://brand.test)'})
+
+        class Slow(Supplier):
+            async def submit(self, service, prompt, country):
+                self.posts.append(service)
+                return service
+
+            async def poll(self, task_id):
+                if task_id == slow_service:
+                    await release.wait()
+                return await super().poll(task_id)
+
+        monkeypatch.setattr(XMLRiverClient, 'collect', xml_collect)
+        task = asyncio.create_task(_cloud_tick(sessions, None, 120, XMLRiverClient,
+            provider_client=Slow(), prefetch_limits={'google_aio': 1, 'yandex_neuro': 1}))
+        try:
+            async def healthy_finished():
+                while True:
+                    with sessions() as db:
+                        completed = set(db.scalars(select(CloudResult.service)))
+                    if completed == set(services) - {slow_service}:
+                        return
+                    await asyncio.sleep(.01)
+            await asyncio.wait_for(healthy_finished(), timeout=5)
+            assert not task.done()
+        finally:
+            release.set()
+            await asyncio.wait_for(task, timeout=5)
+        with sessions() as db:
+            assert db.get(ControlRun, run['id']).state == 'done'
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        event.remove(engine, 'connect', fast_disposable_sqlite)
+
+
+def test_pending_runs_yield_to_healthy_run_and_resume_without_reposting(tmp_path, monkeypatch):
+    from shared.xmlriver import XMLRiverClient
+    from server.test_cloud_scans import project_and_run
+    client, owner, _, _, sessions, _, first = create(tmp_path, monkeypatch, services=('gemini',))
+    slow_runs = [first]
+    for _ in range(3):
+        _, run = project_and_run(client, owner, services=('gemini',), legacy=False)
+        slow_runs.append(run)
+    _, healthy = project_and_run(client, owner, services=('google_aio',), legacy=False)
+
+    class Pending(Supplier):
+        pending = True
+        async def poll(self, task_id):
+            self.gets.append(task_id)
+            if self.pending:
+                return 'pending', None
+            return 'success', scrapeless.evidence({'result_text': '# Brand\n\n**Recommended** [source](https://brand.test)'})
+
+    async def xml_collect(self, prompt, *, should_continue=None):
+        return scrapeless.evidence({'result_text': '# Brand\n\n**Recommended** [source](https://brand.test)'})
+    monkeypatch.setattr(XMLRiverClient, 'collect', xml_collect)
+    supplier = Pending()
+    supplier.pending = True
+    async def advance():
+        for _ in range(5):
+            assert await _cloud_tick(sessions, None, 120, XMLRiverClient,
+                provider_client=supplier, prefetch_limits={'google_aio': 1})
+    asyncio.run(asyncio.wait_for(advance(), timeout=10))
+    with sessions() as db:
+        assert db.get(ControlRun, healthy['id']).state == 'done'
+        assert all(db.get(ControlRun, run['id']).lease_token is None for run in slow_runs)
+        assert all(task.state == 'submitted' and task.attempts == 1 for task in db.scalars(
+            select(ProviderTask).where(ProviderTask.service == 'gemini')))
+        for run in slow_runs:
+            db.get(ControlRun, run['id']).retry_at = None
+        db.commit()
+    supplier.pending = False
+    for _ in slow_runs:
+        assert tick(sessions, supplier)
+    assert len(supplier.posts) == 4
+    with sessions() as db:
+        assert all(db.get(ControlRun, run['id']).state == 'done' for run in slow_runs)
+
+
+def test_legacy_pending_response_does_not_pause_unsubmitted_queries(tmp_path, monkeypatch):
+    _, _, _, _, sessions, _, run = create(tmp_path, monkeypatch,
+        queries=[{'text': 'first'}, {'text': 'second'}])
+    with sessions() as db:
+        current = db.get(ControlRun, run['id'])
+        snapshot = json.loads(current.snapshot_json)
+        snapshot.pop('collection_policy')
+        current.snapshot_json = json.dumps(snapshot)
+        db.commit()
+    supplier = Supplier()
+    supplier.pending = 1
+    assert tick(sessions, supplier)
+    with sessions() as db:
+        assert db.get(ControlRun, run['id']).state == 'done'
+        assert db.get(ControlRun, run['id']).desired_state == 'running'
+        assert len(db.scalars(select(CloudResult)).all()) == 2
 
 
 def test_postgres_late_expired_answer_cannot_overwrite_new_owner(tmp_path, monkeypatch, postgres_url):

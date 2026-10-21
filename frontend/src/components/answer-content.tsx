@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from "react"
+import { toUnicode } from "punycode/"
 import { publicError } from "../lib/public-error"
 import { highlightedText, brandLink, type BrandHighlight } from "./brand-highlight"
 import "./answer-content.css"
@@ -57,6 +58,44 @@ function trimUrlPunctuation(value: string) {
   value = value.replace(/[.,;:!?]+$/, "")
   while (value.endsWith(")") && (value.match(/\)/g)?.length || 0) > (value.match(/\(/g)?.length || 0)) value = value.slice(0, -1)
   return value
+}
+
+function readableUrlPart(value: string) {
+  try { return decodeURIComponent(value) } catch { return value }
+}
+
+export function sourceLabel(value: string) {
+  const url = safeUrl(value)
+  if (!url) return value
+  let host = url.hostname
+  try { host = toUnicode(host) } catch { /* Keep the validated host if decoding fails. */ }
+  return `${host}${url.port ? `:${url.port}` : ""}${readableUrlPart(url.pathname)}${readableUrlPart(url.search)}`
+}
+
+function displayText(text: string, service?: string, sources: string[] = []) {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n")
+  let fence = ""
+  for (let line = 0; line < lines.length; line++) {
+    const marker = fenceOpen(lines[line])
+    if (marker && !fence) { fence = marker; continue }
+    if (fence) { if (fenceClose(lines[line], fence)) fence = ""; continue }
+    const parts = lines[line].split(/(`+[^`]*`+)/)
+    lines[line] = parts.map((part, index) => index % 2 ? part : part
+      .replace(/<(\/?)strong>/gi, "**")
+      .replace(/\\([!"'(),.\-/:;?])/g, "$1")).join("")
+  }
+  if (service !== "yandex_neuro") return { text: lines.join("\n"), sourcesMoved: false }
+  const start = lines.findIndex(line => /^(?:#{1,6}\s*)?(?:источники|sources?)\s*:?\s*$/i.test(line.trim()))
+  const saved = sourcesOf(sources).map(value => new URL(value))
+  const tail = lines.slice(start + 1).filter(line => line.trim())
+  const onlySources = start >= 0 && tail.length > 0 && tail.every(line => {
+    const value = line.trim().replace(/^(?:[-*]|\d+[.)])\s+/, "")
+    const link = parsedLink(value, 0, new Map(), saved)
+    return link && link.end === value.length && saved.some(source => source.href === link.url.href)
+  })
+  return !onlySources ? { text: lines.join("\n"), sourcesMoved: false } : {
+    text: lines.slice(0, start).join("\n").trimEnd(), sourcesMoved: true,
+  }
 }
 
 function inlineCode(text: string, index: number) {
@@ -281,21 +320,21 @@ function blocks(text: string, sources: string[], references: References, brand?:
 
 export function AnswerContent({ text, service, sources = [], brand }: { text: string; service?: string; sources?: string[]; brand?: BrandHighlight }) {
   const fixed = service === "chatgpt" ? cleanChatGPTMap(text) : { text, changed: false }
-  const parsed = markdown(fixed.text), rendered = blocks(parsed.text, sources, parsed.references, brand)
-  return <div className="answer-content">{rendered.output}{(fixed.changed || rendered.cleaned) && <details className="answer-original"><summary>Исходный текст</summary><pre>{text}</pre></details>}</div>
+  const display = displayText(fixed.text, service, sources)
+  const parsed = markdown(display.text), rendered = blocks(parsed.text, sources, parsed.references, brand)
+  return <div className="answer-content">{rendered.output}{(fixed.changed || display.text !== fixed.text || rendered.cleaned) && <details className="answer-original"><summary>Исходный текст</summary><pre>{text}</pre></details>}</div>
 }
 
 export function renderedSources(text: string, sources: string[], service?: string) {
   const fixed = service === "chatgpt" ? cleanChatGPTMap(text) : { text, changed: false }
-  const parsed = markdown(fixed.text), targets = linkTargets(parsed.text, parsed.references, sourcesOf(sources).map(value => new URL(value)))
+  const parsed = markdown(displayText(fixed.text, service, sources).text), targets = linkTargets(parsed.text, parsed.references, sourcesOf(sources).map(value => new URL(value)))
   return sourcesOf(sources).filter(value => !targets.has(new URL(value).href))
 }
 
 export function SourceList({ sources }: { sources: string[] }) {
   const values = sourcesOf(sources)
   return values.length ? <ol className="answer-sources">{values.map(value => {
-    const url = new URL(value)
-    return <li key={value}><a href={value} target="_blank" rel="noopener noreferrer" title={value}>{url.hostname}{url.pathname === "/" ? "" : url.pathname}{url.search}</a></li>
+    return <li key={value}><a href={value} target="_blank" rel="noopener noreferrer" title={value}>{sourceLabel(value)}</a></li>
   })}</ol> : <p className="answer-note">Сохранённых ссылок на источники нет.</p>
 }
 

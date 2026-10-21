@@ -1,4 +1,5 @@
 .air-app { --sidebar: 76px; }
+.air-app.projects-page { --sidebar: 0px; }
 .air-app .sidebar { width: var(--sidebar); top: 65px; padding: 20px 12px; }
 .air-app .sidebar nav { display: flex; flex-direction: column; gap: 8px; }
 .air-app .sidebar .nav-link { display: grid; place-items: center; width: 48px; min-height: 48px; padding: 0; border: 1px solid transparent; border-radius: 12px; color: #64758a; }
