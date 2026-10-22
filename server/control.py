@@ -678,8 +678,9 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         if len(candidates) > 5000:
             raise HTTPException(422, "Слишком много ответов. Выберите более позднюю дату.")
         count = len(candidates)
+        unit = 0 if user.is_admin else 80
         return {"result_ids": [str(item.id) for item in candidates], "count": count,
-                "unit_kopeks": 80, "total_kopeks": count * 80,
+                "unit_kopeks": unit, "total_kopeks": count * unit,
                 "available_kopeks": available_kopeks(db, user.id), "revision": row.revision,
                 "skipped": skipped, "from_date": selection[0], "to_date": selection[1], "dates": selection[2]}
 
@@ -705,7 +706,8 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         candidates, _, identity = recompute_candidates(db, project, *selection)
         if result.id not in {item.id for item in candidates}:
             return {"charged_kopeks": 0, "status": "skipped", "message": "Ответ уже пересчитан или не подходит выбранной дате"}
-        if available_kopeks(db, user.id) < 80:
+        price = 0 if user.is_admin else 80
+        if price and available_kopeks(db, user.id) < price:
             raise HTTPException(409, "Недостаточно средств для пересчёта")
 
         try:
@@ -762,11 +764,11 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         state = hashlib.sha256(json.dumps([result.status, result.mention_types_json, result.evidence_quote], ensure_ascii=False).encode()).hexdigest()[:16]
         reference = f"recompute:{result.id}:{identity}:{project.revision}:{state}:{'i' if image is not None else 't'}"
         wallet = db.execute(select(Wallet).where(Wallet.user_id == user.id).with_for_update()).scalar_one()
-        if available_kopeks(db, user.id) < 80:
+        if price and available_kopeks(db, user.id) < price:
             db.rollback()
             raise HTTPException(409, "Недостаточно средств для пересчёта")
-        db.add(LedgerEntry(user_id=user.id, amount_kopeks=-80, kind="recompute", reference=reference))
-        wallet.balance_kopeks -= 80
+        db.add(LedgerEntry(user_id=user.id, amount_kopeks=-price, kind="recompute", reference=reference))
+        wallet.balance_kopeks -= price
         result.status = "found" if verdict["found"] else "not_found"
         result.mention_types_json = json.dumps(kinds, ensure_ascii=False)
         result.evidence_quote = quote[:4000] or None
@@ -775,7 +777,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         except IntegrityError:
             db.rollback()
             return {"charged_kopeks": 0, "status": "skipped", "message": "Этот ответ уже пересчитан"}
-        return {"charged_kopeks": 80, "status": "done", "message": "Ответ пересчитан"}
+        return {"charged_kopeks": price, "status": "done", "message": "Ответ пересчитан"}
 
     @router.get("/runs")
     def runs(user=Depends(web_user), db=Depends(db_session)):

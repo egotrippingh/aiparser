@@ -23,7 +23,7 @@ export function PromoForm({ token, freeScans, applied }: { token: string; freeSc
   }
   return <section className="cab-panel cab-promo">
     <h2>Промокод и бесплатные сканы</h2>
-    <p>Один промокод можно применить один раз на аккаунт. Бесплатные сканы используются первыми и только в указанной системе. Пересчёт сохранённых ответов оплачивается отдельно.</p>
+    <p>Один промокод можно применить один раз на аккаунт. Бесплатные сканы используются первыми и только в указанной системе. Промокод не применяется к пересчёту сохранённых ответов.</p>
     <form onSubmit={submit} aria-busy={busy} className="cab-promo-form">
       <label htmlFor="promo-code">Промокод<input id="promo-code" autoComplete="off" maxLength={64} disabled={busy} value={code} onChange={e => { setCode(e.target.value); setError(""); setMessage("") }} required /></label>
       <button className="cab-primary" disabled={busy || !code.trim()}>{busy ? "Применяем…" : "Применить промокод"}</button>

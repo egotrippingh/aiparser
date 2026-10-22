@@ -36,8 +36,12 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Prepared work
 
-- No unfinished implementation in the mention-growth task. Release evidence is
-  recorded in `docs/tasks/mention-growth-recompute.md`; no schema/delivery change.
+- Admin checks and saved-answer recompute use a zero tariff, including wallet0
+  with old paid reservations. Cabinet shows unlimited/free usage; ordinary billing
+  and owner-only recompute remain intact. Sol and Astra reviews passed,35 focused
+  API tests and137 frontend tests passed; lint/build and desktop/narrow fake-AI UI
+  checks passed. Full local server/PostgreSQL and release CI are pending.
+  Brief/evidence: `docs/tasks/admin-unlimited.md`; no schema/delivery change.
 
 ## Architecture and operating rules
 
