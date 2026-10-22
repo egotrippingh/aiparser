@@ -2,7 +2,7 @@ name: Verify and deploy
 
 on:
   push:
-    branches: [main, production, 'feat/**', 'fix/**']
+    branches: [main, production, 'feat/**', 'fix/**', 'cursor/**', 'codex/**']
   pull_request:
   workflow_dispatch:
 
@@ -44,7 +44,7 @@ jobs:
       - run: python -m pytest tests/test_brand_clarification.py -q
       - run: python -m pytest tests/test_xmlriver_text.py tests/test_rules.py tests/test_llm_parse.py tests/test_detection_evaluation.py tests/test_brand_model_benchmark.py tests/test_brand_model_audit.py -q
       - run: python -m pytest tests/test_delivery_workflow.py -q
-      - run: bash -n deploy/release.sh deploy/ssh-gate.sh deploy/provision-ubuntu.sh deploy/setup-delivery.sh
+      - run: bash -n deploy/release.sh deploy/ssh-gate.sh deploy/provision-ubuntu.sh deploy/setup-delivery.sh deploy/backup.sh deploy/verify-restore.sh
       - name: Validate proxy configuration
         run: docker run --rm -e DOMAIN=airate.test -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 

@@ -10,9 +10,12 @@ from pathlib import Path
 import boto3
 from botocore.config import Config
 
+# Container mount point; tests may redirect this to a disposable directory.
+BACKUPS_ROOT = Path("/backups")
+
 
 def upload(path: Path) -> str:
-    root = Path("/backups").resolve()
+    root = BACKUPS_ROOT.resolve()
     path = path.resolve()
     if not path.is_file() or root not in path.parents or not path.name.endswith(".dump"):
         raise ValueError("Expected a .dump file inside /backups")

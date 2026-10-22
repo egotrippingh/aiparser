@@ -21,13 +21,23 @@ mv "$temporary" "$archive"
 sha256sum "$archive" > "$archive.sha256"
 echo "Backup saved: $archive"
 
-# Off-host copy uses a separate bucket and service account when configured.
-if docker compose --profile ops config --format json | grep -q '"BACKUP_S3_BUCKET": "[^" ]'; then
-  docker compose --profile ops run --rm -T --no-deps backup-upload "/backups/$(basename "$archive")"
-  echo "Backup copied to the private off-host bucket."
-else
-  echo "BACKUP_S3_BUCKET is empty; backup exists only on this VPS."
+# Off-host copy uses a separate private bucket and service account when configured.
+# Prefer .env (mode 0600 on the VPS) over grepping rendered Compose JSON.
+bucket=""
+if test -f .env; then
+  bucket=$(sed -n 's/^BACKUP_S3_BUCKET=//p' .env | tr -d '\r' | tail -n 1)
 fi
+case "$bucket" in
+  ""|\"\"|\'\')
+    echo "BACKUP_S3_BUCKET is empty; backup exists only on this VPS."
+    ;;
+  *)
+    test -n "$(sed -n 's/^BACKUP_ACCESS_KEY_ID=//p' .env | tr -d '\r' | tail -n 1)"
+    test -n "$(sed -n 's/^BACKUP_SECRET_ACCESS_KEY=//p' .env | tr -d '\r' | tail -n 1)"
+    docker compose --profile ops run --rm -T --no-deps backup-upload "/backups/$(basename "$archive")"
+    echo "Backup copied to the private off-host bucket."
+    ;;
+esac
 
 # Keep the newest 30 verified dumps; never prune before a successful backup.
 python3 - <<'PY'
