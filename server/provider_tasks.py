@@ -24,7 +24,8 @@ ACTIVE = ("submitting", "submitted", "uncertain")
 
 _SAFE_FAILURE_CODES = {"cancelled", "timeout", "transport", "http", "response", "unsafe_xml", "xml_parse",
                        "invalid_html", "missing_response", "missing_results", "missing_answer", "missing_content",
-                       "empty_html", "empty_main_text", "too_complex", "text_too_large", "too_many_sources", "unknown"}
+                       "empty_html", "empty_main_text", "unsafe_page", "page_decode", "missing_page_ai",
+                       "empty_page_ai", "too_complex", "text_too_large", "too_many_sources", "unknown"}
 
 
 def _failure_diagnostic(exc, task, http_attempts=None):
