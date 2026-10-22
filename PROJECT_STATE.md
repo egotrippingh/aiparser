@@ -54,8 +54,9 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
   prices; admin remains free. Recompute POST must confirm quote unit price; old/missing
   prices return409 without analysis or debit. Not published.
 - Frontend137 tests, lint/build, delivery4 tests and desktop/narrow fake-AI UI
-  passed; focused independent money review passed. Full server suite with disposable
-  PostgreSQL is in progress. Evidence: `C:/codex-tmp/pricing-*.log`.
+  passed; focused independent money review passed. Server/CI evidence is tracked in
+  [PR #84](https://github.com/egotrippingh/aiparser/pull/84); local evidence:
+  `C:/codex-tmp/pricing-*.log`.
 
 ## Architecture and operating rules
 
@@ -82,5 +83,4 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Finish tariff validation and prepare a PR into `production`. Publishing requires
-user authorization. Real provider/payment checks remain outside disposable tests.
+Review PR #84 checks before release. Publishing requires user authorization. Real provider/payment checks remain outside disposable tests.
