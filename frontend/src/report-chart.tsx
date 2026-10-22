@@ -38,7 +38,7 @@ export function ReportChart({ days, services, available, choose }: {
   const y = (value: number) => bottom - value * (bottom - top) / 100
   const point = active === null ? null : chart[active]
   const indexes = [...new Set([0, Math.floor((chart.length - 1) / 2), chart.length - 1])].filter(i => chart[i])
-  return <section className="panel"><div className="panel-head"><h2>Динамика упоминаемости</h2><span className="note">Доля проверок с упоминанием, %</span></div>
+  return <section className="panel"><div className="panel-head"><h2>Динамика упоминаемости</h2><span className="note">Доля возможных упоминаний, %</span></div>
     <div className="legend">{available.map(id => <button type="button" key={id} style={{color:serviceColors[id]}} aria-pressed={services.includes(id)} disabled={services.length === 1 && services.includes(id)} title={services.length === 1 && services.includes(id) ? "В отчёте должна оставаться хотя бы одна система" : undefined} aria-label={`Показывать ${serviceName(id)}`} onClick={() => choose(services.includes(id) ? services.filter(s => s !== id) : [...services,id])}><ServiceMark id={id}/>{serviceName(id)}</button>)}</div>
     <div ref={box} className="chart-wrap"><svg className="line-chart" viewBox={`0 0 ${width} 240`} tabIndex={0} role="img" aria-label="Динамика по ИИ-системам. Стрелки выбирают день, Home и End — крайние даты, Escape скрывает значения."
       onMouseMove={e => { const rect = e.currentTarget.getBoundingClientRect(); const position = (e.clientX - rect.left) * width / rect.width; setActive(chart.length ? Math.max(0,Math.min(chart.length-1,Math.round((position-left)/(right-left)*(chart.length-1)))) : null) }}

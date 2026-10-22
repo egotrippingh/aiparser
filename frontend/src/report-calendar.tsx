@@ -4,7 +4,7 @@ import { iso, today } from "./lib/dates"
 import { AppChoice } from "./app-choice"
 
 export const shortDate = (value: string) => new Date(value + "T12:00:00").toLocaleDateString("ru-RU", {day:"2-digit",month:"2-digit"})
-export type ReportDateSelection = { mode: "period" | "two" | "monthly" | "custom"; picked: string[]; maxDates: number }
+export type ReportDateSelection = { mode: "period" | "two" | "monthly" | "custom" | "day" | "from"; picked: string[]; maxDates: number }
 export const defaultDateSelection: ReportDateSelection = {mode:"period",picked:[],maxDates:30}
 const modes = [{value:"period",label:"Период"},{value:"two",label:"Две даты"},{value:"monthly",label:"Последняя проверка месяца"},{value:"custom",label:"Произвольные даты"}] as const
 const monthNames = Array.from({length:12},(_,i)=>new Date(2026,i,1).toLocaleDateString("ru-RU",{month:"long"}).replace(/^./,letter=>letter.toLocaleUpperCase("ru-RU")))
@@ -30,8 +30,8 @@ export function calendarDates(from: string, to: string, available: string[], sel
   return days.slice(-selection.maxDates)
 }
 
-export function ReportCalendar({ from, to, available, selection, change }: {
-  from: string; to: string; available: string[]; selection: ReportDateSelection
+export function ReportCalendar({ from, to, available, selection, change, context = "report", disabled = false }: {
+  from: string; to: string; available: string[]; selection: ReportDateSelection; context?: "report" | "recompute"; disabled?: boolean
   change: (from: string, to: string, selection: ReportDateSelection) => void
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
@@ -40,12 +40,14 @@ export function ReportCalendar({ from, to, available, selection, change }: {
   const [month,setMonth] = useState(new Date(from+"T12:00:00"))
   const [pickingEnd,setPickingEnd] = useState(false)
   const [activePreset,setActivePreset] = useState("Произвольный")
-  const chosen = calendarDates(start,end,available,draft)
+  const single = context === "recompute" && (draft.mode === "day" || draft.mode === "from")
+  const chosen = single ? [start] : calendarDates(start,end,available,draft)
   const rangeValid = !!start && !!end && start<=end && (Date.parse(end)-Date.parse(start))/86400000<=365
   const valid = rangeValid && (draft.mode!=="custom" || draft.picked.length>0 && draft.picked.length<=draft.maxDates) && (draft.mode!=="monthly" || chosen.length>0)
   function pick(day: string) {
     setActivePreset("Произвольный")
-    if (draft.mode === "custom") {
+    if (single) {setStart(day);setEnd(day);setPickingEnd(false)}
+    else if (draft.mode === "custom") {
       const picked = draft.picked.includes(day) ? draft.picked.filter(d=>d!==day) : [...draft.picked,day].sort()
       if (picked.length>draft.maxDates) return
       setDraft({...draft,picked})
@@ -65,14 +67,14 @@ export function ReportCalendar({ from, to, available, selection, change }: {
     setStart(iso(first));setEnd(iso(last));setMonth(new Date(first.getFullYear(),first.getMonth(),1))
     setDraft({...draft,mode:draft.mode==="custom"?"period":draft.mode})
   }
-  return <><button className="btn report-calendar-trigger" aria-haspopup="dialog" onClick={()=>{
+  return <><button className="btn report-calendar-trigger" aria-haspopup="dialog" disabled={disabled} onClick={()=>{
     setStart(from);setEnd(to);setDraft(selection);setMonth(new Date(from+"T12:00:00"));setPickingEnd(false);setActivePreset("Произвольный");dialog.current?.showModal()
-  }}><CalendarDays size={16}/>{selection.mode==="custom" ? `Выбрано дат: ${selection.picked.length}` : `${shortDate(from)}.${from.slice(0,4)} — ${shortDate(to)}.${to.slice(0,4)}`}</button>
+  }}><CalendarDays size={16}/>{selection.mode==="custom" ? `Выбрано дат: ${selection.picked.length}` : selection.mode==="from" ? `С ${shortDate(from)}.${from.slice(0,4)}` : selection.mode==="day" ? `${shortDate(from)}.${from.slice(0,4)}` : `${shortDate(from)}.${from.slice(0,4)} — ${shortDate(to)}.${to.slice(0,4)}`}</button>
     <dialog ref={dialog} className="ws-dialog calendar-dialog" aria-labelledby="calendar-title">
-      <div className="ws-dialog-head"><h2 id="calendar-title">Даты отчёта</h2><button className="btn icon-only" aria-label="Закрыть календарь" onClick={()=>dialog.current?.close()}><X size={18}/></button></div>
+      <div className="ws-dialog-head"><h2 id="calendar-title">{context === "recompute" ? "Даты пересчёта" : "Даты отчёта"}</h2><button className="btn icon-only" aria-label="Закрыть календарь" onClick={()=>dialog.current?.close()}><X size={18}/></button></div>
       <div className="calendar-layout"><div className="calendar-main">
-        <div className="calendar-presets" aria-label="Быстрый период">{["1 Год","Прошлый месяц","Текущий месяц","1 Месяц","1 Неделя","Произвольный"].map(label=><button key={label} type="button" aria-pressed={activePreset===label} onClick={()=>preset(label)}>{label}</button>)}</div>
-        <div className="calendar-nav"><button className="btn icon-only" aria-label="Предыдущий месяц" onClick={()=>setMonth(new Date(month.getFullYear(),month.getMonth()-1,1))}><ChevronLeft size={16}/></button><span>{draft.mode==="custom" ? "Отметьте нужные даты" : pickingEnd ? "Выберите последнюю дату" : "Выберите первую и последнюю дату"}</span><button className="btn icon-only" aria-label="Следующий месяц" onClick={()=>setMonth(new Date(month.getFullYear(),month.getMonth()+1,1))}><ChevronRight size={16}/></button></div>
+        {!single && <div className="calendar-presets" aria-label="Быстрый период">{["1 Год","Прошлый месяц","Текущий месяц","1 Месяц","1 Неделя","Произвольный"].map(label=><button key={label} type="button" aria-pressed={activePreset===label} onClick={()=>preset(label)}>{label}</button>)}</div>}
+        <div className="calendar-nav"><button className="btn icon-only" aria-label="Предыдущий месяц" onClick={()=>setMonth(new Date(month.getFullYear(),month.getMonth()-1,1))}><ChevronLeft size={16}/></button><span>{single ? "Выберите дату" : draft.mode==="custom" ? "Отметьте нужные даты" : pickingEnd ? "Выберите последнюю дату" : "Выберите первую и последнюю дату"}</span><button className="btn icon-only" aria-label="Следующий месяц" onClick={()=>setMonth(new Date(month.getFullYear(),month.getMonth()+1,1))}><ChevronRight size={16}/></button></div>
         <div className="calendar-months">{[0,1,2].map(shift=>{
           const first=new Date(month.getFullYear(),month.getMonth()+shift,1), offset=(first.getDay()+6)%7
           const days=new Date(first.getFullYear(),first.getMonth()+1,0).getDate()
@@ -82,19 +84,19 @@ export function ReportCalendar({ from, to, available, selection, change }: {
           </> : <><span className="calendar-month-name">{monthNames[first.getMonth()]}</span><span className="calendar-month-year">{first.getFullYear()}</span></>}</div>
           <div className="calendar-grid">{["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].map(day=><small key={day}>{day}</small>)}{Array.from({length:offset},(_,i)=><span key={`blank-${i}`}/>)}{Array.from({length:days},(_,i)=>{
             const day=iso(new Date(first.getFullYear(),first.getMonth(),i+1))
-            const selected=draft.mode==="custom" ? draft.picked.includes(day) : draft.mode==="monthly" ? chosen.includes(day) : draft.mode==="two" ? day===start||day===end : day>=start&&day<=end
+            const selected=single ? day===start : draft.mode==="custom" ? draft.picked.includes(day) : draft.mode==="monthly" ? chosen.includes(day) : draft.mode==="two" ? day===start||day===end : day>=start&&day<=end
             return <button type="button" key={day} className={`${selected?"in-range":""} ${selected&&(draft.mode==="custom"||draft.mode==="monthly"||day===start||day===end)?"endpoint":""}`} disabled={draft.mode==="custom" && !selected && draft.picked.length>=draft.maxDates} aria-label={`${day}${available.includes(day)?", есть проверки":""}`} aria-pressed={selected} onClick={()=>pick(day)}>{i+1}{available.includes(day)&&<i/>}</button>
           })}</div></div>
         })}</div>
         <p className="calendar-key"><i aria-hidden="true"/>Выполнялась проверка</p>
       </div><div className="calendar-options">
-        <div className="calendar-mode"><AppChoice label="Режим выбора дат" value={draft.mode} options={[...modes]} change={value=>{setDraft({...draft,mode:value as ReportDateSelection["mode"]});setPickingEnd(false)}}/></div>
+        <div className="calendar-mode"><AppChoice label="Режим выбора дат" value={draft.mode} options={context === "recompute" ? [{value:"from",label:"С выбранной даты"},{value:"day",label:"Один день"},...modes] : [...modes]} change={value=>{setDraft({...draft,mode:value as ReportDateSelection["mode"]});if(value==="day"||value==="from")setEnd(start);if(value==="custom" && draft.picked.length){const picked=[...draft.picked].sort();setStart(picked[0]);setEnd(picked.at(-1)!)}setPickingEnd(false)}}/></div>
         {draft.mode==="custom" ? <div className="calendar-picked" aria-label="Выбранные даты">{draft.picked.length ? draft.picked.map(day=><button key={day} onClick={()=>pick(day)} aria-label={`Убрать ${day}`}>{shortDate(day)}.{day.slice(0,4)}<X size={13}/></button>) : <p>Выберите даты в календаре</p>}</div> : <>
-          <label>Первая дата<input type="date" value={start} onChange={e=>{setStart(e.target.value);setPickingEnd(false);setActivePreset("Произвольный")}}/></label>
-          <label>Последняя дата<input type="date" value={end} onChange={e=>{setEnd(e.target.value);setPickingEnd(false);setActivePreset("Произвольный")}}/></label>
+          <label>{single ? "Дата" : "Первая дата"}<input type="date" value={start} onChange={e=>{setStart(e.target.value);if(single)setEnd(e.target.value);setPickingEnd(false);setActivePreset("Произвольный")}}/></label>
+          {!single && <label>Последняя дата<input type="date" value={end} onChange={e=>{setEnd(e.target.value);setPickingEnd(false);setActivePreset("Произвольный")}}/></label>}
         </>}
-        <div className="calendar-options-bottom"><div className="calendar-limit"><span>Максимально дат</span><AppChoice label="Максимально дат" value={String(draft.maxDates)} options={[10,15,30].map(n=>({value:String(n),label:String(n)}))} change={value=>setDraft({...draft,maxDates:Number(value)})}/></div>
-          <p className="calendar-count" role="status">{draft.mode==="two" ? "Сравнение двух дат" : `В отчёте до ${draft.maxDates} дат`}</p>
+        <div className="calendar-options-bottom">{(context === "report" || ["monthly","custom"].includes(draft.mode)) && <div className="calendar-limit"><span>Максимально дат</span><AppChoice label="Максимально дат" value={String(draft.maxDates)} options={[10,15,30].map(n=>({value:String(n),label:String(n)}))} change={value=>setDraft({...draft,maxDates:Number(value)})}/></div>}
+          <p className="calendar-count" role="status">{context === "recompute" ? draft.mode==="from" ? "Все ответы с выбранной даты включительно" : draft.mode==="day" ? "Ответы только за выбранный день" : draft.mode==="period" ? "Все ответы внутри периода включительно" : `Выбрано дат для пересчёта: ${chosen.length}` : draft.mode==="two" ? "Сравнение двух дат" : `В отчёте до ${draft.maxDates} дат`}</p>
           {!valid && <p className="calendar-error" role="alert">{!rangeValid ? "Выберите период до 366 дней, начало не позже конца." : draft.mode==="monthly" ? "В этом периоде нет проверок." : `Выберите от 1 до ${draft.maxDates} дат.`}</p>}
           <button className="btn primary" disabled={!valid} onClick={()=>{change(start,end,{...draft,picked:chosen});dialog.current?.close()}}>Применить</button>
         </div>

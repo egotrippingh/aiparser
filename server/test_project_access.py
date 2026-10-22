@@ -160,10 +160,10 @@ def test_shared_scan_feature_and_pricing_follow_owner_not_editor(tmp_path, monke
     assert client.put(base + '/members', headers=ordinary,
                       json={'email': 'admin@test.example', 'role': 'editor'}).status_code == 200
     shared = client.get(base, headers=eligible).json()
-    assert not shared['brand_clarifications_enabled']
-    shared['config']['brand_clarification'] = 'Must not enable the owner feature'
+    assert shared['brand_clarifications_enabled']
+    shared['config']['brand_clarification'] = 'Clarification for ordinary owner'
     writable = {key: shared[key] for key in ('revision', 'name', 'brand_name', 'device_id', 'config', 'schedule', 'queries')}
-    assert client.put(base, headers=eligible, json=writable).status_code == 403
+    assert client.put(base, headers=eligible, json=writable).status_code == 200
     quote = client.get(base + '/quote', headers=eligible).json()
     assert quote['unit_kopeks'] == quote['total_kopeks'] == 165
     launched = client.post(base + '/runs', headers=eligible, json={'request_id': original_uuid().hex})
@@ -171,7 +171,7 @@ def test_shared_scan_feature_and_pricing_follow_owner_not_editor(tmp_path, monke
     with sessions() as db:
         run = db.get(ControlRun, launched.json()['id'])
         assert run.user_id == registered.json()['user']['id']
-        assert not json.loads(run.snapshot_json)['config'].get('brand_clarification')
+        assert json.loads(run.snapshot_json)['config']['brand_clarification'] == 'Clarification for ordinary owner'
 
 
 @pytest.mark.parametrize(('operation', 'downgrade'), [('save', False), ('launch', True), ('command', True)])

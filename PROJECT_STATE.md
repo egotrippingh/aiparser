@@ -1,10 +1,13 @@
 # AIRate current project state
 
-Updated 2026-10-21. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
+Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
 
 ## Current release
 
-- Published and verified: [PR #80](https://github.com/egotrippingh/aiparser/pull/80),
+- Published and live readiness verified: [PR #81](https://github.com/egotrippingh/aiparser/pull/81),
+  release `33b8404dbe27081a7daeec13ee05eb3758281389`. Durable scan retries,
+  project selector/progress and report/answer improvements are included.
+- Previous tariff release: [PR #80](https://github.com/egotrippingh/aiparser/pull/80),
   release `c43a39f5805cd2aed2e25525af74c6875739c8ab`. New checks/server launches
   cost165 kopeks. Confirmed server runs/reservations preserve their price; stale
   quotes are rejected. Pause/top-up/manual-resume regression passes without
@@ -17,17 +20,21 @@ Updated 2026-10-21. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Prepared work
 
-- `codex/scan-persistent-retry`, based on production `c43a39f`: uncertain complete
-  scans retry past three attempts with durable delays; accepted pending AI tasks
-  yield workers and reuse their IDs. Existing exhausted tasks recover automatically.
-- Projects have an empty searchable selector, no list-page sidebar and a scan
-  progress column. Period/query dynamics compare actual first/last scan dates.
-  Answer display cleans escaping/strong markup and makes source labels readable;
-  Yandex sources use the common block. Original evidence and one user charge stay.
-- Local132 frontend tests, lint/build, seven queue regressions and disposable
-  desktop/narrow navigation/report/answer checks pass. Sol and Astra review passed;
-  exact-SHA CI/production delivery are pending. No migration; pinned punycode2.3.1
-  decodes IDN labels without a custom RFC decoder.
+- `codex/mention-growth`, based on production `33b8404`: a common query/system/date
+  base fixes mention dynamics; 1/3 to3/3 gives +66.7%, labelled% throughout.
+  Missing AI blocks count as no mention. Errors remain separate; no successful
+  measurements means unknown. Existing frozen runs retain their feature settings.
+- Saved-answer recompute is available to every project owner, with the shared
+  dashboard calendar: from a date, single day, period, two dates, monthly and custom
+  dates. Quote/POST share selection validation, ownership and idempotent billing.
+- Independent Sol and Astra reviews passed after corrections. Full server run:
+  418 passed and one stale help-copy expectation failed; that expectation was
+  updated for the agreed formula and all16 SEO tests passed. PostgreSQL tests
+  used an isolated local cluster. Shared CI checks126 passed; frontend136 tests,
+  lint and build passed. Disposable desktop/narrow UI checked success/failure,
+  calendar modes, keyboard, console and exact selected-date POST payloads.
+- No schema/delivery changes. Exact-SHA GitHub CI and deployment are pending login.
+  Logs and synthetic UI evidence: `C:/codex-tmp/mention-growth-20261022`.
 
 ## Architecture and operating rules
 
@@ -39,7 +46,8 @@ Updated 2026-10-21. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 - GitHub Actions deploys `production` with serialized activation, verified backups,
   isolated restore, migration admission, exact-SHA readiness and rollback.
 - New checks cost165 kopeks per query/service; eligible recompute costs up to80 kopeks,
-  failed analysis is uncharged. Clarification/recompute is gated to `ivoryya`.
+  failed analysis is uncharged. Live33b8404 gates clarification/recompute to `ivoryya`;
+  the prepared mention-growth change opens it to every owner.
 - Email-code/Yandex registration and SMTP.BZ transactional mail are active.
 
 ## Open checks
@@ -52,6 +60,6 @@ Updated 2026-10-21. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Finish exact-SHA CI, then publish the authorized recovery/
-project/report change through a production PR and verify Geosoft Dent completion.
-Task scope: [scan recovery and reporting](docs/tasks/scan-recovery-projects-report.md).
+Finish GitHub CLI login, create a production PR for mention-growth, verify its CI,
+publish the authorized change and verify live readiness against the release SHA.
+Task scope: [mention dynamics and recompute](docs/tasks/mention-growth-recompute.md).

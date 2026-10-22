@@ -84,6 +84,18 @@ def count(stats, row, cards, own=None, status=None):
         stats["issues"] += 1
 
 
+def visibility(stats, total):
+    stats['total'] = total
+    stats['visibility_pct'] = round(100 * stats['found'] / total, 1) if stats['checked'] and total else None
+    return stats
+
+
+def visibility_change(before, now):
+    if before['visibility_pct'] is None or now['visibility_pct'] is None:
+        return None
+    return round(100 * (now['found'] / now['total'] - before['found'] / before['total']), 1)
+
+
 def collect_report(db, project, options, *, with_sources=False, compact=False):
     from server.scan_feedback import KEY, effective_status
     corrections = {e["result_id"]: e for e in json.loads(project.config_json).get(KEY, [])}
@@ -199,9 +211,15 @@ def collect_report(db, project, options, *, with_sources=False, compact=False):
         if not compact or with_sources and day in window:
             queries[key]["cells"].setdefault(day, {})[service_id] = cell
     rows = list(queries.values())
+    day_total = len(rows) * len(service_ids)
+    for stats in by_date.values():
+        visibility(stats, day_total)
+        for service_stats in stats['services'].values():
+            visibility(service_stats, len(rows))
+    summary_days = set(table_dates) if picked is not None or options.compare or options.max_dates is not None or options.date_mode == 'monthly' else {row.scan_date for _, row in selected_measurements}
+    visibility(summary, day_total * len(summary_days))
     comparison = {"from": by_date[start.isoformat()], "to": by_date[end.isoformat()]}
-    left, right = comparison["from"]["visibility_pct"], comparison["to"]["visibility_pct"]
-    comparison["delta"] = round(right - left, 1) if left is not None and right is not None else None
+    comparison["delta"] = visibility_change(comparison['from'], comparison['to'])
     return {"date_from": start.isoformat(), "date_to": end.isoformat(), "available_dates": available_dates,
             "dates": table_dates, "visible_dates": window, "services": service_ids,
             "available_services": available_services, "groups": group_names,
@@ -236,25 +254,39 @@ def overview_report(db, project, options):
     own = brand_hosts(project)
     allowed = None if options.include_external else own
 
-    def totals(data, only_date=None):
+    query_ids = {query['id'] for query in report['rows']}
+    service_ids = report['services']
+    baseline['measurements'] = [(query, row) for query, row in baseline['measurements']
+                                if query['id'] in query_ids and row.service in service_ids]
+
+    def totals(data, only_date=None, day_count=None):
         summary, services, queries, days = empty_stats(), {}, {}, {}
         for query, row in data['measurements']:
-            if only_date and row.scan_date != only_date:
+            if query['id'] not in query_ids or row.service not in service_ids or only_date and row.scan_date != only_date:
                 continue
             status = effective_status(row, corrections.get(row.id))
             count(summary, row, options.include_cards, allowed, status)
             count(services.setdefault(row.service, empty_stats()), row, options.include_cards, allowed, status)
             count(queries.setdefault(query['id'], empty_stats()), row, options.include_cards, allowed, status)
             days.setdefault(query['id'], set()).add(row.scan_date)
+        if day_count is None:
+            day_count = 1 if only_date else len({row.scan_date for _, row in data['measurements']})
+        visibility(summary, len(query_ids) * len(service_ids) * day_count)
+        for service_id in service_ids:
+            visibility(services.setdefault(service_id, empty_stats()), len(query_ids) * day_count)
+        for query_id in query_ids:
+            visibility(queries.setdefault(query_id, empty_stats()), len(service_ids) * day_count)
         return summary, services, queries, days
 
-    current, services, queries, _ = totals(report, end.isoformat() if options.compare else None)
-    previous, previous_services, previous_queries, previous_days = totals(baseline)
+    current, services, queries, _ = totals(report, end.isoformat() if options.compare else None,
+                                         1 if options.compare else len(selected_days) if selected_days is not None else None)
+    previous, previous_services, previous_queries, previous_days = totals(baseline,
+        day_count=1 if options.compare else len(selected_days) if selected_days is not None else None)
     expected_days = 1 if options.compare else len(selected_days) if selected_days is not None else length
 
     def trend(now, before, complete):
         left, right = before['visibility_pct'], now['visibility_pct']
-        delta = round(right - left, 1) if complete and left is not None and right is not None else None
+        delta = visibility_change(before, now) if complete else None
         return {'current': now, 'previous': before, 'delta': delta,
                 'relative': round(100 * (right - left) / left, 1) if delta is not None and left else None,
                 'baseline_complete': complete, 'baseline_from': baseline_start.isoformat() if baseline_start else None,
@@ -262,8 +294,8 @@ def overview_report(db, project, options):
 
     scan_dates = sorted({row.scan_date for _, row in report['measurements']})
     first_date, last_date = (scan_dates[0], scan_dates[-1]) if scan_dates else (None, None)
-    first, _, first_queries, _ = totals(report, first_date) if first_date else (empty_stats(), {}, {}, {})
-    last, _, last_queries, _ = totals(report, last_date) if last_date else (empty_stats(), {}, {}, {})
+    first, _, first_queries, _ = totals(report, first_date, 1)
+    last, _, last_queries, _ = totals(report, last_date, 1)
 
     def period_trend(now, before):
         return {**trend(now, before, len(scan_dates) > 1),
@@ -390,7 +422,7 @@ def workbook(report, project, kind):
     append(notes, ["Группа", "Все группы" if filters["group"] is None else filters["group"] or "Без группы"])
     append(notes, ["ИИ-системы", ", ".join(SERVICES[s] for s in filters["services"])])
     append(notes, ["Поиск", filters["search"]])
-    append(notes, ["Упоминаемость", "Доля проверок с упоминанием бренда. Отсутствие AI-блока считается проверкой без упоминания. Технические ошибки исключены из расчёта."])
+    append(notes, ["Упоминаемость", "Доля упоминаний от общего числа выбранных запросов и ИИ-систем в датах проверок. Отсутствие AI-блока считается проверкой без упоминания. Технические ошибки отмечаются отдельно; без успешных проверок процент не рассчитывается."])
     append(notes, ["Внешние источники", "Сохранённые ссылки из ответов ИИ, без доменов бренда. Контекст — фрагмент ответа ИИ, не цитата с внешнего сайта."])
     if kind == 'source_summary':
         append(notes, ['Источники', 'Только ответы с упоминанием бренда. Несколько ссылок на домен из одного ответа считаются один раз.'])
