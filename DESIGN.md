@@ -2,8 +2,11 @@
 
 Current visual direction: the supplied 2026-10-12 prototype, navy #153d75,
 blue #236ac6, orange #f25c37, white panels on #f5f7fa and subtle neutral borders.
-Keep the marketing
-landing separate from the operational cabinet.
+Keep the marketing landing separate from the operational cabinet.
+
+Source of truth for cabinet chrome and tokens: `frontend/src/prototype.css`.
+Static layout reference: `mockups/dashboard.html`. Brand mark file: `assets/airate.ico`.
+Do not invent a parallel palette; refine in place.
 
 Use the prototype sidebar for Overview, Projects, Queries, Sources, Settings,
 Schedule, Runs, Account and Help. Prefer aligned rows,

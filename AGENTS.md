@@ -22,11 +22,31 @@ Communicate in Russian; keep code and commit messages consistent with nearby fil
 | UI | `frontend/src/` React/TypeScript; `frontend/vite.config.ts` builds the tracked `web/` directory | `frontend/AGENTS.md`; `PRODUCT.md`, `DESIGN.md` for interface work |
 | Delivery | `.github/workflows/delivery.yml`, `deploy/`, `scripts/build-*.ps1`, `scripts/publish-agent.py` | `deploy/DELIVERY.md`; `docs/updater.md` for agent releases |
 
-`main` is development; pushes to `production` can deploy. Feature branches use
-`codex/<short-name>` and PRs target `main` unless the user explicitly requests a release.
-Do not retarget or merge a PR, push to production, publish an installer, run a live
-migration or delete user data without authorization for that action. Reuse authorization
-already given; do not ask again. A code push alone is not a production-release request.
+`main` is development; pushes to `production` can deploy. Feature branch names:
+
+| Environment | Branch pattern | Example |
+|---|---|---|
+| Local Codex / manual | `codex/<short-name>` | `codex/scan-timeout` |
+| Cursor Cloud Agent | `cursor/<short-name>-cbe0` (or the suffix the run assigns) | `cursor/scan-timeout-cbe0` |
+
+PRs target `main` unless the user explicitly requests a release. Do not retarget or
+merge a PR, push to production, publish an installer, run a live migration or delete
+user data without authorization for that action. Reuse authorization already given; do
+not ask again. A code push alone is not a production-release request.
+
+## Load map — what to open
+
+- Python language/antipatterns: `PYTHON_RULES.md` (plus nested scope `AGENTS.md`).
+- Docs by symptom (briefs, payments, updater, Sentry): `docs/README.md` — open only
+  the matching row, not the whole `docs/` tree.
+- Cross-layer / multi-session packets: `docs/agent-workflow.md`.
+
+## Do not read by default
+
+Skip unless the task explicitly needs them: `PROJECT_STATE.md`, `SERVER_AGENT_PLAN.md`,
+historical `docs/*-brief.md` / `docs/*-release.md` outside the `docs/README.md` row,
+generated `web/assets/*`, `node_modules/`, Graphify `graph.json` / full graph dumps,
+`.claude/skills/**` design libraries, and any real `.env` / secrets / user profiles.
 
 ## Token budget and implementation
 

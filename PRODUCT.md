@@ -32,5 +32,10 @@ cabinet links in the private administration section.
 - Explain state in text, including queued and incomplete checks.
 
 ## Accessibility & Inclusion
-No special accessibility requirements were specified. Apply keyboard navigation, visible
-focus, labelled inputs, readable contrast, responsive layouts and reduced motion as defaults.
+Defaults are mandatory: keyboard navigation, visible focus, labelled inputs, readable
+contrast, responsive layouts and `prefers-reduced-motion`. No weaker baseline.
+
+## Visual references (cabinet)
+- Tokens and layout: `frontend/src/prototype.css` (prototype dated 2026-10-12).
+- Static HTML mock: `mockups/dashboard.html`.
+- Icon: `assets/airate.ico`. See also `DESIGN.md`.
