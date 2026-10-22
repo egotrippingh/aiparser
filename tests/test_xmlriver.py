@@ -137,7 +137,9 @@ def test_invalid_response_is_recollected_before_returning(service, bad, provider
     asyncio.run(adapter.ask(None, "вопрос", "213"))
     assert len(calls) == 2 and waits == [1]
     assert adapter.html == "<p>Корректный совет</p>"
-    assert calls[0].url == calls[1].url
+    assert calls[0].url.params["query"] == calls[1].url.params["query"]
+    expect_raw = service == "yandex_neuro" and b"<broken" not in bad and b"%%%" not in bad
+    assert calls[1].url.params.get("raw") == ("page" if expect_raw else None)
 
 
 def test_repeated_invalid_response_stops_after_three_attempts(provider_replies):
@@ -148,6 +150,16 @@ def test_repeated_invalid_response_stops_after_three_attempts(provider_replies):
         asyncio.run(adapter.ask(None, "вопрос", "213"))
     assert len(calls) == 3 and waits == [1, 2]
     assert adapter.html is None and adapter.cards == []
+
+
+def test_yandex_capture_retry_uses_raw_page(provider_replies):
+    install, calls, _ = provider_replies
+    install([httpx.Response(200, content=_xml("yandex_neuro", "<div class='FuturisMarkdown'>Первый ответ</div>")),
+             httpx.Response(200, content="<section class='FuturisGPTMessage'><div class='FuturisMarkdown'>Восстановленный ответ</div></section>".encode())])
+    adapter = XMLRiverAdapter("yandex_neuro", geography("yandex_neuro", "213"))
+    asyncio.run(adapter.ask(None, "вопрос", "213"))
+    assert asyncio.run(adapter.retry()) and "Восстановленный ответ" in adapter.html
+    assert len(calls) == 2 and calls[1].url.params["raw"] == "page"
 
 
 @pytest.mark.parametrize("response", [
@@ -272,7 +284,7 @@ def test_empty_main_recollection_shares_request_budget(service, ending, provider
                     assert captured.shown == (ending == "valid")
                     assert captured.answer_text == ("Основной совет" if ending == "valid" else "")
                 assert len(calls) == 3 and waits == [1, 2]
-                assert len({str(call.url) for call in calls}) == 1
+                assert calls[-1].url.params.get("raw") == ("page" if service == "yandex_neuro" else None)
             finally:
                 await browser.close()
     asyncio.run(check())

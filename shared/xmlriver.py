@@ -383,14 +383,17 @@ def _plain(node, *, omit_cards=False):
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
-def _markup(node, *, omit_cards=False):
+def _markup(node, *, omit_cards=False, preserve_provider_attrs=False):
     if omit_cards and _card(node):
         return ""
-    content = "".join(escape(c) if isinstance(c, str) else _markup(c, omit_cards=omit_cards) for c in node.children)
+    content = "".join(escape(c) if isinstance(c, str) else _markup(c, omit_cards=omit_cards,
+                                                                   preserve_provider_attrs=preserve_provider_attrs)
+                      for c in node.children)
     if not node.tag:
         return content
     # Structure and safe links only: provider classes never affect the cabinet UI.
-    attrs = "".join(f' {k}="{escape(v, quote=True)}"' for k, v in node.attrs.items() if k in ("href", "src", "alt"))
+    allowed = ("href", "src", "alt", "class", "data-xid") if preserve_provider_attrs else ("href", "src", "alt")
+    attrs = "".join(f' {k}="{escape(v, quote=True)}"' for k, v in node.attrs.items() if k in allowed)
     return f"<{node.tag}{attrs}>" + ("" if node.tag in _SafeHTML._void else content + f"</{node.tag}>")
 
 
@@ -463,6 +466,30 @@ def evidence(markup: str | None, cards: list[tuple[str, str, str]], service_id: 
             "sources": sources, "source_cards": source_cards, "products": products}
 
 
+def _parse_yandex_page(payload: bytes | str, *, include_images: bool = False) -> tuple[str, list[tuple[str, str, str]]]:
+    """Extract only the Yandex AI response from XMLRiver's raw page fallback."""
+    if len(payload) > 5_000_000:
+        raise XMLRiverMalformedError("unsafe_page")
+    if isinstance(payload, str):
+        raw = payload
+    else:
+        try:
+            raw = payload.decode("utf-8")
+        except UnicodeError as exc:
+            raise XMLRiverResponseError("XMLRiver: недопустимая страница ответа", code="page_decode") from exc
+    root = _Tree(_safe_html(raw, include_images=include_images)).root
+    containers = [node for node in _walk(root) if node.tag == "section" and "FuturisGPTMessage" in node.classes]
+    if not containers:
+        raise XMLRiverResponseError("XMLRiver: AI-блок в странице отсутствует", category="incomplete", code="missing_page_ai")
+    selected = []
+    for container in containers:
+        selected.extend(_outer(container, lambda node: "FuturisMarkdown" in node.classes or _card(node)))
+    prose = [node for node in selected if "FuturisMarkdown" in node.classes]
+    if not any(_plain(node, omit_cards=True) for node in prose):
+        raise XMLRiverResponseError("XMLRiver: AI-блок страницы пуст", category="incomplete", code="empty_page_ai")
+    return "".join(_markup(node, preserve_provider_attrs=True) for node in selected), []
+
+
 class XMLRiverClient:
     requires_auth = False
 
@@ -480,6 +507,7 @@ class XMLRiverClient:
         self._query: str | None = None
         self._attempts = 0
         self._should_continue: Callable[[], bool] | None = None
+        self._raw_page_next = False
 
     def _check_continue(self) -> None:
         if self._should_continue is not None and not self._should_continue():
@@ -498,7 +526,9 @@ class XMLRiverClient:
                     result["collection"] = {"attempts": self._attempts,
                                             "elapsed_ms": round((time.monotonic() - started) * 1000)}
                     return result
-                except XMLRiverResponseError:
+                except XMLRiverResponseError as exc:
+                    self._raw_page_next = (self.service_id == "yandex_neuro" and
+                                           (exc.diagnostic_category == "incomplete" or exc.diagnostic_code == "500"))
                     if not await self.retry():
                         raise
         finally:
@@ -509,6 +539,7 @@ class XMLRiverClient:
         self.cards = []
         self._query = query
         self._attempts = 0
+        self._raw_page_next = False
         await self._request()
 
     async def retry(self) -> bool:
@@ -516,21 +547,40 @@ class XMLRiverClient:
         if self._query is None or self._attempts >= self.max_attempts:
             return False
         self._check_continue()
+        if self.service_id == "yandex_neuro" and self.html is not None:
+            self._raw_page_next = True
         self.html, self.cards = None, []
         await asyncio.sleep(self._attempts)
         await self._request()
         return True
 
     async def _request(self) -> None:
-        params = {**self.geo, "query": self._query, "ai": "1", "device": "desktop", "groupby": "10",
-                  "user": os.environ["AIPARSER_XMLRIVER_USER"], "key": os.environ["AIPARSER_XMLRIVER_KEY"]}
         endpoint = GOOGLE_URL if self.service_id == "google_aio" else YANDEX_URL
         while self._attempts < self.max_attempts:
             self._check_continue()
             self._attempts += 1
+            raw_page = self._raw_page_next
+            params = {**self.geo, "query": self._query, "ai": "1", "device": "desktop", "groupby": "10",
+                      "user": os.environ["AIPARSER_XMLRIVER_USER"], "key": os.environ["AIPARSER_XMLRIVER_KEY"]}
+            if raw_page:
+                params["raw"] = "page"
             try:
-                async with httpx.AsyncClient(timeout=90, follow_redirects=False) as client:
-                    response = await client.get(endpoint, params=params)
+                if raw_page:
+                    async with httpx.AsyncClient(timeout=90, follow_redirects=False) as client:
+                        async with client.stream("GET", endpoint, params=params) as response:
+                            if response.status_code == 200:
+                                body = bytearray()
+                                async for chunk in response.aiter_bytes():
+                                    if len(body) + len(chunk) > 5_000_000:
+                                        raise XMLRiverMalformedError("unsafe_page")
+                                    body.extend(chunk)
+                                response_body = bytes(body)
+                            else:
+                                response_body = b""
+                else:
+                    async with httpx.AsyncClient(timeout=90, follow_redirects=False) as client:
+                        response = await client.get(endpoint, params=params)
+                    response_body = response.content
                 if response.status_code == 429:
                     raise ProviderThrottleError("XMLRiver: временная блокировка из-за частоты запросов",
                                                 code="http", status=429, stage="request")
@@ -539,9 +589,16 @@ class XMLRiverClient:
                                                 code="http", status=response.status_code, stage="request")
                 if response.status_code != 200:
                     raise XMLRiverHTTPError(response.status_code)
-                self.html, self.cards = _parse_xml(response.content, self.service_id, include_images=self.include_images)
+                if raw_page and response_body.lstrip().startswith((b"<yandexsearch", b"<?xml")):
+                    self.html, self.cards = _parse_xml(response_body, self.service_id, include_images=self.include_images)
+                elif raw_page:
+                    self.html, self.cards = _parse_yandex_page(response_body, include_images=self.include_images)
+                else:
+                    self.html, self.cards = _parse_xml(response_body, self.service_id, include_images=self.include_images)
                 return
-            except XMLRiverResponseError:
+            except XMLRiverResponseError as exc:
+                self._raw_page_next = (self.service_id == "yandex_neuro" and not raw_page and
+                                       (exc.diagnostic_category == "incomplete" or exc.diagnostic_code == "500"))
                 if self._attempts >= self.max_attempts:
                     raise
             except httpx.TimeoutException:

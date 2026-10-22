@@ -1023,6 +1023,17 @@ def test_xml_failure_diagnostic_is_bounded_safe_and_survives_readmission(tmp_pat
     assert any(entry.get('category') == 'timeout' for entry in json.loads(retried.history_json))
 
 
+@pytest.mark.parametrize(('category', 'code'), [
+    ('malformed', 'unsafe_page'), ('malformed', 'page_decode'),
+    ('incomplete', 'missing_page_ai'), ('incomplete', 'empty_page_ai'),
+])
+def test_xml_raw_page_failure_diagnostic_is_retained(category, code):
+    task = type('Task', (), {'attempts': 1})()
+    diagnostic = provider_tasks._failure_diagnostic(XMLRiverResponseError('private', category=category, code=code), task)
+    assert diagnostic and {k: diagnostic[k] for k in ('category', 'code', 'status', 'stage', 'attempt')} == {
+        'category': category, 'code': code, 'status': None, 'stage': 'response', 'attempt': 1}
+
+
 @pytest.mark.parametrize('cancelled', [CollectionCancelled, asyncio.CancelledError])
 def test_xml_cancellation_diagnostic_is_not_mislabeled(tmp_path, monkeypatch, cancelled):
     client, owner, _, _, sessions = setup(tmp_path, monkeypatch)

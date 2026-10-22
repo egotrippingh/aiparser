@@ -69,13 +69,113 @@ def test_collect_retries_incomplete_prose_without_browser_and_shares_http_budget
         seen.append(request)
         if len(seen) == 1:
             return httpx.Response(503)
-        html = "<div class='EProductSnippet'>Только карточка</div>" if len(seen) == 2 else "<p>Полный ответ</p>"
+        if request.url.params.get("raw") == "page":
+            return httpx.Response(200, content="<section class='FuturisGPTMessage'><div class='FuturisMarkdown'>Полный ответ</div></section>".encode())
+        html = "<div class='EProductSnippet'>Только карточка</div>"
         return httpx.Response(200, content=payload("yandex_neuro", html))
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(reply), **kwargs))
     result = asyncio.run(xmlriver.XMLRiverClient("yandex_neuro", {"lr": "213"}).collect("Тест"))
     assert result["main_text"] == "Полный ответ" and len(seen) == 3
     assert all(r.url.params["query"] == "Тест" for r in seen)
     assert all(r.url.params["ai"] == "1" for r in seen)
+    assert seen[-1].url.params["raw"] == "page"
+
+
+def test_yandex_raw_page_recovery_scopes_ai_answer_and_cards(monkeypatch):
+    monkeypatch.setenv("AIPARSER_XMLRIVER_USER", "test-user")
+    monkeypatch.setenv("AIPARSER_XMLRIVER_KEY", "test-key")
+    original = httpx.AsyncClient
+    calls = []
+    async def no_wait(_): pass
+    monkeypatch.setattr(xmlriver, "asyncio", SimpleNamespace(sleep=no_wait))
+    raw = b"""<html><body><a href='https://serp.test'>Outside result</a>
+      <section class='FuturisGPTMessage'><div class='FuturisMarkdown'>Actual answer
+      <span class='FuturisFootnoteGroup'><a href='https://source.test'>Source</a></span></div>
+      <div class='FuturisOrgCard'>Provider card</div></section><div class='FuturisMarkdown'>Outside prose</div></body></html>"""
+    def reply(request):
+        calls.append(request)
+        return httpx.Response(200, content=raw if request.url.params.get("raw") == "page" else
+                              b'<yandexsearch><error code="500"/></yandexsearch>')
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(transport=httpx.MockTransport(reply), **kw))
+    result = asyncio.run(xmlriver.XMLRiverClient("yandex_neuro", {"lr": "213"}).collect("same question"))
+    assert result["main_text"] == "Actual answer" and result["cards_text"] == "Source\n\nProvider card"
+    assert result["sources"] == ["https://source.test"] and len(calls) == 2
+    assert calls[0].url.params.get("raw") is None and calls[1].url.params["raw"] == "page"
+    assert all(call.url.params["query"] == "same question" and call.url.params["lr"] == "213" for call in calls)
+
+
+@pytest.mark.parametrize("raw", [
+    b"<html><body><a href='https://serp.test'>Only SERP</a></body></html>",
+    b"<html><body>captcha <section class='FuturisGPTMessage'></section></body></html>",
+    b"<section class='FuturisGPTMessage'><div class='FuturisMarkdown'><span class='FuturisFootnote'>Only source</span></div></section>",
+])
+def test_yandex_raw_page_does_not_accept_serp_captcha_or_empty_ai(raw):
+    with pytest.raises(xmlriver.XMLRiverResponseError):
+        xmlriver._parse_yandex_page(raw)
+
+
+def test_yandex_first_xml_success_does_not_request_raw_page(monkeypatch):
+    monkeypatch.setenv("AIPARSER_XMLRIVER_USER", "test-user")
+    monkeypatch.setenv("AIPARSER_XMLRIVER_KEY", "test-key")
+    original = httpx.AsyncClient
+    calls = []
+    def reply(request):
+        calls.append(request)
+        return httpx.Response(200, content=payload("yandex_neuro", "<div class='FuturisMarkdown'>XML answer</div>"))
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(transport=httpx.MockTransport(reply), **kw))
+    assert asyncio.run(xmlriver.XMLRiverClient("yandex_neuro", {}).collect("question"))["main_text"] == "XML answer"
+    assert len(calls) == 1 and calls[0].url.params.get("raw") is None
+
+
+def test_yandex_stop_blocks_raw_page_fallback(monkeypatch):
+    monkeypatch.setenv("AIPARSER_XMLRIVER_USER", "test-user")
+    monkeypatch.setenv("AIPARSER_XMLRIVER_KEY", "test-key")
+    original = httpx.AsyncClient
+    calls, running = [], [True]
+    def reply(request):
+        calls.append(request)
+        running[0] = False
+        return httpx.Response(200, content=b'<yandexsearch><error code="500"/></yandexsearch>')
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(transport=httpx.MockTransport(reply), **kw))
+    with pytest.raises(xmlriver.CollectionCancelled):
+        asyncio.run(xmlriver.XMLRiverClient("yandex_neuro", {}).collect("question", should_continue=lambda: running[0]))
+    assert len(calls) == 1
+
+
+def test_yandex_raw_page_xml_error_keeps_provider_error(monkeypatch):
+    monkeypatch.setenv("AIPARSER_XMLRIVER_USER", "test-user")
+    monkeypatch.setenv("AIPARSER_XMLRIVER_KEY", "test-key")
+    original = httpx.AsyncClient
+    calls = []
+    async def no_wait(_): pass
+    monkeypatch.setattr(xmlriver, "asyncio", SimpleNamespace(sleep=no_wait))
+    def reply(request):
+        calls.append(request)
+        body = (b'<yandexsearch><response><ai><item><content/></item></ai></response></yandexsearch>'
+                if len(calls) == 1 else b'<yandexsearch><error code="200"/></yandexsearch>')
+        return httpx.Response(200, content=body)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(transport=httpx.MockTransport(reply), **kw))
+    with pytest.raises(xmlriver.ProviderQuotaError):
+        asyncio.run(xmlriver.XMLRiverClient("yandex_neuro", {}, max_attempts=2).collect("question"))
+    assert len(calls) == 2 and calls[1].url.params["raw"] == "page"
+
+
+def test_yandex_raw_page_stream_is_bounded(monkeypatch):
+    monkeypatch.setenv("AIPARSER_XMLRIVER_USER", "test-user")
+    monkeypatch.setenv("AIPARSER_XMLRIVER_KEY", "test-key")
+    original = httpx.AsyncClient
+    calls = []
+    async def no_wait(_): pass
+    monkeypatch.setattr(xmlriver, "asyncio", SimpleNamespace(sleep=no_wait))
+    def reply(request):
+        calls.append(request)
+        return httpx.Response(200, content=(b"x" * 5_000_001 if request.url.params.get("raw") == "page"
+                                            else b'<yandexsearch><error code="500"/></yandexsearch>'))
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(transport=httpx.MockTransport(reply), **kw))
+    with pytest.raises(xmlriver.XMLRiverMalformedError) as caught:
+        asyncio.run(xmlriver.XMLRiverClient("yandex_neuro", {}, max_attempts=2).collect("question"))
+    assert caught.value.diagnostic_code == "unsafe_page"
+    assert len(calls) == 2 and calls[1].url.params["raw"] == "page"
 
 
 def test_absence_and_empty_main_are_distinct():
@@ -150,7 +250,8 @@ def test_server_retry_budget_covers_http_xml_and_empty_ai(monkeypatch, successfu
     else:
         with pytest.raises(xmlriver.XMLRiverResponseError):
             asyncio.run(client.collect('question'))
-    assert len(calls) == 6 and len({str(r.url) for r in calls}) == 1
+    assert len(calls) == 6 and all(r.url.params["query"] == "question" for r in calls)
+    assert any(r.url.params.get("raw") == "page" for r in calls)
 
 
 def test_network_timeout_is_query_retryable_with_bounded_budget(monkeypatch):

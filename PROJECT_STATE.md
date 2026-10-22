@@ -4,45 +4,20 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
-- Published and live readiness verified: [PR #83](https://github.com/egotrippingh/aiparser/pull/83),
-  release `d711aead8d1759309e660e09987bc039f5649e2c`. Admin checks and saved-answer
-  recompute are unlimited/free; ordinary billing remains intact. Exact-SHA delivery
-  passed: [production run](https://github.com/egotrippingh/aiparser/actions/runs/39766813237).
-- Published and live readiness verified: [PR #82](https://github.com/egotrippingh/aiparser/pull/82),
-  release `73511701f89d0f93f3aa0cab91883d1eb1490833`. Mention dynamics use a common
-  query/system/date base: 1/3 to 3/3 gives +66.7%, labelled % throughout. Missing
-  AI blocks count as no mention; failures remain separate, with unknown percentages
-  when no successful measurements exist. History uses the new formula on read.
-- Saved-answer recompute is available to every project owner. The dashboard calendar
-  supports from-date, one day, period, two dates, monthly and custom dates. Ownership,
-  frozen run settings, quote selection and idempotent 80-kopeks billing are preserved.
-- Independent Sol and Astra reviews passed after corrections. Exact-SHA PR and
-  production CI passed: 415 server tests with PostgreSQL, 126 shared Python tests,
-  136 frontend tests, lint/build, image smoke and proxy checks. Production delivery,
-  backup/isolated restore and public readiness passed. Public help and cabinet bundle
-  were verified externally; check pricing remains165. Disposable desktop/narrow UI
-  covered success/failure, calendar modes, selected-date payloads, keyboard and console.
-  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39758758357).
-  Local evidence: `C:/codex-tmp/mention-growth-20261022` (synthetic data/fake AI).
-- Published and live readiness verified: [PR #81](https://github.com/egotrippingh/aiparser/pull/81),
-  release `33b8404dbe27081a7daeec13ee05eb3758281389`. Durable scan retries,
-  project selector/progress and report/answer improvements are included.
-- Previous tariff release: [PR #80](https://github.com/egotrippingh/aiparser/pull/80),
-  release `c43a39f5805cd2aed2e25525af74c6875739c8ab`. New checks/server launches
-  cost165 kopeks. Confirmed server runs/reservations preserve their price; stale
-  quotes are rejected. Pause/top-up/manual-resume regression passes without
-  repeated work/debits. Independent money review,385 server tests with PostgreSQL,
-  125 frontend tests, lint/build and desktop/mobile quote UI passed. Production
-  CI/deploy passed; live readiness, public pricing165 and absent container price
-  override verified. Stable responsive Lottie hero remains included.
-  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39407158649).
-- Shared projects (#75), cabinet, documentation, SEO and auth remain included.
-
-## Prepared work
-
-- Safe provider failure categories and persisted attempt diagnostics are in progress.
-  Retry scheduling, ownership and billing remain unchanged; checks, review and
-  publication are pending. Scope: [provider diagnostics](docs/provider-failure-diagnostics.md).
+- Published and live verified: [PR #85](https://github.com/egotrippingh/aiparser/pull/85),
+  release `c21633d347f922f4da4ded5e0d23764b8589636d`. XMLRiver failures now retain
+  safe timeout/network/HTTP/API/malformed/incomplete/cancellation diagnostics in the
+  bounded task history. Retry timing, provider budgets and billing are unchanged.
+- Independent correctness/risk review passed. Exact-SHA CI passed 423 PostgreSQL
+  server tests, shared checks, 137 frontend tests, lint/build and image smoke.
+  Backup/isolated restore, public readiness and installed diagnostic smoke passed.
+  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39821835936).
+  Live ordinary-attempt diagnostics verified: API500 and incomplete/missing_content;
+  two user-authorized diagnostic requests confirmed empty AI content, then API500;
+  the second full XML was saved outside Git and its transfer hash verified.
+- Included: unlimited/free admin checks (#83), owner-only saved-answer recompute
+  and common-base mention dynamics (#82), durable scan recovery/report UI (#81),
+  tariff165/frozen run prices (#80), shared projects, cabinet, SEO and auth.
 
 ## Architecture and operating rules
 
@@ -66,7 +41,11 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 - Off-VPS database backups are not confirmed; existing backups are VPS-local.
 - Search Console/Yandex Webmaster submission and actual indexing are not verified.
 
-## Next action
+## Prepared work and next action
 
-Complete provider diagnostic checks/review and publish through the delivery gates;
-then inspect an ordinary retry without triggering additional paid requests.
+`codex/xmlriver-retry-recovery` adds a bounded Yandex raw-page fallback after
+API500 or incomplete XML, using the existing request budget and durable save path.
+Independent correctness review passed; final risk review and delivery CI pending.
+A genuine Triol answer is saved privately for fenced recovery through the worker;
+terminal completion remains unverified. See [task evidence](docs/xmlriver-retry-recovery.md).
+Delivery checkout: `C:/Users/ego/.codex/worktrees/provider-failure-diagnostics/aiparser`.
