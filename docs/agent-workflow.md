@@ -93,10 +93,11 @@ python -m venv .venv
 
 Use that interpreter for root Python checks. This is test setup; it does not fetch
 Camoufox or install full Windows desktop dependencies. Desktop/manual execution follows
-`README.md`. The full CI commands and process grouping are defined ONLY in
-`.github/workflows/delivery.yml`; nested instructions are focused local gates, not a
-replacement CI specification. Keep its separate agent test processes: broad collection
-has previously reproduced baseline API smoke failures. Record a newly encountered
+`README.md`. The full CI Python matrix is defined ONLY in `scripts/ci-python.sh` (invoked from
+`.github/workflows/delivery.yml`). Nested instructions are focused local gates, not a
+replacement CI specification. Keep its separate agent test processes: several modules
+mutate `config.DB_PATH` at import time, so a single `pytest tests` collection shares
+one SQLite path and fails baseline checks. Record a newly encountered
 failure with a bounded reproduction on the base; never label it baseline by assumption.
 Do not run tests against a real `DATABASE_URL`, production credentials or profiles.
 

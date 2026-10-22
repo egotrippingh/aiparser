@@ -73,8 +73,20 @@ do not move environment secrets into unrestricted PR jobs as a workaround.
 - `docker compose logs --tail=100 web`: application startup diagnosis.
 - `systemctl status airate-backup.service`: most recent scheduled backup result.
 
-Backups remain on this VPS until a **separate** private backup bucket and its
-credentials are configured. Screenshot storage is not a database backup.
+Local dumps stay under `/opt/airate/deploy/backups` (last 30 verified). For an
+off-VPS copy create a **separate private** Object Storage bucket (not the
+screenshots bucket), issue a service account with write-only object access, and
+set in `/opt/airate/deploy/.env` (mode 0600):
+
+```text
+BACKUP_S3_BUCKET=...
+BACKUP_ACCESS_KEY_ID=...
+BACKUP_SECRET_ACCESS_KEY=...
+```
+
+Then run `bash backup.sh` once as root from `/opt/airate/deploy` and confirm the
+log line `Backup copied to the private off-host bucket.` Empty `BACKUP_S3_BUCKET`
+keeps backups on this VPS only. Screenshot storage is not a database backup.
 Application images retain the active and previous images plus recent releases.
 On failed deployments, inspect the Actions log before manually retrying.
 Transport failures after activation can make Actions red while the release is
