@@ -1,6 +1,7 @@
 # Account server rules
 
-Read root `AGENTS.md`. Applies to server tests and Alembic migrations too.
+Read root `AGENTS.md` and `PYTHON_RULES.md`. Applies to server tests and Alembic
+migrations too.
 
 - Validate request models at the boundary. Scope every project/result/check/run/device
   lookup to its owner. A matching client check ID alone does not establish ownership.
