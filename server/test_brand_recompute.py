@@ -85,8 +85,8 @@ def test_recompute_with_empty_wallet_is_free_only_for_admin(tmp_path, monkeypatc
     quote = client.get(base + "/quote", headers=headers, params={"from_date": today}).json()
     assert quote["count"] == 1
     assert quote["available_kopeks"] == -80
-    assert quote["unit_kopeks"] == quote["total_kopeks"] == (0 if admin else 80)
-    payload = {"from_date": today, "revision": project["revision"]}
+    assert quote["unit_kopeks"] == quote["total_kopeks"] == (0 if admin else 120)
+    payload = {"from_date": today, "unit_kopeks": quote["unit_kopeks"], "revision": project["revision"]}
     done = client.post(f"{base}/{result_id}", headers=headers, json=payload)
     assert done.status_code == (200 if admin else 409), done.text
     if admin:
@@ -122,17 +122,17 @@ def test_recompute_uses_latest_visible_answer_once_and_keeps_failure_free(tmp_pa
 
     quote = client.get(f"/api/v1/control/projects/{project['id']}/recompute/quote", headers=headers,
                        params={"from_date": today}).json()
-    assert quote["result_ids"] == [str(latest_id)] and quote["total_kopeks"] == 80
+    assert quote["result_ids"] == [str(latest_id)] and quote["total_kopeks"] == 120
     done = client.post(f"/api/v1/control/projects/{project['id']}/recompute/{latest_id}", headers=headers,
-                       json={"from_date": today, "revision": project["revision"]})
-    assert done.status_code == 200 and done.json()["charged_kopeks"] == 80
+                       json={"from_date": today, "unit_kopeks": 120, "revision": project["revision"]})
+    assert done.status_code == 200 and done.json()["charged_kopeks"] == 120
     again = client.post(f"/api/v1/control/projects/{project['id']}/recompute/{latest_id}", headers=headers,
-                        json={"from_date": today, "revision": project["revision"]})
+                        json={"from_date": today, "unit_kopeks": 120, "revision": project["revision"]})
     assert again.json()["charged_kopeks"] == 0
     assert client.post(f"/api/v1/control/projects/{project['id']}/recompute/{old_id}", headers=headers,
-                       json={"from_date": today, "revision": project["revision"]}).json()["status"] == "skipped"
+                       json={"from_date": today, "unit_kopeks": 120, "revision": project["revision"]}).json()["status"] == "skipped"
     with sessions() as db:
-        assert db.get(Wallet, FEATURE_USER).balance_kopeks == 920
+        assert db.get(Wallet, FEATURE_USER).balance_kopeks == 880
         assert db.get(CloudResult, latest_id).status == "not_found"
         assert db.get(CloudResult, yesterday_id).status == "found"
         assert len(list(db.query(LedgerEntry).filter_by(kind="recompute"))) == 1
@@ -161,7 +161,7 @@ def test_recompute_uses_latest_visible_answer_once_and_keeps_failure_free(tmp_pa
         db.commit(); result_id = db.query(CloudResult).one().id
     with no_sql_after_rollback():
         failed = client_fail.post(f"/api/v1/control/projects/{failed_project['id']}/recompute/{result_id}", headers=fail_headers,
-                                  json={"from_date": today, "revision": failed_project["revision"]})
+                                  json={"from_date": today, "unit_kopeks": 120, "revision": failed_project["revision"]})
     assert failed.json()["status"] == "error"
     with fail_sessions() as db:
         assert db.get(Wallet, FEATURE_USER).balance_kopeks == 1000
@@ -270,12 +270,12 @@ def test_rule_cycle_can_recompute_original_state_again(tmp_path, monkeypatch):
                             params={"from_date": today}).json()
         assert quoted["result_ids"] == [str(result_id)]
         result = client.post(f"/api/v1/control/projects/{project['id']}/recompute/{result_id}", headers=headers,
-                             json={"from_date": today, "revision": project["revision"]})
-        assert result.status_code == 200 and result.json()["charged_kopeks"] == 80
+                             json={"from_date": today, "unit_kopeks": 120, "revision": project["revision"]})
+        assert result.status_code == 200 and result.json()["charged_kopeks"] == 120
         with sessions() as db:
             assert db.get(CloudResult, result_id).status == expected
     with sessions() as db:
-        assert db.get(Wallet, FEATURE_USER).balance_kopeks == 760
+        assert db.get(Wallet, FEATURE_USER).balance_kopeks == 640
         assert db.query(LedgerEntry).filter_by(kind="recompute").count() == 3
 
 
@@ -313,12 +313,12 @@ def test_recompute_uses_saved_screenshot_and_full_text(tmp_path, monkeypatch):
     storage.fail = True
     with no_sql_after_rollback():
         failed = client.post(f"/api/v1/control/projects/{project['id']}/recompute/{result_id}", headers=headers,
-                             json={"from_date": today, "revision": project["revision"]})
+                             json={"from_date": today, "unit_kopeks": 120, "revision": project["revision"]})
     assert failed.json()["charged_kopeks"] == 0 and failed.json()["status"] == "error"
     storage.fail = False
     result = client.post(f"/api/v1/control/projects/{project['id']}/recompute/{result_id}", headers=headers,
-                         json={"from_date": today, "revision": project["revision"]})
-    assert result.status_code == 200 and result.json()["charged_kopeks"] == 80
+                         json={"from_date": today, "unit_kopeks": 120, "revision": project["revision"]})
+    assert result.status_code == 200 and result.json()["charged_kopeks"] == 120
 
 
 def test_recompute_skips_unsaved_deep_source_evidence(tmp_path, monkeypatch):
@@ -339,7 +339,7 @@ def test_recompute_skips_unsaved_deep_source_evidence(tmp_path, monkeypatch):
                        params={"from_date": today}).json()
     assert quote["count"] == 0 and quote["skipped"] == 1
     result = client.post(f"/api/v1/control/projects/{project['id']}/recompute/{result_id}", headers=headers,
-                         json={"from_date": today, "revision": project["revision"]}).json()
+                         json={"from_date": today, "unit_kopeks": 120, "revision": project["revision"]}).json()
     assert result["status"] == "skipped" and result["charged_kopeks"] == 0
     with sessions() as db:
         assert db.get(Wallet, FEATURE_USER).balance_kopeks == 1000
@@ -364,7 +364,7 @@ def test_recompute_skips_image_only_positive_with_text_label(tmp_path, monkeypat
                        params={"from_date": today}).json()
     assert quote["count"] == 0 and quote["skipped"] == 1
     result = client.post(f"/api/v1/control/projects/{project['id']}/recompute/{result_id}", headers=headers,
-                         json={"from_date": today, "revision": project["revision"]}).json()
+                         json={"from_date": today, "unit_kopeks": 120, "revision": project["revision"]}).json()
     assert result["status"] == "skipped" and result["charged_kopeks"] == 0
     with sessions() as db:
         assert db.get(Wallet, FEATURE_USER).balance_kopeks == 1000
@@ -391,7 +391,7 @@ def test_text_only_recompute_can_be_repeated_after_model_paraphrases_quote(tmp_p
         db.add(row); db.commit(); result_id = row.id
     route = f"/api/v1/control/projects/{project['id']}/recompute/{result_id}"
     assert client.post(route, headers=headers, json={"from_date": today,
-        "revision": project["revision"]}).json()["charged_kopeks"] == 80
+        "unit_kopeks": 120, "revision": project["revision"]}).json()["charged_kopeks"] == 120
     body = {key: project[key] for key in ("revision", "name", "brand_name", "device_id", "config", "schedule", "queries")}
     body["config"] = {**body["config"], "brand_clarification": "Rule B"}
     changed = client.put(f"/api/v1/control/projects/{project['id']}", headers=headers, json=body).json()
@@ -399,7 +399,7 @@ def test_text_only_recompute_can_be_repeated_after_model_paraphrases_quote(tmp_p
                        params={"from_date": today}).json()
     assert quote["result_ids"] == [str(result_id)]
     assert client.post(route, headers=headers, json={"from_date": today,
-        "revision": changed["revision"]}).json()["charged_kopeks"] == 80
+        "unit_kopeks": 120, "revision": changed["revision"]}).json()["charged_kopeks"] == 120
 
 
 def saved_days(tmp_path, monkeypatch):
@@ -436,15 +436,15 @@ def test_recompute_selection_limits_quote_and_post_and_is_idempotent(tmp_path, m
     assert quoted.headers['cache-control'] == 'no-store'
     quote = quoted.json()
     assert set(quote['result_ids']) == {str(ids[day]) for day in chosen}
-    assert quote['total_kopeks'] == 80 * len(chosen)
+    assert quote['total_kopeks'] == 120 * len(chosen)
     assert client.get(base + '/dates', headers=headers).json() == {'dates': sorted(ids)}
     for day, result_id in ids.items():
-        response = client.post(base + f'/{result_id}', headers=headers, json={**selection, 'revision': project['revision']})
+        response = client.post(base + f'/{result_id}', headers=headers, json={**selection, "unit_kopeks": 120, 'revision': project['revision']})
         assert response.status_code == 200, response.text
-        assert response.json()['charged_kopeks'] == (80 if day in chosen else 0)
-        assert client.post(base + f'/{result_id}', headers=headers, json={**selection, 'revision': project['revision']}).json()['charged_kopeks'] == 0
+        assert response.json()['charged_kopeks'] == (120 if day in chosen else 0)
+        assert client.post(base + f'/{result_id}', headers=headers, json={**selection, "unit_kopeks": 120, 'revision': project['revision']}).json()['charged_kopeks'] == 0
     with sessions() as db:
-        assert db.get(Wallet, FEATURE_USER).balance_kopeks == 1000 - 80 * len(chosen)
+        assert db.get(Wallet, FEATURE_USER).balance_kopeks == 1000 - 120 * len(chosen)
         assert {row.scan_date for row in db.query(CloudResult) if row.status == 'not_found'} == set(chosen)
         assert db.query(LedgerEntry).filter_by(kind='recompute').count() == len(chosen)
 
@@ -464,7 +464,7 @@ def test_recompute_rejects_invalid_selection_before_charging(tmp_path, monkeypat
     params = {**selection, **({'dates': ','.join(selection['dates'])} if 'dates' in selection else {})}
     assert client.get(base + '/quote', headers=headers, params=params).status_code == 422
     assert client.post(base + f'/{next(iter(ids.values()))}', headers=headers,
-        json={**selection, 'revision': project['revision']}).status_code == 422
+        json={**selection, "unit_kopeks": 120, 'revision': project['revision']}).status_code == 422
     with sessions() as db:
         assert db.get(Wallet, FEATURE_USER).balance_kopeks == 1000
 
@@ -477,7 +477,7 @@ def test_recompute_remains_owner_web_only_and_requires_current_clarification(tmp
     device = client.post('/api/v1/control/agent/enroll', headers=headers,
         json={'device_id': 'b' * 32, 'name': 'PC'}).json()['token']
     base = f"/api/v1/control/projects/{project['id']}/recompute"
-    data = {'from_date': '2026-09-01', 'revision': project['revision']}
+    data = {'from_date': '2026-09-01', 'unit_kopeks': 120, 'revision': project['revision']}
     for who, expected in [(other_headers, 404), ({'Authorization': 'Bearer ' + device}, 403)]:
         assert client.get(base + '/quote', headers=who, params={'from_date': data['from_date']}).status_code == expected
         assert client.get(base + '/dates', headers=who).status_code == expected
@@ -530,3 +530,40 @@ def test_ordinary_owner_clarification_is_frozen_for_manual_and_scheduled_runs(tm
     with sessions() as db:
         snapshots = [json.loads(run.snapshot_json)['config']['brand_clarification'] for run in db.query(ControlRun)]
         assert sorted(snapshots) == ['Frozen A', 'Frozen B']
+
+
+@pytest.mark.parametrize("balance", [119, 120])
+def test_recompute_requires_full_new_tariff_before_charging(tmp_path, monkeypatch, balance):
+    client, headers, sessions, project, ids = saved_days(tmp_path, monkeypatch)
+    with sessions() as db:
+        db.get(Wallet, FEATURE_USER).balance_kopeks = balance
+        db.commit()
+    day, result_id = next(iter(ids.items()))
+    base = f"/api/v1/control/projects/{project['id']}/recompute"
+    quote = client.get(base + "/quote", headers=headers, params={"from_date": day, "to_date": day}).json()
+    assert quote["unit_kopeks"] == quote["total_kopeks"] == 120
+    done = client.post(f"{base}/{result_id}", headers=headers,
+        json={"from_date": day, "to_date": day, "unit_kopeks": 120, "revision": project["revision"]})
+    assert done.status_code == (200 if balance == 120 else 409)
+    with sessions() as db:
+        assert db.get(Wallet, FEATURE_USER).balance_kopeks == (0 if balance == 120 else balance)
+        entries = db.query(LedgerEntry).filter_by(kind="recompute").all()
+        assert [entry.amount_kopeks for entry in entries] == ([-120] if balance == 120 else [])
+        assert db.get(CloudResult, result_id).status == ("not_found" if balance == 120 else "found")
+
+
+@pytest.mark.parametrize("unit", [None, 80])
+def test_recompute_rejects_unconfirmed_or_stale_tariff(tmp_path, monkeypatch, unit):
+    client, headers, sessions, project, ids = saved_days(tmp_path, monkeypatch)
+    day, result_id = next(iter(ids.items()))
+    payload = {"from_date": day, "revision": project["revision"]}
+    if unit is not None:
+        payload["unit_kopeks"] = unit
+    response = client.post(f"/api/v1/control/projects/{project['id']}/recompute/{result_id}",
+        headers=headers, json=payload)
+    assert response.status_code == 409
+    assert "Проверьте сумму" in response.json()["detail"]
+    with sessions() as db:
+        assert db.get(Wallet, FEATURE_USER).balance_kopeks == 1000
+        assert db.get(CloudResult, result_id).status == "found"
+        assert db.query(LedgerEntry).filter_by(kind="recompute").count() == 0

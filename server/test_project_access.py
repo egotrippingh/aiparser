@@ -165,7 +165,7 @@ def test_shared_scan_feature_and_pricing_follow_owner_not_editor(tmp_path, monke
     writable = {key: shared[key] for key in ('revision', 'name', 'brand_name', 'device_id', 'config', 'schedule', 'queries')}
     assert client.put(base, headers=eligible, json=writable).status_code == 200
     quote = client.get(base + '/quote', headers=eligible).json()
-    assert quote['unit_kopeks'] == quote['total_kopeks'] == 165
+    assert quote['unit_kopeks'] == quote['total_kopeks'] == 200
     launched = client.post(base + '/runs', headers=eligible, json={'request_id': original_uuid().hex})
     assert launched.status_code == 201, launched.text
     with sessions() as db:

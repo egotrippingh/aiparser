@@ -242,7 +242,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
             f"{public_base}/api/v1/auth/yandex/callback",
         )
     allow_test = os.environ.get("COINSO_ALLOW_TEST_PAYMENTS", "false").lower() == "true"
-    price = int(os.environ.get("CHECK_PRICE_KOPEKS", "165"))
+    price = int(os.environ.get("CHECK_PRICE_KOPEKS", "200"))
     min_topup = int(os.environ.get("MIN_TOPUP_KOPEKS", "30000"))
     if price <= 0 or min_topup <= 0:
         raise RuntimeError("Цена и минимальное пополнение должны быть положительными")

@@ -160,6 +160,7 @@ class RecomputeIn(BaseModel):
     to_date: str | None = None
     dates: list[str] | None = Field(default=None, min_length=1, max_length=30)
     revision: int = Field(ge=0)
+    unit_kopeks: int | None = Field(default=None, ge=0)
 
 
 def recompute_selection(from_date, to_date=None, dates=None):
@@ -269,7 +270,7 @@ def device_for(db, user_id, device_id):
 
 
 def create_run(db, project, device_id, key, scheduled_for=None, brand_clarifications_enabled=True,
-               check_price_kopeks=165):
+               check_price_kopeks=200):
     existing = db.scalar(select(ControlRun).where(ControlRun.request_key == key))
     if existing:
         return existing
@@ -345,7 +346,7 @@ def provider_state_fingerprint(accounts, services, check_price_kopeks):
     return hashlib.sha256(json.dumps([check_price_kopeks, state], separators=(",", ":")).encode()).hexdigest()
 
 
-def schedule_tick(sessions, now=None, check_price_kopeks=165):
+def schedule_tick(sessions, now=None, check_price_kopeks=200):
     now = now or utcnow()
     with sessions() as db:
         # Only historical agent work depends on PC availability.
@@ -393,7 +394,7 @@ def schedule_tick(sessions, now=None, check_price_kopeks=165):
             db.commit()
 
 
-def register_control(app, db_session, current_user, sessions, *, check_price_kopeks=165,
+def register_control(app, db_session, current_user, sessions, *, check_price_kopeks=200,
                      ai_client=None, screenshot_storage=None):
     router = APIRouter(prefix="/api/v1/control")
 
@@ -678,7 +679,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         if len(candidates) > 5000:
             raise HTTPException(422, "Слишком много ответов. Выберите более позднюю дату.")
         count = len(candidates)
-        unit = 0 if user.is_admin else 80
+        unit = 0 if user.is_admin else 120
         return {"result_ids": [str(item.id) for item in candidates], "count": count,
                 "unit_kopeks": unit, "total_kopeks": count * unit,
                 "available_kopeks": available_kopeks(db, user.id), "revision": row.revision,
@@ -692,6 +693,9 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         require_clarification(project)
         if body.revision != project.revision:
             raise HTTPException(409, "Проект изменён. Получите новый расчёт.")
+        price = 0 if user.is_admin else 120
+        if body.unit_kopeks != price:
+            raise HTTPException(409, "Тариф пересчёта изменён. Обновите страницу. Проверьте сумму и подтвердите пересчёт заново.")
         selection = recompute_selection(body.from_date, body.to_date, body.dates)
         if db.scalar(select(ControlRun.id).where(ControlRun.active_project_key == project.id)):
             raise HTTPException(409, "Дождитесь завершения текущей проверки проекта")
@@ -706,7 +710,6 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         candidates, _, identity = recompute_candidates(db, project, *selection)
         if result.id not in {item.id for item in candidates}:
             return {"charged_kopeks": 0, "status": "skipped", "message": "Ответ уже пересчитан или не подходит выбранной дате"}
-        price = 0 if user.is_admin else 80
         if price and available_kopeks(db, user.id) < price:
             raise HTTPException(409, "Недостаточно средств для пересчёта")
 

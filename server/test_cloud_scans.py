@@ -335,7 +335,7 @@ def test_balance_exhaustion_waits_for_topup_and_resumes_without_recharging(tmp_p
     monkeypatch.delenv('CHECK_PRICE_KOPEKS', raising=False)
     client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, admin=False)
     with sessions() as db:
-        db.get(Wallet, user_id).balance_kopeks = 330
+        db.get(Wallet, user_id).balance_kopeks = 400
         db.commit()
     _, run = project_and_run(client, owner, legacy=False,
         queries=[{'text': 'first'}, {'text': 'second'}, {'text': 'third'}])
@@ -347,7 +347,7 @@ def test_balance_exhaustion_waits_for_topup_and_resumes_without_recharging(tmp_p
 
     def batch_tick():
         # A different worker default must not reprice this already-confirmed run.
-        return asyncio.run(cloud_tick(sessions, None, 200, PaidCollector,
+        return asyncio.run(cloud_tick(sessions, None, 300, PaidCollector,
             prefetch_limits={'google_aio': 3}))
 
     assert batch_tick()
@@ -358,14 +358,14 @@ def test_balance_exhaustion_waits_for_topup_and_resumes_without_recharging(tmp_p
         assert 'Недостаточно средств' in row.error
         assert db.get(Wallet, user_id).balance_kopeks == 0
         assert len(db.scalars(select(CloudResult)).all()) == 2
-        db.get(Wallet, user_id).balance_kopeks += 164
+        db.get(Wallet, user_id).balance_kopeks += 199
         db.commit()
 
     assert not batch_tick()
     assert len(Collector.calls) == 2  # A top-up alone does not resume a paused scan.
     assert client.post(command, headers=owner, json={'action': 'resume'}).status_code == 200
     assert batch_tick()
-    assert len(Collector.calls) == 2  # 164 kopeks still cannot buy a 165-kopeck check.
+    assert len(Collector.calls) == 2  # 199 kopeks still cannot buy a 200-kopeck check.
     with sessions() as db:
         row = db.get(ControlRun, run['id'])
         assert row.state == row.desired_state == 'paused'
@@ -379,8 +379,8 @@ def test_balance_exhaustion_waits_for_topup_and_resumes_without_recharging(tmp_p
         assert db.get(ControlRun, run['id']).state == 'done'
         assert db.get(Wallet, user_id).balance_kopeks == 0
         assert len(db.scalars(select(CloudResult)).all()) == 3
-        assert [entry.amount_kopeks for entry in db.scalars(select(LedgerEntry))] == [-165] * 3
-        assert all(check.status == 'settled' and check.price_kopeks == 165
+        assert [entry.amount_kopeks for entry in db.scalars(select(LedgerEntry))] == [-200] * 3
+        assert all(check.status == 'settled' and check.price_kopeks == 200
                    for check in db.scalars(select(Check)))
 
 

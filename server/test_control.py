@@ -73,12 +73,12 @@ def test_price_change_rejects_stale_quote_and_freezes_confirmed_run(tmp_path, mo
     assert rejected.status_code == 409 and 'Проверьте сумму' in rejected.json()['detail']
     assert current.get('/api/v1/control/runs', headers=owner).json() == []
     quote = current.get(path + '/quote', headers=owner).json()
-    assert quote['unit_kopeks'] == quote['total_kopeks'] == 165
+    assert quote['unit_kopeks'] == quote['total_kopeks'] == 200
     launched = current.post(path + '/runs', headers=owner,
         json={**body, 'provider_state': quote['provider_state'], 'check_price_kopeks': 1})
     assert launched.status_code == 201, launched.text
     with current.app.state.payment_sessions() as db:
-        assert json.loads(db.get(ControlRun, launched.json()['id']).snapshot_json)['check_price_kopeks'] == 165
+        assert json.loads(db.get(ControlRun, launched.json()['id']).snapshot_json)['check_price_kopeks'] == 200
     # Retrying the original request retrieves its run without creating or repricing it.
     assert current.post(path + '/runs', headers=owner, json=body).json()['id'] == launched.json()['id']
 

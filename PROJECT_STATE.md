@@ -4,6 +4,19 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
+- Published and live readiness verified: [PR #83](https://github.com/egotrippingh/aiparser/pull/83),
+  release `d711aead8d1759309e660e09987bc039f5649e2c`. Admin checks and saved-answer
+  recompute are free, including wallet0 with old paid reservations. Cabinet shows
+  unlimited/free usage. Ordinary billing, existing reservations, ownership and
+  idempotency remain intact; no schema/delivery changes.
+- Sol and Astra reviews passed. Local422 server tests with disposable PostgreSQL,
+  137 frontend tests, lint/build and desktop/narrow fake-AI UI passed. Exact-SHA PR
+  and production CI passed:418 server tests,126 shared Python tests,137 frontend,
+  image/proxy and delivery gates. Backup/isolated restore and public readiness passed.
+  Live cabinet bundle matches the tested build; public check pricing remains165.
+  Read-only verification confirmed one admin account with recent check prices0.
+  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39766813237).
+  Local evidence: `C:/codex-tmp/admin-unlimited-20261022` (synthetic data/fake AI).
 - Published and live readiness verified: [PR #82](https://github.com/egotrippingh/aiparser/pull/82),
   release `73511701f89d0f93f3aa0cab91883d1eb1490833`. Mention dynamics use a common
   query/system/date base: 1/3 to 3/3 gives +66.7%, labelled % throughout. Missing
@@ -36,12 +49,14 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Prepared work
 
-- Admin checks and saved-answer recompute use a zero tariff, including wallet0
-  with old paid reservations. Cabinet shows unlimited/free usage; ordinary billing
-  and owner-only recompute remain intact. Sol and Astra reviews passed,35 focused
-  API tests and137 frontend tests passed; lint/build and desktop/narrow fake-AI UI
-  checks passed. Full local server/PostgreSQL and release CI are pending.
-  Brief/evidence: `docs/tasks/admin-unlimited.md`; no schema/delivery change.
+- Branch `codex/pricing-2rub` (production base `d711aead`): new checks200 kopeks,
+  saved-answer recompute120 kopeks. Existing run snapshots/reservations retain their
+  prices; admin remains free. Recompute POST must confirm quote unit price; old/missing
+  prices return409 without analysis or debit. Not published.
+- Frontend137 tests, lint/build, delivery4 tests and desktop/narrow fake-AI UI
+  passed; focused independent money review passed. Server/CI evidence is tracked in
+  [PR #84](https://github.com/egotrippingh/aiparser/pull/84); local evidence:
+  `C:/codex-tmp/pricing-*.log`.
 
 ## Architecture and operating rules
 
@@ -52,8 +67,9 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
   screenshots use Yandex S3 and semantic analysis uses OpenRouter.
 - GitHub Actions deploys `production` with serialized activation, verified backups,
   isolated restore, migration admission, exact-SHA readiness and rollback.
-- New checks cost165 kopeks per query/service; eligible recompute costs up to80 kopeks,
-  failed analysis is uncharged. Clarification/recompute is available to every owner;
+- Ordinary accounts: new checks cost165 kopeks per query/service; eligible recompute
+  costs up to80 kopeks, failed analysis is uncharged. Admin checks/recompute are free.
+  Clarification/recompute is available to every owner;
   shared viewers and device sessions cannot trigger it.
 - Email-code/Yandex registration and SMTP.BZ transactional mail are active.
 
@@ -67,6 +83,4 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Mention-growth and recompute delivery is complete. Real paid/provider checks remain
-outside the disposable acceptance run; do not trigger them without authorization.
-Task scope: [mention dynamics and recompute](docs/tasks/mention-growth-recompute.md).
+Review PR #84 checks before release. Publishing requires user authorization. Real provider/payment checks remain outside disposable tests.
