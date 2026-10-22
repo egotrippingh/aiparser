@@ -4,6 +4,10 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
+- Published and live readiness verified: [PR #83](https://github.com/egotrippingh/aiparser/pull/83),
+  release `d711aead8d1759309e660e09987bc039f5649e2c`. Admin checks and saved-answer
+  recompute are unlimited/free; ordinary billing remains intact. Exact-SHA delivery
+  passed: [production run](https://github.com/egotrippingh/aiparser/actions/runs/39766813237).
 - Published and live readiness verified: [PR #82](https://github.com/egotrippingh/aiparser/pull/82),
   release `73511701f89d0f93f3aa0cab91883d1eb1490833`. Mention dynamics use a common
   query/system/date base: 1/3 to 3/3 gives +66.7%, labelled % throughout. Missing
@@ -36,12 +40,9 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Prepared work
 
-- Admin checks and saved-answer recompute use a zero tariff, including wallet0
-  with old paid reservations. Cabinet shows unlimited/free usage; ordinary billing
-  and owner-only recompute remain intact. Sol and Astra reviews passed,35 focused
-  API tests and137 frontend tests passed; lint/build and desktop/narrow fake-AI UI
-  checks passed. Full local server/PostgreSQL and release CI are pending.
-  Brief/evidence: `docs/tasks/admin-unlimited.md`; no schema/delivery change.
+- Safe provider failure categories and persisted attempt diagnostics are in progress.
+  Retry scheduling, ownership and billing remain unchanged; checks, review and
+  publication are pending. Scope: [provider diagnostics](docs/provider-failure-diagnostics.md).
 
 ## Architecture and operating rules
 
@@ -67,6 +68,5 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Mention-growth and recompute delivery is complete. Real paid/provider checks remain
-outside the disposable acceptance run; do not trigger them without authorization.
-Task scope: [mention dynamics and recompute](docs/tasks/mention-growth-recompute.md).
+Complete provider diagnostic checks/review and publish through the delivery gates;
+then inspect an ordinary retry without triggering additional paid requests.

@@ -5,6 +5,7 @@ import asyncio
 import json
 import hmac
 import os
+import re
 import time
 import uuid
 from datetime import timedelta, timezone
@@ -14,8 +15,55 @@ from sqlalchemy import and_, func, or_, select, update
 from server.models import Check, ControlRun, ProviderAccount, ProviderTask, ServerCapture, User, utcnow
 from server.scrapeless import CollectionDeferred, Rejected, SubmissionUnknown
 from server import scrapeless
+from shared.errors import ProviderQuotaError
+from shared.xmlriver import (CollectionCancelled, ProviderThrottleError, XMLRiverAPIError,
+                             XMLRiverHTTPError, XMLRiverMalformedError, XMLRiverResponseError)
 
 ACTIVE = ("submitting", "submitted", "uncertain")
+
+
+_SAFE_FAILURE_CODES = {"cancelled", "timeout", "transport", "http", "response", "unsafe_xml", "xml_parse",
+                       "invalid_html", "missing_response", "missing_results", "missing_answer", "missing_content",
+                       "empty_html", "empty_main_text", "too_complex", "text_too_large", "too_many_sources", "unknown"}
+
+
+def _failure_diagnostic(exc, task, http_attempts=None):
+    """Store a stable provider reason, never provider text, URLs, or request data."""
+    category = code = stage = None
+    status = None
+    if isinstance(exc, (CollectionCancelled, asyncio.CancelledError)):
+        category, code, stage = "cancelled", "cancelled", "collection"
+    elif isinstance(exc, ProviderThrottleError):
+        category, code, stage, status = (exc.diagnostic_category, exc.diagnostic_code,
+                                          exc.diagnostic_stage, exc.diagnostic_status)
+    elif isinstance(exc, ProviderQuotaError):
+        category, code, stage = "api", "200", "response"
+    elif isinstance(exc, XMLRiverHTTPError):
+        category, code, stage, status = "http", "http", "request", exc.diagnostic_status
+    elif isinstance(exc, XMLRiverAPIError):
+        category, code, stage = "api", exc.diagnostic_code, "response"
+    elif isinstance(exc, XMLRiverMalformedError):
+        category, code, stage = "malformed", exc.diagnostic_code, "response"
+    elif isinstance(exc, XMLRiverResponseError):
+        category, code, stage, status = (exc.diagnostic_category, exc.diagnostic_code,
+                                          exc.diagnostic_stage, exc.diagnostic_status)
+    if category not in {"timeout", "network", "http", "api", "malformed", "incomplete", "cancelled"}:
+        return None
+    if not isinstance(code, str) or not (code in _SAFE_FAILURE_CODES or re.fullmatch(r"[0-9]{1,6}", code)):
+        return None
+    if stage not in {"request", "response", "collection"}:
+        return None
+    if status is not None and (type(status) is not int or not 100 <= status <= 599):
+        return None
+    diagnostic = {"category": category, "code": code, "status": status, "stage": stage,
+                  "at": utcnow().isoformat(), "attempt": task.attempts}
+    if type(http_attempts) is int and 1 <= http_attempts <= 6:
+        diagnostic["http_attempts"] = http_attempts
+    return diagnostic
+
+
+def _append_history(task, entry):
+    task.history_json = json.dumps([*json.loads(task.history_json)[-31:], entry])
 
 
 def _aware(value):
@@ -117,8 +165,7 @@ def admit(sessions, run_id, token, query_id, service, limit):
                 # Keep retrying new checks after a durable cooldown, without a paid retry storm.
                 if _aware(task.updated_at) + timedelta(minutes=15) > now:
                     raise CollectionDeferred("Сервис сбора временно недоступен; автоматическая перепроверка ожидает повторной попытки")
-            task.history_json = json.dumps([*json.loads(task.history_json)[-31:],
-                {"task_id": task.task_id, "state": task.state}])
+            _append_history(task, {"task_id": task.task_id, "state": task.state})
             task.attempts += 1
             task.state, task.task_id = "submitting", None
             task.submission_token = uuid.uuid4().hex
@@ -142,7 +189,7 @@ def submitted(sessions, task, task_id):
         db.commit()
 
 
-def failed(sessions, task, *, uncertain=False, expired=False, cooldown=30, no_handle=False):
+def failed(sessions, task, *, uncertain=False, expired=False, cooldown=30, no_handle=False, diagnostic=None):
     with sessions() as db:
         db.execute(update(ProviderAccount).where(ProviderAccount.service == task.service)
             .values(revision=ProviderAccount.revision + 1))
@@ -156,8 +203,12 @@ def failed(sessions, task, *, uncertain=False, expired=False, cooldown=30, no_ha
             ProviderTask.state != "completed"]
         if uncertain or no_handle:
             conditions.append(ProviderTask.task_id.is_(None))
-        db.execute(update(ProviderTask).where(*conditions).values(
-                state="expired" if expired else "uncertain" if uncertain else "rejected", updated_at=utcnow()))
+        result = db.execute(update(ProviderTask).where(*conditions).values(
+            state="expired" if expired else "uncertain" if uncertain else "rejected", updated_at=utcnow()))
+        if diagnostic is not None and result.rowcount:
+            current = db.get(ProviderTask, task.check_id)
+            if current:
+                _append_history(current, diagnostic)
         db.commit()
 
 
@@ -201,8 +252,7 @@ def recover_scrapeless(sessions):
                 eligible = (run and run.state in ('queued', 'running', 'paused') and
                     json.loads(run.snapshot_json).get('collection_policy') == 'complete')
                 # Automatic retries keep only the latest 32 attempt transitions.
-                task.history_json = json.dumps([*json.loads(task.history_json)[-31:],
-                    {'task_id': None, 'state': task.state}])
+                _append_history(task, {'task_id': None, 'state': task.state})
                 task.submission_token = uuid.uuid4().hex
                 if run and run.desired_state == 'cancelled':
                     _skip_and_release(db, run, task, task.check_id, task.query_id, service, now)
@@ -370,10 +420,10 @@ async def collect_xml(sessions, collector, run_id, token, query, service, limit,
     try:
         payload = enrich(await collector.collect(query["text"], should_continue=should_start))
     except BaseException as exc:
-        from shared.xmlriver import XMLRiverResponseError, CollectionCancelled
         # Query failures retain their own retry budget, not an account-wide pause.
         cooldown = 0 if isinstance(exc, (XMLRiverResponseError, CollectionCancelled, asyncio.CancelledError)) else 30
-        failed(sessions, task, cooldown=cooldown)
+        failed(sessions, task, cooldown=cooldown,
+               diagnostic=_failure_diagnostic(exc, task, getattr(collector, "_attempts", None)))
         raise
     save(sessions, task, payload)
     return payload

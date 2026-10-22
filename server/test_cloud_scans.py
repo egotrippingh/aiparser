@@ -23,7 +23,7 @@ from server.cloud_scans import _analyze_saved, _claim, cloud_tick, worker
 from server.control import schedule_tick
 from server.models import Check, CloudResult, ControlProject, ControlRun, LedgerEntry, ProviderAccount, ProviderTask, ServerCapture, User, Wallet, make_session_factory, utcnow
 from shared.errors import ProviderQuotaError
-from shared.xmlriver import CollectionCancelled, ProviderThrottleError
+from shared.xmlriver import CollectionCancelled, ProviderThrottleError, XMLRiverResponseError
 
 
 class Collector:
@@ -982,6 +982,106 @@ def test_stop_after_provider_error_prevents_retry_and_releases_money(tmp_path, m
         assert db.scalar(select(CloudResult)) is None
         assert db.scalar(select(Check)).status == 'released'
         assert db.get(Wallet, user_id).balance_kopeks == 500
+
+
+def test_xml_failure_diagnostic_is_bounded_safe_and_survives_readmission(tmp_path, monkeypatch):
+    client, owner, _, _, sessions = setup(tmp_path, monkeypatch)
+    _, run = project_and_run(client, owner)
+    with sessions() as db:
+        current = db.get(ControlRun, run['id'])
+        query = json.loads(current.snapshot_json)['queries'][0]
+        current.lease_token = 'diagnostic-owner'
+        current.lease_until = utcnow() + timedelta(minutes=2)
+        db.commit()
+    task, fresh = provider_tasks.admit(sessions, run['id'], 'diagnostic-owner', query['id'], 'google_aio', 1)
+    assert fresh
+    with sessions() as db:
+        stored = db.get(ProviderTask, task.check_id)
+        stored.state = 'rejected'
+        stored.history_json = json.dumps([{'old': index} for index in range(31)])
+        db.commit()
+
+    class FailingCollector:
+        _attempts = 6
+        async def collect(self, text, *, should_continue):
+            raise XMLRiverResponseError('https://private.test/?key=secret', category='timeout', code='timeout',
+                                        stage='request')
+
+    with pytest.raises(XMLRiverResponseError):
+        asyncio.run(provider_tasks.collect_xml(sessions, FailingCollector(), run['id'], 'diagnostic-owner', query,
+            'google_aio', 1, lambda: True, lambda payload: payload))
+    with sessions() as db:
+        failed_task = db.get(ProviderTask, task.check_id)
+        history = json.loads(failed_task.history_json)
+        diagnostic = history[-1]
+        assert failed_task.state == 'rejected' and len(history) == 32
+        assert diagnostic['category'] == 'timeout' and diagnostic['code'] == 'timeout'
+        assert diagnostic['stage'] == 'request' and diagnostic['attempt'] == 2 and diagnostic['http_attempts'] == 6
+        assert 'private' not in json.dumps(diagnostic) and 'secret' not in json.dumps(diagnostic)
+    retried, fresh = provider_tasks.admit(sessions, run['id'], 'diagnostic-owner', query['id'], 'google_aio', 1)
+    assert fresh and retried.attempts == 3
+    assert any(entry.get('category') == 'timeout' for entry in json.loads(retried.history_json))
+
+
+@pytest.mark.parametrize('cancelled', [CollectionCancelled, asyncio.CancelledError])
+def test_xml_cancellation_diagnostic_is_not_mislabeled(tmp_path, monkeypatch, cancelled):
+    client, owner, _, _, sessions = setup(tmp_path, monkeypatch)
+    _, run = project_and_run(client, owner)
+    with sessions() as db:
+        current = db.get(ControlRun, run['id'])
+        query = json.loads(current.snapshot_json)['queries'][0]
+        current.lease_token = 'cancel-owner'
+        current.lease_until = utcnow() + timedelta(minutes=2)
+        db.commit()
+    task, fresh = provider_tasks.admit(sessions, run['id'], 'cancel-owner', query['id'], 'google_aio', 1)
+    assert fresh
+    with sessions() as db:
+        db.get(ProviderTask, task.check_id).state = 'rejected'
+        db.commit()
+
+    class CancelledCollector:
+        async def collect(self, text, *, should_continue):
+            with sessions() as db:
+                db.get(ControlRun, run['id']).desired_state = 'cancelled'
+                db.commit()
+            raise cancelled('private stop detail') if cancelled is CollectionCancelled else cancelled()
+
+    with pytest.raises(cancelled):
+        asyncio.run(provider_tasks.collect_xml(sessions, CancelledCollector(), run['id'], 'cancel-owner', query,
+            'google_aio', 1, lambda: True, lambda payload: payload))
+    with sessions() as db:
+        stored = db.get(ProviderTask, task.check_id)
+        assert json.loads(stored.history_json)[-1]['category'] == 'cancelled'
+        assert 'private' not in stored.history_json
+    assert provider_tasks.admit(sessions, run['id'], 'cancel-owner', query['id'], 'google_aio', 1) == (None, False)
+
+
+@pytest.mark.parametrize('state', ['new_admission', 'completed'])
+def test_failed_diagnostic_does_not_touch_stale_or_completed_task(tmp_path, monkeypatch, state):
+    client, owner, _, _, sessions = setup(tmp_path, monkeypatch)
+    _, run = project_and_run(client, owner)
+    with sessions() as db:
+        current = db.get(ControlRun, run['id'])
+        query = json.loads(current.snapshot_json)['queries'][0]
+        current.lease_token = 'stale-owner'
+        current.lease_until = utcnow() + timedelta(minutes=2)
+        db.commit()
+    stale, fresh = provider_tasks.admit(sessions, run['id'], 'stale-owner', query['id'], 'google_aio', 1)
+    assert fresh
+    with sessions() as db:
+        stored = db.get(ProviderTask, stale.check_id)
+        stored.state = 'rejected' if state == 'new_admission' else 'completed'
+        db.commit()
+    if state == 'new_admission':
+        current, fresh = provider_tasks.admit(sessions, run['id'], 'stale-owner', query['id'], 'google_aio', 1)
+        assert fresh
+    with sessions() as db:
+        before = (db.get(ProviderTask, stale.check_id).state, db.get(ProviderTask, stale.check_id).history_json)
+    provider_tasks.failed(sessions, stale, diagnostic={'category': 'timeout', 'code': 'timeout', 'status': None,
+                          'stage': 'request', 'at': '2026-10-22T00:00:00+00:00', 'attempt': 1})
+    with sessions() as db:
+        stored = db.get(ProviderTask, stale.check_id)
+        assert (stored.state, stored.history_json) == before
 
 
 def test_stop_during_ai_keeps_result_and_one_charge(tmp_path, monkeypatch):

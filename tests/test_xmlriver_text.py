@@ -169,6 +169,34 @@ def test_network_timeout_is_query_retryable_with_bounded_budget(monkeypatch):
     assert len(calls) == 6 and 'private' not in str(caught.value)
 
 
+@pytest.mark.parametrize(('payload', 'category', 'code'), [
+    (b'<broken', 'malformed', 'xml_parse'),
+    (b'<yandexsearch/>', 'incomplete', 'missing_response'),
+    (b'<yandexsearch><error code="secret-token"/></yandexsearch>', 'api', 'unknown'),
+    ('<yandexsearch><error code="\u0661\u0661\u0665"/></yandexsearch>'.encode(), 'api', 'unknown'),
+])
+def test_xml_failure_metadata_is_safe(payload, category, code):
+    with pytest.raises(xmlriver.AdapterError) as caught:
+        xmlriver._parse_xml(payload, 'google_aio')
+    assert (caught.value.diagnostic_category, caught.value.diagnostic_code,
+            caught.value.diagnostic_stage) == (category, code, 'response')
+
+
+@pytest.mark.parametrize('status', [503, 400])
+def test_http_failure_metadata_uses_only_status(monkeypatch, status):
+    monkeypatch.setenv('AIPARSER_XMLRIVER_USER', 'test-user')
+    monkeypatch.setenv('AIPARSER_XMLRIVER_KEY', 'test-key')
+    original = httpx.AsyncClient
+    async def no_wait(_): pass
+    monkeypatch.setattr(xmlriver, 'asyncio', SimpleNamespace(sleep=no_wait))
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kw: original(transport=httpx.MockTransport(
+        lambda request: httpx.Response(status)), **kw))
+    with pytest.raises(xmlriver.AdapterError) as caught:
+        asyncio.run(xmlriver.XMLRiverClient('google_aio', {}, max_attempts=1).collect('private query'))
+    assert (caught.value.diagnostic_category, caught.value.diagnostic_code,
+            caught.value.diagnostic_status, caught.value.diagnostic_stage) == ('http', 'http', status, 'request')
+
+
 @pytest.mark.parametrize('bad', [0, 7, True, '6'])
 def test_invalid_retry_budget_is_rejected(bad):
     with pytest.raises(ValueError):
