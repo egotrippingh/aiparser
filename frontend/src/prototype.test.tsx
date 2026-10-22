@@ -193,14 +193,14 @@ it("keeps failed and skipped scan dates while omitting calendar placeholders", (
   expect(chartIndex(0, "ArrowRight", days.length)).toBe(1)
 })
 
-it("keeps missing/zero baselines neutral and distinguishes points from relative percent", () => {
+it("keeps missing/zero baselines neutral and shows share changes as percent", () => {
   expect(trendTone(null)).toBe("neutral")
   expect(trendTone(0)).toBe("neutral")
   expect(trendTone(5)).toBe("positive")
   expect(trendTone(-5)).toBe("negative")
   expect(trendText({delta:null} as Trend)).toBe("Нет полных данных для сравнения")
-  expect(trendText({delta:100,relative:null} as Trend)).toBe("Рост: +100 п.п.")
-  expect(trendText({delta:-25,relative:-50} as Trend)).toBe("Снижение: -25 п.п. (-50%)")
+  expect(trendText({delta:66.7,relative:200} as Trend)).toBe("Рост: +66.7%")
+  expect(trendText({delta:-25,relative:-50} as Trend)).toBe("Снижение: -25%")
 })
 
 it("filters the observable verdict, without counting excluded product cards as a mention", () => {

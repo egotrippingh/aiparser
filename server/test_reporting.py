@@ -41,6 +41,37 @@ def seed_report(tmp_path):
     return client, owner, other, devices, project, ids, url
 
 
+def test_mention_growth_uses_same_possible_mentions_base(tmp_path):
+    client, owner, _, _, project, _, url = seed_report(tmp_path)
+    with make_session_factory(url)[1]() as db:
+        p = db.get(ControlProject, project['id'])
+        p.queries_json = json.dumps(project['queries'][:1])
+        p.config_json = json.dumps({'services': ['google_aio', 'chatgpt', 'gemini']})
+        db.query(CloudResult).delete()
+        for i, (day, service) in enumerate([
+            ('2026-09-26', 'google_aio'),
+            ('2026-10-21', 'google_aio'), ('2026-10-21', 'chatgpt'), ('2026-10-21', 'gemini'),
+        ], 1):
+            db.add(CloudResult(user_id=p.user_id, device_id='a'*32, local_result_id=i,
+                local_project_id=1, project_id=p.id, query_id=project['queries'][0]['id'],
+                query_text=project['queries'][0]['text'], project_name=p.name,
+                brand_name=p.brand_name, service=service, scan_date=day, status='found'))
+        db.commit()
+    base = f"/api/v1/control/projects/{project['id']}/mentions/overview"
+    params = {'date_from': '2026-09-26', 'date_to': '2026-10-21', 'max_dates': 30}
+    for compare in (False, True):
+        data = client.get(base, headers=owner, params={**params, 'compare': compare}).json()
+        for trend in (data['trend'] if compare else data['period_trend'],
+                      data['rows'][0]['trend' if compare else 'period_trend']):
+            assert trend['previous']['visibility_pct'] == 33.3
+            assert trend['current']['visibility_pct'] == 100
+            assert trend['delta'] == 66.7
+            assert trend['current']['total'] == trend['previous']['total'] == 3
+        filtered = client.get(base, headers=owner, params={**params, 'compare': compare,
+            'services': 'google_aio'}).json()
+        assert filtered['rows'][0]['trend' if compare else 'period_trend']['delta'] == 0
+
+
 def test_period_change_uses_actual_first_and_last_scans_not_calendar_edges_or_window(tmp_path):
     client, owner, _, _, project, _, _ = seed_report(tmp_path)
     path = f"/api/v1/control/projects/{project['id']}/mentions/overview"
@@ -49,9 +80,9 @@ def test_period_change_uses_actual_first_and_last_scans_not_calendar_edges_or_wi
     data = client.get(path, headers=owner, params=params).json()
     assert data['period_from'] == '2026-09-01'
     assert data['period_to'] == '2026-09-03'
-    assert data['period_trend']['previous']['visibility_pct'] == 100
+    assert data['period_trend']['previous']['visibility_pct'] == 66.7
     assert data['period_trend']['current']['visibility_pct'] == 0
-    assert data['period_trend']['delta'] == -100
+    assert data['period_trend']['delta'] == -66.7
     assert data['rows'][0]['period_trend']['delta'] == -100
     assert data['rows'][1]['period_trend']['delta'] == -100
     assert data['rows'][2]['period_trend']['delta'] is None
@@ -75,6 +106,8 @@ def test_period_change_needs_two_scans_and_keeps_missing_query_endpoint_unknown(
         'date_from': '2026-09-02', 'date_to': '2026-09-02'}).json()
     assert empty['period_from'] is empty['period_to'] is None
     assert empty['period_trend']['delta'] is None
+    assert empty['period_trend']['current']['total'] == 6
+    assert all(row['period_trend']['current']['total'] == 2 for row in empty['rows'])
     with make_session_factory(url)[1]() as db:
         db.get(CloudResult, ids[2]).scan_date = '2026-09-02'
         db.commit()
@@ -86,6 +119,26 @@ def test_period_change_needs_two_scans_and_keeps_missing_query_endpoint_unknown(
         'max_dates': 30, 'report_dates': '2026-09-02,2026-09-03'}).json()
     assert picked['period_from'] == '2026-09-02'
     assert picked['period_to'] == '2026-09-03'
+
+
+def test_previous_period_ignores_days_from_queries_outside_current_scope(tmp_path):
+    client, owner, _, _, project, _, url = seed_report(tmp_path)
+    with make_session_factory(url)[1]() as db:
+        p = db.get(ControlProject, project['id'])
+        for i, (day, query_id) in enumerate([
+            ('2026-08-30', project['queries'][0]['id']), ('2026-08-31', 'removed-query'),
+        ], 100):
+            db.add(CloudResult(user_id=p.user_id, device_id='a'*32, local_result_id=i,
+                local_project_id=1, project_id=p.id, query_id=query_id,
+                query_text='Old question', project_name=p.name, brand_name=p.brand_name,
+                service='google_aio', scan_date=day, status='found'))
+        db.commit()
+    data = client.get(f"/api/v1/control/projects/{project['id']}/mentions/overview", headers=owner,
+        params={'date_from': '2026-09-01', 'date_to': '2026-09-02', 'services': 'google_aio'}).json()
+    assert data['trend']['previous']['total'] == 3
+    assert data['trend']['previous']['visibility_pct'] == 33.3
+    assert not data['trend']['baseline_complete']
+    assert data['trend']['delta'] is None
 
 
 def test_shared_viewer_reads_results_but_cannot_edit_feedback(tmp_path):
@@ -176,11 +229,11 @@ def test_calendar_daily_dedup_filters_and_comparison(tmp_path):
     res = client.get(base, headers=owner, params=args)
     assert res.status_code == 200, res.text
     data = res.json()
-    assert data['summary'] == {'found':3,'checked':5,'issues':1,'skipped':1,'visibility_pct':60.0}
+    assert data['summary'] == {'found':3,'checked':5,'issues':1,'skipped':1,'total':12,'visibility_pct':25.0}
     assert data['timeline'][1]['visibility_pct'] is None
     assert data['rows'][0]['cells']['2026-09-01']['google_aio']['id'] == ids[1]
     assert data['rows'][2]['cells'] == {}
-    assert data['comparison']['delta'] == -66.7
+    assert data['comparison']['delta'] == -16.7
     filtered = client.get(base, headers=owner, params={**args,'include_cards':'false','group':''}).json()
     assert filtered['summary']['found'] == 0 and filtered['summary']['checked'] == 2
     assert filtered['total'] == 1
@@ -211,7 +264,7 @@ def test_absent_ai_block_counts_as_no_mention_across_reports(tmp_path, monkeypat
     base = f"/api/v1/control/projects/{project['id']}/mentions"
     args = {'date_from': '2026-09-03', 'date_to': '2026-09-03',
             'service': 'google_aio', 'search': 'Dental'}
-    expected = {'found': 0, 'checked': 1, 'issues': 0, 'skipped': 1, 'visibility_pct': 0.0}
+    expected = {'found': 0, 'checked': 1, 'issues': 0, 'skipped': 1, 'total': 1, 'visibility_pct': 0.0}
     for suffix in ('', '/overview'):
         data = client.get(base + suffix, headers=owner, params=args).json()
         assert data['summary'] == data['timeline'][0]['services']['google_aio'] == expected
@@ -389,16 +442,16 @@ def test_overview_partial_baselines_are_local_to_query_and_service(tmp_path):
     data = client.get(base, headers=owner, params=args).json()
     assert data['service_stats']['google_aio']['previous']['visibility_pct'] == 0
     assert data['service_stats']['google_aio']['relative'] is None
-    assert data['service_stats']['google_aio']['delta'] == 60
+    assert data['service_stats']['google_aio']['delta'] == 33.3
     assert data['service_stats']['chatgpt']['delta'] is None
-    assert data['rows'][0]['trend']['delta'] == 35
+    assert data['rows'][0]['trend']['delta'] == 16.7
     assert data['rows'][1]['trend']['delta'] is None
     filtered = client.get(base, headers=owner, params={**args,'services':'google_aio','include_cards':'false'}).json()
-    assert filtered['trend']['delta'] == 40
+    assert filtered['trend']['delta'] == 22.2
     compared = client.get(base, headers=owner, params={**args, 'compare':'true', 'services':'google_aio'}).json()
     assert compared['trend']['current']['visibility_pct'] == 0
-    assert compared['trend']['previous']['visibility_pct'] == 100
-    assert compared['trend']['delta'] == -100
+    assert compared['trend']['previous']['visibility_pct'] == 66.7
+    assert compared['trend']['delta'] == -66.7
 
 
 def test_compact_overview_keeps_all_queries_with_bounded_sql_and_source_references(tmp_path):
@@ -517,14 +570,14 @@ def test_multiple_systems_filter_statistics_matrix_and_exports(tmp_path):
     assert data['services'] == ['google_aio', 'chatgpt', 'alice']
     assert data['available_services'] == ['google_aio', 'chatgpt', 'perplexity', 'alice']
     assert data['summary']['checked'] == 6 and data['summary']['found'] == 4
-    assert data['summary']['visibility_pct'] == 66.7
+    assert data['summary']['visibility_pct'] == 22.2
     assert data['dates'] == ['2026-09-01', '2026-09-02', '2026-09-03']
     assert data['timeline'][1]['visibility_pct'] is None
     assert all('perplexity' not in day['services'] for day in data['timeline'])
     assert all('perplexity' not in cells for q in data['rows'] for cells in q['cells'].values())
     compared = client.get(base, headers=owner, params={**args, 'compare':'true'}).json()
     assert compared['comparison']['from']['checked'] == 3
-    assert compared['comparison']['delta'] == -66.7
+    assert compared['comparison']['delta'] == -22.2
     for kind in ('mentions', 'sources'):
         res = client.get(base+'/export/'+kind, headers=owner, params=args)
         assert res.status_code == 200, res.text
