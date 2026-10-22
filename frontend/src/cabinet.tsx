@@ -315,7 +315,7 @@ function Cabinet() {
     balance={user.is_admin ? "Безлимитно" : money(wallet?.available_kopeks || 0)} admin={!!user.is_admin}
     brandClarificationsEnabled={!!user.brand_clarifications_enabled} onDirtyChange={setEditorDirty}
     logout={logout} walletChanged={walletChanged} message={message} administration={<><AdminPromos token={token}/><AdminOverview token={token}/><AdminScans token={token}/></>}
-    account={<div className="app-account"><div className="cab-title-row"><div><span className="cab-kicker">АККАУНТ И ОПЛАТА</span><h2>Пополнение баланса</h2><p>{user.email}</p></div><AccountBalance available={money(wallet?.available_kopeks ?? 0)} balance={money(wallet?.balance_kopeks ?? 0)} reserved={wallet?.reserved_kopeks ? money(wallet.reserved_kopeks) : undefined} admin={!!user.is_admin} paidRecompute={!!user.brand_clarifications_enabled}/></div>
+    account={<div className="app-account"><div className="cab-title-row"><div><span className="cab-kicker">АККАУНТ И ОПЛАТА</span><h2>Пополнение баланса</h2><p>{user.email}</p></div><AccountBalance available={money(wallet?.available_kopeks ?? 0)} balance={money(wallet?.balance_kopeks ?? 0)} reserved={wallet?.reserved_kopeks ? money(wallet.reserved_kopeks) : undefined} admin={!!user.is_admin}/></div>
         <div className="cab-billing-grid">
           <TopupForm token={token} minimum={minimum} checkPrice={user.is_admin ? 0 : price} />
         </div>

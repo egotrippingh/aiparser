@@ -137,7 +137,7 @@ def test_editor_command_observes_worker_transition_before_locked_read(tmp_path, 
 
 def test_shared_scan_feature_and_pricing_follow_owner_not_editor(tmp_path, monkeypatch):
     original_uuid = uuid.uuid4
-    client, eligible, sessions = feature_setup(tmp_path, monkeypatch)
+    client, eligible, sessions = feature_setup(tmp_path, monkeypatch, admin=True)
     monkeypatch.setattr('server.app.uuid.uuid4', original_uuid)
     registered = register_account(client, json={'email': 'ordinary@test.example', 'password': 'long-test-password-123'})
     ordinary = {'Authorization': 'Bearer ' + registered.json()['token']}

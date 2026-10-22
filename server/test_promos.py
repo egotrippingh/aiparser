@@ -218,7 +218,7 @@ def test_quote_free_reservation_cancel_and_stale_quote(tmp_path, monkeypatch):
 def test_recompute_remains_paid_with_credits(tmp_path, monkeypatch):
     from server.test_brand_recompute import FEATURE_USER, feature_setup
     from server.models import CloudResult, utcnow
-    client, admin, sessions = feature_setup(tmp_path, monkeypatch)
+    client, admin, sessions = feature_setup(tmp_path, monkeypatch, admin=True)
     create_code(client, admin, {'chatgpt': 10})
     redeem(client, admin)
     project = client.post('/api/v1/control/projects', headers=admin, json={
@@ -226,6 +226,7 @@ def test_recompute_remains_paid_with_credits(tmp_path, monkeypatch):
         'config': {'services': ['chatgpt'], 'brand_clarification': 'Reflo — не наш бренд'}}).json()
     today = utcnow().date().isoformat()
     with sessions() as db:
+        db.get(User, FEATURE_USER).is_admin = False
         db.get(Wallet, FEATURE_USER).balance_kopeks = 0
         result = CloudResult(user_id=FEATURE_USER, project_id=project['id'],
             query_id=project['queries'][0]['id'], project_name='Refprom', brand_name='Refprom',

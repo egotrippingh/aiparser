@@ -45,7 +45,7 @@ class FakeAI:
         return type("Result", (), {"raw": '{"found": false, "mention_types": [], "quote": "Reflo не Refprom"}'})()
 
 
-def feature_setup(tmp_path, monkeypatch, ai=None, screenshot_storage=None):
+def feature_setup(tmp_path, monkeypatch, ai=None, screenshot_storage=None, *, admin=False):
     monkeypatch.setenv("BRAND_CLARIFICATIONS_USER_ID", FEATURE_USER)
     monkeypatch.setattr("server.app.uuid.uuid4", lambda: type("Id", (), {"hex": FEATURE_USER})())
     url = f"sqlite:///{tmp_path / 'recompute.db'}"
@@ -55,10 +55,52 @@ def feature_setup(tmp_path, monkeypatch, ai=None, screenshot_storage=None):
     headers = {"Authorization": "Bearer " + res.json()["token"]}
     _, sessions = make_session_factory(url)
     with sessions() as db:
-        db.get(User, FEATURE_USER).is_admin = True
+        db.get(User, FEATURE_USER).is_admin = admin
         db.get(Wallet, FEATURE_USER).balance_kopeks = 1000
         db.commit()
     return client, headers, sessions
+
+
+@pytest.mark.parametrize("admin", [False, True])
+def test_recompute_with_empty_wallet_is_free_only_for_admin(tmp_path, monkeypatch, admin):
+    client, headers, sessions = feature_setup(tmp_path, monkeypatch)
+    project = client.post("/api/v1/control/projects", headers=headers, json={
+        "name": "Refprom", "brand_name": "Refprom", "queries": [{"text": "Refprom review"}],
+        "config": {"services": ["chatgpt"], "brand_clarification": "Reflo — не наш бренд"},
+    }).json()
+    today = utcnow().date().isoformat()
+    with sessions() as db:
+        db.get(User, FEATURE_USER).is_admin = admin
+        db.get(Wallet, FEATURE_USER).balance_kopeks = 0
+        db.add(Check(user_id=FEATURE_USER, client_check_id="old-paid-check", price_kopeks=80))
+        result = CloudResult(user_id=FEATURE_USER, device_id="a" * 32, local_result_id=1,
+            local_project_id=1, project_id=project["id"], query_id=project["queries"][0]["id"],
+            project_name="Refprom", brand_name="Refprom", query_text="Refprom review", group_tag="",
+            service="chatgpt", scan_date=today, status="found", answer_text="Reflo", evidence_quote="Reflo",
+            sources_json="[]", mention_types_json='["text"]')
+        db.add(result)
+        db.commit()
+        result_id = result.id
+    base = f"/api/v1/control/projects/{project['id']}/recompute"
+    quote = client.get(base + "/quote", headers=headers, params={"from_date": today}).json()
+    assert quote["count"] == 1
+    assert quote["available_kopeks"] == -80
+    assert quote["unit_kopeks"] == quote["total_kopeks"] == (0 if admin else 80)
+    payload = {"from_date": today, "revision": project["revision"]}
+    done = client.post(f"{base}/{result_id}", headers=headers, json=payload)
+    assert done.status_code == (200 if admin else 409), done.text
+    if admin:
+        assert done.json() == {"charged_kopeks": 0, "status": "done", "message": "Ответ пересчитан"}
+        again = client.post(f"{base}/{result_id}", headers=headers, json=payload)
+        assert again.json()["status"] == "skipped"
+        assert client.get(base + "/quote", headers=headers, params={"from_date": today}).json()["count"] == 0
+    with sessions() as db:
+        assert db.get(Wallet, FEATURE_USER).balance_kopeks == 0
+        assert db.get(CloudResult, result_id).status == ("not_found" if admin else "found")
+        entries = db.query(LedgerEntry).filter_by(kind="recompute").all()
+        assert len(entries) == (1 if admin else 0)
+        if admin:
+            assert entries[0].amount_kopeks == 0
 
 
 def test_recompute_uses_latest_visible_answer_once_and_keeps_failure_free(tmp_path, monkeypatch):

@@ -4,6 +4,22 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Current release
 
+- Published and live readiness verified: [PR #82](https://github.com/egotrippingh/aiparser/pull/82),
+  release `73511701f89d0f93f3aa0cab91883d1eb1490833`. Mention dynamics use a common
+  query/system/date base: 1/3 to 3/3 gives +66.7%, labelled % throughout. Missing
+  AI blocks count as no mention; failures remain separate, with unknown percentages
+  when no successful measurements exist. History uses the new formula on read.
+- Saved-answer recompute is available to every project owner. The dashboard calendar
+  supports from-date, one day, period, two dates, monthly and custom dates. Ownership,
+  frozen run settings, quote selection and idempotent 80-kopeks billing are preserved.
+- Independent Sol and Astra reviews passed after corrections. Exact-SHA PR and
+  production CI passed: 415 server tests with PostgreSQL, 126 shared Python tests,
+  136 frontend tests, lint/build, image smoke and proxy checks. Production delivery,
+  backup/isolated restore and public readiness passed. Public help and cabinet bundle
+  were verified externally; check pricing remains165. Disposable desktop/narrow UI
+  covered success/failure, calendar modes, selected-date payloads, keyboard and console.
+  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39758758357).
+  Local evidence: `C:/codex-tmp/mention-growth-20261022` (synthetic data/fake AI).
 - Published and live readiness verified: [PR #81](https://github.com/egotrippingh/aiparser/pull/81),
   release `33b8404dbe27081a7daeec13ee05eb3758281389`. Durable scan retries,
   project selector/progress and report/answer improvements are included.
@@ -20,21 +36,12 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Prepared work
 
-- `codex/mention-growth`, based on production `33b8404`: a common query/system/date
-  base fixes mention dynamics; 1/3 to3/3 gives +66.7%, labelled% throughout.
-  Missing AI blocks count as no mention. Errors remain separate; no successful
-  measurements means unknown. Existing frozen runs retain their feature settings.
-- Saved-answer recompute is available to every project owner, with the shared
-  dashboard calendar: from a date, single day, period, two dates, monthly and custom
-  dates. Quote/POST share selection validation, ownership and idempotent billing.
-- Independent Sol and Astra reviews passed after corrections. Full server run:
-  418 passed and one stale help-copy expectation failed; that expectation was
-  updated for the agreed formula and all16 SEO tests passed. PostgreSQL tests
-  used an isolated local cluster. Shared CI checks126 passed; frontend136 tests,
-  lint and build passed. Disposable desktop/narrow UI checked success/failure,
-  calendar modes, keyboard, console and exact selected-date POST payloads.
-- No schema/delivery changes. Exact-SHA GitHub CI and deployment are pending login.
-  Logs and synthetic UI evidence: `C:/codex-tmp/mention-growth-20261022`.
+- Admin checks and saved-answer recompute use a zero tariff, including wallet0
+  with old paid reservations. Cabinet shows unlimited/free usage; ordinary billing
+  and owner-only recompute remain intact. Sol and Astra reviews passed,35 focused
+  API tests and137 frontend tests passed; lint/build and desktop/narrow fake-AI UI
+  checks passed. Full local server/PostgreSQL and release CI are pending.
+  Brief/evidence: `docs/tasks/admin-unlimited.md`; no schema/delivery change.
 
 ## Architecture and operating rules
 
@@ -46,8 +53,8 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 - GitHub Actions deploys `production` with serialized activation, verified backups,
   isolated restore, migration admission, exact-SHA readiness and rollback.
 - New checks cost165 kopeks per query/service; eligible recompute costs up to80 kopeks,
-  failed analysis is uncharged. Live33b8404 gates clarification/recompute to `ivoryya`;
-  the prepared mention-growth change opens it to every owner.
+  failed analysis is uncharged. Clarification/recompute is available to every owner;
+  shared viewers and device sessions cannot trigger it.
 - Email-code/Yandex registration and SMTP.BZ transactional mail are active.
 
 ## Open checks
@@ -60,6 +67,6 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Finish GitHub CLI login, create a production PR for mention-growth, verify its CI,
-publish the authorized change and verify live readiness against the release SHA.
+Mention-growth and recompute delivery is complete. Real paid/provider checks remain
+outside the disposable acceptance run; do not trigger them without authorization.
 Task scope: [mention dynamics and recompute](docs/tasks/mention-growth-recompute.md).

@@ -33,7 +33,7 @@ def reserve_checks(db, user, ids, price, ai_client=None, *, service=None):
     pending = [key for key in ids if key not in existing or existing[key].status == "released"]
     balance = db.get(FreeScanBalance, (user.id, service)) if service and not user.is_admin else None
     free_count = min(len(pending), balance.remaining) if balance else 0
-    if (len(pending) - free_count) * effective_price > wallet.balance_kopeks - _held(db, user.id):
+    if effective_price and (len(pending) - free_count) * effective_price > wallet.balance_kopeks - _held(db, user.id):
         raise HTTPException(402, "Недостаточно средств для выбранных проверок")
     for index, key in enumerate(pending):
         free_service = service if index < free_count else None

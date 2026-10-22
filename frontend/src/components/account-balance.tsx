@@ -1,10 +1,10 @@
-export function AccountBalance({available, balance, reserved, admin, paidRecompute}: {
-  available: string; balance: string; reserved?: string; admin: boolean; paidRecompute: boolean
+export function AccountBalance({available, balance, reserved, admin}: {
+  available: string; balance: string; reserved?: string; admin: boolean
 }) {
   return <div className="cab-available">
-    <span>{admin ? "Доступный баланс" : "Доступно для проверок"}</span>
-    <strong>{available}</strong>
+    <span>{admin ? "Проверки" : "Доступно для проверок"}</span>
+    <strong>{admin ? "Безлимитно" : available}</strong>
     <small>На балансе {balance}{reserved ? ` · В резерве ${reserved}` : ""}</small>
-    {admin && <small>Обычные проверки бесплатны.{paidRecompute && " Пересчёт сохранённых ответов — 0,80 ₽ за ответ."}</small>}
+    {admin && <small>Проверки и пересчёт сохранённых ответов бесплатны.</small>}
   </div>
 }

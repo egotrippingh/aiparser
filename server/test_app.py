@@ -5,6 +5,8 @@ import hashlib
 import hmac
 import json
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 from server.app import create_app
@@ -337,7 +339,8 @@ def test_failed_arbiter_stops_after_two_attempts(tmp_path, monkeypatch):
     assert ai.arbiter_calls == 2
 
 
-def test_admin_checks_are_unlimited_and_free(tmp_path, monkeypatch):
+@pytest.mark.parametrize("held", [0, 80])
+def test_admin_checks_are_unlimited_and_free(tmp_path, monkeypatch, held):
     monkeypatch.setenv("COINSO_SECRET_KEY", "test-secret")
     url = f"sqlite:///{tmp_path / 'server.db'}"
     client = TestClient(create_app(database_url=url, ai_client=FakeAI()))
@@ -346,10 +349,12 @@ def test_admin_checks_are_unlimited_and_free(tmp_path, monkeypatch):
     }).json()
     headers = {"Authorization": f"Bearer {created['token']}"}
     from sqlalchemy import select
-    from server.models import LedgerEntry, User, make_session_factory
+    from server.models import Check, LedgerEntry, User, make_session_factory
     engine, sessions = make_session_factory(url)
     with sessions() as db:
         db.get(User, created["user"]["id"]).is_admin = True
+        if held:
+            db.add(Check(user_id=created["user"]["id"], client_check_id="old-paid-check", price_kopeks=held))
         db.commit()
     assert client.get("/api/v1/me", headers=headers).json()["is_admin"] is True
     assert client.get("/api/v1/pricing").json()["check_price_kopeks"] == 165
@@ -359,7 +364,7 @@ def test_admin_checks_are_unlimited_and_free(tmp_path, monkeypatch):
                                json={"check_ids": ids})
         assert response.status_code == 200, response.text
         assert response.json()["price_kopeks"] == 0
-        assert response.json()["reserved_kopeks"] == 0
+        assert response.json()["reserved_kopeks"] == held
     settled = client.post("/api/v1/checks/admin-check-0/complete", headers=headers,
                           json={"status": "found"})
     assert settled.json()["status"] == "settled"
