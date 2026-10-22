@@ -186,9 +186,9 @@ def test_stream_stop_settles_free_and_paid_and_refunds_unstarted(tmp_path, monke
         assert len(db.scalars(select(CloudResult)).all()) == 3
         checks = db.scalars(select(Check)).all()
         assert sorted((c.status, c.price_kopeks) for c in checks) == [
-            ('released', 0), ('settled', 0), ('settled', 165)]
+            ('released', 0), ('settled', 0), ('settled', 200)]
         assert db.get(FreeScanBalance, (user_id, 'google_aio')).remaining == 1
-        assert db.get(Wallet, user_id).balance_kopeks == 335
+        assert db.get(Wallet, user_id).balance_kopeks == 300
         assert len(db.scalars(select(LedgerEntry)).all()) == 1
 
 
@@ -202,7 +202,7 @@ def test_quote_free_reservation_cancel_and_stale_quote(tmp_path, monkeypatch):
     project = client.post('/api/v1/control/projects', headers=other, json=body).json()
     path = f"/api/v1/control/projects/{project['id']}"
     quote = client.get(path + '/quote', headers=other).json()
-    assert quote['count'] == 4 and quote['free_count'] == 2 and quote['total_kopeks'] == 330
+    assert quote['count'] == 4 and quote['free_count'] == 2 and quote['total_kopeks'] == 400
     launch_body = {'request_id': uuid4().hex, 'free_scans_state': quote['free_scans_state']}
     run = client.post(path + '/runs', headers=other, json=launch_body).json()
     assert client.post(path + '/runs', headers=other, json=launch_body).json()['id'] == run['id']
@@ -235,13 +235,13 @@ def test_recompute_remains_paid_with_credits(tmp_path, monkeypatch):
         db.add(result); db.commit()
         result_id = result.id
     path = f"/api/v1/control/projects/{project['id']}/recompute"
-    assert client.get(path + '/quote', headers=admin, params={'from_date': today}).json()['total_kopeks'] == 80
+    assert client.get(path + '/quote', headers=admin, params={'from_date': today}).json()['total_kopeks'] == 120
     assert client.post(path + f'/{result_id}', headers=admin,
-                       json={'from_date': today, 'revision': project['revision']}).status_code == 409
+                       json={'from_date': today, 'unit_kopeks': 120, 'revision': project['revision']}).status_code == 409
     with sessions() as db:
-        db.get(Wallet, FEATURE_USER).balance_kopeks = 80; db.commit()
+        db.get(Wallet, FEATURE_USER).balance_kopeks = 120; db.commit()
     assert client.post(path + f'/{result_id}', headers=admin,
-                       json={'from_date': today, 'revision': project['revision']}).json()['charged_kopeks'] == 80
+                       json={'from_date': today, 'unit_kopeks': 120, 'revision': project['revision']}).json()['charged_kopeks'] == 120
     assert client.get('/api/v1/wallet', headers=admin).json()['free_scans']['chatgpt']['available'] == 10
 
 

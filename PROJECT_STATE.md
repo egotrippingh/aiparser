@@ -49,8 +49,13 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Prepared work
 
-- Admin-unlimited delivery is complete. Brief/evidence:
-  `docs/tasks/admin-unlimited.md`; no unfinished implementation.
+- Branch `codex/pricing-2rub` (production base `d711aead`): new checks200 kopeks,
+  saved-answer recompute120 kopeks. Existing run snapshots/reservations retain their
+  prices; admin remains free. Recompute POST must confirm quote unit price; old/missing
+  prices return409 without analysis or debit. Not published.
+- Frontend137 tests, lint/build, delivery4 tests and desktop/narrow fake-AI UI
+  passed; focused independent money review passed. Full server suite with disposable
+  PostgreSQL is in progress. Evidence: `C:/codex-tmp/pricing-*.log`.
 
 ## Architecture and operating rules
 
@@ -77,7 +82,5 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Next action
 
-Mention-growth, recompute and admin-unlimited delivery is complete. Real paid/provider checks remain
-outside the disposable acceptance run; do not trigger them without authorization.
-Task scope: [admin unlimited](docs/tasks/admin-unlimited.md),
-[mention dynamics and recompute](docs/tasks/mention-growth-recompute.md).
+Finish tariff validation and prepare a PR into `production`. Publishing requires
+user authorization. Real provider/payment checks remain outside disposable tests.
