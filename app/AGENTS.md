@@ -1,6 +1,7 @@
 # Windows agent rules
 
-Read root `AGENTS.md`. These rules also apply to agent tests and build scripts.
+Read root `AGENTS.md` and `PYTHON_RULES.md`. These rules also apply to agent tests
+and build scripts.
 
 - Provider browsers run on the client PC. Local API stays on loopback; do not publish
   it as the account server. Accounts/runs belong to the server; the agent executes them.

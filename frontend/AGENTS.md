@@ -1,6 +1,7 @@
 # Shared frontend rules
 
 Read root `AGENTS.md`; read `PRODUCT.md` and `DESIGN.md` for UI changes.
+Cabinet tokens: `src/prototype.css`; mock: `../mockups/dashboard.html`.
 
 - Reuse `AppChoice` for cabinet dropdown menus, including calendar modes and limits;
   use its shared popup, option and selected states rather than browser-native select menus.
@@ -24,6 +25,20 @@ Read root `AGENTS.md`; read `PRODUCT.md` and `DESIGN.md` for UI changes.
   Never embed secrets or model/provider credentials in JS or Vite variables.
 - Edit source in `frontend/`, then build and include generated `web/` changes. Do not
   hand-edit hashed assets or rebuild unrelated frontend during a backend/docs-only task.
+
+## TypeScript
+
+- Prefer existing types next to `lib/api.ts` / `account-api.ts`; pin server error shapes
+  in tests instead of inventing parallel DTOs.
+- Do not claim UI authorization; hide controls for UX only. Access is enforced on server.
+- Avoid `any` on changed public boundaries; narrow with existing unions or response
+  parsers. Do not add `useMemo`/`useCallback` by default unless the file already does.
+- Russian user-facing copy only; no supplier/model names for ordinary users
+  (`PRODUCT.md` anti-references).
+- State transitions stay explicit: pending, error, offline, empty. Polling updates must
+  not clobber dirty form fields or lose revision conflict signals.
+- After `frontend/` source edits, run build so tracked `web/` stays in sync; never
+  hand-edit hashed `web/assets/*`.
 
 ## Checks (run inside `frontend/`)
 

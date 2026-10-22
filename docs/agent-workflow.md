@@ -1,9 +1,10 @@
 # Small-context development workflow
 
 Read this only for cross-layer, high-risk or multi-session work. Root `AGENTS.md` is
-the everyday contract; subsystem instructions supply tests and invariants. This adapts
-the supplied Go/microservice example to one Python/React repository: no invented tracker,
-Go tools, shared-standard repository, symlinks or unconditional agent fan-out.
+the everyday contract; subsystem instructions supply tests and invariants. Symptom →
+doc map: [README.md](README.md). This adapts the supplied Go/microservice example to
+one Python/React repository: no invented tracker, Go tools, shared-standard repository,
+symlinks or unconditional agent fan-out.
 
 ## 1. Make a bounded work packet
 
@@ -50,7 +51,28 @@ work on independent steps while waiting. Do not invent requirements from the exa
 - If two searches fail, write a specific symbol/route hypothesis and test it. Do not
   dispatch broad architecture exploration merely because the current model is smaller.
 
-Graphify installation, if absent (developer tool only, not an app dependency):
+Graphify is optional local cache (developer tool, not an app dependency). Missing
+Graphify is not a blocker: use bounded `rg` and continue.
+
+**Linux / Cursor Cloud (preferred when `graphify` is already on PATH):**
+
+```bash
+graphify extract . --code-only --no-cluster --max-workers 2
+git rev-parse HEAD > graphify-out/source-commit.txt
+graphify query "analysis_content" --budget 1200
+graphify affected "analysis_content" --depth 2
+```
+
+Install only if needed:
+
+```bash
+python -m pip install --user uv
+python -m uv tool install graphifyy==0.9.80
+# ensure ~/.local/bin is on PATH, then:
+graphify extract . --code-only --no-cluster --max-workers 2
+```
+
+**Windows / Codex (optional):**
 
 ```powershell
 python -m pip install --user uv
@@ -59,14 +81,22 @@ python -m uv tool update-shell
 graphify install --platform codex
 ```
 
-Reopen the terminal after the PATH update. For an already-open Windows shell, use
-`& "$env:USERPROFILE/.local/bin/graphify.exe"` instead of the bare command.
-The official package is `graphifyy`; the executable is `graphify`. The global install
-registers a Codex skill. This repo's `.agents/skills/graphify/SKILL.md` is a short local
-navigation entrypoint; copy it over the global `~/.codex/skills/graphify/SKILL.md` if
-the upstream reinstall replaced that entrypoint. Its full upstream instructions remain
-available from the installed package; routine navigation does not need them. No MCP
-server, no-op Codex hook or paid semantic pipeline is needed for this local workflow.
+After a Windows PATH update, reopen the shell or call
+`& "$env:USERPROFILE/.local/bin/graphify.exe"`. Package name is `graphifyy`;
+executable is `graphify`. Repo entrypoint: `.agents/skills/graphify/SKILL.md`.
+No MCP server, paid semantic pipeline or automatic rebuild hooks.
+
+Freshness markers (Linux / Cloud):
+
+```bash
+graphify extract . --code-only --no-cluster --max-workers 2
+git rev-parse HEAD > graphify-out/source-commit.txt
+git branch --show-current > graphify-out/source-branch.txt
+graphify query "analysis_content" --budget 1200
+graphify affected "analysis_content" --depth 2
+```
+
+Windows markers (optional):
 
 ```powershell
 graphify extract . --code-only --no-cluster --max-workers 2
@@ -80,22 +110,19 @@ graphify affected "analysis_content" --depth 2
 Compare the saved branch/SHA to the current checkout, and inspect `git diff --name-only HEAD`
 plus relevant untracked source files. A matching SHA alone does not prove a fresh graph.
 Refresh after relevant edits or checkout before another graph-based conclusion; no
-automatic rebuild per edit/commit. Recreate the marker after a successful refresh.
+automatic rebuild per edit/commit. Recreate both markers after a successful refresh.
 Use `graphify update .` once after a completed code change when an existing index is
-available; check its exit code before recording both markers as above. A graph built
-from production belongs to that production checkout; do not stamp a development SHA
-on a copied graph. `scripts/release_status.py` reports missing/mismatched markers and
-conservatively marks dirty working trees unverified; it does not rebuild the graph.
-Use a deliberate code-only rebuild if deletions changed the corpus; inspect Graphify's
-shrink warning before using `--force`. `graphify-out/` is ignored cache, never evidence
-that a code change is correct. With no Graphify, use `rg` and continue.
-The default install omits SQL AST extraction; inspect `app/db/schema.sql` directly
-unless SQL indexing is needed. No-symbol TS test files still need direct inspection.
+available; check its exit code before recording markers. A graph built from production
+belongs to that production checkout; do not stamp a development SHA on a copied graph.
+`scripts/release_status.py` reports missing/mismatched markers and conservatively marks
+dirty working trees unverified; it does not rebuild the graph. Use a deliberate
+code-only rebuild if deletions changed the corpus; inspect Graphify's shrink warning
+before using `--force`. `graphify-out/` is ignored cache, never evidence that a code
+change is correct. With no Graphify, use `rg` and continue. Default install omits SQL
+AST; inspect `app/db/schema.sql` directly when needed.
 
-Ponytail is already a Codex plugin on the original developer machine. Its useful rule
-is embedded in root instructions, so clones do not depend on a private plugin/cache path.
-Install it through Codex's plugin catalogue if wanted on another machine; do not vendor
-its whole library into this repo or automatically load it for documentation tasks.
+Ponytail's minimal-code rule is already embedded in root `AGENTS.md`. Do not vendor
+its library into this repo or load it automatically for documentation tasks.
 
 ## 3. Implement and check one slice
 
@@ -104,7 +131,16 @@ callers; preserve API/error contracts. Reuse pytest/Vitest and existing fake ser
 not a new test framework. Run the nearest regression during iteration; broaden once
 to subsystem gates when the final slice is complete. Do not rerun unchanged green gates.
 
-CI parity setup uses Python 3.12 and Node 24:
+CI parity setup uses Python 3.12 and Node 24.
+
+Linux / Cloud:
+
+```bash
+python -m venv .venv
+.venv/bin/python -m pip install -r scripts/requirements-ci.txt
+```
+
+Windows:
 
 ```powershell
 python -m venv .venv
