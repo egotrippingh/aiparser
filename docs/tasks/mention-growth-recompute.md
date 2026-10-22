@@ -31,3 +31,15 @@ Base: `origin/production` 33b8404; ветка `codex/mention-growth`, исход
 Журналы вне Git: `C:/codex-tmp/mention-growth-20261022`.
 Live provider, реальные ответы, баланс и платные внешние вызовы не используются
 для локальной приёмки. Итоговые результаты и ограничения — в PROJECT_STATE.md.
+
+## Выпуск
+
+- [PR #82](https://github.com/egotrippingh/aiparser/pull/82) объединён в production.
+- SHA `73511701f89d0f93f3aa0cab91883d1eb1490833`: CI и deploy успешны,
+  [pipeline](https://github.com/egotrippingh/aiparser/actions/runs/39758758357).
+- CI: 415 server с PostgreSQL, 126 shared Python, 136 frontend; lint/build,
+  image smoke, proxy validation и delivery gates прошли.
+- Внешне проверены live readiness с точным SHA, публичная справка с +66,7%,
+  актуальный JS кабинета с режимами пересчёта и тариф новых проверок 165 копеек.
+- До исправления теста справки локальный полный набор дал 418 passed / 1 failed
+  (ожидание старого текста); после изменения все 16 SEO тестов и полный CI зелёные.
