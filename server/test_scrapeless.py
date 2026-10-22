@@ -274,6 +274,20 @@ def test_expired_paid_task_never_posts_again_or_holds_account_capacity(tmp_path,
     assert len(supplier.posts) == 1
 
 
+def test_admit_delay_waits_out_shared_cooldown_then_backs_off(tmp_path, monkeypatch):
+    _, _, _, _, sessions, _, _ = create(tmp_path, monkeypatch)
+    with sessions() as db:
+        db.get(ProviderAccount, 'chatgpt').cooldown_until = utcnow() + timedelta(seconds=12)
+        db.commit()
+    delay = provider_tasks.admit_delay(sessions, 'chatgpt', attempt=0)
+    assert 11.0 <= delay <= 12.0
+    with sessions() as db:
+        db.get(ProviderAccount, 'chatgpt').cooldown_until = None
+        db.commit()
+    assert provider_tasks.admit_delay(sessions, 'chatgpt', attempt=0) == 0.5
+    assert provider_tasks.admit_delay(sessions, 'chatgpt', attempt=2) == pytest.approx(2.1)
+
+
 def test_known_failed_task_retries_without_error_report_or_double_client_charge(tmp_path, monkeypatch):
     _, _, _, user_id, sessions, _, run = create(tmp_path, monkeypatch, admin=False)
     with sessions() as db:

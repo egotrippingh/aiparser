@@ -13,10 +13,23 @@ from server.models import ControlRun, ProviderAccount, ProviderTask, ServerCaptu
 from server.scrapeless import CollectionDeferred, Rejected, SubmissionUnknown
 
 ACTIVE = ("submitting", "submitted", "uncertain")
+_MAX_ADMIT_DELAY = 30.0
 
 
 def _aware(value):
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
+def admit_delay(sessions, service, *, attempt: int = 0) -> float:
+    """How long to wait before the next admission try. Honors shared cooldown first."""
+    with sessions() as db:
+        account = db.get(ProviderAccount, service)
+        now = utcnow()
+        if account and account.cooldown_until and _aware(account.cooldown_until) > now:
+            return min(_MAX_ADMIT_DELAY, max(0.5, (_aware(account.cooldown_until) - now).total_seconds()))
+    # Full slots / brief races: exponential backoff with a small jitter, capped.
+    base = min(8.0, 0.5 * (2 ** min(max(attempt, 0), 4)))
+    return min(_MAX_ADMIT_DELAY, base + (attempt % 3) * 0.05)
 
 
 def admit(sessions, run_id, token, query_id, service, limit):
@@ -119,12 +132,14 @@ async def collect(sessions, client, run_id, token, query, service, country, limi
     fresh = False
     if task and task.state == "rejected":
         task = None
+    attempt = 0
     while task is None:
         if not should_start():
             return None
         task, fresh = admit(sessions, run_id, token, query["id"], service, limit)
         if task is None:
-            await asyncio.sleep(.5)
+            await asyncio.sleep(admit_delay(sessions, service, attempt=attempt))
+            attempt += 1
     if task.state == "completed":
         return json.loads(task.answer_json)
     if task.state == "expired":
@@ -171,12 +186,14 @@ async def collect(sessions, client, run_id, token, query, service, country, limi
 
 async def collect_xml(sessions, collector, run_id, token, query, service, limit, should_start, enrich):
     task = None
+    attempt = 0
     while task is None:
         if not should_start():
             return None
         task, fresh = admit(sessions, run_id, token, query["id"], service, limit)
         if task is None:
-            await asyncio.sleep(.5)
+            await asyncio.sleep(admit_delay(sessions, service, attempt=attempt))
+            attempt += 1
     if task.state == "completed":
         return json.loads(task.answer_json)
     if not fresh:

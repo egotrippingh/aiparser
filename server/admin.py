@@ -1,13 +1,64 @@
 """Private operator view; never expose provider credentials or response bodies."""
 import asyncio
 import os
+from datetime import timezone
 from decimal import Decimal, InvalidOperation
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, select
 
-from server.models import Check, User, Wallet, utcnow
+from server.models import (Check, ControlRun, ProviderAccount, ProviderTask, User, Wallet,
+                           utcnow)
+from server.provider_tasks import ACTIVE
+
+
+def _aware(value):
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
+def cloud_queue_snapshot(db):
+    """Operator-facing queue depth; no answers, tokens or credentials."""
+    now = utcnow()
+    open_states = ("queued", "running", "paused")
+    counts = dict(db.execute(select(ControlRun.state, func.count()).where(
+        ControlRun.phase == "cloud", ControlRun.state.in_(open_states)).group_by(ControlRun.state)).all())
+    oldest = db.scalar(select(func.min(ControlRun.created_at)).where(
+        ControlRun.phase == "cloud", ControlRun.state.in_(open_states)))
+    lease_expired = db.scalar(select(func.count()).select_from(ControlRun).where(
+        ControlRun.phase == "cloud", ControlRun.state.in_(("running", "paused")),
+        ControlRun.lease_until.is_not(None), ControlRun.lease_until < now)) or 0
+    task_counts = dict(db.execute(select(ProviderTask.state, func.count()).where(
+        ProviderTask.state.in_((*ACTIVE, "expired", "rejected"))).group_by(ProviderTask.state)).all())
+    accounts = []
+    for account in db.scalars(select(ProviderAccount).order_by(ProviderAccount.service)):
+        active = db.scalar(select(func.count()).select_from(ProviderTask).where(
+            ProviderTask.service == account.service, ProviderTask.state.in_(ACTIVE))) or 0
+        cool = account.cooldown_until
+        accounts.append({
+            "service": account.service,
+            "active_tasks": active,
+            "cooldown_until": _aware(cool).isoformat() if cool else None,
+            "cooling_down": bool(cool and _aware(cool) > now),
+        })
+    return {
+        "checked_at": now.isoformat(),
+        "runs": {
+            "queued": counts.get("queued", 0),
+            "running": counts.get("running", 0),
+            "paused": counts.get("paused", 0),
+            "lease_expired": lease_expired,
+            "oldest_created_at": _aware(oldest).isoformat() if oldest else None,
+        },
+        "provider_tasks": {
+            "submitting": task_counts.get("submitting", 0),
+            "submitted": task_counts.get("submitted", 0),
+            "uncertain": task_counts.get("uncertain", 0),
+            "expired": task_counts.get("expired", 0),
+            "rejected": task_counts.get("rejected", 0),
+        },
+        "provider_accounts": accounts,
+    }
 
 
 def amount(value):
@@ -100,5 +151,10 @@ def register_admin(app, db_session, current_user):
         response.headers["Cache-Control"] = "no-store"
         async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
             return {"providers": await provider_balances(client)}
+
+    @router.get("/cloud-queue")
+    def cloud_queue(response: Response, user=Depends(admin), db=Depends(db_session)):
+        response.headers["Cache-Control"] = "no-store"
+        return cloud_queue_snapshot(db)
 
     app.include_router(router)

@@ -10,4 +10,11 @@
 .admin-users-scroll{overflow:auto;margin:16px 0}
 .admin-users-scroll table{width:100%;border-collapse:collapse;text-align:left;white-space:nowrap}
 .admin-users-scroll th,.admin-users-scroll td{padding:12px 16px;border-bottom:1px solid var(--air-line)}
+.admin-queue-stats{list-style:none;padding:0;margin:16px 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.admin-queue-stats li{display:grid;gap:6px;padding:14px 16px;border:1px solid var(--air-line);border-radius:6px;background:var(--air-panel)}
+.admin-queue-stats span{opacity:.75;font-size:13px}.admin-queue-stats strong{font-size:22px}
+.admin-queue-meta{margin:0 0 12px;opacity:.85}
+.admin-queue-accounts{list-style:none;padding:0;margin:0 0 8px}
+.admin-queue-accounts li{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px 20px;padding:10px 0;border-top:1px solid var(--air-line)}
+.admin-queue-accounts em{font-style:normal;opacity:.75}
 @media(max-width:600px){.admin-balances li{align-items:flex-start;flex-direction:column;gap:12px}.admin-overview .cab-section-head,.admin-scans .cab-section-head{flex-wrap:wrap}.admin-scans .cab-section-head>div{min-width:0;max-width:100%}}

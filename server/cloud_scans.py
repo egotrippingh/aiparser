@@ -36,6 +36,22 @@ def _pairs(snapshot):
     return [(q, s) for s in snapshot["cloud_services"] for q in snapshot["queries"]]
 
 
+def _cooled_down_only(db, run, snap, blocked_services):
+    """True when every unfinished pair is on a cooled-down engine and nothing is ready to drain."""
+    if not blocked_services or run.desired_state != "running":
+        return False
+    done = set(db.execute(select(CloudResult.query_id, CloudResult.service).where(
+        CloudResult.run_id == run.id, CloudResult.user_id == run.user_id)).all())
+    saved = set(db.execute(select(ServerCapture.query_id, ServerCapture.service).where(
+        ServerCapture.run_id == run.id)).all())
+    # Accepted Scrapeless handles must still be drained even while the engine cools down.
+    accepted = set(db.execute(select(ProviderTask.query_id, ProviderTask.service).where(
+        ProviderTask.run_id == run.id, ProviderTask.state == "submitted")).all())
+    pending = [(q["id"], s) for q, s in _pairs(snap) if (q["id"], s) not in done]
+    return bool(pending) and not any(
+        pair in saved or pair in accepted or pair[1] not in blocked_services for pair in pending)
+
+
 def _claim(sessions, blocked_services=()):
     """A bounded lease with a token CAS; another worker may safely take an expired run."""
     with sessions() as db:
@@ -62,6 +78,11 @@ def _claim(sessions, blocked_services=()):
             runs = db.scalars(page.limit(20)).all()
             next_cursor = (runs[-1].created_at, runs[-1].id) if runs else None
             for run in runs:
+                snap = json.loads(run.snapshot_json)
+                # Skip cooled-down-only work before the owner lock so long Yandex
+                # tails do not serialize every other owner's claim attempt.
+                if _cooled_down_only(db, run, snap, blocked_services):
+                    continue
                 # Serialize claims per owner, including two simultaneous first claims.
                 db.execute(update(User).where(User.id == run.user_id).values(is_admin=User.is_admin))
                 if db.scalar(select(ControlRun.id).where(ControlRun.user_id == run.user_id,
@@ -69,16 +90,6 @@ def _claim(sessions, blocked_services=()):
                         ControlRun.lease_token.is_not(None), ControlRun.lease_until >= now)):
                     db.rollback()
                     continue
-                snap = json.loads(run.snapshot_json)
-                if blocked_services and run.desired_state == "running":
-                    done = set(db.execute(select(CloudResult.query_id, CloudResult.service).where(
-                        CloudResult.run_id == run.id, CloudResult.user_id == run.user_id)).all())
-                    saved = set(db.execute(select(ServerCapture.query_id, ServerCapture.service).where(
-                        ServerCapture.run_id == run.id)).all())
-                    pending = [(q["id"], s) for q, s in _pairs(snap) if (q["id"], s) not in done]
-                    if pending and not any(pair in saved or pair[1] not in blocked_services for pair in pending):
-                        db.rollback()
-                        continue
                 token = uuid.uuid4().hex
                 result = db.execute(update(ControlRun).where(ControlRun.id == run.id,
                     ControlRun.phase == "cloud", ControlRun.state.in_(("queued", "running", "paused")),
