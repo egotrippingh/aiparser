@@ -59,6 +59,16 @@ The graph is ignored local cache; missing Graphify is handled with `rg`, not a b
 No paid semantic extraction, cloud upload, background watcher or automatic hooks by default.
 See `docs/agent-workflow.md` for portable installation and freshness commands.
 
+## Cursor Cloud
+
+Linux-агент не ставит Windows-only `requirements.txt` (`pywin32`). Окружение — `.venv` из `scripts/requirements-ci.txt`, Node 24 и `npm ci` в `frontend/`. Локальный PostgreSQL: роль и база `aiparser`, пароль `aiparser`, только localhost.
+
+- `DATABASE_URL=postgresql+psycopg://aiparser:aiparser@127.0.0.1:5432/aiparser`
+- `AIRATE_TEST_POSTGRES_URL` — тот же адрес, для проверок конкурентности в `server/`
+- Парсер: `127.0.0.1:8756` (`uvicorn app.api:create_app --factory`). Кабинет: `127.0.0.1:8757` с `PUBLIC_BASE_URL=http://127.0.0.1:8757`. Vite: `127.0.0.1:5173`.
+
+Ключи XMLRiver, Scrapeless, OpenRouter, Coinso, Яндекс ID, SMTP и S3 для тестов и локального кабинета не нужны. Живые прогоны браузера и Camoufox остаются на Windows.
+
 ## Non-negotiable completion gate
 
 - Bug: one regression check fails before the fix and passes after. New nontrivial logic:
