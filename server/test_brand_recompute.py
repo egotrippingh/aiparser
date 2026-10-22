@@ -3,6 +3,7 @@ import json
 from contextlib import contextmanager
 from datetime import timedelta
 from uuid import uuid4
+import pytest
 
 from fastapi.testclient import TestClient
 from sqlalchemy import event
@@ -125,14 +126,19 @@ def test_recompute_uses_latest_visible_answer_once_and_keeps_failure_free(tmp_pa
         assert db.get(CloudResult, result_id).status == "found"
 
 
-def test_brand_clarification_is_exact_admin_feature_flag(tmp_path, monkeypatch):
+def test_brand_clarification_is_available_without_admin_or_feature_flag(tmp_path, monkeypatch):
     client, headers, _ = feature_setup(tmp_path, monkeypatch)
     assert client.get("/api/v1/me", headers=headers).json()["brand_clarifications_enabled"] is True
     monkeypatch.setattr("server.app.uuid.uuid4", uuid4)
     other = register_account(client, json={"email": "other@test.example", "password": "long-test-password-123"})
     other_headers = {"Authorization": "Bearer " + other.json()["token"]}
     body = {"name": "P", "brand_name": "Brand", "config": {"brand_clarification": "only me"}}
-    assert client.post("/api/v1/control/projects", headers=other_headers, json=body).status_code == 403
+    monkeypatch.delenv("BRAND_CLARIFICATIONS_USER_ID")
+    ordinary = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'recompute.db'}", ai_client=FakeAI()))
+    assert ordinary.get("/api/v1/me", headers=other_headers).json()["brand_clarifications_enabled"] is True
+    saved = ordinary.post("/api/v1/control/projects", headers=other_headers, json=body)
+    assert saved.status_code == 201, saved.text
+    assert saved.json()["config"]["brand_clarification"] == "only me"
 
 
 def test_guidance_is_frozen_only_for_an_agent_that_advertises_support(tmp_path, monkeypatch):
@@ -163,7 +169,7 @@ def test_guidance_is_frozen_only_for_an_agent_that_advertises_support(tmp_path, 
                        json={"capabilities": {"installed": True}}).json()["run"] is None
 
 
-def test_recompute_uses_report_query_mapping_and_flagged_off_save_preserves_note(tmp_path, monkeypatch):
+def test_recompute_uses_report_query_mapping_without_environment_flag(tmp_path, monkeypatch):
     client, headers, sessions = feature_setup(tmp_path, monkeypatch)
     project = client.post("/api/v1/control/projects", headers=headers, json={
         "name": "P", "brand_name": "Refprom", "queries": [{"text": "find Refprom"}],
@@ -182,10 +188,9 @@ def test_recompute_uses_report_query_mapping_and_flagged_off_save_preserves_note
                        params={"from_date": today}).json()
     assert quote["result_ids"] == [str(ids[-1])]
     monkeypatch.setenv("BRAND_CLARIFICATIONS_USER_ID", "")
-    # A disabled feature redacts the note, but unrelated edits do not erase it.
     client_without_flag = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'recompute.db'}", ai_client=FakeAI()))
     hidden = client_without_flag.get(f"/api/v1/control/projects/{project['id']}", headers=headers).json()
-    assert "brand_clarification" not in hidden["config"]
+    assert hidden["config"]["brand_clarification"] == "Reflo — не наш бренд"
     body = {key: hidden[key] for key in ("revision", "name", "brand_name", "device_id", "config", "schedule", "queries")}
     body["name"] = "Renamed"
     saved = client_without_flag.put(f"/api/v1/control/projects/{project['id']}", headers=headers, json=body)
@@ -353,3 +358,133 @@ def test_text_only_recompute_can_be_repeated_after_model_paraphrases_quote(tmp_p
     assert quote["result_ids"] == [str(result_id)]
     assert client.post(route, headers=headers, json={"from_date": today,
         "revision": changed["revision"]}).json()["charged_kopeks"] == 80
+
+
+def saved_days(tmp_path, monkeypatch):
+    client, headers, sessions = feature_setup(tmp_path, monkeypatch)
+    project = client.post('/api/v1/control/projects', headers=headers, json={
+        'name': 'P', 'brand_name': 'Refprom', 'queries': [{'text': 'query'}],
+        'config': {'services': ['chatgpt'], 'brand_clarification': 'Reflo is another brand'},
+    }).json()
+    days = ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04']
+    with sessions() as db:
+        for number, day in enumerate(days):
+            db.add(CloudResult(user_id=FEATURE_USER, device_id='a' * 32, local_result_id=number + 1,
+                local_project_id=1, project_id=project['id'], query_id=project['queries'][0]['id'],
+                project_name='P', brand_name='Refprom', query_text='query', group_tag='', service='chatgpt',
+                scan_date=day, status='found', answer_text='Refprom', evidence_quote='Refprom', sources_json='[]'))
+        db.commit()
+        ids = {row.scan_date: row.id for row in db.query(CloudResult)}
+        db.get(User, FEATURE_USER).is_admin = False
+        db.commit()
+    return client, headers, sessions, project, ids
+
+
+@pytest.mark.parametrize(('selection', 'chosen'), [
+    ({'from_date': '2026-09-02', 'to_date': '2026-09-02'}, ['2026-09-02']),
+    ({'from_date': '2026-09-02', 'to_date': '2026-09-03'}, ['2026-09-02', '2026-09-03']),
+    ({'from_date': '2026-09-01', 'to_date': '2026-09-04', 'dates': ['2026-09-01', '2026-09-04']}, ['2026-09-01', '2026-09-04']),
+])
+def test_recompute_selection_limits_quote_and_post_and_is_idempotent(tmp_path, monkeypatch, selection, chosen):
+    client, headers, sessions, project, ids = saved_days(tmp_path, monkeypatch)
+    base = f"/api/v1/control/projects/{project['id']}/recompute"
+    params = {**selection, **({'dates': ','.join(selection['dates'])} if 'dates' in selection else {})}
+    quoted = client.get(base + '/quote', headers=headers, params=params)
+    assert quoted.status_code == 200, quoted.text
+    assert quoted.headers['cache-control'] == 'no-store'
+    quote = quoted.json()
+    assert set(quote['result_ids']) == {str(ids[day]) for day in chosen}
+    assert quote['total_kopeks'] == 80 * len(chosen)
+    assert client.get(base + '/dates', headers=headers).json() == {'dates': sorted(ids)}
+    for day, result_id in ids.items():
+        response = client.post(base + f'/{result_id}', headers=headers, json={**selection, 'revision': project['revision']})
+        assert response.status_code == 200, response.text
+        assert response.json()['charged_kopeks'] == (80 if day in chosen else 0)
+        assert client.post(base + f'/{result_id}', headers=headers, json={**selection, 'revision': project['revision']}).json()['charged_kopeks'] == 0
+    with sessions() as db:
+        assert db.get(Wallet, FEATURE_USER).balance_kopeks == 1000 - 80 * len(chosen)
+        assert {row.scan_date for row in db.query(CloudResult) if row.status == 'not_found'} == set(chosen)
+        assert db.query(LedgerEntry).filter_by(kind='recompute').count() == len(chosen)
+
+
+@pytest.mark.parametrize('selection', [
+    {'from_date': '20260901'}, {'from_date': '2026-02-30'},
+    {'from_date': '2026-09-03', 'to_date': '2026-09-02'},
+    {'from_date': '2026-09-01', 'to_date': 'bad'},
+    {'from_date': '2026-09-01', 'dates': []},
+    {'from_date': '2026-09-02', 'to_date': '2026-09-03', 'dates': ['2026-09-01']},
+    {'from_date': '2026-09-01', 'dates': ['2026-02-30']},
+    {'from_date': '2026-09-01', 'dates': ['2026-09-01'] * 31},
+])
+def test_recompute_rejects_invalid_selection_before_charging(tmp_path, monkeypatch, selection):
+    client, headers, sessions, project, ids = saved_days(tmp_path, monkeypatch)
+    base = f"/api/v1/control/projects/{project['id']}/recompute"
+    params = {**selection, **({'dates': ','.join(selection['dates'])} if 'dates' in selection else {})}
+    assert client.get(base + '/quote', headers=headers, params=params).status_code == 422
+    assert client.post(base + f'/{next(iter(ids.values()))}', headers=headers,
+        json={**selection, 'revision': project['revision']}).status_code == 422
+    with sessions() as db:
+        assert db.get(Wallet, FEATURE_USER).balance_kopeks == 1000
+
+
+def test_recompute_remains_owner_web_only_and_requires_current_clarification(tmp_path, monkeypatch):
+    client, headers, sessions, project, ids = saved_days(tmp_path, monkeypatch)
+    monkeypatch.setattr('server.app.uuid.uuid4', uuid4)
+    other = register_account(client, json={'email': 'other@test.example', 'password': 'long-test-password-123'})
+    other_headers = {'Authorization': 'Bearer ' + other.json()['token']}
+    device = client.post('/api/v1/control/agent/enroll', headers=headers,
+        json={'device_id': 'b' * 32, 'name': 'PC'}).json()['token']
+    base = f"/api/v1/control/projects/{project['id']}/recompute"
+    data = {'from_date': '2026-09-01', 'revision': project['revision']}
+    for who, expected in [(other_headers, 404), ({'Authorization': 'Bearer ' + device}, 403)]:
+        assert client.get(base + '/quote', headers=who, params={'from_date': data['from_date']}).status_code == expected
+        assert client.get(base + '/dates', headers=who).status_code == expected
+        assert client.post(base + f'/{next(iter(ids.values()))}', headers=who, json=data).status_code == expected
+    client.put(f"/api/v1/control/projects/{project['id']}/members", headers=headers,
+        json={'email': 'other@test.example', 'role': 'editor'})
+    assert client.get(base + '/quote', headers=other_headers, params={'from_date': data['from_date']}).status_code == 403
+    assert client.get(base + '/dates', headers=other_headers).status_code == 403
+    assert client.post(base + f'/{next(iter(ids.values()))}', headers=other_headers, json=data).status_code == 403
+    assert client.post(base + f'/{next(iter(ids.values()))}', headers=headers, json={**data, 'revision': 999}).status_code == 409
+    with sessions() as db:
+        db.get(ControlProject, project['id']).config_json = '{"services":["chatgpt"]}'
+        db.commit()
+    assert client.get(base + '/quote', headers=headers, params={'from_date': data['from_date']}).status_code == 422
+    assert client.post(base + f'/{next(iter(ids.values()))}', headers=headers, json=data).status_code == 422
+    with sessions() as db:
+        assert db.get(Wallet, FEATURE_USER).balance_kopeks == 1000
+
+
+def test_ordinary_owner_clarification_is_frozen_for_manual_and_scheduled_runs(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from server.control import schedule_tick
+    from server.models import ControlRun
+
+    client, headers, sessions = feature_setup(tmp_path, monkeypatch)
+    monkeypatch.delenv('BRAND_CLARIFICATIONS_USER_ID')
+    monkeypatch.setenv('SCRAPELESS_API_KEY', 'fake-key')
+    monkeypatch.setattr('server.app.uuid.uuid4', uuid4)
+    with sessions() as db:
+        db.get(User, FEATURE_USER).is_admin = False
+        db.commit()
+    body = {'name': 'P', 'brand_name': 'Brand', 'queries': [{'text': 'query'}],
+        'config': {'services': ['chatgpt'], 'brand_clarification': 'Frozen A'},
+        'schedule': {'enabled': True, 'month_days': [15], 'time': '12:30', 'timezone': 'Europe/Moscow'}}
+    project = client.post('/api/v1/control/projects', headers=headers, json=body)
+    assert project.status_code == 201, project.text
+    project = project.json()
+    launched = client.post(f"/api/v1/control/projects/{project['id']}/runs", headers=headers,
+        json={'request_id': uuid4().hex, 'revision': project['revision']})
+    assert launched.status_code == 201, launched.text
+    with sessions() as db:
+        run = db.get(ControlRun, launched.json()['id'])
+        assert json.loads(run.snapshot_json)['config']['brand_clarification'] == 'Frozen A'
+        run.state, run.active_project_key = 'done', None
+        db.commit()
+    body['config']['brand_clarification'] = 'Frozen B'
+    assert client.put(f"/api/v1/control/projects/{project['id']}", headers=headers,
+        json={**body, 'revision': project['revision']}).status_code == 200
+    schedule_tick(sessions, datetime(utcnow().year + 1, 4, 15, 9, 30, tzinfo=timezone.utc))
+    with sessions() as db:
+        snapshots = [json.loads(run.snapshot_json)['config']['brand_clarification'] for run in db.query(ControlRun)]
+        assert sorted(snapshots) == ['Frozen A', 'Frozen B']

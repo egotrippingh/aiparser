@@ -11,7 +11,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import and_, func, select, update, delete, or_
@@ -157,7 +157,24 @@ class LaunchIn(BaseModel):
 
 class RecomputeIn(BaseModel):
     from_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    to_date: str | None = None
+    dates: list[str] | None = Field(default=None, min_length=1, max_length=30)
     revision: int = Field(ge=0)
+
+
+def recompute_selection(from_date, to_date=None, dates=None):
+    try:
+        for value in [from_date, *([to_date] if to_date is not None else []), *(dates or [])]:
+            if date.fromisoformat(value).isoformat() != value:
+                raise ValueError
+        if to_date is not None and from_date > to_date:
+            raise ValueError
+        if dates is not None and (not 1 <= len(dates) <= 30 or any(
+                day < from_date or (to_date is not None and day > to_date) for day in dates)):
+            raise ValueError
+    except (ValueError, TypeError):
+        raise HTTPException(422, "Укажите корректные даты ГГГГ-ММ-ДД: начало не позже конца, до 30 выбранных дат внутри периода") from None
+    return from_date, to_date, sorted(set(dates)) if dates is not None else None
 
 
 class CommandIn(BaseModel):
@@ -203,7 +220,7 @@ class MemberIn(BaseModel):
         return value
 
 
-def project_payload(row, detail=True, brand_clarifications_enabled=False, role="owner"):
+def project_payload(row, detail=True, brand_clarifications_enabled=True, role="owner"):
     queries = json.loads(row.queries_json)
     config = json.loads(row.config_json)
     config["services"] = [s for s in config.get("services", ["google_aio"]) if s != "alice"]
@@ -251,7 +268,7 @@ def device_for(db, user_id, device_id):
     return row
 
 
-def create_run(db, project, device_id, key, scheduled_for=None, brand_clarifications_enabled=False,
+def create_run(db, project, device_id, key, scheduled_for=None, brand_clarifications_enabled=True,
                check_price_kopeks=165):
     existing = db.scalar(select(ControlRun).where(ControlRun.request_key == key))
     if existing:
@@ -328,7 +345,7 @@ def provider_state_fingerprint(accounts, services, check_price_kopeks):
     return hashlib.sha256(json.dumps([check_price_kopeks, state], separators=(",", ":")).encode()).hexdigest()
 
 
-def schedule_tick(sessions, now=None, feature_user_id="", check_price_kopeks=165):
+def schedule_tick(sessions, now=None, check_price_kopeks=165):
     now = now or utcnow()
     with sessions() as db:
         # Only historical agent work depends on PC availability.
@@ -366,9 +383,8 @@ def schedule_tick(sessions, now=None, feature_user_id="", check_price_kopeks=165
                 key = f"schedule:{project.id}:{slot.isoformat()}"
                 try:
                     with db.begin_nested():
-                        user = db.get(User, project.user_id)
                         create_run(db, project, schedule.device_id or project.device_id, key, slot,
-                                   brand_clarifications_enabled=bool(feature_user_id and user and user.is_admin and user.id == feature_user_id),
+                                   brand_clarifications_enabled=True,
                                    check_price_kopeks=check_price_kopeks)
                     db.commit()
                 except (IntegrityError, HTTPException):
@@ -378,29 +394,28 @@ def schedule_tick(sessions, now=None, feature_user_id="", check_price_kopeks=165
 
 
 def register_control(app, db_session, current_user, sessions, *, check_price_kopeks=165,
-                     brand_clarifications_user_id="", ai_client=None, screenshot_storage=None):
+                     ai_client=None, screenshot_storage=None):
     router = APIRouter(prefix="/api/v1/control")
-
-    def brand_enabled(user):
-        return bool(brand_clarifications_user_id and user.is_admin and user.id == brand_clarifications_user_id)
 
     def clarification_for(project):
         return str(json.loads(project.config_json).get("brand_clarification") or "").strip()
 
-    def require_clarification_access(user, project=None):
-        if not brand_enabled(user):
-            raise HTTPException(403, "Уточнения по бренду пока доступны только администратору")
-        if project is not None and not clarification_for(project):
+    def require_clarification(project):
+        if not clarification_for(project):
             raise HTTPException(422, "Сначала добавьте уточнения по бренду")
 
-    def active_result_rows(db, project, from_date):
+    def active_result_rows(db, project, from_date, to_date=None, dates=None):
         """The reports use only the newest daily answer for each query/service."""
         queries = {q["id"]: q for q in json.loads(project.queries_json)}
         by_text = {q["text"]: q["id"] for q in queries.values()}
-        rows = db.scalars(select(CloudResult).where(
+        query = select(CloudResult).where(
             CloudResult.user_id == project.user_id, CloudResult.project_id == project.id,
-            CloudResult.scan_date >= from_date, CloudResult.service.in_(SERVICES),
-        ).order_by(CloudResult.id.desc())).all()
+            CloudResult.scan_date >= from_date, CloudResult.service.in_(SERVICES))
+        if to_date is not None:
+            query = query.where(CloudResult.scan_date <= to_date)
+        if dates is not None:
+            query = query.where(CloudResult.scan_date.in_(dates))
+        rows = db.scalars(query.order_by(CloudResult.id.desc())).all()
         picked = {}
         for row in rows:
             key = row.query_id if row.query_id in queries else by_text.get(row.query_text, row.query_id or "text:" + row.query_text)
@@ -427,10 +442,10 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         return db.scalar(select(Screenshot).join(Check, Screenshot.check_id == Check.id).where(
             Check.user_id == result.user_id, Check.client_check_id == result.check_id))
 
-    def recompute_candidates(db, project, from_date):
+    def recompute_candidates(db, project, from_date, to_date=None, dates=None):
         identity = identity_hash(project)
         candidates, skipped = [], 0
-        for row in active_result_rows(db, project, from_date):
+        for row in active_result_rows(db, project, from_date, to_date, dates):
             previous = last_recompute_reference(db, row.id)
             if previous and previous.split(":")[2] == identity:
                 continue
@@ -494,10 +509,6 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         if body.schedule.enabled and needs_agent and not (body.schedule.device_id or body.device_id):
             raise HTTPException(422, "Выберите компьютер для расписания")
 
-    def validate_clarification(user, body):
-        if body.config.brand_clarification and not brand_enabled(user):
-            raise HTTPException(403, "Уточнения по бренду пока доступны только администратору")
-
     def project_values(body, old_schedule=None):
         schedule = body.schedule.model_dump()
         old = json.loads(old_schedule or "{}")
@@ -515,35 +526,29 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             ProjectMember.project_id == ControlProject.id, ProjectMember.user_id == user.id)).where(
             ControlProject.archived.is_(False), or_(ControlProject.user_id == user.id, ProjectMember.user_id == user.id)
         ).order_by(ControlProject.created_at)).all()
-        return [project_payload(row, False, brand_enabled(db.get(User, row.user_id)),
+        return [project_payload(row, False, True,
                                 "owner" if row.user_id == user.id else role) for row, role in rows]
 
     @router.post("/projects", status_code=201)
     def add_project(body: ProjectIn, user=Depends(web_user), db=Depends(db_session)):
-        validate_clarification(user, body)
         validate_assignment(db, user.id, body)
         row = ControlProject(id=uuid.uuid4().hex, user_id=user.id, **project_values(body))
         db.add(row); db.commit()
-        return project_payload(row, brand_clarifications_enabled=brand_enabled(user))
+        return project_payload(row, brand_clarifications_enabled=True)
 
     @router.get("/projects/{project_id}")
     def get_project(project_id: str, user=Depends(web_user), db=Depends(db_session)):
         row, role = project_access(db, user.id, project_id)
-        return project_payload(row, brand_clarifications_enabled=brand_enabled(db.get(User, row.user_id)), role=role)
+        return project_payload(row, brand_clarifications_enabled=True, role=role)
 
     @router.put("/projects/{project_id}")
     def save_project(project_id: str, body: ProjectIn, user=Depends(web_user), db=Depends(db_session)):
         row, role = project_access(db, user.id, project_id, edit=True, lock=True)
-        owner = db.get(User, row.user_id)
         if role != "owner":
             body = body.model_copy(deep=True)
             body.device_id = row.device_id
             body.schedule.device_id = json.loads(row.schedule_json).get("device_id")
-        validate_clarification(owner, body)
         validate_assignment(db, row.user_id, body)
-        if not brand_enabled(owner) and clarification_for(row):
-            body = body.model_copy(deep=True)
-            body.config.brand_clarification = clarification_for(row)
         values = project_values(body, row.schedule_json)
         config = json.loads(values["config_json"])
         config[FEEDBACK_KEY] = json.loads(row.config_json).get(FEEDBACK_KEY, [])
@@ -553,7 +558,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         if result.rowcount != 1:
             raise HTTPException(409, "Проект изменён на другом устройстве. Обновите страницу перед сохранением.")
         db.commit(); db.refresh(row)
-        return project_payload(row, brand_clarifications_enabled=brand_enabled(owner), role=role)
+        return project_payload(row, brand_clarifications_enabled=True, role=role)
 
     @router.delete("/projects/{project_id}")
     def archive_project(project_id: str, user=Depends(web_user), db=Depends(db_session)):
@@ -609,7 +614,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             raise HTTPException(409, "Остаток бесплатных сканов изменился. Проверьте сумму ещё раз.")
         try:
             run = create_run(db, row, device_id, request_key,
-                             brand_clarifications_enabled=brand_enabled(owner), check_price_kopeks=check_price_kopeks)
+                             brand_clarifications_enabled=True, check_price_kopeks=check_price_kopeks)
             db.commit()
         except IntegrityError:
             db.rollback()
@@ -654,39 +659,39 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         db.delete(member); db.commit()
         return {"ok": True}
 
+    @router.get("/projects/{project_id}/recompute/dates")
+    def recompute_dates(project_id: str, response: Response, user=Depends(web_user), db=Depends(db_session)):
+        response.headers["Cache-Control"] = "no-store"
+        project = owner_project(db, user.id, project_id)
+        return {"dates": list(db.scalars(select(CloudResult.scan_date).where(
+            CloudResult.user_id == user.id, CloudResult.project_id == project.id,
+            CloudResult.service.in_(SERVICES)).distinct().order_by(CloudResult.scan_date)))}
+
     @router.get("/projects/{project_id}/recompute/quote")
-    def recompute_quote(project_id: str, from_date: str, user=Depends(web_user), db=Depends(db_session)):
-        row = owned_project(db, user.id, project_id)
-        require_clarification_access(user, row)
-        try:
-            requested = date.fromisoformat(from_date)
-        except ValueError:
-            raise HTTPException(422, "Укажите дату в формате ГГГГ-ММ-ДД") from None
-        candidates, skipped, _ = recompute_candidates(db, row, requested.isoformat())
+    def recompute_quote(project_id: str, from_date: str, response: Response, to_date: str | None = None, dates: str | None = None,
+                        user=Depends(web_user), db=Depends(db_session)):
+        response.headers["Cache-Control"] = "no-store"
+        row = owner_project(db, user.id, project_id)
+        require_clarification(row)
+        selection = recompute_selection(from_date, to_date, dates.split(",") if dates is not None else None)
+        candidates, skipped, _ = recompute_candidates(db, row, *selection)
         if len(candidates) > 5000:
             raise HTTPException(422, "Слишком много ответов. Выберите более позднюю дату.")
         count = len(candidates)
         return {"result_ids": [str(item.id) for item in candidates], "count": count,
                 "unit_kopeks": 80, "total_kopeks": count * 80,
                 "available_kopeks": available_kopeks(db, user.id), "revision": row.revision,
-                "skipped": skipped}
+                "skipped": skipped, "from_date": selection[0], "to_date": selection[1], "dates": selection[2]}
 
     @router.post("/projects/{project_id}/recompute/{result_id}")
     def recompute(project_id: str, result_id: int, body: RecomputeIn,
                   user=Depends(web_user), db=Depends(db_session)):
         owner = user.id
-        project = db.scalar(select(ControlProject).where(
-            ControlProject.id == project_id, ControlProject.user_id == user.id,
-            ControlProject.archived.is_(False)).with_for_update())
-        if project is None:
-            raise HTTPException(404, "Проект не найден")
-        require_clarification_access(user, project)
+        project = owner_project(db, user.id, project_id, lock=True)
+        require_clarification(project)
         if body.revision != project.revision:
             raise HTTPException(409, "Проект изменён. Получите новый расчёт.")
-        try:
-            requested = date.fromisoformat(body.from_date)
-        except ValueError:
-            raise HTTPException(422, "Укажите дату в формате ГГГГ-ММ-ДД") from None
+        selection = recompute_selection(body.from_date, body.to_date, body.dates)
         if db.scalar(select(ControlRun.id).where(ControlRun.active_project_key == project.id)):
             raise HTTPException(409, "Дождитесь завершения текущей проверки проекта")
         if ai_client is None:
@@ -697,7 +702,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             CloudResult.project_id == project.id).with_for_update())
         if result is None:
             raise HTTPException(404, "Сохранённый ответ не найден")
-        candidates, _, identity = recompute_candidates(db, project, requested.isoformat())
+        candidates, _, identity = recompute_candidates(db, project, *selection)
         if result.id not in {item.id for item in candidates}:
             return {"charged_kopeks": 0, "status": "skipped", "message": "Ответ уже пересчитан или не подходит выбранной дате"}
         if available_kopeks(db, user.id) < 80:
@@ -923,12 +928,10 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
 
     @router.post("/agent/import")
     def import_project(body: ImportIn, grant=Depends(device_user), db=Depends(db_session)):
-        importer = db.get(User, grant.user_id)
-        validate_clarification(importer, body.project)
         link = db.scalar(select(ControlLink).where(ControlLink.user_id == grant.user_id,
             ControlLink.device_id == grant.device_id, ControlLink.local_project_id == body.local_project_id))
         if link:
-            return project_payload(db.get(ControlProject, link.project_id), brand_clarifications_enabled=brand_enabled(importer))
+            return project_payload(db.get(ControlProject, link.project_id), brand_clarifications_enabled=True)
         body.project.device_id = grant.device_id
         body.project.schedule.enabled = False
         body.project.schedule.device_id = grant.device_id
@@ -938,7 +941,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
                            local_project_id=body.local_project_id, project_id=row.id))
         db.execute(update(CloudResult).where(CloudResult.user_id == grant.user_id,
             CloudResult.device_id == grant.device_id, CloudResult.local_project_id == body.local_project_id).values(project_id=row.id))
-        db.commit(); return project_payload(row, brand_clarifications_enabled=brand_enabled(importer))
+        db.commit(); return project_payload(row, brand_clarifications_enabled=True)
 
     @router.post("/agent/poll")
     def poll(body: PollIn, grant=Depends(device_user), db=Depends(db_session)):
@@ -959,8 +962,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
                 configured = body.capabilities.get("provider_configured")
                 if not active and (not isinstance(configured, dict) or configured.get("yandex_neuro") is not True):
                     return False
-            return not note or bool(body.capabilities.get("brand_clarification") and
-                                   (snapshot.get("feedback_enabled") or brand_enabled(db.get(User, grant.user_id))))
+            return not note or bool(body.capabilities.get("brand_clarification"))
         run = db.scalar(select(ControlRun).where(ControlRun.active_device_key == key, ControlRun.phase == "agent"))
         if run and not supported(run, active=True):
             device.active_scan = False
@@ -1032,7 +1034,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         async def loop():
             while True:
                 try:
-                    await run_in_threadpool(schedule_tick, sessions, None, brand_clarifications_user_id, check_price_kopeks)
+                    await run_in_threadpool(schedule_tick, sessions, check_price_kopeks=check_price_kopeks)
                 except Exception as exc:
                     import telemetry
                     telemetry.capture(exc, component="server", operation="scheduler")

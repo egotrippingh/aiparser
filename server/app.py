@@ -391,9 +391,8 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         return web_session_response(request, response,
             {"token": token, "user": {"id": user.id, "email": user.email}}, secure=cookie_secure)
 
-    brand_clarifications_user_id = os.environ.get("BRAND_CLARIFICATIONS_USER_ID", "")
     register_control(app, db_session, current_user, SessionLocal, check_price_kopeks=price,
-                     brand_clarifications_user_id=brand_clarifications_user_id, ai_client=ai_client,
+                     ai_client=ai_client,
                      screenshot_storage=screenshot_storage)
     register_browser_login(app, db_session, current_user, issue_session)
     from server.reporting import register_reports
@@ -1059,8 +1058,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         return {"id": user.id, "email": user.email, "yandex_linked": linked is not None,
                 "has_password": not user.password_hash.startswith("external:"),
                 "is_admin": user.is_admin,
-                "brand_clarifications_enabled": bool(brand_clarifications_user_id and user.is_admin
-                                                       and user.id == brand_clarifications_user_id)}
+                "brand_clarifications_enabled": True}
 
     @app.get("/api/v1/wallet")
     def wallet(user: User = Depends(current_user), db: Session = Depends(db_session)) -> dict:
