@@ -34,15 +34,70 @@ _CARD_SELECTOR = ("[data-xid^='aim-aside'], .FuturisGPTMessage-SourcesItem, "
 class XMLRiverResponseError(AdapterError):
     """Transient provider failure or unusable answer eligible for recollection."""
 
+    def __init__(self, message: str, *, category: str = "malformed", code: str = "response",
+                 status: int | None = None, stage: str = "response") -> None:
+        super().__init__(message)
+        self.diagnostic_category = category
+        self.diagnostic_code = code
+        self.diagnostic_status = status
+        self.diagnostic_stage = stage
+
+
+class XMLRiverHTTPError(AdapterError):
+    """A non-retryable HTTP response with a safe status for diagnostics."""
+
+    def __init__(self, status: int) -> None:
+        super().__init__(f"XMLRiver: HTTP {status}")
+        self.diagnostic_category = "http"
+        self.diagnostic_code = "http"
+        self.diagnostic_status = status
+        self.diagnostic_stage = "request"
+
+
+class XMLRiverMalformedError(AdapterError):
+    """A non-retryable malformed response with a safe diagnostic code."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__("XMLRiver: недопустимый XML")
+        self.diagnostic_category = "malformed"
+        self.diagnostic_code = code
+        self.diagnostic_status = None
+        self.diagnostic_stage = "response"
+
+
+class XMLRiverAPIError(AdapterError):
+    """A non-retryable XML API error with its provider code."""
+
+    def __init__(self, code: str) -> None:
+        code = code if code.isascii() and code.isdecimal() and len(code) <= 6 else "unknown"
+        super().__init__(f"XMLRiver: ошибка API {code}")
+        self.diagnostic_category = "api"
+        self.diagnostic_code = code
+        self.diagnostic_status = None
+        self.diagnostic_stage = "response"
+
 
 class CollectionCancelled(AdapterError):
     """The owning run stopped before the next paid provider request."""
+
+    diagnostic_category = "cancelled"
+    diagnostic_code = "cancelled"
+    diagnostic_status = None
+    diagnostic_stage = "collection"
 
 
 class ProviderThrottleError(ProviderQuotaError):
     """XMLRiver blocks the engine for ten minutes after excess parallel requests."""
 
     retry_after = 600
+
+    def __init__(self, message: str, *, code: str = "115", status: int | None = None,
+                 stage: str = "response") -> None:
+        super().__init__(message)
+        self.diagnostic_category = "api" if status is None else "http"
+        self.diagnostic_code = code
+        self.diagnostic_status = status
+        self.diagnostic_stage = stage
 
 
 class _RedactXMLRiver(logging.Filter):
@@ -198,37 +253,37 @@ def _safe_html(raw: str, *, include_images: bool = False) -> str:
 
 def _parse_xml(payload: bytes, service_id: str, *, include_images: bool = False) -> tuple[str | None, list[tuple[str, str, str]]]:
     if len(payload) > 5_000_000 or b"<!DOCTYPE" in payload.upper() or b"<!ENTITY" in payload.upper():
-        raise AdapterError("XMLRiver: недопустимый XML")
+        raise XMLRiverMalformedError("unsafe_xml")
     try:
         root = ET.fromstring(payload)
     except ET.ParseError as exc:
-        raise XMLRiverResponseError("XMLRiver: повреждённый XML") from exc
+        raise XMLRiverResponseError("XMLRiver: повреждённый XML", code="xml_parse") from exc
     error = root.find(".//error")
     if error is not None:
-        code = error.get("code") or error.findtext("code") or ""
+        code = (error.get("code") or error.findtext("code") or "").strip()
         if code == "200":
             raise ProviderQuotaError("XMLRiver: закончился баланс")
         if code == "115":
             raise ProviderThrottleError("XMLRiver: временная блокировка из-за частоты запросов")
         if code in _AUTH_CODES:
-            raise AdapterError(f"XMLRiver: ошибка доступа {code}")
+            raise XMLRiverAPIError(code)
         if code in _RETRY_CODES:
-            raise XMLRiverResponseError(f"XMLRiver: ошибка API {code}")
-        raise AdapterError(f"XMLRiver: ошибка API {code or 'unknown'}")
+            raise XMLRiverResponseError(f"XMLRiver: ошибка API {code}", category="api", code=code)
+        raise XMLRiverAPIError(code or "unknown")
     if root.tag != "yandexsearch" or root.find("response") is None:
-        raise XMLRiverResponseError("XMLRiver: неполный ответ")
+        raise XMLRiverResponseError("XMLRiver: неполный ответ", category="incomplete", code="missing_response")
     response = root.find("response")
     ai = response.find("ai")
     if ai is None or ai.findtext("present") == "0":
         results = response.find("results")
         if results is None or (results.find(".//doc") is None and response.findtext("found") != "0"):
-            raise XMLRiverResponseError("XMLRiver: неполная поисковая выдача без AI-блока")
+            raise XMLRiverResponseError("XMLRiver: неполная поисковая выдача без AI-блока", category="incomplete", code="missing_results")
         return None, []
     cards: list[tuple[str, str, str]] = []
     if service_id == "google_aio":
         encoded = ai.findtext("answer")
         if not encoded:
-            raise XMLRiverResponseError("XMLRiver: AI-блок есть, но ответ отсутствует")
+            raise XMLRiverResponseError("XMLRiver: AI-блок есть, но ответ отсутствует", category="incomplete", code="missing_answer")
         encoded_parts = [encoded]
         for item in ai.findall("item"):
             cards.append((item.findtext("title") or "", item.findtext("snippet") or "", item.findtext("url") or ""))
@@ -236,13 +291,13 @@ def _parse_xml(payload: bytes, service_id: str, *, include_images: bool = False)
         encoded_parts = list(dict.fromkeys(content.strip() for item in ai.findall("item")
                                           if (content := item.findtext("content")) and content.strip()))
         if not encoded_parts:
-            raise XMLRiverResponseError("XMLRiver: AI-блок есть, но содержимое отсутствует")
+            raise XMLRiverResponseError("XMLRiver: AI-блок есть, но содержимое отсутствует", category="incomplete", code="missing_content")
     try:
         html = "".join(base64.b64decode(part.strip(), validate=True).decode("utf-8") for part in encoded_parts)
     except (binascii.Error, UnicodeError) as exc:
-        raise XMLRiverResponseError("XMLRiver: некорректный HTML ответа") from exc
+        raise XMLRiverResponseError("XMLRiver: некорректный HTML ответа", code="invalid_html") from exc
     if not html.strip():
-        raise XMLRiverResponseError("XMLRiver: пустой HTML ответа")
+        raise XMLRiverResponseError("XMLRiver: пустой HTML ответа", category="incomplete", code="empty_html")
     return _safe_html(html, include_images=include_images), cards
 
 
@@ -268,7 +323,7 @@ class _Tree(HTMLParser):
     def handle_starttag(self, tag, attrs):
         self.count += 1
         if len(self.stack) > 128 or self.count > 50_000:
-            raise XMLRiverResponseError("XMLRiver: слишком сложная структура ответа")
+            raise XMLRiverResponseError("XMLRiver: слишком сложная структура ответа", code="too_complex")
         node = _Node(tag, dict(attrs))
         self.stack[-1].children.append(node)
         if tag not in _SafeHTML._void:
@@ -364,13 +419,13 @@ def evidence(markup: str | None, cards: list[tuple[str, str, str]], service_id: 
     prose = prose or [root]
     main = "\n\n".join(filter(None, (_plain(n, omit_cards=True) for n in prose)))
     if not main:
-        raise XMLRiverResponseError("XMLRiver: AI-блок есть, но основной текст пуст")
+        raise XMLRiverResponseError("XMLRiver: AI-блок есть, но основной текст пуст", category="incomplete", code="empty_main_text")
     main_html = "".join(_markup(n, omit_cards=True) for n in prose)
     card_nodes = _outer(root, _card)
     cards_text = "\n\n".join(filter(None, [_plain(n) for n in card_nodes] +
         ["\n".join(filter(None, [title, snippet])) for title, snippet, _ in cards]))
     if len(main) + len(cards_text) > 60_000:
-        raise XMLRiverResponseError("XMLRiver: текст ответа превышает допустимый размер")
+        raise XMLRiverResponseError("XMLRiver: текст ответа превышает допустимый размер", code="text_too_large")
     products = []
     for node in _outer(root, lambda n: "EProductSnippet" in n.classes):
         nodes = list(_walk(node))
@@ -401,7 +456,7 @@ def evidence(markup: str | None, cards: list[tuple[str, str, str]], service_id: 
     sources = list(dict.fromkeys(filter(None, [_safe_url(n.attrs.get("href")) for n in _walk(root) if n.tag == "a"] +
                                          [_safe_url(u) for _, _, u in cards])))
     if len(sources) > 50 or len(products) > 100 or len(source_cards) > 100:
-        raise XMLRiverResponseError("XMLRiver: слишком много карточек или источников")
+        raise XMLRiverResponseError("XMLRiver: слишком много карточек или источников", code="too_many_sources")
     return {"shown": True, "main_text": main, "cards_text": cards_text,
             "answer_text": f"{main}\n\n{CARDS_MARK}\n{cards_text}" if cards_text else main,
             "html": main_html, "content": [item for n in prose for item in _content(n)],
@@ -477,17 +532,24 @@ class XMLRiverClient:
                 async with httpx.AsyncClient(timeout=90, follow_redirects=False) as client:
                     response = await client.get(endpoint, params=params)
                 if response.status_code == 429:
-                    raise ProviderThrottleError("XMLRiver: временная блокировка из-за частоты запросов")
+                    raise ProviderThrottleError("XMLRiver: временная блокировка из-за частоты запросов",
+                                                code="http", status=429, stage="request")
                 if response.status_code in (500, 502, 503, 504):
-                    raise XMLRiverResponseError(f"XMLRiver: HTTP {response.status_code}")
+                    raise XMLRiverResponseError(f"XMLRiver: HTTP {response.status_code}", category="http",
+                                                code="http", status=response.status_code, stage="request")
                 if response.status_code != 200:
-                    raise AdapterError(f"XMLRiver: HTTP {response.status_code}")
+                    raise XMLRiverHTTPError(response.status_code)
                 self.html, self.cards = _parse_xml(response.content, self.service_id, include_images=self.include_images)
                 return
             except XMLRiverResponseError:
                 if self._attempts >= self.max_attempts:
                     raise
-            except (httpx.TransportError, httpx.TimeoutException):
+            except httpx.TimeoutException:
                 if self._attempts >= self.max_attempts:
-                    raise XMLRiverResponseError("XMLRiver: ошибка сети или таймаут") from None
+                    raise XMLRiverResponseError("XMLRiver: ошибка сети или таймаут", category="timeout", code="timeout",
+                                                stage="request") from None
+            except httpx.TransportError:
+                if self._attempts >= self.max_attempts:
+                    raise XMLRiverResponseError("XMLRiver: ошибка сети или таймаут", category="network", code="transport",
+                                                stage="request") from None
             await asyncio.sleep(self._attempts)
