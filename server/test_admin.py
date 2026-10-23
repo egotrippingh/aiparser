@@ -1,12 +1,13 @@
 import asyncio
 import json
+from datetime import timedelta
 
 import httpx
 from sqlalchemy import select
 
 from server.admin import provider_balances
-from server.models import Check, Wallet
-from server.test_cloud_scans import setup
+from server.models import Check, ControlRun, ProviderAccount, ProviderTask, Wallet, utcnow
+from server.test_cloud_scans import project_and_run, setup
 
 
 def test_all_users_wallets_and_admin_only(tmp_path, monkeypatch):
@@ -14,11 +15,13 @@ def test_all_users_wallets_and_admin_only(tmp_path, monkeypatch):
     assert client.get('/api/v1/admin/users').status_code == 401
     assert client.get('/api/v1/admin/users', headers=other).status_code == 403
     assert client.get('/api/v1/admin/provider-balances', headers=other).status_code == 403
+    assert client.get('/api/v1/admin/cloud-queue', headers=other).status_code == 403
     device = client.post('/api/v1/control/agent/enroll', headers=admin,
         json={'device_id': 'a' * 32, 'name': 'PC'}).json()
     headers = {'Authorization': 'Bearer ' + device['token']}
     assert client.get('/api/v1/admin/users', headers=headers).status_code == 403
     assert client.get('/api/v1/admin/provider-balances', headers=headers).status_code == 403
+    assert client.get('/api/v1/admin/cloud-queue', headers=headers).status_code == 403
     with sessions() as db:
         db.get(Wallet, user_id).balance_kopeks = 12345
         db.add(Check(user_id=user_id, client_check_id='held-check', price_kopeks=120))
@@ -91,3 +94,26 @@ def test_unconfigured_and_malformed_balances(monkeypatch):
     assert all(r['status'] == 'not_configured' and r['balance'] is None for r in rows)
     rows = balances(monkeypatch, lambda r: httpx.Response(200, text='NaN'))
     assert all(r['status'] == 'unavailable' and r['balance'] is None for r in rows)
+
+
+def test_cloud_queue_snapshot_counts_without_answer_bodies(tmp_path, monkeypatch):
+    client, admin, _, user_id, sessions = setup(tmp_path, monkeypatch)
+    _, run = project_and_run(client, admin, services=('google_aio',), queries=[{'text': 'queued-job'}])
+    with sessions() as db:
+        row = db.get(ControlRun, run['id'])
+        assert row.state == 'queued'
+        cool_until = utcnow() + timedelta(minutes=5)
+        db.get(ProviderAccount, 'google_aio').cooldown_until = cool_until
+        db.add(ProviderTask(check_id=f"{run['id']}:q:google_aio", run_id=run['id'],
+            query_id='q', service='google_aio', submission_token='t' * 32, state='uncertain',
+            answer_json=json.dumps({'secret_answer': 'BrandX'})))
+        db.commit()
+    response = client.get('/api/v1/admin/cloud-queue', headers=admin)
+    assert response.status_code == 200 and response.headers['cache-control'] == 'no-store'
+    body = response.json()
+    assert body['runs']['queued'] == 1 and body['runs']['oldest_created_at']
+    assert body['provider_tasks']['uncertain'] == 1
+    google = next(a for a in body['provider_accounts'] if a['service'] == 'google_aio')
+    assert google['cooling_down'] is True and google['cooldown_until']
+    dumped = json.dumps(body)
+    assert 'BrandX' not in dumped and 'secret_answer' not in dumped and 'submission_token' not in dumped

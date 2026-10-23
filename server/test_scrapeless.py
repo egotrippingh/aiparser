@@ -274,6 +274,20 @@ def test_expired_paid_task_never_posts_again_or_holds_account_capacity(tmp_path,
     assert len(supplier.posts) == 1
 
 
+def test_admit_delay_waits_out_shared_cooldown_then_backs_off(tmp_path, monkeypatch):
+    _, _, _, _, sessions, _, _ = create(tmp_path, monkeypatch)
+    with sessions() as db:
+        db.get(ProviderAccount, 'chatgpt').cooldown_until = utcnow() + timedelta(seconds=12)
+        db.commit()
+    delay = provider_tasks.admit_delay(sessions, 'chatgpt', attempt=0)
+    assert 11.0 <= delay <= 12.0
+    with sessions() as db:
+        db.get(ProviderAccount, 'chatgpt').cooldown_until = None
+        db.commit()
+    assert provider_tasks.admit_delay(sessions, 'chatgpt', attempt=0) == 0.5
+    assert provider_tasks.admit_delay(sessions, 'chatgpt', attempt=2) == pytest.approx(2.1)
+
+
 def test_known_failed_task_retries_without_error_report_or_double_client_charge(tmp_path, monkeypatch):
     _, _, _, user_id, sessions, _, run = create(tmp_path, monkeypatch, admin=False)
     with sessions() as db:
@@ -404,3 +418,96 @@ def test_old_alice_only_schedule_never_silently_switches_service(tmp_path,monkey
     assert client.get(f"/api/v1/control/projects/{project['id']}",headers=owner).json()['config']['services']==[]
     response=client.post(f"/api/v1/control/projects/{project['id']}/runs",headers=owner,json={'request_id':'d'*32})
     assert response.status_code==422
+
+
+def test_stale_scrapeless_intent_without_owner_expires_and_frees_slot(tmp_path, monkeypatch):
+    client, _, other, _, sessions, _, run = create(tmp_path, monkeypatch)
+    _, token, snapshot = _claim(sessions)
+    task, fresh = provider_tasks.admit(sessions, run["id"], token, snapshot["queries"][0]["id"], "chatgpt", 1)
+    assert fresh
+    with sessions() as db:
+        db.get(ProviderTask, task.check_id).updated_at = utcnow() - timedelta(hours=1)
+        db.get(ControlRun, run["id"]).lease_until = utcnow() - timedelta(hours=1)
+        db.commit()
+    provider_tasks.recover_xml(sessions)
+    with sessions() as db:
+        assert db.get(ProviderTask, task.check_id).state == "expired"
+        assert db.get(ProviderTask, task.check_id).state not in provider_tasks.ACTIVE
+        first = db.get(ControlRun, run["id"])
+        first.state = "cancelled"
+        first.active_project_key = first.lease_token = first.lease_until = None
+        db.commit()
+    _, second = project_and_run(client, other, services=("chatgpt",), legacy=False)
+    claim = _claim(sessions)
+    assert claim and claim[0] == second["id"]
+    waiting, accepted = provider_tasks.admit(
+        sessions, claim[0], claim[1], claim[2]["queries"][0]["id"], "chatgpt", 1)
+    assert accepted and waiting.state == "submitting"
+
+
+def test_submitted_scrapeless_handle_survives_stale_recovery(tmp_path, monkeypatch):
+    _, _, _, _, sessions, _, run = create(tmp_path, monkeypatch)
+    _, token, snapshot = _claim(sessions)
+    task, _ = provider_tasks.admit(sessions, run["id"], token, snapshot["queries"][0]["id"], "chatgpt", 1)
+    provider_tasks.submitted(sessions, task, "keep-me")
+    with sessions() as db:
+        db.get(ProviderTask, task.check_id).updated_at = utcnow() - timedelta(hours=1)
+        db.get(ControlRun, run["id"]).lease_until = utcnow() - timedelta(hours=1)
+        db.commit()
+    provider_tasks.recover_xml(sessions)
+    with sessions() as db:
+        saved = db.get(ProviderTask, task.check_id)
+        assert saved.state == "submitted" and saved.task_id == "keep-me"
+
+
+def test_recovering_polls_respect_service_concurrency(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRAPELESS_CHATGPT_CONCURRENCY", "1")
+    _, _, _, _, sessions, _, run = create(tmp_path, monkeypatch,
+        queries=[{"text": "q1"}, {"text": "q2"}, {"text": "q3"}])
+    _, token, snapshot = _claim(sessions)
+    from server.checks import reserve_checks
+    with sessions() as db:
+        current = db.get(ControlRun, run["id"])
+        reserve_checks(db, db.get(User, current.user_id),
+                       [f"{run['id']}:{query['id']}:chatgpt" for query in snapshot["queries"]], 120, None)
+    for index, query in enumerate(snapshot["queries"]):
+        task, _ = provider_tasks.admit(sessions, run["id"], token, query["id"], "chatgpt", 3)
+        provider_tasks.submitted(sessions, task, f"id-{index}")
+    with sessions() as db:
+        db.get(ControlRun, run["id"]).lease_until = utcnow() - timedelta(seconds=1)
+        db.commit()
+    class Gated(Supplier):
+        active = peak = 0
+        async def poll(self, task_id):
+            type(self).active += 1
+            type(self).peak = max(type(self).peak, type(self).active)
+            await asyncio.sleep(0.05)
+            type(self).active -= 1
+            return await super().poll(task_id)
+    supplier = Gated()
+    assert asyncio.run(_cloud_tick(sessions, None, 120,
+        __import__("shared.xmlriver", fromlist=["XMLRiverClient"]).XMLRiverClient,
+        provider_client=supplier, prefetch_limits={"chatgpt": 1}))
+    assert Gated.peak == 1
+    with sessions() as db:
+        assert {row.state for row in db.scalars(select(ProviderTask))} == {"completed"}
+
+
+def test_poll_timeout_keeps_handle_and_does_not_pause_siblings(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_tasks, "POLL_SECONDS", 0.2)
+    _, _, _, _, sessions, _, run = create(tmp_path, monkeypatch,
+        queries=[{"text": "slow"}, {"text": "fast"}])
+    class SlowFirst(Supplier):
+        async def poll(self, task_id):
+            self.gets.append(task_id)
+            if task_id == "task-1":
+                return "pending", None
+            return await super().poll(task_id)
+    supplier = SlowFirst()
+    assert tick(sessions, supplier)
+    with sessions() as db:
+        current = db.get(ControlRun, run["id"])
+        assert current.desired_state == "running"
+        tasks = {row.task_id: row.state for row in db.scalars(select(ProviderTask))}
+        assert tasks["task-1"] == "submitted" and tasks["task-2"] == "completed"
+        assert len(db.scalars(select(CloudResult)).all()) == 1
