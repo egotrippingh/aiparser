@@ -454,8 +454,10 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
             return None, True, str(exc)
         except ProviderQuotaError as exc:
             blocked.add(service)
-            if isinstance(exc, ProviderThrottleError) and cooldowns is not None:
-                cooldowns[service] = max(cooldowns.get(service, 0), clock() + exc.retry_after)
+            if isinstance(exc, ProviderThrottleError):
+                if cooldowns is not None:
+                    cooldowns[service] = max(cooldowns.get(service, 0), clock() + exc.retry_after)
+                provider_tasks.set_cooldown(sessions, service, int(exc.retry_after))
             if snapshot.get("collection_policy") == "complete":
                 return None, True, "Лимит сервиса; запросы ожидают восстановления доступа"
             return _provider_error(exc, snapshot), False, "Лимит сервиса; сохранённые ответы доступны после возобновления"
@@ -474,11 +476,25 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
             if not providers and not analyses:
                 return False
         running = state == "running" and not (shutdown_event and shutdown_event.is_set())
+        with sessions() as db:
+            users = db.scalar(select(func.count(func.distinct(ControlRun.user_id))).where(
+                ControlRun.phase == "cloud", ControlRun.state.in_(("queued", "running")),
+                ControlRun.desired_state == "running")) or 1
+
+        def capacity(service):
+            maximum = 100 if service in scrapeless.SERVICES else 10
+            return max(1, math.ceil(min(int(limits.get(service, 1)), maximum) / users))
+
+        held = deque()
         while recovering and state is not None and not (shutdown_event and shutdown_event.is_set()):
             query, service = recovering.popleft()
+            if sum(s == service for _, s, _ in providers.values()) >= capacity(service):
+                held.append((query, service))
+                continue
             check_id = f"{run_id}:{query['id']}:{service}"
             task = asyncio.create_task(collect(query, service, check_id))
             providers[task] = (query, service, check_id)
+        recovering.extend(held)
         if running:
             reserve_failure = None
             with sessions() as db:
@@ -487,15 +503,11 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
                         ProviderTask.service == service, ProviderTask.state.in_(provider_tasks.ACTIVE)))
                     if occupied < limits.get(service, 1):
                         occupied_services.remove(service)
-                users = db.scalar(select(func.count(func.distinct(ControlRun.user_id))).where(
-                    ControlRun.phase == "cloud", ControlRun.state.in_(("queued", "running")),
-                    ControlRun.desired_state == "running")) or 1
             for service, queue in queues.items():
-                maximum = 100 if service in scrapeless.SERVICES else 10
-                capacity = max(1, math.ceil(min(int(limits.get(service, 1)), maximum) / users))
+                cap = capacity(service)
                 while (queue and service not in blocked and service not in occupied_services and
                        not (cooldowns and cooldowns.get(service, 0) > clock()) and
-                       sum(s == service for _, s, _ in providers.values()) < capacity):
+                       sum(s == service for _, s, _ in providers.values()) < cap):
                     query = queue[0]
                     check_id = f"{run_id}:{query['id']}:{service}"
                     if provider_tasks.skip_if_paused(sessions, run_id, token, query["id"], service):

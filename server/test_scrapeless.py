@@ -1036,3 +1036,55 @@ def test_old_alice_only_schedule_never_silently_switches_service(tmp_path,monkey
     assert client.get(f"/api/v1/control/projects/{project['id']}",headers=owner).json()['config']['services']==[]
     response=client.post(f"/api/v1/control/projects/{project['id']}/runs",headers=owner,json={'request_id':'d'*32})
     assert response.status_code==422
+
+
+def test_recovering_polls_respect_service_concurrency(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRAPELESS_CHATGPT_CONCURRENCY", "1")
+    _, _, _, _, sessions, _, run = create(tmp_path, monkeypatch,
+        queries=[{"text": "q1"}, {"text": "q2"}, {"text": "q3"}])
+    _, token, snapshot = _claim(sessions)
+    from server.checks import reserve_checks
+    with sessions() as db:
+        current = db.get(ControlRun, run["id"])
+        reserve_checks(db, db.get(User, current.user_id),
+                       [f"{run['id']}:{query['id']}:chatgpt" for query in snapshot["queries"]], 120, None)
+    for index, query in enumerate(snapshot["queries"]):
+        task, _ = provider_tasks.admit(sessions, run["id"], token, query["id"], "chatgpt", 3)
+        provider_tasks.submitted(sessions, task, f"id-{index}")
+    with sessions() as db:
+        db.get(ControlRun, run["id"]).lease_until = utcnow() - timedelta(seconds=1)
+        db.commit()
+    class Gated(Supplier):
+        active = peak = 0
+        async def poll(self, task_id):
+            type(self).active += 1
+            type(self).peak = max(type(self).peak, type(self).active)
+            await asyncio.sleep(0.05)
+            type(self).active -= 1
+            return await super().poll(task_id)
+    supplier = Gated()
+    assert asyncio.run(_cloud_tick(sessions, None, 120,
+        __import__("shared.xmlriver", fromlist=["XMLRiverClient"]).XMLRiverClient,
+        provider_client=supplier, prefetch_limits={"chatgpt": 1}))
+    assert Gated.peak == 1
+    with sessions() as db:
+        assert {row.state for row in db.scalars(select(ProviderTask))} == {"completed"}
+
+
+def test_throttle_persists_account_cooldown(tmp_path, monkeypatch):
+    from shared.xmlriver import ProviderThrottleError
+    from server.cloud_scans import cloud_tick
+    from server.test_cloud_scans import Collector
+    client, owner, _, _, sessions = setup(tmp_path, monkeypatch)
+    project_and_run(client, owner, services=("yandex_neuro",), queries=[{"text": "q"}])
+
+    class ThrottleCollector(Collector):
+        def __init__(self, service, geo, *, max_attempts):
+            super().__init__(service, geo)
+        async def collect(self, query, *, should_continue=None):
+            raise ProviderThrottleError("XMLRiver throttled")
+
+    assert asyncio.run(cloud_tick(sessions, None, 120, ThrottleCollector,
+        prefetch_limits={"yandex_neuro": 1}, cooldowns={}))
+    with sessions() as db:
+        assert db.get(ProviderAccount, "yandex_neuro").cooldown_until is not None

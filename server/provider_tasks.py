@@ -213,6 +213,20 @@ def failed(sessions, task, *, uncertain=False, expired=False, cooldown=30, no_ha
         db.commit()
 
 
+def set_cooldown(sessions, service, seconds):
+    if seconds <= 0:
+        return
+    with sessions() as db:
+        db.execute(update(ProviderAccount).where(ProviderAccount.service == service)
+            .values(revision=ProviderAccount.revision + 1))
+        account = db.get(ProviderAccount, service)
+        if account:
+            deadline = utcnow() + timedelta(seconds=seconds)
+            if not account.cooldown_until or _aware(account.cooldown_until) < deadline:
+                account.cooldown_until = deadline
+        db.commit()
+
+
 def callback(sessions, check_id, capability, task_id):
     """The capability identifies one attempt; its body is never answer evidence."""
     from fastapi import HTTPException
