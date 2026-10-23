@@ -1114,3 +1114,25 @@ def test_durable_cooldown_skips_claim_when_memory_map_is_empty(tmp_path, monkeyp
     assert Mixed.calls == [("google_aio", "hot")]
     with sessions() as db:
         assert db.get(ControlRun, google["id"]).state == "done"
+
+
+def test_durable_cooldown_still_drains_submitted_handle(tmp_path, monkeypatch):
+    _, _, _, _, sessions, _, run = create(tmp_path, monkeypatch)
+    _, token, snapshot = _claim(sessions)
+    from server.checks import reserve_checks
+    query = snapshot["queries"][0]
+    with sessions() as db:
+        current = db.get(ControlRun, run["id"])
+        reserve_checks(db, db.get(User, current.user_id),
+                       [f"{run['id']}:{query['id']}:chatgpt"], 120, None)
+    task, _ = provider_tasks.admit(sessions, run["id"], token, query["id"], "chatgpt", 1)
+    provider_tasks.submitted(sessions, task, "keep-polling")
+    with sessions() as db:
+        db.get(ControlRun, run["id"]).lease_until = utcnow() - timedelta(seconds=1)
+        db.get(ProviderAccount, "chatgpt").cooldown_until = utcnow() + timedelta(minutes=10)
+        db.commit()
+    supplier = Supplier()
+    assert tick(sessions, supplier)
+    assert supplier.posts == [] and supplier.gets == ["keep-polling"]
+    with sessions() as db:
+        assert db.get(ProviderTask, task.check_id).state == "completed"

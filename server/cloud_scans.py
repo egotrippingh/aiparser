@@ -80,8 +80,12 @@ def _claim(sessions, blocked_services=()):
                         CloudResult.run_id == run.id, CloudResult.user_id == run.user_id)).all())
                     saved = set(db.execute(select(ServerCapture.query_id, ServerCapture.service).where(
                         ServerCapture.run_id == run.id)).all())
+                    accepted = set(db.execute(select(ProviderTask.query_id, ProviderTask.service).where(
+                        ProviderTask.run_id == run.id, ProviderTask.state == "submitted")).all())
                     pending = [(q["id"], s) for q, s in _pairs(snap) if (q["id"], s) not in done]
-                    if pending and not any(pair in saved or pair[1] not in blocked_services for pair in pending):
+                    if pending and not any(
+                            pair in saved or pair in accepted or pair[1] not in blocked_services
+                            for pair in pending):
                         db.rollback()
                         continue
                 token = uuid.uuid4().hex
