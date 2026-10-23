@@ -476,6 +476,7 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
             if not providers and not analyses:
                 return False
         running = state == "running" and not (shutdown_event and shutdown_event.is_set())
+        cooling = provider_tasks.cooling_services(sessions)
         with sessions() as db:
             users = db.scalar(select(func.count(func.distinct(ControlRun.user_id))).where(
                 ControlRun.phase == "cloud", ControlRun.state.in_(("queued", "running")),
@@ -505,8 +506,9 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
                         occupied_services.remove(service)
             for service, queue in queues.items():
                 cap = capacity(service)
-                while (queue and service not in blocked and service not in occupied_services and
-                       not (cooldowns and cooldowns.get(service, 0) > clock()) and
+                while (queue and service not in blocked and service not in occupied_services
+                       and service not in cooling
+                       and not (cooldowns and cooldowns.get(service, 0) > clock()) and
                        sum(s == service for _, s, _ in providers.values()) < cap):
                     query = queue[0]
                     check_id = f"{run_id}:{query['id']}:{service}"
@@ -628,6 +630,7 @@ async def _cloud_tick(sessions, ai_client, price, collector_factory,
                      provider_client=None):
     """Process one saved or fresh answer. Returns whether a cloud run was advanced."""
     blocked_services = {service for service, until in (cooldowns or {}).items() if until > clock()}
+    blocked_services |= provider_tasks.cooling_services(sessions)
     if collector_factory is XMLRiverClient:
         provider_tasks.recover_xml(sessions)
         provider_tasks.recover_scrapeless(sessions)

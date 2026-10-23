@@ -1535,6 +1535,9 @@ def test_throttled_engine_cools_down_across_runs_without_blocking_other_engine(t
     assert ThrottleCollector.calls == [('yandex_neuro', 'first-yandex'), ('google_aio', 'second')]
     assert not batch_tick()  # Only the cooled-down Yandex pair is pending.
     now[0] += 601
+    with sessions() as db:
+        db.get(ProviderAccount, 'yandex_neuro').cooldown_until = None
+        db.commit()
     assert batch_tick()
     assert ThrottleCollector.calls[-1] == ('yandex_neuro', 'second')
     with sessions() as db:

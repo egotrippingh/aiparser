@@ -1088,3 +1088,29 @@ def test_throttle_persists_account_cooldown(tmp_path, monkeypatch):
         prefetch_limits={"yandex_neuro": 1}, cooldowns={}))
     with sessions() as db:
         assert db.get(ProviderAccount, "yandex_neuro").cooldown_until is not None
+
+
+def test_durable_cooldown_skips_claim_when_memory_map_is_empty(tmp_path, monkeypatch):
+    from shared.xmlriver import ProviderThrottleError
+    from server.cloud_scans import cloud_tick
+    from server.test_cloud_scans import Collector
+    client, owner, _, _, sessions = setup(tmp_path, monkeypatch)
+    project_and_run(client, owner, services=("yandex_neuro",), queries=[{"text": "cold"}])
+    _, google = project_and_run(client, owner, services=("google_aio",), queries=[{"text": "hot"}])
+
+    class Mixed(Collector):
+        calls = []
+        def __init__(self, service, geo, *, max_attempts):
+            super().__init__(service, geo)
+        async def collect(self, query, *, should_continue=None):
+            self.calls.append((self.service, query))
+            return dict(self.answer)
+
+    with sessions() as db:
+        db.get(ProviderAccount, "yandex_neuro").cooldown_until = utcnow() + timedelta(minutes=10)
+        db.commit()
+    assert asyncio.run(cloud_tick(sessions, None, 120, Mixed,
+        prefetch_limits={"google_aio": 1, "yandex_neuro": 1}, cooldowns={}))
+    assert Mixed.calls == [("google_aio", "hot")]
+    with sessions() as db:
+        assert db.get(ControlRun, google["id"]).state == "done"

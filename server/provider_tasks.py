@@ -227,6 +227,16 @@ def set_cooldown(sessions, service, seconds):
         db.commit()
 
 
+def cooling_services(sessions):
+    """Services whose durable cooldown has not expired; used after a worker restart."""
+    if not sessions:
+        return set()
+    now = utcnow()
+    with sessions() as db:
+        return {account.service for account in db.scalars(select(ProviderAccount))
+                if account.cooldown_until and _aware(account.cooldown_until) > now}
+
+
 def callback(sessions, check_id, capability, task_id):
     """The capability identifies one attempt; its body is never answer evidence."""
     from fastapi import HTTPException
