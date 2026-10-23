@@ -33,6 +33,12 @@ class SubmissionUnknown(AdapterError):
 class CollectionDeferred(AdapterError):
     """Leave a request unfinished instead of publishing an error as evidence."""
 
+    def __init__(self, message="Leave a request unfinished instead of publishing an error as evidence.",
+                 *, account=True):
+        super().__init__(message)
+        # account=False is only for a single timed-out handle that another tick will poll.
+        self.account = account
+
 
 class Rejected(AdapterError):
     def __init__(self, status):
