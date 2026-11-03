@@ -4,7 +4,7 @@ import { expect, test, vi } from 'vitest'
 
 const tagUrl = 'https://mc.yandex.ru/metrika/tag.js?id=114026759'
 
-test.each(['index.html', 'cabinet/index.html', 'docs/index.html', 'terms/index.html', 'privacy/index.html'])(
+test.each(['index.html', 'docs/index.html', 'terms/index.html', 'privacy/index.html'])(
   '%s initializes the supplied Metrika counter asynchronously and includes its fallback', file => {
     const html = readFileSync(new URL(`./${file}`, import.meta.url), 'utf8')
     const scripts = [...html.matchAll(/<script type="text\/javascript">([\s\S]*?)<\/script>/g)]
@@ -35,25 +35,8 @@ test.each(['index.html', 'cabinet/index.html', 'docs/index.html', 'terms/index.h
   },
 )
 
-test.each(['reset_token', 'auth_ticket', 'registration_ticket', 'browser_ticket'])(
-  'cabinet does not load analytics or queue secrets for %s links', key => {
-    const html = readFileSync(new URL('./cabinet/index.html', import.meta.url), 'utf8')
-    const script = html.match(/<script type="text\/javascript">([\s\S]*?)<\/script>/)[1]
-    for (const separator of ['#', '?']) {
-      for (const name of [key, key.replace('_', '%5F')]) {
-        const insertBefore = vi.fn()
-        const createElement = vi.fn(() => ({}))
-        const context = {
-          window: {}, URLSearchParams,
-          document: { scripts: [], createElement, getElementsByTagName: () => [{ parentNode: { insertBefore } }] },
-          location: new URL(`https://airate.tech/cabinet/${separator}${name}=TEST-SECRET`),
-        }
-        context.window = context
-        runInNewContext(script, context)
-        expect(createElement).not.toHaveBeenCalled()
-        expect(insertBefore).not.toHaveBeenCalled()
-        expect(context.ym).toBeUndefined()
-      }
-    }
-  },
-)
+test('cabinet keeps authentication and private reports outside Metrika', () => {
+  const html = readFileSync(new URL('./cabinet/index.html', import.meta.url), 'utf8')
+  expect(html).not.toContain('mc.yandex.ru')
+  expect(html).not.toContain('114026759')
+})
