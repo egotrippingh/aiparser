@@ -46,3 +46,9 @@ it("separates the all-projects link from the searchable project trigger", () => 
   expect(html).toMatch(/<button[^>]*aria-label="Выбрать проект"/)
   expect(html).not.toContain('title="Все проекты"')
 })
+
+it("keeps account metadata and project searches out of Webvisor", () => {
+  const html = renderToStaticMarkup(<SiteHeader email="test@example.test" projects={[{id: "one", name: "Private project", config: {brand_domains: ["example.test"]}}]}/>)
+  expect(html).toContain('<header class="sh-header ym-hide-content ym-disable-clickmap ym-disable-tracklink">')
+  expect(html).toMatch(/<input[^>]*class="ym-disable-keys"/)
+})

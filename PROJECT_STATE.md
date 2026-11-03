@@ -1,6 +1,6 @@
 # AIRate current project state
 
-Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
+Updated 2026-11-03. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
 
 ## Current release
 
@@ -42,6 +42,14 @@ Updated 2026-10-22. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 - Search Console/Yandex Webmaster submission and actual indexing are not verified.
 
 ## Prepared work and next action
+
+`codex/metrika-114026759`, based on production `709807b`, installs the supplied
+Yandex Metrika counter114026759 on public, legal and documentation HTML entries.
+Local counter checks cover asynchronous loading, init options and duplicate-tag
+protection. The cabinet is excluded to protect auth secrets and private reports;
+the public account header is masked from replay/click/link tracking. The privacy
+policy describes public-page analytics.
+Deployment/live evidence belongs in [PR #94](https://github.com/egotrippingh/aiparser/pull/94).
 
 `codex/xmlriver-retry-recovery` adds a bounded Yandex raw-page fallback after
 API500 or incomplete XML, using the existing request budget and durable save path.
