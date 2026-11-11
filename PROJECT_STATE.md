@@ -43,6 +43,13 @@ Updated 2026-11-03. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Prepared work and next action
 
+`codex/admin-wallet-topups` is based on production `f767a44`. The admin
+users section supports manual balance credits by email. Credits use the
+existing wallet and ledger transaction with retry protection and require no
+migration. Independent frontend and money/auth reviews, 8 admin tests with
+disposable PostgreSQL, 143 frontend tests, lint/build and desktop/narrow
+browser checks passed. Next step is delivery CI before a production release.
+
 `codex/metrika-114026759`, based on production `709807b`, installs the supplied
 Yandex Metrika counter114026759 on public, legal and documentation HTML entries.
 Local counter checks cover asynchronous loading, init options and duplicate-tag

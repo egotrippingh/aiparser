@@ -1,12 +1,16 @@
 import asyncio
 import json
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import httpx
 from sqlalchemy import select
 
 from server.admin import provider_balances
-from server.models import Check, Wallet
-from server.test_cloud_scans import setup
+from server.browser_sessions import COOKIE_NAME
+from server.models import Check, LedgerEntry, User, Wallet
+from server.test_cloud_scans import postgres_url, setup
 
 
 def test_all_users_wallets_and_admin_only(tmp_path, monkeypatch):
@@ -112,3 +116,82 @@ def test_unconfigured_and_malformed_balances(monkeypatch):
     assert all(r['status'] == 'not_configured' and r['balance'] is None for r in rows)
     rows = balances(monkeypatch, lambda r: httpx.Response(200, text='NaN'))
     assert all(r['status'] == 'unavailable' and r['balance'] is None for r in rows)
+
+
+def test_admin_topup_retry_and_boundaries(tmp_path, monkeypatch):
+    client, admin, other, actor_id, sessions = setup(tmp_path, monkeypatch)
+    body = {'email': ' OTHER@test.example ', 'amount_kopeks': 1234, 'request_id': str(uuid.uuid4())}
+    path = '/api/v1/admin/users/topup'
+    assert client.post(path, json=body).status_code == 401
+    assert client.post(path, headers=other, json=body).status_code == 403
+    client.cookies.set(COOKIE_NAME, admin['Authorization'].removeprefix('Bearer '))
+    assert client.post(path, json=body).status_code == 403
+    client.cookies.clear()
+    device = client.post('/api/v1/control/agent/enroll', headers=admin, json={'device_id': 'b' * 32, 'name': 'PC'}).json()
+    assert client.post(path, headers={'Authorization': 'Bearer ' + device['token']}, json=body).status_code == 403
+    assert client.post(path, headers={**admin, 'X-AI-Client': 'browser', 'Origin': 'https://evil.test'}, json=body).status_code == 403
+    for amount in (0, -1, True, 1.5, '100', 2147483648):
+        assert client.post(path, headers=admin, json={**body, 'amount_kopeks': amount}).status_code == 422
+    assert client.post(path, headers=admin, json={**body, 'email': 'missing@test.example'}).status_code == 404
+    result = client.post(path, headers=admin, json=body)
+    assert result.status_code == 200, result.text
+    assert client.post(path, headers=admin, json=body).status_code == 200
+    assert client.post(path, headers=admin, json={**body, 'amount_kopeks': 2}).status_code == 409
+    assert client.post(path, headers=admin, json={**body, 'email': 'owner@test.example'}).status_code == 409
+    with sessions() as db:
+        target = db.scalar(select(User).where(User.email == 'other@test.example'))
+        assert db.get(Wallet, target.id).balance_kopeks == 1234
+        entry = db.scalars(select(LedgerEntry)).one()
+        assert entry.user_id == target.id and entry.amount_kopeks == 1234
+        assert entry.reference == f"admin-credit:{actor_id}:{uuid.UUID(body['request_id']).hex}"
+        db.get(Wallet, target.id).balance_kopeks = 2147483647
+        db.commit()
+    assert client.post(path, headers=admin, json={**body, 'request_id': str(uuid.uuid4())}).status_code == 422
+    entry = client.get('/api/v1/wallet', headers=other).json()['entries'][0]
+    assert entry['kind'] == 'admin_credit' and actor_id not in entry['reference']
+
+
+def test_admin_topup_postgres_race(tmp_path, monkeypatch, postgres_url):
+    client, admin, _, _, sessions = setup(tmp_path, monkeypatch, database_url=postgres_url)
+    path = '/api/v1/admin/users/topup'
+    body = {'email': 'other@test.example', 'amount_kopeks': 100, 'request_id': str(uuid.uuid4())}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        responses = list(pool.map(lambda _: client.post(path, headers=admin, json=body), range(4)))
+    assert [r.status_code for r in responses] == [200] * 4
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        responses = list(pool.map(lambda _: client.post(path, headers=admin, json={**body, 'request_id': str(uuid.uuid4())}), range(4)))
+    assert [r.status_code for r in responses] == [200] * 4
+    conflict = {**body, 'request_id': str(uuid.uuid4())}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(lambda email: client.post(path, headers=admin, json={**conflict, 'email': email}),
+                                  ['other@test.example', 'owner@test.example']))
+    assert sorted(r.status_code for r in responses) == [200, 409]
+    with sessions() as db:
+        target = db.scalar(select(User).where(User.email == body['email']))
+        assert db.get(Wallet, target.id).balance_kopeks == (600 if responses[0].status_code == 200 else 500)
+        assert len(db.scalars(select(LedgerEntry)).all()) == 6
+
+
+def test_admin_topup_and_paid_check_settle_concurrently(tmp_path, monkeypatch, postgres_url):
+    client, admin, other, _, sessions = setup(tmp_path, monkeypatch, database_url=postgres_url)
+    with sessions() as db:
+        target = db.scalar(select(User).where(User.email == 'other@test.example'))
+        db.get(Wallet, target.id).balance_kopeks = 500
+        db.add(Check(user_id=target.id, client_check_id='paid-check', price_kopeks=165))
+        db.commit()
+    start = Barrier(2, timeout=5)
+
+    def post(path, headers, body):
+        start.wait()
+        return client.post(path, headers=headers, json=body)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        credit = pool.submit(post, '/api/v1/admin/users/topup', admin,
+                             {'email': 'other@test.example', 'amount_kopeks': 123, 'request_id': str(uuid.uuid4())})
+        debit = pool.submit(post, '/api/v1/checks/paid-check/complete', other, {'status': 'not_found'})
+        assert credit.result().status_code == 200
+        assert debit.result().json()['status'] == 'settled'
+    wallet = client.get('/api/v1/wallet', headers=other).json()
+    assert wallet['balance_kopeks'] == wallet['available_kopeks'] == 458
+    assert wallet['reserved_kopeks'] == 0
+    assert {entry['kind']: entry['amount_kopeks'] for entry in wallet['entries']} == {'admin_credit': 123, 'check': -165}
