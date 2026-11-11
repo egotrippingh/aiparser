@@ -3,17 +3,24 @@ import asyncio
 import json
 import os
 from decimal import Decimal, InvalidOperation
+from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, StrictBool
-from sqlalchemy import func, select
+from pydantic import BaseModel, Field, StrictBool, StrictInt
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
-from server.models import Check, PromoCode, PromoRedemption, ProviderAccount, User, Wallet, utcnow
+from server.models import Check, LedgerEntry, PromoCode, PromoRedemption, ProviderAccount, User, Wallet, utcnow
 from server.promos import PromoIn, PromoUpdate, promo_payload
 
 SERVICES = ("chatgpt", "perplexity", "gemini", "google_aio", "yandex_neuro")
+
+
+class AdminTopupIn(BaseModel):
+    email: str = Field(max_length=190)
+    amount_kopeks: StrictInt = Field(gt=0, le=2147483647)
+    request_id: UUID
 
 
 class ProviderPauseIn(BaseModel):
@@ -80,7 +87,7 @@ async def provider_balances(client):
     return list(await asyncio.gather(*(fetch(p) for p in ("openrouter", "scrapeless", "xmlriver"))))
 
 
-def register_admin(app, db_session, current_user):
+def register_admin(app, db_session, current_user, normalize_email):
     router = APIRouter(prefix="/api/v1/admin")
 
     def admin(user=Depends(current_user)):
@@ -143,6 +150,45 @@ def register_admin(app, db_session, current_user):
             "created_at": u.created_at.isoformat(), "wallet": {"balance_kopeks": balance or 0,
                 "reserved_kopeks": reserved or 0, "available_kopeks": (balance or 0) - (reserved or 0)}}
                 for u, balance, reserved in rows]}
+
+    @router.post("/users/topup")
+    def topup(body: AdminTopupIn, response: Response, user=Depends(admin), db=Depends(db_session)):
+        email = normalize_email(body.email)
+        reference = f"admin-credit:{user.id}:{body.request_id.hex}"
+        target = db.scalar(select(User).where(User.email == email))
+        if not target:
+            raise HTTPException(404, "Пользователь не найден")
+
+        def replay(entry):
+            if entry.user_id != target.id or entry.amount_kopeks != body.amount_kopeks:
+                raise HTTPException(409, "Идентификатор операции уже использован с другими данными")
+            response.headers["Cache-Control"] = "no-store"
+            return {"email": email, "amount_kopeks": entry.amount_kopeks}
+
+        existing = db.scalar(select(LedgerEntry).where(LedgerEntry.reference == reference))
+        if existing:
+            return replay(existing)
+        changed = db.execute(update(Wallet).where(Wallet.user_id == target.id,
+            Wallet.balance_kopeks <= 2147483647 - body.amount_kopeks)
+            .values(balance_kopeks=Wallet.balance_kopeks + body.amount_kopeks))
+        if not changed.rowcount:
+            # A concurrent retry may have filled the wallet before this update.
+            existing = db.scalar(select(LedgerEntry).where(LedgerEntry.reference == reference))
+            if existing:
+                return replay(existing)
+            raise HTTPException(422, "Баланс превышает допустимый предел или кошелёк отсутствует")
+        db.add(LedgerEntry(user_id=target.id, amount_kopeks=body.amount_kopeks,
+                           kind="admin_credit", reference=reference))
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            existing = db.scalar(select(LedgerEntry).where(LedgerEntry.reference == reference))
+            if not existing:
+                raise
+            return replay(existing)
+        response.headers["Cache-Control"] = "no-store"
+        return {"email": email, "amount_kopeks": body.amount_kopeks}
 
     @router.get("/provider-balances")
     async def balances(response: Response, user=Depends(admin)):

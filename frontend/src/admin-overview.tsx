@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { ExternalLink } from "lucide-react"
-import { accountRequest } from "./account-api"
+import { AccountError, accountRequest } from "./account-api"
 import { SCAN_SERVICES } from "./lib/scan-preferences"
 import "./admin-overview.css"
 
@@ -11,7 +11,55 @@ const serviceName = (id: string) => SCAN_SERVICES.find(service => service.id ===
 export const balanceLabel = (value: string | null, currency: string) => value === null ? "Недоступен" : currency === "CREDITS" ? new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 6 }).format(Number(value)) + " credits" : new Intl.NumberFormat("ru-RU", { style: "currency", currency, maximumFractionDigits: 4 }).format(Number(value))
 const rubles = (value: number) => balanceLabel(String(value / 100), "RUB")
 
-export function AdminOverview({ token }: { token: string }) {
+export function AdminOverview({ token, userId, walletChanged }: { token: string; userId: string; walletChanged: () => void }) {
+  const [email, setEmail] = useState("")
+  const [rub, setRub] = useState("")
+  const [topupPending, setTopupPending] = useState(false)
+  const [topupError, setTopupError] = useState("")
+  const [topupSuccess, setTopupSuccess] = useState("")
+  async function topup(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const normalizedEmail = email.trim().toLowerCase()
+    const match = /^(\d+)(?:[.,](\d{1,2}))?$/.exec(rub.trim())
+    const kopeks = match ? Number(match[1]) * 100 + Number((match[2] || "").padEnd(2, "0")) : 0
+    setTopupError("")
+    setTopupSuccess("")
+    if (!normalizedEmail || !Number.isSafeInteger(kopeks) || kopeks <= 0 || kopeks > 2_147_483_647) {
+      setTopupError("Укажите email и сумму больше нуля с точностью до копеек.")
+      return
+    }
+    if (!window.confirm(`Пополнить баланс ${normalizedEmail} на ${rubles(kopeks)}?`)) return
+    const storageKey = `admin-topup:${JSON.stringify([userId, normalizedEmail, kopeks])}`
+    let requestId: string
+    try {
+      requestId = sessionStorage.getItem(storageKey) || crypto.randomUUID()
+      sessionStorage.setItem(storageKey, requestId)
+    } catch {
+      setTopupError("Не удалось сохранить идентификатор операции. Проверьте настройки браузера.")
+      return
+    }
+    setTopupPending(true)
+    try {
+      const result = await accountRequest<{email: string; amount_kopeks: number}>("/admin/users/topup", token, {
+        email: normalizedEmail, amount_kopeks: kopeks, request_id: requestId,
+      })
+      if (result?.email !== normalizedEmail || result?.amount_kopeks !== kopeks) {
+        throw new Error("Получен неожиданный ответ сервера")
+      }
+      try {
+        if (sessionStorage.getItem(storageKey) === requestId) sessionStorage.removeItem(storageKey)
+      } catch { /* The stored ID still protects retries. */ }
+      setRub("")
+      setTopupSuccess(`Баланс ${normalizedEmail} пополнен на ${rubles(kopeks)}.`)
+      setTick(n => n + 1)
+      walletChanged()
+    } catch (e) {
+      setTopupError(e instanceof AccountError && e.status < 500 ? e.message :
+        "Результат неизвестен. Повторите с теми же данными в этой вкладке, чтобы проверить операцию.")
+    } finally {
+      setTopupPending(false)
+    }
+  }
   const [providers, setProviders] = useState<Provider[] | null>(null), [balanceError, setBalanceError] = useState("")
   const [users, setUsers] = useState<{ total: number; users: User[] } | null>(null), [error, setError] = useState("")
   const [search, setSearch] = useState(""), [offset, setOffset] = useState(0), [tick, setTick] = useState(0)
@@ -47,6 +95,14 @@ export function AdminOverview({ token }: { token: string }) {
         {p.message && <p role="status">{p.message}</p>}<small>Проверено {new Date(p.checked_at).toLocaleString("ru-RU")}</small></div><a className="cc-button" href={p.topup_url} target="_blank" rel="noopener noreferrer">Открыть {p.name} <ExternalLink size={14} aria-hidden="true"/></a></li>)}</ul>}
     </section>
     <section className="cab-panel admin-overview"><div className="cab-section-head"><h2>Все пользователи{users && ` · ${users.total}`}</h2><button className="cc-button" disabled={loading} onClick={() => setTick(n => n + 1)}>Обновить список</button></div>
+      <form onSubmit={topup}>
+        <h3>Ручное пополнение</h3>
+        <label>Email получателя<input inputMode="email" required maxLength={190} value={email} disabled={topupPending} onChange={e => setEmail(e.target.value)}/></label>
+        <label>Сумма, ₽<input inputMode="decimal" required value={rub} disabled={topupPending} onChange={e => setRub(e.target.value)}/></label>
+        <button className="cc-button primary" disabled={topupPending}>{topupPending ? "Пополняем…" : "Пополнить баланс"}</button>
+        {topupError && <p role="alert">{topupError}</p>}
+        {topupSuccess && <p role="status">{topupSuccess}</p>}
+      </form>
       <label>Email пользователя<input value={search} onChange={e => { setSearch(e.target.value); setOffset(0) }}/></label>
       {loading && <p role="status">Загружаем пользователей…</p>}{error && <p role="alert">{error}</p>}
       {users && <><div className="admin-users-scroll" role="region" aria-label="Пользователи и балансы" tabIndex={0}><table><thead><tr><th>Email</th><th>Регистрация</th><th>Роль</th><th>Баланс</th><th>Резерв</th><th>Доступно</th></tr></thead><tbody>{users.users.map(u => <tr key={u.id}><td>{u.email}</td><td>{new Date(u.created_at).toLocaleDateString("ru-RU")}</td><td>{u.is_admin ? "Администратор" : "Пользователь"}</td><td>{rubles(u.wallet.balance_kopeks)}</td><td>{rubles(u.wallet.reserved_kopeks)}</td><td>{rubles(u.wallet.available_kopeks)}</td></tr>)}</tbody></table></div>

@@ -154,7 +154,7 @@ def _wallet_payload(db: Session, user_id: str) -> dict:
         "free_scans": free_scans_payload(db, user_id),
         "entries": [
             {"amount_kopeks": entry.amount_kopeks, "kind": entry.kind,
-             "reference": entry.reference, "created_at": entry.created_at.isoformat()}
+             "reference": f"admin-credit:{entry.id}" if entry.kind == "admin_credit" else entry.reference, "created_at": entry.created_at.isoformat()}
             for entry in entries
         ],
     }
@@ -400,7 +400,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
     from server.scan_feedback import register_scan_feedback
     register_scan_feedback(app, db_session, current_user, screenshot_storage)
     from server.admin import register_admin
-    register_admin(app, db_session, current_user)
+    register_admin(app, db_session, current_user, _email)
 
     @app.get("/api/v1/auth/connect/{identifier}")
     def connect_login_info(identifier: str, response: Response, db: Session = Depends(db_session)):
