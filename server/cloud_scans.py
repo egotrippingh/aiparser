@@ -30,6 +30,7 @@ from server import provider_tasks, scrapeless
 
 LEASE = timedelta(minutes=5)
 MODEL_SLOTS = threading.BoundedSemaphore(20)
+COMPLETE_PRIMARY_ATTEMPTS = 5
 
 
 def _pairs(snapshot):
@@ -210,9 +211,11 @@ def _analyze_saved(sessions, run_id, token, check_id, content, ai_client):
             return None
         if run.desired_state != "running" and not (check and check.analysis_json):
             return None
+        complete = json.loads(run.snapshot_json).get("collection_policy") == "complete"
         with db.no_autoflush:
             return analyze_check(db, user, check_id, "", content, ai_client,
-                retry_saved=bool(check.analysis_attempts), accumulate_usage=True)
+                retry_saved=bool(check.analysis_attempts), accumulate_usage=True,
+                saved_attempt_limit=COMPLETE_PRIMARY_ATTEMPTS if complete else 4)
 
 
 def _arbitrate_saved(sessions, run_id, token, check_id, content, ai_client):
@@ -322,13 +325,11 @@ def _finish_exhausted(sessions, run_id, token, snapshot, query, service, check_i
             return False
         attempts = check.analysis_attempts if stage == "analysis" else check.arbitration_attempts
         cached = check.analysis_json if stage == "analysis" else check.arbitration_json
-        if attempts < 4 or cached:
+        complete_primary = stage == "analysis" and snapshot.get("collection_policy") == "complete"
+        if attempts < (COMPLETE_PRIMARY_ATTEMPTS if complete_primary else 4) or cached:
             return None
-        if snapshot.get("collection_policy") == "complete":
-            run.state = run.desired_state = "paused"
-            run.error = "Сохранённый ответ ожидает проверки лимита анализа администратором"
-            if not keep_lease:
-                run.lease_token = run.lease_until = None
+        if run.desired_state != "running":
+            _finish_item(db, run, snapshot, keep_lease=keep_lease)
             db.commit()
             return True
         complete_check(db, db.get(User, run.user_id), check_id, "error", commit=False)

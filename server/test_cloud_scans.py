@@ -671,6 +671,61 @@ def test_arbiter_attempt_budget_finishes_error_with_one_charge(tmp_path, monkeyp
         assert len(db.scalars(select(LedgerEntry).where(LedgerEntry.kind == 'check')).all()) == 1
 
 
+
+@pytest.mark.parametrize('recovers', [True, False])
+def test_complete_run_retries_saved_analysis_then_finishes_other_queries(tmp_path, monkeypatch, recovers):
+    ai = FakeAI()
+    client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, ai=ai, admin=False)
+    monkeypatch.setattr(Collector, 'answer', {**Collector.answer,
+        'main_text': 'No name', 'answer_text': 'No name', 'sources': []})
+    _, run = project_and_run(client, owner, legacy=False, queries=[
+        {'text': 'Failed query'}, {'text': 'Healthy query'}])
+    with sessions() as db:
+        db.get(Wallet, user_id).balance_kopeks = 1000
+        db.commit()
+
+    attempts = {'Failed query': 0, 'Healthy query': 0}
+
+    def analyze(system, content):
+        query = next(query for query in attempts if query in content[0]['text'])
+        attempts[query] += 1
+        if query == 'Failed query' and (attempts[query] < 5 or not recovers):
+            raise AIError('unavailable')
+        return FakeAI().analyze(system, content)
+
+    class StreamCollector(Collector):
+        def __init__(self, service, geo, *, max_attempts):
+            super().__init__(service, geo)
+
+    ai.analyze = analyze
+    for attempt in range(5):
+        assert asyncio.run(cloud_tick(sessions, ai, 120, StreamCollector, prefetch_limits={'google_aio': 1}))
+        with sessions() as db:
+            row = db.get(ControlRun, run['id'])
+            assert row.desired_state == 'running'
+            if attempt < 4:
+                assert row.retry_at is not None
+                row.retry_at = utcnow() - timedelta(seconds=1)
+                db.commit()
+            else:
+                assert row.state == 'done'
+                assert row.progress_json and json.loads(row.progress_json)['cloud_done'] == 2
+
+    with sessions() as db:
+        results = {result.query_text: result for result in db.scalars(select(CloudResult))}
+        assert results['Healthy query'].status == 'not_found'
+        failed = results['Failed query']
+        assert failed.status == ('not_found' if recovers else 'error')
+        assert failed.answer_text == 'No name'
+        check = db.scalar(select(Check).where(Check.client_check_id == failed.check_id))
+        assert check.analysis_attempts == 5
+        assert check.status == ('settled' if recovers else 'released')
+        assert len(db.scalars(select(LedgerEntry).where(LedgerEntry.kind == 'check')).all()) == (2 if recovers else 1)
+    assert attempts == {'Failed query': 5, 'Healthy query': 1}
+    assert sorted(Collector.calls) == [('google_aio', 'Failed query'), ('google_aio', 'Healthy query')]
+    assert not tick(sessions, ai)
+
+
 def test_mixed_waits_for_cloud_then_assigns_only_agent_services(tmp_path, monkeypatch):
     client, owner, _, _, sessions = setup(tmp_path, monkeypatch)
     device_id = 'a' * 32
