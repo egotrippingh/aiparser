@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, event, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import StatementError
 
@@ -672,8 +672,8 @@ def test_arbiter_attempt_budget_finishes_error_with_one_charge(tmp_path, monkeyp
 
 
 
-@pytest.mark.parametrize('recovers', [True, False])
-def test_complete_run_retries_saved_analysis_then_finishes_other_queries(tmp_path, monkeypatch, recovers):
+@pytest.mark.parametrize('outcome', ['recovers', 'exhausted', 'credit_limit', 'stopped'])
+def test_complete_run_retries_saved_analysis_then_finishes_other_queries(tmp_path, monkeypatch, outcome):
     ai = FakeAI()
     client, owner, _, user_id, sessions = setup(tmp_path, monkeypatch, ai=ai, admin=False)
     monkeypatch.setattr(Collector, 'answer', {**Collector.answer,
@@ -689,8 +689,13 @@ def test_complete_run_retries_saved_analysis_then_finishes_other_queries(tmp_pat
     def analyze(system, content):
         query = next(query for query in attempts if query in content[0]['text'])
         attempts[query] += 1
-        if query == 'Failed query' and (attempts[query] < 5 or not recovers):
-            raise AIError('unavailable')
+        if query == 'Failed query':
+            if outcome == 'credit_limit':
+                raise AIRetryAfter(600, 402, sent=False, retryable=False)
+            if attempts[query] in (1, 4):
+                raise AIRetryAfter(120, 429, sent=True)
+            if attempts[query] < 5 or outcome == 'exhausted':
+                raise AIError('unavailable')
         return FakeAI().analyze(system, content)
 
     class StreamCollector(Collector):
@@ -698,30 +703,49 @@ def test_complete_run_retries_saved_analysis_then_finishes_other_queries(tmp_pat
             super().__init__(service, geo)
 
     ai.analyze = analyze
-    for attempt in range(5):
+    ticks = 1 if outcome in ('credit_limit', 'stopped') else 5
+    for attempt in range(ticks):
+        started = utcnow()
         assert asyncio.run(cloud_tick(sessions, ai, 120, StreamCollector, prefetch_limits={'google_aio': 1}))
         with sessions() as db:
             row = db.get(ControlRun, run['id'])
             assert row.desired_state == 'running'
-            if attempt < 4:
+            if outcome == 'stopped':
+                assert row.retry_at.replace(tzinfo=timezone.utc) >= started + timedelta(seconds=120)
+                break
+            if attempt < ticks - 1:
                 assert row.retry_at is not None
+                if attempt in (0, 3):
+                    assert row.retry_at.replace(tzinfo=timezone.utc) >= started + timedelta(seconds=120)
                 row.retry_at = utcnow() - timedelta(seconds=1)
                 db.commit()
             else:
                 assert row.state == 'done'
                 assert row.progress_json and json.loads(row.progress_json)['cloud_done'] == 2
 
+    if outcome == 'stopped':
+        assert client.post(f"/api/v1/control/runs/{run['id']}/command", headers=owner,
+            json={'action': 'stop'}).status_code == 200
+        assert asyncio.run(cloud_tick(sessions, ai, 120, StreamCollector, prefetch_limits={'google_aio': 1}))
+        with sessions() as db:
+            row = db.get(ControlRun, run['id'])
+            assert row.state == 'cancelled' and row.active_project_key is None
+            assert db.scalar(select(Check).where(Check.status == 'reserved')) is None
+        assert attempts == {'Failed query': 1, 'Healthy query': 1}
+        return
+
     with sessions() as db:
+        recovers = outcome == 'recovers'
         results = {result.query_text: result for result in db.scalars(select(CloudResult))}
         assert results['Healthy query'].status == 'not_found'
         failed = results['Failed query']
         assert failed.status == ('not_found' if recovers else 'error')
         assert failed.answer_text == 'No name'
         check = db.scalar(select(Check).where(Check.client_check_id == failed.check_id))
-        assert check.analysis_attempts == 5
+        assert check.analysis_attempts == (0 if outcome == 'credit_limit' else 5)
         assert check.status == ('settled' if recovers else 'released')
         assert len(db.scalars(select(LedgerEntry).where(LedgerEntry.kind == 'check')).all()) == (2 if recovers else 1)
-    assert attempts == {'Failed query': 5, 'Healthy query': 1}
+    assert attempts == {'Failed query': ticks, 'Healthy query': 1}
     assert sorted(Collector.calls) == [('google_aio', 'Failed query'), ('google_aio', 'Healthy query')]
     assert not tick(sessions, ai)
 
@@ -1869,6 +1893,31 @@ def test_shutdown_stops_retry_but_preserves_inflight_answer_and_reservation(tmp_
         assert len(db.scalars(select(CloudResult)).all()) == 2
         assert db.get(Wallet, user_id).balance_kopeks == 260
         assert len(db.scalars(select(LedgerEntry).where(LedgerEntry.kind == 'check')).all()) == 2
+
+
+def test_postgres_claim_respects_retry_scheduled_after_candidate_read(tmp_path, monkeypatch, postgres_url):
+    client, owner, _, _, sessions = setup(tmp_path, monkeypatch, database_url=postgres_url)
+    _, run = project_and_run(client, owner, legacy=False)
+    engine = sessions.kw['bind']
+    deferred = False
+
+    def schedule_retry(conn, cursor, statement, parameters, context, executemany):
+        nonlocal deferred
+        if not deferred and statement.startswith('UPDATE control_runs SET'):
+            deferred = True
+            with engine.begin() as competing:
+                competing.execute(update(ControlRun).where(ControlRun.id == run['id']).values(
+                    state='paused', retry_at=utcnow() + timedelta(minutes=10)))
+
+    event.listen(engine, 'before_cursor_execute', schedule_retry)
+    try:
+        assert _claim(sessions) is None
+    finally:
+        event.remove(engine, 'before_cursor_execute', schedule_retry)
+    assert deferred
+    with sessions() as db:
+        row = db.get(ControlRun, run['id'])
+        assert row.state == 'paused' and row.retry_at and row.lease_token is None
 
 
 def test_postgres_twenty_models_overlap_while_collection_keeps_running(

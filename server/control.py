@@ -991,6 +991,8 @@ def register_control(app, db_session, current_user, sessions, *, api_user, check
         if row.state == "cancelled":
             return {"ok": True}
         row.desired_state = {"pause": "paused", "resume": "running", "stop": "cancelled"}[body.action]
+        if body.action == "stop":
+            row.retry_at = None
         if body.action == "stop" and (row.state == "queued" or
                 (row.phase == "agent" and row.lease_until and aware(row.lease_until) < utcnow())):
             from server.checks import complete_check
