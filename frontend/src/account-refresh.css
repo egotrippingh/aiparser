@@ -87,6 +87,9 @@
 .app-account .cab-account-tools { display: grid; gap: 24px; border-top: 1px solid var(--air-line); grid-template-columns: 1fr; margin-top: 28px; padding-top: 22px; }
 .air-app .app-account .cab-account-tools > .cab-panel { margin-bottom: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .air-app .app-account .cab-account-tools > .cab-panel:not(.cab-promo) { border-top: 1px solid var(--air-line); padding-top: 22px; }
+.air-app .cab-api-key p { color: var(--air-text); }
+.air-app .cab-api-key .cc-actions { gap: 8px; margin-top: 8px; }
+.air-app .cab-api-key .btn { min-height: 44px; }
 .app-account .cab-promo-form { margin: 12px 0 0; }
 
 @media (max-width: 1100px) {

@@ -35,6 +35,15 @@ class SessionToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class AccountApiKey(Base):
+    __tablename__ = "account_api_keys"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    suffix: Mapped[str] = mapped_column(String(4))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class OAuthIdentity(Base):
     __tablename__ = "oauth_identities"
     __table_args__ = (UniqueConstraint("provider", "subject"),

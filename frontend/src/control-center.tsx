@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react"
-import { CalendarClock, ChevronRight, Flag, LayoutDashboard, Link, List, Pause, Play, Plus, RefreshCw, Search, Settings2, ShieldCheck, Square, UserPlus, X } from "lucide-react"
+import { CalendarClock, ChevronRight, Flag, LayoutDashboard, Link, List, Pause, Play, Plus, RefreshCw, Search, Settings2, ShieldCheck, Square, Trash2, UserPlus, X } from "lucide-react"
 import { Tooltip } from "@base-ui/react/tooltip"
 import { accountRequest as request } from "./account-api"
 import { SCAN_SERVICES, MONTH_DAYS } from "./lib/scan-preferences"
@@ -95,6 +95,7 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
   const [runs, setRuns] = useState<Run[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [projectNotice, setProjectNotice] = useState("")
   const [copyMessage, setCopyMessage] = useState<{id:string;text:string}|null>(null)
   const [busy, setBusy] = useState("")
   const [filter, setFilter] = useState("")
@@ -159,6 +160,7 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
       }
       previousHash.current = next
       previousPosition.current = nextPosition
+      if (next !== "#/projects") setProjectNotice("")
       scanQuoteRequest.current++; setScanQuote(null)
       const [nextArea, nextProject] = routeNow().split("/")
       if (nextArea === "project" && nextProject !== "new") setLastProject(nextProject)
@@ -197,6 +199,16 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
   async function launch(projectId: string, quote: Quote) {
     await request(`/control/projects/${projectId}/runs`, token, {request_id:uuid(), revision:quote.revision, provider_state:quote.provider_state, free_scans_state:quote.free_scans_state})
   }
+  function projectArchived(id: string) {
+    if (!mounted.current) return
+    setProjects(current => current.filter(project => project.id !== id))
+    if (routeNow().split("/")[1] === id) {
+      setProjectNotice("Проект удалён.")
+      location.hash = "/projects"
+      requestAnimationFrame(() => projectHeading.current?.focus())
+    }
+    void refresh().catch(e => { if (mounted.current) setError(e.message) })
+  }
   const [area, routeProject, projectTab] = route.split("/")
   const projectId = area === "projects" ? undefined : routeProject || projects.find(p => p.id === lastProject)?.id || projects[0]?.id
   const selected = projects.find(p => p.id === projectId)
@@ -217,8 +229,9 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
   useEffect(() => { if (page === "help") location.replace("/docs/") }, [page])
   const title = projectId === "new" ? "Новый проект" : ({projects: "Проекты", account: "Аккаунт и оплата", help: "Документация"} as Record<string, string>)[page] || nav.find(([id]) => id === page)?.[1] || "Обзор видимости"
   const currentRun = runs.find(r => r.id === runDetail)
+  const projectIds = new Set(projects.map(project => project.id))
   function runRows(items: Run[]) {
-    return <div className="table-scroll"><table><thead><tr><th>Проект / запуск</th><th>Статус</th><th>Проверки</th><th>Действия</th></tr></thead><tbody>{items.map(r => <tr key={r.id}><td><button className="text-link" onClick={() => { setRunDetail(r.id); runDialog.current?.showModal() }}>{r.project_name}</button><small className="row-note">{new Date(r.created_at).toLocaleString("ru-RU")} · {r.scheduled_for ? "По расписанию" : "Вручную"}</small></td><td><span className={`badge ${r.state === "done" ? "green" : r.state === "failed" ? "red" : "blue"}`}>{runStatus(r)}</span></td><td>{r.progress.done || 0} / {r.total}<progress max={r.total || 1} value={r.progress.done || 0} aria-label={`Прогресс ${r.project_name}`}/></td><td><div className="cc-actions">{!terminal(r) && <><button className="btn" disabled={!!busy} onClick={() => action(r.id, () => request(`/control/runs/${r.id}/command`, token, {action:r.desired_state === "paused" ? "resume" : "pause"}))}>{r.desired_state === "paused" ? <Play size={14}/> : <Pause size={14}/>} {r.desired_state === "paused" ? "Продолжить" : "Пауза"}</button><button className="btn" disabled={!!busy} onClick={() => action(r.id, () => request(`/control/runs/${r.id}/command`, token, {action:"stop"}))}><Square size={13}/>Стоп</button></>}<a className="btn" href={`#/project/${r.project_id}/report`}>Отчёт</a></div></td></tr>)}</tbody></table></div>
+    return <div className="table-scroll"><table><thead><tr><th>Проект / запуск</th><th>Статус</th><th>Проверки</th><th>Действия</th></tr></thead><tbody>{items.map(r => <tr key={r.id}><td><button className="text-link" onClick={() => { setRunDetail(r.id); runDialog.current?.showModal() }}>{r.project_name}</button><small className="row-note">{new Date(r.created_at).toLocaleString("ru-RU")} · {r.scheduled_for ? "По расписанию" : "Вручную"}</small></td><td><span className={`badge ${r.state === "done" ? "green" : r.state === "failed" ? "red" : "blue"}`}>{runStatus(r)}</span></td><td>{r.progress.done || 0} / {r.total}<progress max={r.total || 1} value={r.progress.done || 0} aria-label={`Прогресс ${r.project_name}`}/></td><td><div className="cc-actions">{!terminal(r) && <><button className="btn" disabled={!!busy} onClick={() => action(r.id, () => request(`/control/runs/${r.id}/command`, token, {action:r.desired_state === "paused" ? "resume" : "pause"}))}>{r.desired_state === "paused" ? <Play size={14}/> : <Pause size={14}/>} {r.desired_state === "paused" ? "Продолжить" : "Пауза"}</button><button className="btn" disabled={!!busy} onClick={() => action(r.id, () => request(`/control/runs/${r.id}/command`, token, {action:"stop"}))}><Square size={13}/>Стоп</button></>}{projectIds.has(r.project_id) && <a className="btn" href={`#/project/${r.project_id}/report`}>Отчёт</a>}</div></td></tr>)}</tbody></table></div>
   }
   const progress = projectRun ? scanPercent(projectRun.progress.done ?? 0,projectRun.total) : 0
   const scanLabel = projectRun ? `${runStatus(projectRun)}: ${progress}%` : "Проверить видимость"
@@ -241,12 +254,13 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
       </div>
       {error && <div className="cc-alert" role="alert">{error}<button className="btn" onClick={() => refresh().catch(e => setError(e.message))}>Повторить</button><button className="btn icon-only" aria-label="Закрыть сообщение" onClick={() => setError("")}><X size={16}/></button></div>}
       {message && <p className="notice" role="status">{message}</p>}
+      {page === "projects" && projectNotice && <p className="notice" role="status">{projectNotice}</p>}
       {page === "account" ? account : page === "admin" && admin ? administration : page === "help" ? <p className="page-intro">Открываем документацию… <a href="/docs/">Перейти к документации</a></p> : ["project","overview"].includes(area) && projectId ? <>
-        {tab === "access" && selected?.role === "owner" ? <ProjectAccess key={projectId} token={token} projectId={projectId}/> : ["report","sources"].includes(tab) && projectId !== "new" ? <ReportView key={projectId} token={token} projectId={projectId} projectServices={selected?.config.services || []} sourcesOnly={tab === "sources"} canEdit={!viewer} scanControl={viewer ? undefined : scanControl}/> : <ProjectEditor key={projectId} token={token} projectId={projectId} tab={projectId === "new" ? "settings" : tab} brandClarificationsEnabled={brandClarificationsEnabled} admin={admin} saved={refresh} onDirtyChange={noteEditorDirty} walletChanged={walletChanged}/>}
+        {tab === "access" && selected?.role === "owner" ? <ProjectAccess key={projectId} token={token} projectId={projectId}/> : ["report","sources"].includes(tab) && projectId !== "new" ? <ReportView key={projectId} token={token} projectId={projectId} projectServices={selected?.config.services || []} sourcesOnly={tab === "sources"} canEdit={!viewer} scanControl={viewer ? undefined : scanControl}/> : <ProjectEditor key={projectId} token={token} projectId={projectId} tab={projectId === "new" ? "settings" : tab} brandClarificationsEnabled={brandClarificationsEnabled} admin={admin} saved={refresh} archived={projectArchived} onDirtyChange={noteEditorDirty} walletChanged={walletChanged}/>}
       </> : page === "runs" ? <><div className="filterbar"><label className="search-box"><Search size={15}/><input aria-label="Поиск проверки" placeholder="Поиск по проекту" value={filter} onChange={e => setFilter(e.target.value)}/></label><AppChoice label="Статус проверки" value={runState} options={[{value:"",label:"Все статусы"},...Object.entries(names).map(([value,label]) => ({value,label}))]} change={setRunState}/></div><section className="panel">{loading ? <p className="empty-state" role="status">Загрузка проверок…</p> : runs.length ? runRows(runs.filter(r => (!runState || runStatus(r) === names[runState]) && r.project_name.toLowerCase().includes(filter.toLowerCase()))) : <div className="empty-state">Проверок пока нет. <a href="#/projects">К проектам</a></div>}</section></> : <>
         <div className="stat-inline"><span><strong>{projects.length}</strong> проектов</span><span><strong>{projects.reduce((n,p) => n + p.query_count, 0)}</strong> запросов</span></div><div className="filterbar"><label className="search-box"><Search size={15}/><input aria-label="Поиск проекта" placeholder="Найти проект или бренд" value={filter} onChange={e => setFilter(e.target.value)}/></label></div><section className="panel">{loading ? <p className="empty-state" role="status">Загрузка проектов…</p> : !projects.length ? <div className="empty-state"><h2>Начните с первого проекта</h2><p>Укажите бренд, добавьте запросы и выберите ИИ-системы.</p><a className="btn primary" href="#/project/new/settings">Создать проект</a></div> : <div className="table-scroll"><table><thead><tr><th>Проект</th><th>Проверка</th><th>Запросы</th><th>ИИ-системы</th><th>Расписание</th></tr></thead><tbody>{projects.filter(p => `${p.name} ${p.brand_name} ${p.id}`.toLowerCase().includes(filter.toLowerCase())).map(p => { const run = activeRuns.find(r => r.project_id === p.id); return <tr key={p.id}><td><a className="project-name" href={`#/project/${p.id}/report`}><ProjectIcon name={p.name} domains={p.config.brand_domains}/>{p.name}</a><small className="row-note">{p.brand_name}{p.shared ? ` · ${p.role === "editor" ? "редактор" : "только просмотр"}` : ""}</small><small className="row-note">ID: <code>{p.id}</code></small></td><td>{run ? <button className="btn icon-only" aria-label={`${runStatus(run)}: ${scanPercent(run.progress.done ?? 0, run.total)}%`} onClick={() => { setRunDetail(run.id); runDialog.current?.showModal() }}><ScanProgress percent={scanPercent(run.progress.done ?? 0, run.total)}/></button> : <span className="badge blue">Готов к проверкам</span>}</td><td>{p.query_count}<small className="row-note">{p.active_queries} активно</small></td><td><div className="system-marks">{p.config.services.filter(isCurrentService).map(id => <span key={id} title={service(id)}><ServiceMark id={id}/></span>)}</div></td><td>{p.role === "viewer" ? "—" : <a href={`#/project/${p.id}/schedule`}>{p.schedule.enabled ? `${p.schedule.time} · ${scheduleDaysLabel(p.schedule)}` : "По запросу"}</a>}</td></tr>})}</tbody></table></div>}</section>
       </>}
-      <dialog ref={runDialog} aria-labelledby="run-title"><div className="dialog-head"><h2 id="run-title">Проверка проекта</h2><button className="btn icon-only" aria-label="Закрыть проверку" onClick={() => runDialog.current?.close()}><X size={16}/></button></div><div className="dialog-body">{currentRun ? <><h3>{currentRun.project_name}</h3><p>{runStatus(currentRun)} · {currentRun.progress.done || 0} / {currentRun.total} проверок</p>{currentRun.error && <p className="cc-error-text">{publicError(currentRun.error)}</p>}{Object.entries(currentRun.progress.services || {}).filter(([id])=>isCurrentService(id)).map(([id, stats]) => <p key={id}>{service(id)}: {stats.done} / {stats.total}{stats.error ? ` · ${publicError(stats.error)}` : ""}</p>)}<p>Незавершённые запросы остаются в очереди; счётчик показывает готовые ответы.</p><a className="btn blue" href={`#/project/${currentRun.project_id}/report`} onClick={() => runDialog.current?.close()}>Открыть отчёт</a></> : <p>Проверка недоступна</p>}</div></dialog>
+      <dialog ref={runDialog} aria-labelledby="run-title"><div className="dialog-head"><h2 id="run-title">Проверка проекта</h2><button className="btn icon-only" aria-label="Закрыть проверку" onClick={() => runDialog.current?.close()}><X size={16}/></button></div><div className="dialog-body">{currentRun ? <><h3>{currentRun.project_name}</h3><p>{runStatus(currentRun)} · {currentRun.progress.done || 0} / {currentRun.total} проверок</p>{currentRun.error && <p className="cc-error-text">{publicError(currentRun.error)}</p>}{Object.entries(currentRun.progress.services || {}).filter(([id])=>isCurrentService(id)).map(([id, stats]) => <p key={id}>{service(id)}: {stats.done} / {stats.total}{stats.error ? ` · ${publicError(stats.error)}` : ""}</p>)}<p>Незавершённые запросы остаются в очереди; счётчик показывает готовые ответы.</p>{projectIds.has(currentRun.project_id) && <a className="btn blue" href={`#/project/${currentRun.project_id}/report`} onClick={() => runDialog.current?.close()}>Открыть отчёт</a>}</> : <p>Проверка недоступна</p>}</div></dialog>
     </main>
   </div>
 }
@@ -263,7 +277,7 @@ function ProjectAccess({ token, projectId }: {token:string;projectId:string}) {
   return <section className="panel cc-editor"><div className="cc-form-section"><div><h2><UserPlus size={21}/>Доступ к проекту</h2><p>Добавляйте только уже зарегистрированные email. Приглашения по почте не отправляются.</p></div><div className="cc-fields"><label>Email участника<input type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="user@company.ru" disabled={busy}/></label><AppChoice label="Роль" value={role} options={[{value:"editor",label:"Редактор — настройки, запросы и запуски"},{value:"viewer",label:"Просмотр — только результаты"}]} change={value=>setRole(value as "editor"|"viewer")}/><button className="cc-button primary" disabled={busy||!email.trim()} onClick={save}>Добавить или изменить роль</button>{error&&<p className="cc-alert" role="alert">{error}</p>}</div></div>{loading?<p role="status">Загружаем участников…</p>:<div className="table-scroll"><table><thead><tr><th>Email</th><th>Роль</th><th/></tr></thead><tbody>{members.map(member=><tr key={member.email}><td>{member.email}</td><td>{member.role === "owner" ? "Владелец" : member.role === "editor" ? "Редактор" : "Просмотр"}</td><td>{member.role !== "owner"&&<button className="btn" disabled={busy} onClick={()=>remove(member.email)}>Отозвать</button>}</td></tr>)}</tbody></table>{!members.length&&<p className="empty-state">Участников пока нет.</p>}</div>}</section>
 }
 
-function ProjectEditor({token,projectId,tab,brandClarificationsEnabled,admin,saved,onDirtyChange,walletChanged}:{token:string;projectId:string;tab:string;brandClarificationsEnabled:boolean;admin:boolean;saved:()=>Promise<void>;onDirtyChange:(dirty:boolean,projectId:string)=>void;walletChanged:()=>void}) {
+function ProjectEditor({token,projectId,tab,brandClarificationsEnabled,admin,saved,archived,onDirtyChange,walletChanged}:{token:string;projectId:string;tab:string;brandClarificationsEnabled:boolean;admin:boolean;saved:()=>Promise<void>;archived:(id:string)=>void;onDirtyChange:(dirty:boolean,projectId:string)=>void;walletChanged:()=>void}) {
   const [project,setProject] = useState<Project|null>(projectId === "new" ? blank() : null)
   const [dirty,setDirty] = useState(false)
   const [busy,setBusy] = useState(false)
@@ -279,6 +293,8 @@ function ProjectEditor({token,projectId,tab,brandClarificationsEnabled,admin,sav
   const recomputeButton = useRef<HTMLButtonElement>(null)
   const recomputeQuoteRequest = useRef(0)
   const recomputeHeading = useRef<HTMLHeadingElement>(null)
+  const deleteDialog = useRef<HTMLDialogElement>(null)
+  const [deleteError, setDeleteError] = useState("")
   const dismissRecomputeQuote = useCallback(() => { recomputeQuoteRequest.current++; setRecomputeQuote(null) }, [])
   useEffect(() => () => { mounted.current = false }, [])
   useEffect(() => { onDirtyChange(dirty, projectId); return () => onDirtyChange(false, projectId) }, [dirty, onDirtyChange, projectId])
@@ -318,6 +334,24 @@ function ProjectEditor({token,projectId,tab,brandClarificationsEnabled,admin,sav
     dirtyRef.current=false;onDirtyChange(false,projectId);setProject(next);setDirty(false);setMessage("Сохранено. Текущая проверка использует настройки на момент запуска.");await saved()
     if(mounted.current&&projectId==="new")location.hash=`/project/${next.id}/queries`
   }catch(e){if(mounted.current)setError(e instanceof Error?e.message:"Не удалось сохранить проект")}finally{busyRef.current=false;if(mounted.current)setBusy(false)}}
+  async function removeProject() {
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true); setDeleteError("")
+    try {
+      await request(`/control/projects/${projectId}`, token, undefined, "DELETE")
+      if (mounted.current) {
+        dirtyRef.current = false; setDirty(false); onDirtyChange(false, projectId)
+        deleteDialog.current?.close()
+      }
+      archived(projectId)
+    } catch (e) {
+      if (mounted.current) setDeleteError(e instanceof Error ? e.message : "Не удалось удалить проект")
+    } finally {
+      busyRef.current = false
+      if (mounted.current) setBusy(false)
+    }
+  }
   async function quoteRecompute(){
     if (!project || projectId === "new" || !fromDate || dirty || busyRef.current) return
     const scope = recomputeSelection(fromDate,toDate,availableDates,dateSelection)
@@ -374,6 +408,20 @@ function ProjectEditor({token,projectId,tab,brandClarificationsEnabled,admin,sav
     </fieldset>
     <div className="cc-savebar"><span role="status">{message || (dirty?"Есть несохранённые изменения":"Все изменения сохранены")}</span><button className="cc-button primary" disabled={busy||(!dirty&&projectId!=="new")||!project.name.trim()||!project.brand_name.trim()||!project.config.services.length||(project.schedule.enabled && !project.schedule.month_days.length && !project.schedule.last_day)} onClick={save}><Settings2 size={16}/>{busy?"Сохраняем…":"Сохранить"}</button></div>
     {clarificationEnabled && project.role === "owner" && tab === "settings" && projectId !== "new" && <section className="cc-form-section"><div><h2 ref={recomputeHeading} tabIndex={-1}>Пересчитать старые ответы</h2><p>Действует только на сохранённые ответы этого проекта. Новые запросы к поисковым системам не отправляются.</p></div><div className="cc-fields"><div><p className="cc-hint">Выберите даты пересчёта</p><ReportCalendar from={fromDate} to={toDate} available={availableDates} selection={dateSelection} context="recompute" disabled={busy||dirty} change={changeDates}/><p className="cc-hint">{selectionLabel(recomputeSelection(fromDate,toDate,availableDates,dateSelection))}</p></div><p className="cc-hint">{admin ? "Для вашего аккаунта пересчёт бесплатный." : "Стоимость — 0,80 ₽ за каждый подходящий сохранённый ответ."} Меняются только ответы за выбранные даты. Перед запуском покажем верхнюю границу списания. Если уйти со страницы, обработка остановится после текущего ответа; её можно продолжить без повторной оплаты уже готовых ответов.</p><span className="cc-quote-anchor"><button ref={recomputeButton} className="cc-button" aria-haspopup="dialog" aria-expanded={!!recomputeQuote} disabled={busy||dirty||!fromDate||!project.config.brand_clarification?.trim()} onClick={quoteRecompute}>Рассчитать стоимость пересчёта</button>{recomputeQuote && <QuotePopover quote={recomputeQuote} item="ответов" note={`Даты: ${selectionLabel(recomputeQuote)}. Без достаточных данных: ${recomputeQuote.skipped} — бесплатно. Новые проверки ИИ-сервисов не запускаются.`} action="Пересчитать" above trigger={recomputeButton} afterConfirm={recomputeHeading} onCancel={dismissRecomputeQuote} onConfirm={() => { const pending = recomputeQuote; setRecomputeQuote(null); void recompute(pending) }}/>}</span>{dirty && <p className="cc-hint">Сначала сохраните уточнение.</p>}{recomputeMessage && <p role="status">{recomputeMessage}</p>}</div></section>}
+    {tab === "settings" && project.role === "owner" && projectId !== "new" && <section className="cc-form-section">
+      <div><h2>Удаление проекта</h2><p>Проект исчезнет из списка, а проверки по расписанию прекратятся.</p></div>
+      <div className="cc-fields"><button className="btn danger large" disabled={busy} aria-haspopup="dialog" onClick={() => { setDeleteError(""); deleteDialog.current?.showModal() }}><Trash2 size={16} aria-hidden="true"/>Удалить проект</button></div>
+      <dialog ref={deleteDialog} aria-labelledby="delete-project-title" aria-describedby="delete-project-description" onCancel={event => { if (busyRef.current) event.preventDefault() }}>
+        <div className="dialog-head"><h2 id="delete-project-title">Удалить проект?</h2></div>
+        <div className="dialog-body"><p id="delete-project-description">Отчёты проекта «{project.name}» станут недоступны владельцу и участникам. Восстановление через кабинет недоступно.{dirty && " Несохранённые изменения будут потеряны."}</p>
+          {deleteError && <p className="cab-payment-error" role="alert">{deleteError}</p>}
+        </div>
+        <div className="dialog-footer">
+          <button className="btn" autoFocus disabled={busy} onClick={() => deleteDialog.current?.close()}>Отмена</button>
+          <button className="btn danger" disabled={busy} onClick={() => void removeProject()}>{busy ? "Удаляем…" : "Удалить проект"}</button>
+        </div>
+      </dialog>
+    </section>}
     </div>{tab !== "queries" && <aside className="side-note"><h3>{tab === "schedule" ? "Регулярные проверки" : "Что учитывается"}</h3><p>{tab === "schedule" ? project.schedule.enabled ? `${project.schedule.time} · ${project.schedule.timezone}. Числа месяца: ${scheduleDaysLabel(project.schedule)}.` : "Расписание выключено" : "Название, варианты написания и домены помогают находить бренд в ответах ИИ."}</p><hr className="form-divider"/><p>{tab === "schedule" ? "Сбор запускается автоматически. Последний день месяца определяется по выбранному часовому поясу, включая февраль в високосный год." : "Настройки применяются к новым проверкам после сохранения. Готовые ответы и история сохраняются."}</p><p>Перед ручным запуском показываем максимальную стоимость. Списываем оплату только за готовые ответы.</p></aside>}
   </div>
 }

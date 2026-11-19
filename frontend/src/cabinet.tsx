@@ -10,6 +10,7 @@ import { ControlCenter } from "./control-center"
 import "./cabinet.css"
 import "./account-refresh.css"
 import { AccountBalance } from "./components/account-balance"
+import { ApiKeySettings } from "./components/api-key-settings"
 import { SiteHeader } from "./site-header"
 import { TopupForm } from "./components/topup-form"
 import { PasswordSettings } from "./components/password-settings"
@@ -37,6 +38,7 @@ function PasswordField({ label, value, onChange, disabled, autoComplete = "new-p
 
 function Cabinet() {
   const editorDirty = useRef(false)
+  const [keySettingsVersion, setKeySettingsVersion] = useState(0)
   const [token, setToken] = useState(() =>
     location.hash.includes("auth_ticket=") || location.hash.includes("browser_ticket=") || location.hash.includes("reset_token=") || location.hash.includes("registration_ticket=")
       ? "" : sessionStorage.getItem(TOKEN_KEY) || COOKIE_SESSION)
@@ -319,7 +321,8 @@ function Cabinet() {
         <div className="cab-billing-grid">
           <TopupForm token={token} minimum={minimum} checkPrice={user.is_admin ? 0 : price} />
         </div>
-        <div className="cab-account-tools"><PromoForm token={token} freeScans={wallet?.free_scans} applied={walletChanged} /><PasswordSettings token={token} hasPassword={!!user.has_password} email={user.email} resetEnabled={resetEnabled} saved={result => {acceptSession(result); setUser({...user, has_password:true}); setMessage("Пароль сохранён. Другие сеансы завершены.")}}/>
+        <div className="cab-account-tools"><PromoForm token={token} freeScans={wallet?.free_scans} applied={walletChanged} /><PasswordSettings token={token} hasPassword={!!user.has_password} email={user.email} resetEnabled={resetEnabled} saved={result => {acceptSession(result); setUser({...user, has_password:true}); setKeySettingsVersion(version => version + 1); setMessage("Пароль сохранён. Другие сеансы завершены.")}}/>
+        <ApiKeySettings key={keySettingsVersion} token={token}/>
         {yandexEnabled && <section className="cab-panel cab-yandex-settings"><h2>Яндекс ID</h2><p>{user.yandex_linked ? "Яндекс ID подключён к этому аккаунту." : "Подключите Яндекс ID, чтобы входить без пароля."}</p><button className="cab-secondary" disabled={busy || user.yandex_linked} onClick={linkYandex}>{user.yandex_linked ? "Яндекс ID подключён" : "Привязать Яндекс ID"}</button></section>}</div>
         {payments.length > 0 && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ПОПОЛНЕНИЯ</span><h2>История платежей</h2></div><button className="cab-refresh" onClick={walletChanged}>Обновить</button></div><div className="cab-list">{payments.map(payment => <div className="cab-entry cab-payment-row" key={payment.id}><span><b>{money(payment.amount_kopeks)} · {payment.method === "crypto" ? "Криптовалюта" : payment.method === "sbp" ? "СБП" : "Банковская оплата"}</b><small>{new Date(payment.created_at).toLocaleString("ru-RU")}</small></span><span className={`cab-payment-status ${payment.status}`} role="status">{paymentLabel(payment.status)}</span>{payment.status === "pending" && payment.payment_url && <a className="cab-download" href={payment.payment_url}>Продолжить оплату</a>}</div>)}</div></section>}
         {(wallet?.entries.length || !user.is_admin) && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ИСТОРИЯ</span><h2>Операции по балансу</h2></div><button onClick={walletChanged} className="cab-refresh">Обновить</button></div>{wallet?.entries.length ? <div className="cab-list">{wallet.entries.map((entry) => <div className="cab-entry" key={entry.reference}><span className={entry.amount_kopeks > 0 ? "cab-entry-icon in" : "cab-entry-icon out"}>{entry.amount_kopeks > 0 ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}</span><span><b>{entry.kind === "topup" ? "Пополнение" : entry.kind === "admin_credit" ? "Ручное пополнение" : entry.kind === "recompute" ? "Пересчёт ответа" : "Проверка запроса"}</b><small>{new Date(entry.created_at).toLocaleString("ru-RU")}</small></span><strong className={entry.amount_kopeks > 0 ? "positive" : ""}>{entry.amount_kopeks > 0 ? "+" : ""}{money(entry.amount_kopeks)}</strong></div>)}</div> : <p className="cab-empty">Пока нет операций по денежному балансу.</p>}</section>}
