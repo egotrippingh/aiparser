@@ -25,6 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server.agent_schemas import AgentHeartbeatIn, CloudResultsIn, ScanPreferencesIn
+from server.api_keys import KEY_PATH, PUBLIC_PREFIX, register_api_keys
 from server.ai import OpenRouterAI
 from server.checks import reserve_checks, analyze_check, arbitrate_check, complete_check, settle_check, release_check
 from server.promos import RedeemIn, free_scans_payload, normalize_code, redeem_promo
@@ -39,13 +40,13 @@ from server.models import (AgentDevice, Check, CloudResult, ScanPreferences, Scr
 from server.security import hash_password, new_token, token_hash, verify_password
 from server.storage import ScreenshotStorage, StorageError
 from server.yandex import YandexError, YandexOAuth
-from server.models import ControlProject, ControlRun, ControlLink, DeviceGrant
+from server.models import AccountApiKey, ControlProject, ControlRun, ControlLink, DeviceGrant
 from server.public_errors import public_error
 from server.control import register_control
 from server.device_login import pending_connect, approve_login_connect
 from server.browser_sessions import COOKIE_NAME, request_token, web_session_response, register_browser_login, lock_web_session
 
-HELP_SLUGS = {"quick-start", "projects-and-queries", "scans", "schedule", "reports", "answers-and-sources", "billing", "troubleshooting"}
+HELP_SLUGS = {"quick-start", "projects-and-queries", "scans", "schedule", "reports", "answers-and-sources", "billing", "api", "troubleshooting"}
 
 
 class Credentials(BaseModel):
@@ -279,7 +280,10 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
     @app.middleware("http")
     async def sentry_boundary(request: Request, call_next):
         try:
-            return await call_next(request)
+            response = await call_next(request)
+            if request.url.path == KEY_PATH or request.url.path.startswith(PUBLIC_PREFIX + "/"):
+                response.headers["Cache-Control"] = "no-store"
+            return response
         except Exception as exc:
             telemetry.capture(exc, component="server", operation="request", user_id=getattr(request.state, "telemetry_user_id", None))
             raise
@@ -391,7 +395,8 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         return web_session_response(request, response,
             {"token": token, "user": {"id": user.id, "email": user.email}}, secure=cookie_secure)
 
-    register_control(app, db_session, current_user, SessionLocal, check_price_kopeks=price,
+    api_user = register_api_keys(app, db_session, current_user)
+    register_control(app, db_session, current_user, SessionLocal, api_user=api_user, check_price_kopeks=price,
                      ai_client=ai_client,
                      screenshot_storage=screenshot_storage)
     register_browser_login(app, db_session, current_user, issue_session)
@@ -595,12 +600,17 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         db.commit()
         return {"accepted": len(body.results), "diagnostics_version": 1}
 
+    visible_report_result = ~select(ControlProject.id).where(
+        ControlProject.id == CloudResult.project_id, ControlProject.user_id == CloudResult.user_id,
+        ControlProject.archived.is_(True),
+    ).exists()
+
     @app.get("/api/v1/reports/projects")
     def report_projects(user: User = Depends(current_user),
                         db: Session = Depends(db_session)) -> list[dict]:
         rows = db.execute(select(CloudResult.device_id, CloudResult.local_project_id,
                                  CloudResult.project_name, CloudResult.brand_name,
-                                 CloudResult.scan_date).where(CloudResult.user_id == user.id)
+                                 CloudResult.scan_date).where(CloudResult.user_id == user.id, visible_report_result)
                           .order_by(CloudResult.scan_date.desc(), CloudResult.id.desc())).all()
         projects: dict[str, dict] = {}
         for row in rows:
@@ -627,7 +637,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         else:
             project_filter = CloudResult.project_id == project
         rows = db.scalars(select(CloudResult).where(
-            CloudResult.user_id == user.id, project_filter, CloudResult.scan_date >= cutoff,
+            CloudResult.user_id == user.id, project_filter, CloudResult.scan_date >= cutoff, visible_report_result,
         ).order_by(CloudResult.scan_date.desc(), CloudResult.id.desc())).all()
         # A daily view shows the latest measurement per query and service.
         picked = {}
@@ -997,6 +1007,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         return {"ok": True, "message": "Если аккаунт существует, письмо отправлено"}
 
     def revoke_password_access(db, user_id):
+        db.execute(delete(AccountApiKey).where(AccountApiKey.user_id == user_id))
         db.execute(delete(PasswordReset).where(PasswordReset.user_id == user_id))
         db.execute(delete(SessionToken).where(SessionToken.user_id == user_id))
         db.execute(delete(DeviceCode).where(DeviceCode.user_id == user_id))

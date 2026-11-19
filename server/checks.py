@@ -77,7 +77,7 @@ def _usage_with_previous(previous, current):
 
 
 def analyze_check(db, user, check_id, system, content, ai_client, *, retry_saved=False,
-                  accumulate_usage=False):
+                  accumulate_usage=False, saved_attempt_limit=4):
     if not ai_client:
         raise HTTPException(503, "Серверный анализ пока не настроен")
     check = db.execute(select(Check).where(Check.user_id == user.id,
@@ -93,7 +93,7 @@ def analyze_check(db, user, check_id, system, content, ai_client, *, retry_saved
         return {"raw": check.analysis_json, "model": check.analysis_model or ai_client.model}
     if check.status != "reserved":
         raise HTTPException(409, "Проверка уже закрыта")
-    if check.analysis_attempts >= (4 if retry_saved else 2):
+    if check.analysis_attempts >= (saved_attempt_limit if retry_saved else 2):
         if invalid_cache:
             db.commit()
         raise HTTPException(409, "Лимит попыток анализа исчерпан")

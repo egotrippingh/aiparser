@@ -11,7 +11,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import and_, func, select, update, delete, or_
@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server.agent_schemas import SCHEDULABLE_IDS
+from server.api_keys import PUBLIC_PREFIX
 from server.ai import AIError
 from server.browser_sessions import lock_web_session, request_token
 from server.models import (AgentDevice, Check, CloudResult, ControlLink, ControlProject, ControlRun, ProjectMember, ProviderAccount, ServerCapture,
@@ -27,13 +28,14 @@ from server.project_access import owner_project, project_access
 from server.public_errors import public_error, public_progress
 from server.promos import free_scans_payload, free_scans_state, reserve_run_credits
 from server.reporting import SERVICES
-from server.scan_feedback import KEY as FEEDBACK_KEY, learning_context
+from server.scan_feedback import KEY as FEEDBACK_KEY, effective_status, learning_context
 from server.security import new_token, token_hash
 from server.storage import StorageError
 
 log = logging.getLogger(__name__)
 TERMINAL = {"done", "failed", "cancelled", "missed"}
 CLOUD_SERVICES = {"google_aio", "yandex_neuro", "chatgpt", "perplexity", "gemini"}
+MAX_PROJECT_QUERIES = 5000
 
 
 def agent_services(config):
@@ -128,7 +130,7 @@ class ProjectIn(BaseModel):
     device_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     config: ScanConfig = Field(default_factory=ScanConfig)
     schedule: Schedule = Field(default_factory=Schedule)
-    queries: list[QueryIn] = Field(default_factory=list, max_length=5000)
+    queries: list[QueryIn] = Field(default_factory=list, max_length=MAX_PROJECT_QUERIES)
 
     @field_validator("name", "brand_name")
     @classmethod
@@ -147,12 +149,47 @@ class ProjectIn(BaseModel):
         return value
 
 
+class PublicProjectUpdate(ProjectIn):
+    revision: int = Field(ge=0)
+    config: ScanConfig
+    schedule: Schedule
+    queries: list[QueryIn] = Field(max_length=MAX_PROJECT_QUERIES)
+
+
 class LaunchIn(BaseModel):
     request_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     device_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     revision: int | None = Field(default=None, ge=0)
     provider_state: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     free_scans_state: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+
+class PublicLaunchIn(LaunchIn):
+    model_config = ConfigDict(extra="forbid")
+    revision: int = Field(ge=0)
+    provider_state: str = Field(pattern=r"^[a-f0-9]{64}$")
+    free_scans_state: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class SavedAnswer(BaseModel):
+    id: int
+    run_id: str | None
+    query_id: str | None
+    query_text: str
+    group_tag: str | None
+    service: str
+    scan_date: str
+    status: str
+    original_status: str
+    answer_text: str | None
+    evidence_quote: str | None
+    error_message: str | None
+    sources: list[str]
+
+
+class AnswersPage(BaseModel):
+    items: list[SavedAnswer]
+    next_after_id: int | None
 
 
 class RecomputeIn(BaseModel):
@@ -386,16 +423,16 @@ def schedule_tick(sessions, now=None, check_price_kopeks=165):
                         create_run(db, project, schedule.device_id or project.device_id, key, slot,
                                    brand_clarifications_enabled=True,
                                    check_price_kopeks=check_price_kopeks)
-                    db.commit()
                 except (IntegrityError, HTTPException):
-                    # Active project or unready device; another tick can retry within the slot window.
-                    db.rollback()
+                    # The savepoint rolls back this slot while keeping the project locked.
+                    continue
             db.commit()
 
 
-def register_control(app, db_session, current_user, sessions, *, check_price_kopeks=165,
+def register_control(app, db_session, current_user, sessions, *, api_user, check_price_kopeks=165,
                      ai_client=None, screenshot_storage=None):
     router = APIRouter(prefix="/api/v1/control")
+    public = APIRouter(prefix=PUBLIC_PREFIX, tags=["REST API"])
 
     def clarification_for(project):
         return str(json.loads(project.config_json).get("brand_clarification") or "").strip()
@@ -544,6 +581,9 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
     @router.put("/projects/{project_id}")
     def save_project(project_id: str, body: ProjectIn, user=Depends(web_user), db=Depends(db_session)):
         row, role = project_access(db, user.id, project_id, edit=True, lock=True)
+        return update_project(db, row, role, body)
+
+    def update_project(db: Session, row: ControlProject, role: str, body: ProjectIn) -> dict:
         if role != "owner":
             body = body.model_copy(deep=True)
             body.device_id = row.device_id
@@ -570,7 +610,10 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
 
     @router.get("/projects/{project_id}/quote")
     def scan_quote(project_id: str, user=Depends(web_user), db=Depends(db_session)):
-        row, role = project_access(db, user.id, project_id, edit=True)
+        row, _ = project_access(db, user.id, project_id, edit=True)
+        return quote_project_scan(db, row)
+
+    def quote_project_scan(db: Session, row: ControlProject) -> dict:
         config = json.loads(row.config_json)
         accounts = {account.service: account for account in db.scalars(select(ProviderAccount).where(
             ProviderAccount.service.in_(config["services"]))).all()}
@@ -590,7 +633,10 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
 
     @router.post("/projects/{project_id}/runs", status_code=201)
     def launch(project_id: str, body: LaunchIn, user=Depends(web_user), db=Depends(db_session)):
-        row, role = project_access(db, user.id, project_id, edit=True, lock=True)
+        row, _ = project_access(db, user.id, project_id, edit=True, lock=True)
+        return launch_project_scan(db, row, body)
+
+    def launch_project_scan(db: Session, row: ControlProject, body: LaunchIn, *, require_balance: bool = False) -> dict:
         request_key = f"manual:{row.id}:{body.request_id}"
         existing = db.scalar(select(ControlRun).where(ControlRun.request_key == request_key))
         if existing:
@@ -612,6 +658,10 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         db.execute(select(Wallet).where(Wallet.user_id == owner.id).with_for_update()).scalar_one()
         if body.free_scans_state is not None and body.free_scans_state != free_scans_state(free_scans_payload(db, owner.id)):
             raise HTTPException(409, "Остаток бесплатных сканов изменился. Проверьте сумму ещё раз.")
+        if require_balance:
+            quote = quote_project_scan(db, row)
+            if quote["total_kopeks"] > 0 and quote["total_kopeks"] > quote["available_kopeks"]:
+                raise HTTPException(402, "Недостаточно средств для запуска проверки")
         try:
             run = create_run(db, row, device_id, request_key,
                              brand_clarifications_enabled=True, check_price_kopeks=check_price_kopeks)
@@ -622,6 +672,124 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             if run is None:
                 raise HTTPException(409, "У проекта уже есть проверка в очереди или в работе")
         return run_payload(run, device_for(db, row.user_id, run.device_id) if run.device_id else None)
+
+    def public_project(db: Session, user_id: str, project_id: str, *, lock: bool = False) -> ControlProject:
+        query = select(ControlProject).where(ControlProject.id == project_id, ControlProject.user_id == user_id,
+                                            ControlProject.archived.is_(False))
+        row = db.scalar(query.with_for_update() if lock else query)
+        if row is None:
+            raise HTTPException(404, "Проект не найден")
+        return row
+
+    @public.get("/projects")
+    def public_projects(user: User = Depends(api_user), db: Session = Depends(db_session)) -> list[dict]:
+        rows = db.scalars(select(ControlProject).where(ControlProject.user_id == user.id,
+                         ControlProject.archived.is_(False)).order_by(ControlProject.created_at, ControlProject.id))
+        return [project_payload(row, detail=False) for row in rows]
+
+    @public.post("/projects", status_code=201)
+    def public_add_project(body: ProjectIn, user: User = Depends(api_user), db: Session = Depends(db_session)) -> dict:
+        return add_project(body, user, db)
+
+    @public.get("/projects/{project_id}")
+    def public_get_project(project_id: str, user: User = Depends(api_user), db: Session = Depends(db_session)) -> dict:
+        return project_payload(public_project(db, user.id, project_id))
+
+    @public.put("/projects/{project_id}")
+    def public_update_project(project_id: str, body: PublicProjectUpdate, user: User = Depends(api_user),
+                              db: Session = Depends(db_session)) -> dict:
+        row = public_project(db, user.id, project_id, lock=True)
+        return update_project(db, row, "owner", body)
+
+    @public.get("/projects/{project_id}/queries")
+    def public_queries(project_id: str, user: User = Depends(api_user), db: Session = Depends(db_session)) -> list[dict]:
+        return json.loads(public_project(db, user.id, project_id).queries_json)
+
+    def write_queries(db: Session, row: ControlProject, queries: list[dict]) -> None:
+        row.queries_json = json.dumps(queries, ensure_ascii=False)
+        row.revision += 1
+        row.updated_at = utcnow()
+        db.commit()
+
+    @public.post("/projects/{project_id}/queries", status_code=201)
+    def public_add_query(project_id: str, body: QueryIn, user: User = Depends(api_user),
+                         db: Session = Depends(db_session)) -> QueryIn:
+        row = public_project(db, user.id, project_id, lock=True)
+        queries = json.loads(row.queries_json)
+        if len(queries) >= MAX_PROJECT_QUERIES:
+            raise HTTPException(422, f"В проекте может быть до {MAX_PROJECT_QUERIES} запросов")
+        try:
+            validated = [QueryIn.model_validate(query) for query in queries]
+            ProjectIn.distinct([*validated, body])
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        write_queries(db, row, [*queries, body.model_dump()])
+        return body
+
+    @public.delete("/projects/{project_id}/queries/{query_id}", status_code=204)
+    def public_delete_query(project_id: str, query_id: str, user: User = Depends(api_user),
+                            db: Session = Depends(db_session)) -> Response:
+        row = public_project(db, user.id, project_id, lock=True)
+        queries = json.loads(row.queries_json)
+        remaining = [query for query in queries if query["id"] != query_id]
+        if len(remaining) == len(queries):
+            raise HTTPException(404, "Запрос не найден")
+        write_queries(db, row, remaining)
+        return Response(status_code=204)
+
+    @public.get("/projects/{project_id}/quote")
+    def public_quote(project_id: str, user: User = Depends(api_user), db: Session = Depends(db_session)) -> dict:
+        return quote_project_scan(db, public_project(db, user.id, project_id))
+
+    @public.post("/projects/{project_id}/runs", status_code=201)
+    def public_launch(project_id: str, body: PublicLaunchIn, user: User = Depends(api_user),
+                      db: Session = Depends(db_session)) -> dict:
+        return launch_project_scan(db, public_project(db, user.id, project_id, lock=True), body, require_balance=True)
+
+    @public.get("/projects/{project_id}/runs")
+    def public_project_runs(project_id: str, limit: int = Query(50, ge=1, le=100),
+                            user: User = Depends(api_user), db: Session = Depends(db_session)) -> list[dict]:
+        row = public_project(db, user.id, project_id)
+        runs = db.scalars(select(ControlRun).where(ControlRun.user_id == user.id, ControlRun.project_id == row.id)
+                         .order_by(ControlRun.created_at.desc(), ControlRun.id.desc()).limit(limit)).all()
+        devices = {d.device_id: d for d in db.scalars(select(AgentDevice).where(AgentDevice.user_id == user.id,
+                   AgentDevice.device_id.in_([run.device_id for run in runs if run.device_id])))}
+        return [run_payload(run, devices.get(run.device_id)) for run in runs]
+
+    @public.get("/projects/{project_id}/runs/{run_id}")
+    def public_run(project_id: str, run_id: str, user: User = Depends(api_user),
+                   db: Session = Depends(db_session)) -> dict:
+        row = public_project(db, user.id, project_id)
+        run = db.scalar(select(ControlRun).where(ControlRun.id == run_id, ControlRun.user_id == user.id,
+                                                 ControlRun.project_id == row.id))
+        if not run:
+            raise HTTPException(404, "Проверка не найдена")
+        device = db.scalar(select(AgentDevice).where(AgentDevice.user_id == user.id,
+                           AgentDevice.device_id == run.device_id)) if run.device_id else None
+        return run_payload(run, device)
+
+    @public.get("/projects/{project_id}/answers")
+    def public_answers(project_id: str, date_from: date, date_to: date, service: str | None = Query(None, max_length=40),
+                       after_id: int = Query(0, ge=0, le=2_147_483_647), limit: int = Query(50, ge=1, le=100),
+                       user: User = Depends(api_user), db: Session = Depends(db_session)) -> AnswersPage:
+        project = public_project(db, user.id, project_id)
+        if date_to < date_from:
+            raise HTTPException(422, "Дата окончания должна быть не раньше даты начала")
+        query = select(CloudResult).where(
+            CloudResult.user_id == user.id, CloudResult.project_id == project.id, CloudResult.id > after_id,
+            CloudResult.scan_date.between(date_from.isoformat(), date_to.isoformat()))
+        if service:
+            query = query.where(CloudResult.service == service)
+        rows = db.scalars(query.order_by(CloudResult.id).limit(limit + 1)).all()
+        corrections = {item["result_id"]: item for item in json.loads(project.config_json).get(FEEDBACK_KEY, [])}
+        return AnswersPage(items=[
+            SavedAnswer(id=row.id, run_id=row.run_id, query_id=row.query_id, query_text=row.query_text,
+                        group_tag=row.group_tag, service=row.service, scan_date=row.scan_date,
+                        status=effective_status(row, corrections.get(row.id)), original_status=row.status,
+                        answer_text=row.answer_text, evidence_quote=row.evidence_quote,
+                        error_message=public_error(row.error_message), sources=json.loads(row.sources_json or "[]"))
+            for row in rows[:limit]
+        ], next_after_id=rows[limit - 1].id if len(rows) > limit else None)
 
     @router.get("/projects/{project_id}/members")
     def members(project_id: str, user=Depends(web_user), db=Depends(db_session)):
@@ -810,8 +978,12 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         if project_id is None:
             raise HTTPException(404, "Проверка не найдена")
         project, _ = project_access(db, user.id, project_id, edit=True, lock=True)
+        return command_run(db, project, run_id, body)
+
+    def command_run(db: Session, project: ControlProject, run_id: str, body: CommandIn) -> dict:
         row = db.scalar(select(ControlRun).where(ControlRun.id == run_id,
-            ControlRun.project_id == project.id).with_for_update().execution_options(populate_existing=True))
+            ControlRun.project_id == project.id, ControlRun.user_id == project.user_id)
+                        .with_for_update().execution_options(populate_existing=True))
         if row is None:
             raise HTTPException(404, "Проверка не найдена")
         if row.state in TERMINAL and not (body.action == "stop" and row.state == "cancelled"):
@@ -819,6 +991,8 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         if row.state == "cancelled":
             return {"ok": True}
         row.desired_state = {"pause": "paused", "resume": "running", "stop": "cancelled"}[body.action]
+        if body.action == "stop":
+            row.retry_at = None
         if body.action == "stop" and (row.state == "queued" or
                 (row.phase == "agent" and row.lease_until and aware(row.lease_until) < utcnow())):
             from server.checks import complete_check
@@ -832,6 +1006,11 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
             row.lease_token = None
         row.updated_at = utcnow(); db.commit()
         return {"ok": True}
+
+    @public.post("/projects/{project_id}/runs/{run_id}/command")
+    def public_command(project_id: str, run_id: str, body: CommandIn,
+                       user: User = Depends(api_user), db: Session = Depends(db_session)) -> dict:
+        return command_run(db, public_project(db, user.id, project_id, lock=True), run_id, body)
 
     @router.get("/devices")
     def devices(user=Depends(web_user), db=Depends(db_session)):
@@ -1028,6 +1207,7 @@ def register_control(app, db_session, current_user, sessions, *, check_price_kop
         return {"state": row.state}
 
     app.include_router(router)
+    app.include_router(public)
     scheduler = None
 
     @app.on_event("startup")

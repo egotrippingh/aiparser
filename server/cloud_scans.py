@@ -30,6 +30,7 @@ from server import provider_tasks, scrapeless
 
 LEASE = timedelta(minutes=5)
 MODEL_SLOTS = threading.BoundedSemaphore(20)
+COMPLETE_PRIMARY_ATTEMPTS = 5
 
 
 def _pairs(snapshot):
@@ -49,13 +50,13 @@ def _claim(sessions, blocked_services=()):
         busy_owner = select(active.id).where(active.user_id == ControlRun.user_id,
             active.id != ControlRun.id, active.phase == "cloud", active.lease_token.is_not(None),
             active.lease_until >= now).exists()
-        base = (select(ControlRun).where(ControlRun.phase == "cloud",
-            ~busy_owner,
+        eligible = and_(ControlRun.phase == "cloud",
             ControlRun.state.in_(("queued", "running", "paused")),
             or_(ControlRun.desired_state != "paused", select(ProviderTask.check_id).where(
                 ProviderTask.run_id == ControlRun.id, ProviderTask.state == "submitted").exists()),
             or_(ControlRun.retry_at.is_(None), ControlRun.retry_at <= now),
             or_(ControlRun.lease_until.is_(None), ControlRun.lease_until < now))
+        base = (select(ControlRun).where(eligible, ~busy_owner)
             .order_by(ControlRun.created_at, ControlRun.id))
         cursor = None
         while True:
@@ -89,9 +90,7 @@ def _claim(sessions, blocked_services=()):
                         db.rollback()
                         continue
                 token = uuid.uuid4().hex
-                result = db.execute(update(ControlRun).where(ControlRun.id == run.id,
-                    ControlRun.phase == "cloud", ControlRun.state.in_(("queued", "running", "paused")),
-                    or_(ControlRun.lease_until.is_(None), ControlRun.lease_until < now))
+                result = db.execute(update(ControlRun).where(ControlRun.id == run.id, eligible)
                     .values(lease_token=token, lease_until=now + LEASE, state="running", updated_at=now)
                     .execution_options(synchronize_session=False))
                 if result.rowcount == 1:
@@ -210,9 +209,11 @@ def _analyze_saved(sessions, run_id, token, check_id, content, ai_client):
             return None
         if run.desired_state != "running" and not (check and check.analysis_json):
             return None
+        complete = json.loads(run.snapshot_json).get("collection_policy") == "complete"
         with db.no_autoflush:
             return analyze_check(db, user, check_id, "", content, ai_client,
-                retry_saved=bool(check.analysis_attempts), accumulate_usage=True)
+                retry_saved=bool(check.analysis_attempts), accumulate_usage=True,
+                saved_attempt_limit=COMPLETE_PRIMARY_ATTEMPTS if complete else 4)
 
 
 def _arbitrate_saved(sessions, run_id, token, check_id, content, ai_client):
@@ -309,7 +310,7 @@ def _defer_or_cancel(sessions, run_id, token, snapshot, query, service, check_id
 
 
 def _finish_exhausted(sessions, run_id, token, snapshot, query, service, check_id, payload, stage,
-                      *, keep_lease=False):
+                      *, terminal_error=None, keep_lease=False):
     """Turn an exhausted model budget into one durable error and settled/released check."""
     with sessions() as db:
         run = _owned_locked(db, run_id, token)
@@ -322,22 +323,59 @@ def _finish_exhausted(sessions, run_id, token, snapshot, query, service, check_i
             return False
         attempts = check.analysis_attempts if stage == "analysis" else check.arbitration_attempts
         cached = check.analysis_json if stage == "analysis" else check.arbitration_json
-        if attempts < 4 or cached:
+        complete_primary = stage == "analysis" and snapshot.get("collection_policy") == "complete"
+        if cached or (not terminal_error and attempts < (COMPLETE_PRIMARY_ATTEMPTS if complete_primary else 4)):
             return None
-        if snapshot.get("collection_policy") == "complete":
-            run.state = run.desired_state = "paused"
-            run.error = "Сохранённый ответ ожидает проверки лимита анализа администратором"
-            if not keep_lease:
-                run.lease_token = run.lease_until = None
+        if run.desired_state != "running":
+            _finish_item(db, run, snapshot, keep_lease=keep_lease)
             db.commit()
             return True
         complete_check(db, db.get(User, run.user_id), check_id, "error", commit=False)
-        error = ("Не удалось проанализировать ответ: исчерпан лимит попыток" if stage == "analysis"
-                 else "Не удалось разрешить спорный результат: исчерпан лимит попыток")
+        error = terminal_error or ("Не удалось проанализировать ответ: исчерпан лимит попыток" if stage == "analysis"
+                                   else "Не удалось разрешить спорный результат: исчерпан лимит попыток")
         _record(db, run, snapshot, query, service, check_id, payload, status="error", error=error)
         _finish_item(db, run, snapshot, keep_lease=keep_lease)
         db.commit()
         return True
+
+
+def _delay_retry(run, seconds):
+    due = utcnow() + timedelta(seconds=seconds)
+    current = run.retry_at
+    if current is None or (current if current.tzinfo else current.replace(tzinfo=timezone.utc)) < due:
+        run.retry_at = due
+
+
+def _handle_model_failure(sessions, run_id, token, snapshot, query, service, check_id, payload,
+                          stage, exc, keep_lease):
+    disposition = _defer_or_cancel(sessions, run_id, token, snapshot, query, service,
+        check_id, payload, keep_lease=keep_lease)
+    if disposition is not None:
+        return disposition
+    complete = snapshot.get("collection_policy") == "complete"
+    rate = exc.__cause__
+    terminal_error = None
+    if complete and isinstance(rate, AIRetryAfter) and not rate.retryable:
+        terminal_error = "Лимит сервиса анализа исчерпан; исходный ответ сохранён"
+    exhausted = _finish_exhausted(sessions, run_id, token, snapshot, query, service,
+        check_id, payload, stage, terminal_error=terminal_error, keep_lease=keep_lease)
+    if exhausted is not None:
+        return exhausted
+    with sessions() as db:
+        run = _owned_locked(db, run_id, token)
+        if run:
+            if run.desired_state == "running":
+                run.state = "paused"
+                if complete:
+                    _delay_retry(run, max(30, rate.seconds) if isinstance(rate, AIRetryAfter) else 30)
+                else:
+                    run.desired_state = "paused"
+                run.error = ("Сохранённый ответ ожидает повторного анализа" if stage == "analysis"
+                             else "Сохранённый ответ ожидает повторного арбитража")
+            if not keep_lease:
+                run.lease_token = run.lease_until = None
+            db.commit()
+    return True
 
 
 def _yield_shutdown(sessions, run_id, token):
@@ -401,7 +439,7 @@ async def _stream_run(sessions, run_id, token, snapshot, ai_client, price,
             run = _owned_locked(db, run_id, token)
             if run and (run.desired_state == "running" or retry):
                 if retry:
-                    run.retry_at = utcnow() + timedelta(seconds=30)
+                    _delay_retry(run, 30)
                     run.state = "paused"
                 else:
                     run.desired_state = "paused"
@@ -741,7 +779,7 @@ async def _cloud_tick(sessions, ai_client, price, collector_factory,
 
 
 async def _model_response(fn, sessions, run_id, token, check_id, content, ai_client,
-                          shutdown_event, semaphore):
+                          shutdown_event, semaphore, *, durable_retry=False):
     async def invoke():
         if shutdown_event and shutdown_event.is_set():
             return None
@@ -765,7 +803,7 @@ async def _model_response(fn, sessions, run_id, token, check_id, content, ai_cli
                 return await invoke()
         except HTTPException as exc:
             rate = exc.__cause__
-            if not isinstance(rate, AIRetryAfter) or not rate.retryable:
+            if durable_retry or not isinstance(rate, AIRetryAfter) or not rate.retryable:
                 raise
             with sessions() as db:
                 owner_id = db.scalar(select(ControlRun.user_id).where(ControlRun.id == run_id))
@@ -823,6 +861,7 @@ async def _process_saved_pair(sessions, ai_client, run_id, token, snapshot, quer
     rule = rules.evaluate(payload.get("main_text") or answer, sources, snapshot["brand_name"],
         config.get("brand_aliases", []), config.get("brand_domains", []), card_text=cards)
     clarification = config.get("brand_clarification", "")
+    durable_retry = snapshot.get("collection_policy") == "complete"
     llm = None
     # Cloud routing is server-owned; project payloads cannot suppress a
     # required semantic check by supplying a legacy client llm_mode.
@@ -835,7 +874,7 @@ async def _process_saved_pair(sessions, ai_client, run_id, token, snapshot, quer
             if shutdown_event and shutdown_event.is_set():
                 return False if keep_lease else _yield_shutdown(sessions, run_id, token)
             response = await _model_response(_analyze_saved, sessions, run_id, token, check_id,
-                content, ai_client, shutdown_event, model_semaphore)
+                content, ai_client, shutdown_event, model_semaphore, durable_retry=durable_retry)
             if response is None:
                 return _defer_or_cancel(sessions, run_id, token, snapshot, query, service,
                     check_id, payload, keep_lease=keep_lease) or False
@@ -844,27 +883,8 @@ async def _process_saved_pair(sessions, ai_client, run_id, token, snapshot, quer
                 _clear_invalid_verdict(sessions, run_id, token, check_id, "analysis", response["raw"])
                 raise ValueError("Модель вернула неполное решение")
         except (HTTPException, ValueError) as exc:
-            disposition = _defer_or_cancel(sessions, run_id, token, snapshot, query, service,
-                check_id, payload, keep_lease=keep_lease)
-            if disposition is not None:
-                return disposition
-            exhausted = _finish_exhausted(sessions, run_id, token, snapshot, query, service,
-                check_id, payload, "analysis", keep_lease=keep_lease)
-            if exhausted is not None:
-                return exhausted
-            with sessions() as db:
-                run = _owned_locked(db, run_id, token)
-                if run:
-                    run.state = "paused"
-                    if snapshot.get("collection_policy") == "complete":
-                        run.retry_at = utcnow() + timedelta(seconds=30)
-                    else:
-                        run.desired_state = "paused"
-                    run.error = "Сохранённый ответ ожидает повторного анализа"
-                    if not keep_lease:
-                        run.lease_token = run.lease_until = None
-                    db.commit()
-            return True
+            return _handle_model_failure(sessions, run_id, token, snapshot, query, service,
+                check_id, payload, "analysis", exc, keep_lease)
     verdict = merge(rule, llm, confidence_threshold=0.7, semantic_authoritative=bool(clarification))
     if verdict.needs_review and llm is not None:
         text = content[0]["text"] + "\n\nНезависимо проверь исходные доказательства и вынеси решение."
@@ -872,7 +892,8 @@ async def _process_saved_pair(sessions, ai_client, run_id, token, snapshot, quer
             if shutdown_event and shutdown_event.is_set():
                 return False if keep_lease else _yield_shutdown(sessions, run_id, token)
             response = await _model_response(_arbitrate_saved, sessions, run_id, token, check_id,
-                [{"type": "text", "text": text}], ai_client, shutdown_event, model_semaphore)
+                [{"type": "text", "text": text}], ai_client, shutdown_event, model_semaphore,
+                durable_retry=durable_retry)
             if response is None:
                 return _defer_or_cancel(sessions, run_id, token, snapshot, query, service,
                     check_id, payload, keep_lease=keep_lease) or False
@@ -881,28 +902,9 @@ async def _process_saved_pair(sessions, ai_client, run_id, token, snapshot, quer
                 _clear_invalid_verdict(sessions, run_id, token, check_id, "arbitration", response["raw"])
                 raise ValueError("Арбитр вернул неполное решение")
             verdict = with_arbiter(verdict, arbiter)
-        except (HTTPException, ValueError):
-            disposition = _defer_or_cancel(sessions, run_id, token, snapshot, query, service,
-                check_id, payload, keep_lease=keep_lease)
-            if disposition is not None:
-                return disposition
-            exhausted = _finish_exhausted(sessions, run_id, token, snapshot, query, service,
-                check_id, payload, "arbitration", keep_lease=keep_lease)
-            if exhausted is not None:
-                return exhausted
-            with sessions() as db:
-                run = _owned_locked(db, run_id, token)
-                if run:
-                    run.state = "paused"
-                    if snapshot.get("collection_policy") == "complete":
-                        run.retry_at = utcnow() + timedelta(seconds=30)
-                    else:
-                        run.desired_state = "paused"
-                    run.error = "Сохранённый ответ ожидает повторного арбитража"
-                    if not keep_lease:
-                        run.lease_token = run.lease_until = None
-                    db.commit()
-            return True
+        except (HTTPException, ValueError) as exc:
+            return _handle_model_failure(sessions, run_id, token, snapshot, query, service,
+                check_id, payload, "arbitration", exc, keep_lease)
     with sessions() as db:
         run = _owned_locked(db, run_id, token)
         if not run:
