@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>AIRate · Дизайн-система</title>
+  <link rel="icon" href="/assets/brand/airate.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./tokens.css">
+  <link rel="stylesheet" href="./stand.css">
+  <script type="module" src="./stand.js"></script>
+</head>
+<body>
+  <a href="#main" class="skip">К содержанию</a>
+  <header class="topbar">
+    <div class="container topline">
+      <a class="brand" href="#main" aria-label="аирейт, начало страницы"><img class="brand-icon" src="./aireyt-quote.svg" alt="" width="28" height="28"><img src="./aireyt-wordmark.svg" alt="" width="136" height="38"></a>
+      <nav aria-label="Разделы дизайн-системы">
+        <a href="#logo">Логотип</a><a href="#color">Цвет</a><a href="#type">Типографика</a><a href="#layout">Сетка</a>
+        <a href="#components">Компоненты</a><a href="#data">Данные</a><a href="#motion">Lottie</a>
+      </nav>
+      <span class="version">DESKTOP / V01</span>
+    </div>
+  </header>
+
+  <main id="main" class="container" tabindex="-1">
+    <section class="cover" aria-labelledby="title">
+      <div class="cover-copy">
+        <p class="eyebrow"><span></span> AIRATE UI KIT</p>
+        <h1 id="title">Дизайн-система<br> AIRate<span>.</span></h1>
+        <p>Тёмная тема для сайта и кабинета. Цвет, типографика и компоненты на примере отчёта по упоминаниям.</p>
+        <a class="btn primary" href="#components">Компоненты <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a>
+      </div>
+      <figure class="dashboard">
+        <figcaption><strong>Видимость бренда</strong><span class="sample">Пример отчёта</span></figcaption>
+        <div class="dash-body">
+          <div class="metric-row">
+            <div><span>Видимость</span><strong>52,1%</strong></div>
+            <div><span>Упоминания</span><strong>609</strong></div>
+            <div><span>Запросы</span><strong>303</strong></div>
+          </div>
+          <div class="plot">
+            <span>Доля ответов с упоминанием</span>
+            <div class="plot-body" role="img" aria-label="Пример: видимость выросла с 33 до 52,1 процента">
+              <div class="axis" aria-hidden="true"><span>60%</span><span>40%</span><span>20%</span></div>
+              <div class="chart" aria-hidden="true">
+                <svg viewBox="0 0 420 116" preserveAspectRatio="none">
+                  <defs><linearGradient id="area" x2="0" y2="1"><stop offset="0%" stop-color="var(--chart-1)" stop-opacity=".24"/><stop offset="100%" stop-color="var(--chart-1)" stop-opacity="0"/></linearGradient></defs>
+                  <path fill="url(#area)" d="M0 78 70 88 140 64 210 68 280 47 350 53 420 23V116H0Z"/>
+                  <path d="M0 78 70 88 140 64 210 68 280 47 350 53 420 23" fill="none" stroke="var(--chart-1)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+                </svg>
+              </div>
+            </div>
+            <div class="dates" aria-hidden="true"><span>12 ноября</span><span>18 ноября</span></div>
+          </div>
+        </div>
+      </figure>
+    </section>
+
+    <section class="chapter" id="logo" aria-labelledby="logo-title">
+      <div class="section-heading">
+        <h2 id="logo-title">Знак «аирейт»</h2>
+        <p>Для логотипа выбрали «Цитату». Она обозначает фрагмент ответа ИИ, где назван бренд.</p>
+      </div>
+      <div class="brand-options">
+        <figure class="wordmark-preview panel">
+          <div class="brand-preview">
+            <img class="brand-icon" src="./aireyt-quote.svg" alt="" width="50" height="50">
+            <img src="./aireyt-wordmark.svg" alt="аирейт" width="645" height="180">
+          </div>
+          <figcaption>
+            <div><h3>01 · Цитата · выбранный знак</h3><p>Фрагмент ответа, в котором ИИ назвал бренд.</p></div>
+            <div class="mark-size"><img src="./aireyt-quote.svg" alt="" width="16" height="16"><code>16 px</code></div>
+            <a class="btn compact" href="./aireyt-quote.svg" download aria-label="Скачать SVG: Цитата">SVG</a>
+          </figcaption>
+        </figure>
+        <figure class="wordmark-preview panel">
+          <div class="brand-preview">
+            <img class="brand-icon" src="./aireyt-mention.svg" alt="" width="50" height="50">
+            <img src="./aireyt-wordmark.svg" alt="аирейт" width="645" height="180">
+          </div>
+          <figcaption>
+            <div><h3>02 · Упоминание</h3><p>Одна строка выделена в тексте ответа.</p></div>
+            <div class="mark-size"><img src="./aireyt-mention.svg" alt="" width="16" height="16"><code>16 px</code></div>
+            <a class="btn compact" href="./aireyt-mention.svg" download aria-label="Скачать SVG: Упоминание">SVG</a>
+          </figcaption>
+        </figure>
+        <figure class="wordmark-preview panel">
+          <div class="brand-preview">
+            <img class="brand-icon" src="./aireyt-echo.svg" alt="" width="50" height="50">
+            <img src="./aireyt-wordmark.svg" alt="аирейт" width="645" height="180">
+          </div>
+          <figcaption>
+            <div><h3>03 · Эхо</h3><p>Одно упоминание повторяется в разных ИИ-сервисах.</p></div>
+            <div class="mark-size"><img src="./aireyt-echo.svg" alt="" width="16" height="16"><code>16 px</code></div>
+            <a class="btn compact" href="./aireyt-echo.svg" download aria-label="Скачать SVG: Эхо">SVG</a>
+          </figcaption>
+        </figure>
+        <figure class="wordmark-preview panel">
+          <div class="brand-preview">
+            <img class="brand-icon" src="./aireyt-signal.svg" alt="" width="50" height="50">
+            <img src="./aireyt-wordmark.svg" alt="аирейт" width="645" height="180">
+          </div>
+          <figcaption>
+            <div><h3>04 · Общий сигнал</h3><p>Несколько ответов сходятся в один отчёт.</p></div>
+            <div class="mark-size"><img src="./aireyt-signal.svg" alt="" width="16" height="16"><code>16 px</code></div>
+            <a class="btn compact" href="./aireyt-signal.svg" download aria-label="Скачать SVG: Общий сигнал">SVG</a>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="chapter" id="color" aria-label="Цвет">
+      <div class="section-heading"><h2>Цвет</h2><p>Три уровня поверхности. Светлая кнопка выделяет основное действие, лавандовый отмечает бренд и ключевую серию отчёта.</p></div>
+      <ul class="swatches">
+        <li><div class="swatch" style="background:var(--bg)"></div><strong>Фон</strong><code>#101012 · --bg</code></li>
+        <li><div class="swatch" style="background:var(--surface)"></div><strong>Панель</strong><code>#18181B · --surface</code></li>
+        <li><div class="swatch" style="background:var(--raised)"></div><strong>Поднятая панель</strong><code>#222226 · --raised</code></li>
+        <li><div class="swatch" style="background:var(--line)"></div><strong>Разделитель</strong><code>#333337 · --line</code></li>
+        <li><div class="swatch" style="background:var(--line-control)"></div><strong>Граница поля</strong><code>#72727A · --line-control</code></li>
+        <li><div class="swatch" style="background:var(--text)"></div><strong>Основной текст</strong><code>#F7F4EF · --text</code></li>
+        <li><div class="swatch" style="background:var(--muted)"></div><strong>Вторичный текст</strong><code>#A4A2A9 · --muted</code></li>
+        <li><div class="swatch" style="background:var(--accent)"></div><strong>Фирменный акцент</strong><code>#B6A8FF · --accent</code></li>
+        <li><div class="swatch" style="background:var(--ok)"></div><strong>Успех</strong><code>#2BC180 · --ok</code></li>
+        <li><div class="swatch" style="background:var(--warning)"></div><strong>Требует внимания</strong><code>#DEA021 · --warning</code></li>
+        <li><div class="swatch" style="background:var(--danger)"></div><strong>Ошибка</strong><code>#FF5965 · --danger</code></li>
+        <li><div class="swatch" style="background:var(--info)"></div><strong>Информация</strong><code>#7394FB · --info</code></li>
+      </ul>
+    </section>
+
+    <section class="chapter" id="type" aria-label="Типографика">
+      <div class="section-heading"><h2>Типографика</h2><p>Onest для интерфейса и заголовков. Моноширинный шрифт для имён токенов и кода.</p></div>
+      <div class="type-list">
+        <div><code>DISPLAY / 64</code><span class="type-display">Упоминания в ИИ</span></div>
+        <div><code>H1 / 48</code><span class="type-h1">Отчёт по бренду</span></div>
+        <div><code>H2 / 32</code><span class="type-h2">Источники ответов</span></div>
+        <div><code>H3 / 20</code><span class="type-h3">Последний скан</span></div>
+        <div><code>BODY / 16</code><span>Сравните долю ответов с упоминанием за неделю.</span></div>
+        <div><code>SMALL / 14</code><span class="type-small">В отчёт вошли 303 запроса.</span></div>
+        <div><code>META / 12</code><code class="text">12–18.11.2026</code></div>
+      </div>
+    </section>
+
+    <section class="chapter" id="layout" aria-label="Сетка и интервалы">
+      <div class="section-heading"><h2>Сетка и интервалы</h2><p>Поля от 48 px на десктопе, 24 px между колонками. На 1440 px рабочая ширина 1280 px.</p></div>
+      <div class="layout-card panel">
+        <div class="grid-preview" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <p class="type-small">12 колонок · 1280 px · шаг 24 px</p>
+        <ul class="spacing" aria-label="Шкала отступов"><li><span style="width:var(--space-1)"></span><code>4 px</code></li><li><span style="width:var(--space-2)"></span><code>8 px</code></li><li><span style="width:var(--space-3)"></span><code>12 px</code></li><li><span style="width:var(--space-4)"></span><code>16 px</code></li><li><span style="width:var(--space-5)"></span><code>24 px</code></li><li><span style="width:var(--space-6)"></span><code>32 px</code></li><li><span style="width:var(--space-7)"></span><code>48 px</code></li><li><span style="width:var(--space-8)"></span><code>64 px</code></li><li><span style="width:var(--space-9)"></span><code>96 px</code></li></ul>
+      </div>
+    </section>
+
+    <section class="chapter" id="components" aria-label="Компоненты">
+      <div class="section-heading"><h2>Компоненты</h2><p>Кнопки, поля и подсказки для главной, входа и 404. Базовая высота 44 px, в плотных панелях 36 px.</p></div>
+      <div class="component-grid">
+        <section class="panel specimen">
+          <h3>Кнопки</h3>
+          <div class="button-grid">
+            <div><code>ОСНОВНАЯ</code><button class="btn primary" type="button" data-open>Открыть пример <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></button></div>
+            <div><code>ВТОРИЧНАЯ</code><a class="btn" href="#data">Отчёт по бренду</a></div>
+            <div><code>ССЫЛКА</code><a class="btn quiet" href="#motion">Открыть Lottie <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a></div>
+            <div><code>НЕДОСТУПНА</code><button class="btn primary" type="button" disabled>Отправить код</button></div>
+            <div><code>ФОКУС</code><a class="btn demo-focus" href="#type">К типографике</a></div>
+            <div><code>ОЖИДАНИЕ</code><button class="btn" type="button" disabled><span class="spinner" aria-hidden="true"></span> Отправляем…</button></div>
+          </div>
+        </section>
+        <section class="panel specimen">
+          <h3>Поля</h3>
+          <div class="fields">
+            <div class="field"><label for="email">Электронная почта</label><input id="email" type="email" autocomplete="off" aria-describedby="email-hint" placeholder="name@example.com"><small id="email-hint">На эту почту придёт код для входа.</small></div>
+            <div class="field"><label for="code">Код из письма</label><input id="code" value="243" inputmode="numeric" aria-invalid="true" aria-describedby="code-error"><small id="code-error" class="error">Введите все 6 цифр кода.</small></div>
+            <label class="check"><input type="checkbox"> Запомнить на этом устройстве</label>
+          </div>
+        </section>
+        <section class="panel specimen states">
+          <h3>Статусы</h3>
+          <ul class="status-row">
+            <li><span class="badge ok">Готово</span></li><li><span class="badge info">В очереди</span></li>
+            <li><span class="badge warning">Проверка прервана</span></li><li><span class="badge danger">Ошибка</span></li>
+          </ul>
+          <details><summary>Проверка прервана</summary><p>Часть ответов уже в отчёте. Запустите проверку оставшихся запросов.</p></details>
+        </section>
+      </div>
+    </section>
+
+    <section class="chapter" id="data" aria-label="Данные">
+      <div class="section-heading"><h2>Данные</h2><p>Таблица с явными статусами. Цвет серии помогает читать график, подпись объясняет показатель.</p></div>
+      <div class="table-wrap panel" tabindex="0" role="region" aria-label="Пример таблицы отчёта">
+        <table>
+          <caption>Ответы из последней проверки <span>Демонстрационные данные</span></caption>
+          <thead><tr><th scope="col">Запрос</th><th scope="col">Сервис</th><th scope="col">Упоминание</th><th scope="col">Статус</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Сервисы мониторинга бренда</th><td>ChatGPT</td><td>Есть</td><td><span class="badge ok">Готово</span></td></tr>
+            <tr><th scope="row">Как отслеживать ответы ИИ</th><td>Perplexity</td><td>Нет</td><td><span class="badge ok">Готово</span></td></tr>
+            <tr><th scope="row">Инструменты для SEO-агентств</th><td>Google AI Overview</td><td>Ожидается</td><td><span class="badge info">В очереди</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="chapter" id="motion" aria-label="Lottie главной">
+      <div class="section-heading"><h2>Lottie главной</h2><p>Текущая анимация сканирования. При редизайне сохраняем композицию, движение и тайминги. Можно изменить акцентные цвета.</p></div>
+      <figure class="motion-card panel">
+        <figcaption><strong>Как сканируются ответы</strong><button class="btn compact" id="play" type="button">Воспроизвести</button></figcaption>
+        <div class="motion-frame" id="motion-frame">
+          <img id="still" src="/assets/landing/hero-desktop-static-v13.webp" alt="Пять ИИ-сервисов передают результаты в отчёт AIRate" width="1000" height="400" loading="lazy">
+          <div id="lottie" aria-hidden="true"></div>
+        </div>
+        <p id="motion-status" class="type-small" role="status"></p>
+      </figure>
+    </section>
+
+    <footer class="footer"><a class="brand" href="#main" aria-label="аирейт, в начало"><img class="brand-icon" src="./aireyt-quote.svg" alt="" width="28" height="28"><img src="./aireyt-wordmark.svg" alt="" width="136" height="38"></a><span>Дизайн-система · Desktop V01</span></footer>
+  </main>
+
+  <dialog id="example" aria-labelledby="dialog-title">
+    <form method="dialog">
+      <h2 id="dialog-title">Удалить запрос?</h2>
+      <p>Запрос исчезнет из следующей проверки. В этом примере данные не сохраняются.</p>
+      <div class="dialog-actions"><button class="btn" autofocus>Отмена</button><button class="btn negative">Удалить</button></div>
+    </form>
+  </dialog>
+</body>
+</html>
