@@ -104,6 +104,7 @@ class FeedbackIn(BaseModel):
 class ReviewOptions(BaseModel):
     include_retired: bool = True
     search: str = Field(default="", max_length=200)
+    run_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     status: Literal["", "found", "not_found", "error", "skipped", "captcha", "auth_required", "limit_reached"] = ""
     offset: int = Field(default=0, ge=0)
     limit: int = Field(default=50, ge=1, le=100)
@@ -188,6 +189,8 @@ def register_scan_feedback(app, db_session, current_user, screenshot_storage=Non
                            CloudResult.query_text.icontains(options.search, autoescape=True))
         if options.status:
             filters.append(CloudResult.status == options.status)
+        if options.run_id:
+            filters.append(CloudResult.run_id == options.run_id)
         scope = select(CloudResult, User.email).join(User, User.id == CloudResult.user_id).where(*filters)
         total = db.scalar(select(func.count()).select_from(scope.subquery()))
         columns = [CloudResult.id, CloudResult.user_id, CloudResult.project_id, CloudResult.project_name,

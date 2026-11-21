@@ -72,6 +72,7 @@ export default defineConfig({
         privacy: path.resolve(import.meta.dirname, 'privacy/index.html'),
         landing: path.resolve(import.meta.dirname, 'index.html'),
         cabinet: path.resolve(import.meta.dirname, 'cabinet/index.html'),
+        admin: path.resolve(import.meta.dirname, 'admin/index.html'),
         docs: path.resolve(import.meta.dirname, 'docs/index.html'),
       },
     },

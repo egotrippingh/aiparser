@@ -73,7 +73,11 @@ def balances(monkeypatch, handler):
 
 
 def test_real_balance_contracts_and_separate_subscription(monkeypatch, caplog):
+    monkeypatch.setenv('OPENROUTER_API_KEY', 'SECRET_INFERENCE')
     def handler(request):
+        if request.url.path == '/api/v1/key':
+            assert request.headers['Authorization'] == 'Bearer SECRET_INFERENCE'
+            return httpx.Response(200, json={'data': {'usage_monthly': 1.31009, 'label': 'SECRET_LABEL'}})
         if request.url.host == 'openrouter.ai':
             assert request.headers['Authorization'] == 'Bearer SECRET_ROUTER'
             return httpx.Response(200, json={'data': {'total_credits': 15, 'total_usage': 2.005}})
@@ -85,6 +89,7 @@ def test_real_balance_contracts_and_separate_subscription(monkeypatch, caplog):
         return httpx.Response(200, text='256.724')
     rows = balances(monkeypatch, handler)
     assert [r['balance'] for r in rows] == ['12.995', '10', '256.724']
+    assert rows[0]['usage_monthly_usd'] == '1.31009'
     assert rows[1]['details'][1]['amount'] == '3.705'
     assert rows[1]['currency'] == 'USD'
     assert rows[1]['details'][2]['currency'] == 'CREDITS'

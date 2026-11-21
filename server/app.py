@@ -14,6 +14,7 @@ from datetime import timedelta, timezone
 from email.headerregistry import Address
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.exception_handlers import http_exception_handler
@@ -26,6 +27,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from server.admin_sessions import ADMIN_COOKIE, admin_token_hash, register_admin_sessions
 from server.agent_schemas import AgentHeartbeatIn, CloudResultsIn, ScanPreferencesIn
 from server.api_keys import KEY_PATH, PUBLIC_PREFIX, register_api_keys
 from server.ai import OpenRouterAI
@@ -229,6 +231,19 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
     if screenshot_storage is None:
         screenshot_storage = ScreenshotStorage.from_env()
     public_base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+    admin_base = os.environ.get("ADMIN_BASE_URL", "").rstrip("/")
+    if public_base == "https://airate.tech" and not admin_base:
+        admin_base = "https://admin.airate.tech"
+    admin_origin = urlsplit(admin_base)
+    if admin_base and (
+        admin_origin.netloc == urlsplit(public_base).netloc or not admin_origin.hostname
+        or admin_origin.username is not None or admin_origin.path or admin_origin.query or admin_origin.fragment
+        or (admin_origin.scheme != "https" and not (
+            admin_origin.scheme == "http" and admin_origin.hostname in {"localhost", "127.0.0.1"}
+        ))
+        or not urlsplit(public_base).netloc
+    ):
+        raise RuntimeError("ADMIN_BASE_URL должен указывать на отдельный origin")
     if password_mailer is None and os.environ.get("SMTP_HOST"):
         password_mailer = PasswordMailer(
             os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT", "587")),
@@ -317,6 +332,8 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
 
     @app.middleware("http")
     async def browser_session_boundary(request: Request, call_next):
+        if admin_base and request.url.netloc == admin_origin.netloc:
+            return await call_next(request)
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             browser = request.headers.get("x-ai-client") == "browser"
             cookie_auth = bool(request.cookies.get(COOKIE_NAME)) and not request.headers.get("authorization")
@@ -329,12 +346,13 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
 
     def current_user(request: Request, authorization: Annotated[str | None, Header()] = None,
                      db: Session = Depends(db_session)) -> User:
-        token = request_token(request)
+        admin_host = bool(admin_base and request.url.netloc == admin_origin.netloc)
+        token = request.cookies.get(ADMIN_COOKIE, "") if admin_host else request_token(request)
         if not token:
             raise HTTPException(401, "Войдите в аккаунт")
         if len(token) > 200 or not token.isascii():
             raise HTTPException(401, "Недействительная сессия")
-        session = db.get(SessionToken, token_hash(token))
+        session = db.get(SessionToken, admin_token_hash(token) if admin_host else token_hash(token))
         if not session:
             raise HTTPException(401, "Недействительная сессия")
         expires = session.expires_at
@@ -409,6 +427,8 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
     register_scan_feedback(app, db_session, current_user, screenshot_storage)
     from server.admin import register_admin
     register_admin(app, db_session, current_user, _email)
+    if admin_base:
+        register_admin_sessions(app, db_session, current_user, public_base, admin_base)
 
     @app.get("/api/v1/auth/connect/{identifier}")
     def connect_login_info(identifier: str, response: Response, db: Session = Depends(db_session)):
@@ -1403,7 +1423,9 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         app.mount("/assets", StaticFiles(directory=web_dir / "assets"), name="assets")
 
         @app.api_route("/robots.txt", methods=["GET", "HEAD"], include_in_schema=False)
-        def robots() -> FileResponse:
+        def robots(request: Request) -> Response:
+            if admin_base and request.url.netloc == admin_origin.netloc:
+                return Response("User-agent: *\nDisallow: /\n", media_type="text/plain")
             return FileResponse(web_dir / "robots.txt", media_type="text/plain",
                                 headers={"Cache-Control": "no-cache"})
 
@@ -1412,8 +1434,10 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
             return FileResponse(web_dir / "sitemap.xml", media_type="application/xml",
                                 headers={"Cache-Control": "no-cache"})
 
-        @app.get("/", include_in_schema=False)
-        def landing() -> FileResponse:
+        @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
+        def landing(request: Request) -> FileResponse:
+            if admin_base and request.url.netloc == admin_origin.netloc:
+                return FileResponse(web_dir / "admin" / "index.html")
             return FileResponse(web_dir / "index.html", headers={"Cache-Control": "no-cache"})
 
         @app.get("/favicon.svg", include_in_schema=False)

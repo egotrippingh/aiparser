@@ -35,8 +35,8 @@ test.each(['index.html', 'docs/index.html', 'terms/index.html', 'privacy/index.h
   },
 )
 
-test('cabinet keeps authentication and private reports outside Metrika', () => {
-  const html = readFileSync(new URL('./cabinet/index.html', import.meta.url), 'utf8')
+test.each(['cabinet', 'admin'])('%s keeps authentication and private data outside Metrika', entry => {
+  const html = readFileSync(new URL(`./${entry}/index.html`, import.meta.url), 'utf8')
   expect(html).not.toContain('mc.yandex.ru')
   expect(html).not.toContain('114026759')
 })

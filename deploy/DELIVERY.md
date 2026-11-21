@@ -77,6 +77,25 @@ GitHub environment/branch-protection availability for private repositories
 depends on the account plan. Check those controls before changing visibility;
 do not move environment secrets into unrestricted PR jobs as a workaround.
 
+## Admin console rollout
+
+The operator console uses `https://admin.airate.tech`. Prepare the DNS record for
+`admin.airate.tech` on the current VPS and install the reviewed
+`deploy/Caddyfile` before merging the first admin console release. Caddy is
+installed separately from the application image. Validate the new file and
+confirm the subdomain presents a valid TLS certificate and reaches the existing
+app before activating the image.
+
+After deployment, check the admin hostname serves the console and returns
+401 for an unauthenticated request to `/api/v1/admin/session`. The public
+hostname must return 404 for the admin API. Verify administrator sign-in via
+the cabinet, access to the dashboard, and logout. The main site's session
+and the admin console session use distinct host-only cookies.
+
+On application rollback to an image that predates the console, remove the
+admin virtual host from Caddy and reload its previous config. The prior
+image still provides administration in the main cabinet.
+
 ## VPS files and recovery
 
 ### Check tariff from 20 October 2026
