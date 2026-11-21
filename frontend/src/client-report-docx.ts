@@ -3,10 +3,10 @@ import {
   Paragraph, Table, TableCell, TableLayoutType, TableRow, TextRun, WidthType, type IParagraphOptions,
 } from "docx"
 import { chartSize, clientReportCharts } from "./client-report-charts"
-import { reportInk, reportLine, reportMethod, reportMuted, reportNavy, reportTint, reportTitle, type ClientReport } from "./client-report"
+import { reportInk, reportLine, reportMethod, reportMuted, reportNavy, reportTint, reportTitle, reportWarm, type ClientReport } from "./client-report"
 
 const navy = reportNavy.slice(1), ink = reportInk.slice(1), muted = reportMuted.slice(1)
-const widths = [5618, 1600, 1600, 1400]
+const widths = [1960, 3658, 1600, 1600, 1400]
 const pageWidth = widths.reduce((total, width) => total + width, 0)
 const border = { style: BorderStyle.SINGLE, size: 4, color: reportLine.slice(1) }
 const noBorder = { style: BorderStyle.NONE }
@@ -17,27 +17,30 @@ const hint = (text: string) => new Paragraph({
 const heading = (text: string, level: typeof HeadingLevel.HEADING_1 | typeof HeadingLevel.HEADING_2) =>
   new Paragraph({ heading: level, spacing: { before: 240, after: 75 }, keepNext: true, children: [new TextRun({ text, color: navy, bold: true })] })
 
-function changeTable(headers: string[], rows: string[][]) {
+function changeTable(headers: string[], { rows, color }: ClientReport["tables"][number]) {
   return new Table({
     columnWidths: widths, width: { type: WidthType.DXA, size: pageWidth }, layout: TableLayoutType.FIXED,
     borders: { top: border, bottom: border, insideHorizontal: border, left: noBorder, right: noBorder, insideVertical: noBorder },
     margins: { top: 85, bottom: 85, left: 110, right: 110 },
     rows: [headers, ...rows].map((row, index) => new TableRow({
       tableHeader: index === 0,
-      children: row.map((value, column) => new TableCell({
+      children: row.map((text, column) => new TableCell({
         width: { size: widths[column], type: WidthType.DXA },
-        shading: { fill: index === 0 ? navy : index % 2 === 0 ? reportTint.slice(1) : "FFFFFF" },
-        children: value.split("\n").map((text, line) => new Paragraph({
-          alignment: column ? AlignmentType.RIGHT : AlignmentType.LEFT,
-          children: [new TextRun({ text, size: line ? 17 : 19, color: index === 0 ? "FFFFFF" : line ? muted : ink, bold: index === 0 })],
-        })),
+        shading: { fill: index === 0 ? reportWarm.slice(1) : index % 2 === 0 ? reportTint.slice(1) : "FFFFFF" },
+        children: [new Paragraph({
+          alignment: column < 2 ? AlignmentType.LEFT : AlignmentType.RIGHT,
+          children: [new TextRun({
+            text, size: 19, color: index > 0 && column === row.length - 1 ? color.slice(1) : ink,
+            bold: index === 0 || column === row.length - 1,
+          })],
+        })],
       })),
     })),
   })
 }
 
-export function clientReportDocx(report: ClientReport) {
-  const charts = clientReportCharts(report)
+export async function clientReportDocx(report: ClientReport) {
+  const charts = await clientReportCharts(report)
   const metric = (text: string, size: number, bold: boolean, color: string, options: IParagraphOptions) =>
     new Paragraph({ ...options, children: [new TextRun({ text, size, bold, color })] })
   const metrics = new Table({
@@ -77,7 +80,7 @@ export function clientReportDocx(report: ClientReport) {
         hint(report.changeSummary),
         ...(report.comparison ? report.tables.flatMap(table => [
           heading(table.title, HeadingLevel.HEADING_2),
-          table.rows.length ? changeTable(report.tableHeaders, table.rows) : hint(table.empty),
+          table.rows.length ? changeTable(report.tableHeaders, table) : hint(table.empty),
         ]) : []),
         heading("Методика", HeadingLevel.HEADING_2),
         hint(reportMethod),

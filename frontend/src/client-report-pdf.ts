@@ -2,14 +2,15 @@ import pdfMake from "pdfmake/build/pdfmake"
 import fonts from "pdfmake/build/vfs_fonts"
 import type { Content, TableCell, TDocumentDefinitions } from "pdfmake/interfaces"
 import { clientReportCharts } from "./client-report-charts"
-import { reportInk, reportLine, reportMethod, reportMuted, reportNavy, reportTint, reportTitle, type ClientReport } from "./client-report"
+import { reportInk, reportLine, reportMethod, reportMuted, reportNavy, reportTint, reportTitle, reportWarm, type ClientReport } from "./client-report"
 
 pdfMake.addVirtualFileSystem(fonts)
 
 // The table lays out to the longest unbroken token, including URLs and imported queries.
-const wrap = (text: string) => text.replace(/\S{24}(?=\S)/gu, "$&\u200B")
+const wrap = (text: string, limit = 24) => text.replace(new RegExp(`\\S{${limit}}(?=\\S)`, "gu"), "$&\u200B")
 
-export function clientReportPdf(report: ClientReport) {
+export async function clientReportPdf(report: ClientReport) {
+  const charts = await clientReportCharts(report)
   const content: Content[] = [
     { text: "AIRate", color: reportNavy, bold: true, fontSize: 14, margin: [0, 0, 0, 15] },
     { text: reportTitle, fontSize: 26, bold: true, margin: [0, 0, 0, 7] },
@@ -22,7 +23,7 @@ export function clientReportPdf(report: ClientReport) {
         stack: [{ text: value, fontSize: 23, color: reportNavy, bold: true }, { text: label, style: "note" }],
       })),
     },
-    { image: clientReportCharts(report).url, width: 511 },
+    { image: charts.url, width: 511 },
     ...(report.dates.length > 0 ? [{ text: `Даты отчёта: ${report.dates.join(", ")}`, style: "dates" }] : []),
     { text: "Динамика по запросам", style: "heading" },
     { text: report.changeSummary, style: "note" },
@@ -30,11 +31,15 @@ export function clientReportPdf(report: ClientReport) {
       { text: table.title, style: "subheading", headlineLevel: 1 },
       table.rows.length ? {
         table: {
-          widths: ["*", 65, 65, 54], headerRows: 1,
+          widths: [85, "*", 62, 62, 58], headerRows: 1,
           body: [
-            report.tableHeaders.map((text, index) => ({ text, alignment: index ? "right" : "left", fillColor: reportNavy, color: "#FFFFFF", bold: true })),
+            report.tableHeaders.map((text, column) => ({ text, alignment: column < 2 ? "left" : "right", fillColor: reportWarm, bold: true })),
             ...table.rows.map((row, index) => row.map<TableCell>((text, column) => ({
-              text: column ? text : wrap(text), alignment: column ? "right" : "left", fillColor: index % 2 ? reportTint : "#FFFFFF",
+              text: column < 2 ? wrap(text, column === 0 ? 8 : 18) : text,
+              alignment: column < 2 ? "left" : "right",
+              fillColor: index % 2 ? reportTint : "#FFFFFF",
+              color: column === row.length - 1 ? table.color : reportInk,
+              bold: column === row.length - 1,
             }))),
           ],
         },

@@ -22,7 +22,7 @@ const report: Parameters<typeof clientReport>[1] = {
   rows: [
     row("Малый рост", trend(0, 1)),
     row("Снижение", trend(2, 1)),
-    row("Большой рост", trend(0, 2), trend(1, 0)),
+    { ...row("Большой рост", trend(0, 2), trend(1, 0)), group_tag: "Бренд" },
     row("Ровно", trend(1, 1)),
     row("Пропущена система", trend(2, 0, 1)),
   ],
@@ -32,17 +32,19 @@ test("client report uses actual selected scans and includes all comparable mover
   const doc = clientReport("Демо", report, settings)
   expect(doc).toMatchObject({
     period: "01.11.2026 — 20.11.2026", dates: ["04.11.2026", "19.11.2026"],
-    tableHeaders: ["Запрос", "04.11.2026", "19.11.2026", "Изм., п. п."],
+    tableHeaders: ["Группа", "Запрос", "04.11.2026", "19.11.2026", "Изм., %"],
     changeSummary: "Рост — 2 · Снижение — 1 · Без изменений — 1 · Недостаточно данных — 1",
   })
   expect(doc.metrics[0].value).toBe("37,5%")
   expect(doc.outcomes.map(item => item.value)).toEqual([6, 5, 2, 1, 2])
   expect(doc.services.map(item => item.value)).toEqual([50, 0])
+  expect(doc.services.map(item => item.icon)).toEqual(["/assets/services/chatgpt.svg?v=20261012", "/assets/services/gemini.png"])
+  expect(doc.tables.map(table => table.color)).toEqual(["#207657", "#BE483F"])
   expect(doc.tables[0].rows).toEqual([
-    ["Большой рост", "0%", "100%", "+100"],
-    ["Малый рост", "0%", "50%", "+50"],
+    ["Бренд", "Большой рост", "0%", "100%", "+100%"],
+    ["Без группы", "Малый рост", "0%", "50%", "+50%"],
   ])
-  expect(doc.tables[1].rows).toEqual([["Снижение", "100%", "50%", "-50"]])
+  expect(doc.tables[1].rows).toEqual([["Без группы", "Снижение", "100%", "50%", "-50%"]])
 })
 
 test("two-date comparisons use calendar edges and the matching trend", () => {
@@ -50,7 +52,7 @@ test("two-date comparisons use calendar edges and the matching trend", () => {
   expect(doc.comparison).toEqual(["01.11.2026", "20.11.2026"])
   expect(doc.mode).toContain("Сводка за 20.11.2026")
   expect(doc.filterNotes).toBe("Группа: Без группы · Поиск: «тест» · Карточки товаров исключены · Учитываются упоминания со ссылкой на домен бренда")
-  expect(doc.tables[1].rows.map(row => row[0])).toEqual(["Снижение", "Большой рост"])
+  expect(doc.tables[1].rows.map(row => row[1])).toEqual(["Снижение", "Большой рост"])
 })
 
 test("one date or no data does not create false movements", () => {

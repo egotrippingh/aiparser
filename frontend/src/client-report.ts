@@ -1,12 +1,15 @@
 import type { Report } from "./report-view"
-import { serviceColors, serviceName } from "./service-mark"
+import { serviceIconUrl, serviceName } from "./service-mark"
 
-export const reportInk = "#223249"
+export const reportInk = "#242E3D"
 export const reportNavy = "#153D75"
-export const reportMuted = "#53667F"
-export const reportLine = "#DCE5EF"
-export const reportTint = "#F5F8FC"
-const accent = "#F25C37"
+export const reportMuted = "#586578"
+export const reportLine = "#E4E8ED"
+export const reportTint = "#F5F7FA"
+export const reportWarm = "#FFF0E9"
+export const reportAccent = "#F25C37"
+const green = "#207657"
+const red = "#BE483F"
 const percent = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 })
 export const reportPercent = (value: number | null) => value === null ? "—" : `${percent.format(value)}%`
 const reportDate = (iso: string) => iso.split("-").reverse().join(".")
@@ -21,14 +24,14 @@ export function clientReport(project: string, report: Input, filters: ReportFilt
   const comparison = from && to && from !== to ? [reportDate(from), reportDate(to)] as const : null
   const { checked, found, skipped, issues, total, visibility_pct } = report.summary
   const outcomes = [
-    { label: "С упоминанием", value: found, color: accent },
-    { label: "Без упоминания", value: checked - found - skipped, color: "#236AC6" },
-    { label: "Без ИИ-блока", value: skipped, color: "#6685AA" },
-    { label: "Ошибки", value: issues, color: "#A74460" },
-    { label: "Без результата", value: total - checked - issues, color: "#D4DDE8" },
+    { label: "С упоминанием", value: found, color: reportAccent },
+    { label: "Без упоминания", value: checked - found - skipped, color: "#8390A0" },
+    { label: "Без ИИ-блока", value: skipped, color: "#BECADA" },
+    { label: "Ошибки", value: issues, color: red },
+    { label: "Без результата", value: total - checked - issues, color: reportLine },
   ]
   const services = report.services.map(id => ({
-    label: serviceName(id), value: report.service_stats[id].current.visibility_pct, color: serviceColors[id],
+    label: serviceName(id), value: report.service_stats[id].current.visibility_pct, icon: serviceIconUrl(id),
   }))
   let unchanged = 0, unavailable = 0
   const changes = report.rows.flatMap(row => {
@@ -66,15 +69,15 @@ export function clientReport(project: string, report: Input, filters: ReportFilt
     changeSummary: comparison
       ? `Рост — ${increased.length} · Снижение — ${decreased.length} · Без изменений — ${unchanged} · Недостаточно данных — ${unavailable}`
       : report.rows.length ? "Для сравнения нужны проверки за две разные даты." : "В выбранном периоде нет запросов.",
-    tableHeaders: ["Запрос", comparison?.[0] ?? "Было", comparison?.[1] ?? "Стало", "Изм., п. п."],
+    tableHeaders: ["Группа", "Запрос", comparison?.[0] ?? "Было", comparison?.[1] ?? "Стало", "Изм., %"],
     tables: [
-      { title: "Рост упоминаемости", empty: "Запросов с ростом нет.", rows: increased },
-      { title: "Снижение упоминаемости", empty: "Запросов со снижением нет.", rows: decreased },
+      { title: "Рост упоминаемости", empty: "Запросов с ростом нет.", color: green, rows: increased },
+      { title: "Снижение упоминаемости", empty: "Запросов со снижением нет.", color: red, rows: decreased },
     ].map(table => ({
       ...table,
       rows: table.rows.map(row => [
-        row.group ? `${row.query}\n${row.group}` : row.query, reportPercent(row.from), reportPercent(row.to),
-        `${row.delta > 0 ? "+" : ""}${percent.format(row.delta)}`,
+        row.group || "Без группы", row.query, reportPercent(row.from), reportPercent(row.to),
+        `${row.delta > 0 ? "+" : ""}${reportPercent(row.delta)}`,
       ]),
     })),
   }
@@ -82,4 +85,4 @@ export function clientReport(project: string, report: Input, filters: ReportFilt
 
 export type ClientReport = ReturnType<typeof clientReport>
 export const reportTitle = "Отчёт об упоминаемости в ИИ"
-export const reportMethod = "Упоминаемость — доля ответов с упоминанием от всех возможных проверок в выбранных датах и ИИ-системах. Запросы сравниваются, когда для обеих дат получены результаты по всем выбранным ИИ-системам. Отсутствие ИИ-блока учитывается как результат без упоминания."
+export const reportMethod = "Упоминаемость — доля ответов с упоминанием от всех возможных проверок в выбранных датах и ИИ-системах. В столбце «Изм., %» показана разница между значениями за две даты. Запросы сравниваются при наличии результатов по всем выбранным ИИ-системам на обе даты. Отсутствие ИИ-блока учитывается как результат без упоминания."

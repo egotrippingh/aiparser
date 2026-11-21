@@ -45,8 +45,8 @@ Updated 2026-11-03. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 `codex/client-reports` is based on production `5948bfe`. Project visibility
 reports can be downloaded as PDF or DOCX using the XLSX calendar selection.
-Both formats include a check breakdown, visibility by AI service, and changes
-for queries with complete results on both comparison dates. The local
+Both formats include a check breakdown, rounded visibility bars with service
+icons, and color-coded query changes with a separate group column. The local
 preview uses disposable data. Independent review, 147 frontend tests,
 34 reporting tests, lint, the build, and desktop and narrow browser downloads
 passed. Next step is approval of the report preview before release.
