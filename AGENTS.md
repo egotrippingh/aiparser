@@ -20,7 +20,7 @@ Communicate in Russian; keep code and commit messages consistent with nearby fil
 |---|---|---|
 | Windows agent | `app/main.py`, `desktop.py`; `app/control_agent.py` → `app/scanner/orchestrator.py` → adapters → durable capture → analysis/result/outbox | `app/AGENTS.md`; session changes: `docs/session-preservation.md` |
 | Server | `server/app.py`; `server/control.py` runs/devices; `server/models.py` storage; `server/reporting.py`, `server/scan_feedback.py` reports | `server/AGENTS.md`; `server/README.md` for setup |
-| REST API and MCP | `/api/v1/public`; `integrations/airate_mcp.py` | [MCP setup and REST changes](docs/airate-mcp.md) |
+| REST API and MCP | `/api/v1/public`; `integrations/mcp/server.mjs` | [MCP setup and REST changes](docs/airate-mcp.md) |
 | UI | `frontend/src/` React/TypeScript; `frontend/vite.config.ts` builds the tracked `web/` directory | `frontend/AGENTS.md`; `PRODUCT.md`, `DESIGN.md` for interface work |
 | Delivery | `.github/workflows/delivery.yml`, `deploy/`, `scripts/build-*.ps1`, `scripts/publish-agent.py` | `deploy/DELIVERY.md`; `docs/updater.md` for agent releases |
 

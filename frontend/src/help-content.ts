@@ -1,4 +1,5 @@
 import { QUERY_IMPORT_EXAMPLE } from "./query-import.ts"
+import mcpPackage from "../../integrations/mcp/package.json" with { type: "json" }
 
 export type HelpArticle = {
   slug: string
@@ -8,12 +9,14 @@ export type HelpArticle = {
   sections: { id: string; title: string; body: string[]; steps?: string[]; code?: string; links?: { label: string; href: string; download?: boolean }[] }[]
 }
 
-const airateMcpArgs = ["run", "--script", "C:/Users/you/AIRate/airate_mcp.py"]
+const airateMcpPath = `/assets/mcp/airate-mcp-${mcpPackage.version}.tgz`
+const airateMcpPackageArg = `--package=https://airate.tech${airateMcpPath}`
+const airateMcpArgs = ["/d", "/c", "npx", "--yes", "--ignore-scripts", airateMcpPackageArg, "airate-mcp"]
 
 function mcpJson(apiKey: string, options: { type?: "stdio"; tools?: string[] } = {}) {
   return JSON.stringify({
     mcpServers: {
-      airate: { command: "uv", args: airateMcpArgs, env: { AIRATE_API_KEY: apiKey }, ...options },
+      airate: { command: "cmd.exe", args: airateMcpArgs, env: { AIRATE_API_KEY: apiKey }, ...options },
     },
   }, null, 2)
 }
@@ -253,16 +256,16 @@ export const HELP_ARTICLES: HelpArticle[] = [
     slug: "mcp", label: "MCP", title: "MCP для AIRate",
     summary: "Подключите AIRate к клиенту с поддержкой локальных MCP-серверов, чтобы работать с проектами, проверками и сохранёнными ответами из диалога с агентом.",
     sections: [
-      { id: "install", title: "Что нужно для подключения", body: [
-        "При первом запуске uv подготовит Python и зависимости. Затем выберите свой клиент ниже и подставьте полный путь к скачанному файлу вместо пути из примера. На Windows можно оставить прямые слеши.",
-        "Если в конфигурации уже есть MCP-серверы, добавьте airate рядом с ними. Храните ключ в переменной окружения или в личных настройках клиента. Не вставляйте его в чат и не добавляйте в репозиторий.",
+      { id: "install", title: "Установка через npm", body: [
+        "Установите Node.js 22 или новее. npm и npx входят в комплект. Добавьте настройки для своего клиента ниже. При первом запуске npx скачает пакет Аирейт.",
+        "Примеры ниже для Windows. На macOS и Linux укажите npx в поле command и уберите первые три элемента из args: /d, /c и npx.",
       ], steps: [
-        "Установите uv и проверьте его в терминале командой uv --version.",
-        "Сохраните airate_mcp.py в постоянной папке на компьютере.",
-        "В AIRate откройте «Настройки аккаунта» → «REST API» → «Создать ключ». Для примеров, которые читают переменную AIRATE_API_KEY, задайте её в окружении пользователя до запуска клиента.",
-      ], links: [
-        { label: "Скачать airate_mcp.py", href: "/assets/mcp/airate_mcp.py", download: true },
-        { label: "Установить uv на Windows, macOS или Linux", href: "https://docs.astral.sh/uv/getting-started/installation/" },
+        "В AIRate откройте «Настройки аккаунта» → «REST API» → «Создать ключ». Если пример читает переменную AIRATE_API_KEY, задайте её в окружении пользователя до запуска клиента.",
+        "Добавьте airate рядом с существующими MCP-серверами. Храните ключ в окружении или в личных настройках клиента, вне чата и репозитория.",
+        "Проверьте установку в терминале. Команда скачает пакет и выведет его версию.",
+      ], code: `npx --yes --ignore-scripts ${airateMcpPackageArg} airate-mcp --version`, links: [
+        { label: "Скачать Node.js", href: "https://nodejs.org/en/download" },
+        { label: "Скачать npm-пакет Аирейт", href: airateMcpPath, download: true },
       ] },
       { id: "claude", title: "Claude Desktop", body: [
         "Откройте Settings → Developer → Edit Config. Добавьте airate в личный файл claude_desktop_config.json и подставьте свой ключ вместо ВСТАВЬТЕ_КЛЮЧ. Полностью закройте и снова откройте Claude Desktop. Сервер airate появится в списке подключений.",
@@ -273,7 +276,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
         "Добавьте блок в личный файл ~/.codex/config.toml и перезапустите Codex. Ключ будет прочитан из окружения. В терминале выполните codex mcp list, а в сессии Codex откройте /mcp, чтобы увидеть инструменты.",
       ], code: [
         "[mcp_servers.airate]",
-        'command = "uv"',
+        'command = "cmd.exe"',
         `args = ${JSON.stringify(airateMcpArgs)}`,
         'env_vars = ["AIRATE_API_KEY"]',
         "startup_timeout_sec = 120",
@@ -313,9 +316,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
         { label: "Документация REST API", href: "/docs/api/" },
       ] },
       { id: "connect-errors", title: "Если MCP не подключается", body: [
-        "Если клиент не находит uv, укажите полный путь к uv или uv.exe в поле command. Если не найден скрипт, сверьте абсолютный путь в args. При таймауте первого запуска выполните uv run --script с путём к файлу в терминале, дождитесь установки зависимостей и остановите процесс через Ctrl+C. Затем перезапустите клиент.",
+        "Если клиент не находит npx, проверьте, что установлен Node.js, а затем перезапустите клиент. Если первый запуск не успевает скачать пакет, сначала выполните команду с --version в терминале. После загрузки пакета перезапустите клиент.",
         "При ошибке 401 проверьте, что клиент получил AIRATE_API_KEY и ключ по-прежнему действует. После ротации ключа обновите переменную и перезапустите клиент.",
-        "Чтобы обновить MCP, скачайте свежий airate_mcp.py, замените локальный файл и перезапустите клиент, чтобы перечитать список инструментов.",
+        "Для обновления скопируйте адрес новой версии пакета из примера для своего клиента и перезапустите клиент.",
       ] },
     ],
   },

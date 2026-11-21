@@ -43,10 +43,10 @@ Updated 2026-11-21. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 ## Prepared work and next action
 
 `codex/airate-mcp-site` is based on production `a88af39` and includes the MCP
-adapter from PR #98, separate REST API and MCP sections on the homepage, and
-a downloadable MCP script with setup guides for seven clients. Local preview
-checked the site, script download and discovery of all 13 tools. Next step is
-owner approval of the preview, then delivery CI and release.
+tools from PR #98 in a Node.js package, separate REST API and MCP sections on
+the homepage, and setup guides for seven clients. The website build packages
+MCP as a versioned npm tarball. Next step is owner approval of the preview,
+then delivery CI and release.
 
 `codex/admin-wallet-topups` is based on production `f767a44`. The admin
 users section supports manual balance credits by email. Credits use the

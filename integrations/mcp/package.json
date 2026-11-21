@@ -1,0 +1,13 @@
+{
+  "name": "airate-mcp",
+  "version": "0.1.0",
+  "description": "AIRate MCP server for the public REST API",
+  "type": "module",
+  "bin": { "airate-mcp": "./cli.mjs" },
+  "files": ["cli.mjs", "server.mjs"],
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
+    "zod": "4.6.7"
+  }
+}

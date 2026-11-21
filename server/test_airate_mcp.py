@@ -1,23 +1,58 @@
 import asyncio
-import sys
+import shutil
+import socket
+from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
 
 import httpx
 import pytest
+import uvicorn
 from mcp import Client, StdioServerParameters
 
-from integrations.airate_mcp import create_server
 from server.api_keys import PUBLIC_PREFIX
 from server.models import ControlProject, Wallet
 from server.test_public_api import issue_key
 from server.test_reporting import seed_report
 
 
+MCP_DIR = Path(__file__).resolve().parents[1] / "integrations" / "mcp"
+
+
+@asynccontextmanager
+async def serve_local(app):
+    with socket.create_server(("127.0.0.1", 0)) as listener:
+        port = listener.getsockname()[1]
+        server = uvicorn.Server(uvicorn.Config(
+            app, lifespan="off", log_config=None, access_log=False, timeout_graceful_shutdown=2,
+        ))
+        task = asyncio.create_task(server.serve(sockets=[listener]))
+        try:
+            async with asyncio.timeout(10):
+                while not server.started:
+                    if task.done():
+                        await task
+                        raise RuntimeError("Test REST server exited before startup")
+                    await asyncio.sleep(0.01)
+            yield f"http://127.0.0.1:{port}"
+        finally:
+            server.should_exit = True
+            await task
+
+
+def mcp_client(script, key, *args):
+    node = shutil.which("node")
+    assert node, "Install Node.js and run npm ci --prefix integrations/mcp"
+    params = StdioServerParameters(
+        command=node, args=[str(MCP_DIR / script), *args], env={"AIRATE_API_KEY": key},
+    )
+    return Client(params, mode="legacy")
+
+
 def test_mcp_covers_public_rest_and_preserves_account_and_scan_contract(tmp_path, monkeypatch):
     monkeypatch.setenv("SCRAPELESS_API_KEY", "fake-key")
     cabinet, owner, other, _, historical, _, _ = seed_report(tmp_path)
-    headers = {"Authorization": "Bearer " + issue_key(cabinet, owner)["key"]}
+    owner_key = issue_key(cabinet, owner)["key"]
     other_key = issue_key(cabinet, other)["key"]
     app = cabinet.app
     exercised = set()
@@ -27,12 +62,9 @@ def test_mcp_covers_public_rest_and_preserves_account_and_scan_contract(tmp_path
         exercised.add((scope["method"].lower(), scope["route"].path))
 
     async def workflow():
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=record),
-            base_url="http://testserver" + PUBLIC_PREFIX + "/",
-            headers=headers,
-        ) as rest:
-            async with Client(create_server(rest)) as mcp:
+        async with asyncio.timeout(45), serve_local(record) as server_url:
+            base_url = server_url + PUBLIC_PREFIX + "/"
+            async with mcp_client("test-runner.mjs", owner_key, base_url) as mcp:
                 tools = {tool.name: tool for tool in (await mcp.list_tools()).tools}
                 assert tools["list_answers"].annotations.read_only_hint
                 assert tools["delete_query"].annotations.destructive_hint
@@ -87,13 +119,13 @@ def test_mcp_covers_public_rest_and_preserves_account_and_scan_contract(tmp_path
                 assert await call("delete_query", project_id=project_id, query_id=query["id"]) == {"ok": True}
                 assert await call("list_queries", project_id=project_id) == []
 
-                rest.headers["Authorization"] = "Bearer " + other_key
-                denied = await mcp.call_tool("get_project", {"project_id": project_id})
+            async with mcp_client("test-runner.mjs", other_key, base_url) as other_client:
+                denied = await other_client.call_tool("get_project", {"project_id": project_id})
                 assert denied.is_error and "HTTP 404" in denied.content[0].text
-                rest.headers["Authorization"] = other["Authorization"]
-                invalid = await mcp.call_tool("list_projects")
+            async with mcp_client("test-runner.mjs", "invalid-api-key", base_url) as invalid_client:
+                invalid = await invalid_client.call_tool("list_projects")
                 assert invalid.is_error and "HTTP 401" in invalid.content[0].text
-                assert len(tools) == len(exercised)
+            assert len(tools) == len(exercised)
 
     asyncio.run(workflow())
     public_operations = {
@@ -117,15 +149,18 @@ def test_mcp_covers_public_rest_and_preserves_account_and_scan_contract(tmp_path
 def test_mcp_returns_errors_without_network_retries(response, error):
     calls = []
 
-    def handle(request):
-        calls.append(request.url.path)
-        if response is None:
-            raise httpx.ReadTimeout("fake credential must not appear in the result", request=request)
-        return response
+    async def handle(scope, receive, send):
+        calls.append(scope["path"])
+        status = response.status_code if response is not None else 200
+        headers = response.headers.raw if response is not None else [
+            (b"content-type", b"application/json"), (b"content-length", b"99"),
+        ]
+        await send({"type": "http.response.start", "status": status, "headers": headers})
+        await send({"type": "http.response.body", "body": response.content if response is not None else b"{}"})
 
     async def run():
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handle), base_url="https://rest.test/") as rest:
-            async with Client(create_server(rest)) as mcp:
+        async with asyncio.timeout(25), serve_local(handle) as base_url:
+            async with mcp_client("test-runner.mjs", "fake credential", base_url + "/") as mcp:
                 invalid = await mcp.call_tool("get_project", {"project_id": "../api-key"})
                 assert invalid.is_error and calls == []
                 result = await mcp.call_tool("launch_scan", {
@@ -140,11 +175,8 @@ def test_mcp_returns_errors_without_network_retries(response, error):
 
 
 def test_stdio_discovers_tools_with_a_legacy_client():
-    script = Path(__file__).resolve().parents[1] / "integrations" / "airate_mcp.py"
-
     async def run():
-        params = StdioServerParameters(command=sys.executable, args=[str(script)], env={"AIRATE_API_KEY": "test-only"})
-        async with asyncio.timeout(25), Client(params, mode="legacy") as mcp:
+        async with asyncio.timeout(25), mcp_client("cli.mjs", "test-only") as mcp:
             assert mcp.server_info.name == "AIRate"
             assert "list_projects" in {tool.name for tool in (await mcp.list_tools()).tools}
 

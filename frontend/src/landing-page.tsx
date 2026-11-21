@@ -168,7 +168,7 @@ export function LandingPage() {
             </figure>
             <div className="mcp-example__setup">
               <h3>Подключение</h3>
-              <p>Скачайте файл MCP, добавьте его в настройки Claude Desktop, Codex или Google Antigravity и укажите ключ Аирейт. При первом запуске uv установит всё необходимое.</p>
+              <p>Добавьте Аирейт в настройки Claude Desktop, Codex или Google Antigravity и укажите ключ. При первом запуске клиент скачает пакет через npx.</p>
             </div>
           </div>
         </div>

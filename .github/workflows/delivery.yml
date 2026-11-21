@@ -35,8 +35,13 @@ jobs:
           cache-dependency-path: |
             scripts/requirements-ci.txt
             server/requirements.txt
-            integrations/requirements-mcp.txt
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: integrations/mcp/package-lock.json
       - run: pip install -r scripts/requirements-ci.txt
+      - run: npm ci --ignore-scripts --prefix integrations/mcp
       - run: python -m pytest server -q --ignore=server/test_browser_addons.py --ignore=server/test_installed_data.py
         env:
           AIRATE_TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/airate_test
