@@ -44,6 +44,7 @@ HELP_PAGES = {
     "answers-and-sources": "Сохраните полученный файл.",
     "billing": "Один промокод применяется один раз на аккаунт.",
     "api": "Полный ключ виден только после выпуска.",
+    "mcp": "Покажи мои проекты в Аирейт",
     "troubleshooting": "Сам код присылать не нужно.",
 }
 
@@ -101,7 +102,18 @@ def test_homepage_ships_content_metadata_and_a_real_social_image(client):
     assert len(headings) == 1
     heading_text = " ".join(re.sub(r"<[^>]+>", " ", headings[0]).split())
     assert heading_text.replace(" .", ".") == "Узнайте, что ИИ говорит о вашем бренде."
-    assert "Подключите Аирейт к своему агенту" in html
+    assert "Встройте Аирейт в свои инструменты" in html
+    assert 'href="/docs/mcp/"' in html
+
+
+def test_mcp_guide_downloads_the_standalone_adapter(client):
+    guide = client.get("/docs/mcp/")
+    assert 'href="/assets/mcp/airate_mcp.py"' in guide.text
+    script = client.get("/assets/mcp/airate_mcp.py")
+    assert script.status_code == 200
+    assert script.text.startswith('# /// script\n# requires-python = ">=3.12"')
+    assert '"mcp==2.3.0"' in script.text
+    assert 'API_URL = "https://airate.tech/api/v1/public/"' in script.text
 
 
 def test_utility_pages_are_crawlable_but_not_indexable_and_unknown_pages_are_404(client):

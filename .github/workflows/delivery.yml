@@ -35,6 +35,7 @@ jobs:
           cache-dependency-path: |
             scripts/requirements-ci.txt
             server/requirements.txt
+            integrations/requirements-mcp.txt
       - run: pip install -r scripts/requirements-ci.txt
       - run: python -m pytest server -q --ignore=server/test_browser_addons.py --ignore=server/test_installed_data.py
         env:

@@ -44,6 +44,13 @@ export default defineConfig({
         }
         const urls = ['/', ...HELP_ARTICLES.map(helpHref)]
         await writeFile(path.resolve(import.meta.dirname, '../web/sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(url => `  <url><loc>https://airate.tech${url}</loc></url>`).join('\n')}\n</urlset>\n`)
+        const integrations = path.resolve(import.meta.dirname, '../integrations')
+        const requirements = await readFile(path.join(integrations, 'requirements-mcp.txt'), 'utf8')
+        const dependencies = requirements.split(/\r?\n/).map(line => line.trim()).filter(line => line && !line.startsWith('#'))
+        const script = (await readFile(path.join(integrations, 'airate_mcp.py'), 'utf8')).replace(/\r\n/g, '\n')
+        const mcpAssets = path.resolve(import.meta.dirname, '../web/assets/mcp')
+        await mkdir(mcpAssets, { recursive: true })
+        await writeFile(path.join(mcpAssets, 'airate_mcp.py'), `# /// script\n# requires-python = ">=3.12"\n# dependencies = ${JSON.stringify(dependencies)}\n# ///\n\n${script}`)
       } finally {
         await server.close()
       }

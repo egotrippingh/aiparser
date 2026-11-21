@@ -1,23 +1,21 @@
 # AIRate current project state
 
-Updated 2026-11-03. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
+Updated 2026-11-21. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
 
 ## Current release
 
-- Published and live verified: [PR #85](https://github.com/egotrippingh/aiparser/pull/85),
-  release `c21633d347f922f4da4ded5e0d23764b8589636d`. XMLRiver failures now retain
-  safe timeout/network/HTTP/API/malformed/incomplete/cancellation diagnostics in the
-  bounded task history. Retry timing, provider budgets and billing are unchanged.
-- Independent correctness/risk review passed. Exact-SHA CI passed 423 PostgreSQL
-  server tests, shared checks, 137 frontend tests, lint/build and image smoke.
-  Backup/isolated restore, public readiness and installed diagnostic smoke passed.
-  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39821835936).
-  Live ordinary-attempt diagnostics verified: API500 and incomplete/missing_content;
-  two user-authorized diagnostic requests confirmed empty AI content, then API500;
-  the second full XML was saved outside Git and its transfer hash verified.
-- Included: unlimited/free admin checks (#83), owner-only saved-answer recompute
-  and common-base mention dynamics (#82), durable scan recovery/report UI (#81),
-  tariff165/frozen run prices (#80), shared projects, cabinet, SEO and auth.
+- Published and live verified: [PR #99](https://github.com/egotrippingh/aiparser/pull/99),
+  release `a88af391c37f61b3a4c83d22a90a2af7932c36d7`. Includes the dark
+  SCSS/BEM design, cabinet refinements, PDF/DOCX client reports from PR #97,
+  and optional Yandex ID avatars.
+- PostgreSQL is at `20261121_yandex_avatar`. Migration and application rollback
+  passed on an isolated restore. A fresh production backup was restored separately,
+  and fingerprints of all pre-existing columns matched before and after migration.
+  The previous release's schema-compatible image is `airate-web:avatar-compat-5948bfee`.
+- [Production CI and deploy](https://github.com/egotrippingh/aiparser/actions/runs/44915058722)
+  passed, including checksum and backup restore. Live readiness matched the release.
+  Homepage, docs, HTTP 404, cabinet assets, PDF/DOCX modules and the optional
+  Yandex scope were verified.
 
 ## Architecture and operating rules
 
@@ -38,18 +36,17 @@ Updated 2026-11-03. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 - Real clarification scan, historical S3 recovery, paid recompute and live PostgreSQL
   upload/recompute race remain unverified. First real paid top-up email and signed-in
   multi-account Yandex choice remain unverified; Aeza SMTP ticket is not rechecked.
+- Live Yandex ID reauthorization with avatar consent remains unverified.
 - Off-VPS database backups are not confirmed; existing backups are VPS-local.
 - Search Console/Yandex Webmaster submission and actual indexing are not verified.
 
 ## Prepared work and next action
 
-`codex/airate-frontend-refresh` combines the dark SCSS design system,
-PDF/DOCX client reports from `codex/client-reports`, and optional Yandex
-avatars on production base `5948bfee`. Local frontend tests and compiled
-browser downloads passed. Production activation needs combined CI, backup
-and restore verification, a compatible rollback image and explicit admission
-of the nullable avatar migration. Administrative SSH for that step is unavailable.
-See [design system](frontend/design-system/README.md).
+`codex/airate-mcp-site` is based on production `a88af39` and includes the MCP
+adapter from PR #98, separate REST API and MCP sections on the homepage, and
+a downloadable MCP script with setup guides for seven clients. Local preview
+checked the site, script download and discovery of all 13 tools. Next step is
+owner approval of the preview, then delivery CI and release.
 
 `codex/admin-wallet-topups` is based on production `f767a44`. The admin
 users section supports manual balance credits by email. Credits use the
