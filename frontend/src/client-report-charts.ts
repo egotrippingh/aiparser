@@ -18,18 +18,10 @@ export async function clientReportCharts(report: ClientReport) {
     return image.decode().then(() => image, () => null)
   }))
 
-  function text(value: string, x: number, y: number, size = 13, color = reportTint, bold = false, outlinedWidth?: number) {
+  function text(value: string, x: number, y: number, size = 13, color = reportTint, bold = false) {
     ctx.font = `${bold ? "bold " : ""}${size}px Arial, sans-serif`
     ctx.fillStyle = color
-    if (outlinedWidth !== undefined) {
-      ctx.save()
-      ctx.lineWidth = 1.6
-      ctx.lineJoin = "round"
-      ctx.strokeStyle = reportSurface
-      ctx.strokeText(value, x, y, outlinedWidth)
-      ctx.restore()
-      ctx.fillText(value, x, y, outlinedWidth)
-    } else ctx.fillText(value, x, y)
+    ctx.fillText(value, x, y)
   }
 
   function barSegment(left: number, top: number, width: number, height: number, color: string, dashed = false) {
@@ -38,6 +30,8 @@ export async function clientReportCharts(report: ClientReport) {
     ctx.roundRect(left + stroke / 2, top + stroke / 2, width - stroke, height - stroke, Math.min(7, (height - stroke) / 2))
     if (dashed) {
       ctx.save()
+      ctx.fillStyle = reportSurface
+      ctx.fill()
       ctx.strokeStyle = color
       ctx.lineWidth = stroke
       ctx.lineCap = "round"
@@ -119,12 +113,15 @@ export async function clientReportCharts(report: ClientReport) {
     const top = baseline - height
     const delta = current - reference
     const capColor = delta > 0 ? reportChartIncrease : reportChartDecrease
-    const inside = capHeight >= 16
+    const inside = capHeight >= 13
     const left = x - width / 2
     if (baseHeight > 0) barSegment(left, baseline - baseHeight + gap, width, baseHeight - gap, reportAccent)
     if (capHeight > 0) barSegment(left, top, width, capHeight, capColor, delta < 0)
     text(reportPercent(value), x, top - (delta && !inside ? 23 : 11), 13, value === null ? reportChartMuted : reportTint, true)
-    if (delta) text(`${reportSigned(delta)}%`, x, inside ? top + capHeight / 2 : top - 10, 11, "#FFFFFF", true, inside ? width - 6 : undefined)
+    if (delta) {
+      text(`${reportSigned(delta)}%`, x, inside ? top + capHeight / 2 : top - 10,
+        inside ? 9 : 11, delta < 0 ? reportChartDecrease : "#FFFFFF", !inside)
+    }
     const icon = icons[index]
     if (icon) {
       const scale = 23 / Math.max(icon.naturalWidth, icon.naturalHeight)
