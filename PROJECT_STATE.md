@@ -43,13 +43,13 @@ Updated 2026-11-03. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Prepared work and next action
 
-`codex/airate-frontend-refresh` applies the dark SCSS design system to the
-homepage, cabinet, authentication, docs, legal pages and HTTP 404 on base
-`5948bfee`. The frontend instructions require shared tokens and BEM for
-component styles. Local Chromium checks at 1440, 390 and 320 px used a
-disposable cabinet database. Frontend and public routing tests passed.
-Yandex avatar and migration tests pass with a fake provider. Next action is
-review of the local routes. See [design system](frontend/design-system/README.md).
+`codex/airate-frontend-refresh` combines the dark SCSS design system,
+PDF/DOCX client reports from `codex/client-reports`, and optional Yandex
+avatars on production base `5948bfee`. Local frontend tests and compiled
+browser downloads passed. Production activation needs combined CI, backup
+and restore verification, a compatible rollback image and explicit admission
+of the nullable avatar migration. Administrative SSH for that step is unavailable.
+See [design system](frontend/design-system/README.md).
 
 `codex/admin-wallet-topups` is based on production `f767a44`. The admin
 users section supports manual balance credits by email. Credits use the

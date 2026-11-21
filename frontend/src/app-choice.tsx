@@ -10,8 +10,9 @@ export function choiceIndex(index: number, key: string, length: number) {
   return (index + (key === "ArrowUp" ? -1 : 1) + length) % length
 }
 
-export function AppChoice({ label, value, options, change, searchable = false, disabled = false }: {
+export function AppChoice({ label, value, options, change, searchable = false, disabled = false, icon }: {
   label: string; value: string; options: Choice[]; change: (value: string) => void; searchable?: boolean; disabled?: boolean
+  icon?: React.ReactNode
 }) {
   const id = useId(), menu = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false), [search, setSearch] = useState("")
@@ -22,16 +23,19 @@ export function AppChoice({ label, value, options, change, searchable = false, d
     buttons[choiceIndex(index, key, buttons.length)]?.focus()
   }
   return <div className="custom-select app-choice">
-    <button ref={trigger} className="choice-trigger" disabled={disabled} popoverTarget={id} aria-label={label}
+    <button ref={trigger} className={icon ? "btn icon-only" : "choice-trigger"} disabled={disabled} popoverTarget={id} aria-label={label}
+      title={icon ? label : undefined}
       aria-haspopup="listbox" aria-controls={id} aria-expanded={open} onKeyDown={event => {
         if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
           event.preventDefault(); menu.current?.showPopover(); move(event.key)
         }
-      }}><span>{options.find(option => option.value === value)?.label || label}</span><ChevronDown size={13}/></button>
+      }}>{icon || <><span>{options.find(option => option.value === value)?.label || label}</span><ChevronDown size={13}/></>}</button>
     <div id={id} ref={menu} popover="auto" className="choice-menu" onBeforeToggle={event => {
       if (event.newState !== "open" || !trigger.current) return
       const rect = trigger.current.getBoundingClientRect()
-      event.currentTarget.style.left = `${Math.max(10, Math.min(rect.left, innerWidth - 270))}px`
+      const alignRight = icon && rect.right >= 270
+      event.currentTarget.style.left = alignRight ? "auto" : `${Math.max(10, Math.min(rect.left, innerWidth - 270))}px`
+      event.currentTarget.style.right = alignRight ? `${Math.max(10, innerWidth - rect.right)}px` : "auto"
       event.currentTarget.style.top = `${rect.bottom}px`
     }} onToggle={event => {
       const expanded = event.newState === "open"; setOpen(expanded)
