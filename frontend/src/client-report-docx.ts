@@ -3,9 +3,9 @@ import {
   Paragraph, Table, TableCell, TableLayoutType, TableRow, TextRun, WidthType, type IParagraphOptions,
 } from "docx"
 import { chartSize, clientReportCharts } from "./client-report-charts"
-import { reportInk, reportLine, reportMethod, reportMuted, reportNavy, reportTint, reportTitle, reportWarm, type ClientReport } from "./client-report"
+import { reportInk, reportLine, reportMethod, reportMuted, reportHeading, reportTint, reportTitle, reportTableHeading, type ClientReport } from "./client-report"
 
-const navy = reportNavy.slice(1), ink = reportInk.slice(1), muted = reportMuted.slice(1)
+const headingColor = reportHeading.slice(1), ink = reportInk.slice(1), muted = reportMuted.slice(1)
 const widths = [1960, 3658, 1600, 1600, 1400]
 const pageWidth = widths.reduce((total, width) => total + width, 0)
 const border = { style: BorderStyle.SINGLE, size: 4, color: reportLine.slice(1) }
@@ -15,7 +15,7 @@ const hint = (text: string) => new Paragraph({
   children: [new TextRun({ text, size: 18, color: muted })],
 })
 const heading = (text: string, level: typeof HeadingLevel.HEADING_1 | typeof HeadingLevel.HEADING_2) =>
-  new Paragraph({ heading: level, spacing: { before: 240, after: 75 }, keepNext: true, children: [new TextRun({ text, color: navy, bold: true })] })
+  new Paragraph({ heading: level, spacing: { before: 240, after: 75 }, keepNext: true, children: [new TextRun({ text, color: headingColor, bold: true })] })
 
 function changeTable(headers: string[], { rows, color }: ClientReport["tables"][number]) {
   return new Table({
@@ -26,7 +26,7 @@ function changeTable(headers: string[], { rows, color }: ClientReport["tables"][
       tableHeader: index === 0,
       children: row.map((text, column) => new TableCell({
         width: { size: widths[column], type: WidthType.DXA },
-        shading: { fill: index === 0 ? reportWarm.slice(1) : index % 2 === 0 ? reportTint.slice(1) : "FFFFFF" },
+        shading: { fill: index === 0 ? reportTableHeading.slice(1) : index % 2 === 0 ? reportTint.slice(1) : "FFFFFF" },
         children: [new Paragraph({
           alignment: column < 2 ? AlignmentType.LEFT : AlignmentType.RIGHT,
           children: [new TextRun({
@@ -50,7 +50,7 @@ export async function clientReportDocx(report: ClientReport) {
     margins: { top: 90, bottom: 155, right: 85 },
     rows: [new TableRow({ cantSplit: true, children: report.metrics.map(({ label, value }) => new TableCell({
       width: { type: WidthType.DXA, size: Math.floor(pageWidth / 3) },
-      children: [metric(value, 44, true, navy, {}), metric(label, 18, false, muted, {})],
+      children: [metric(value, 44, true, headingColor, {}), metric(label, 18, false, muted, {})],
     })) })],
   })
   const doc = new Document({
@@ -65,9 +65,9 @@ export async function clientReportDocx(report: ClientReport) {
         children: [new TextRun({ color: muted, size: 18, children: ["AIRate  /  ", PageNumber.CURRENT, " из ", PageNumber.TOTAL_PAGES] })],
       })] }) },
       children: [
-        metric("AIRate", 28, true, navy, { spacing: { after: 235 } }),
+        metric("AIRate", 28, true, headingColor, { spacing: { after: 235 } }),
         metric(reportTitle, 48, true, "000000", { heading: HeadingLevel.TITLE, spacing: { after: 100 }, keepNext: true }),
-        metric(report.project, 32, true, navy, { spacing: { after: 80 } }),
+        metric(report.project, 32, true, headingColor, { spacing: { after: 80 } }),
         hint(`${report.period}  ·  ${report.mode}`),
         ...(report.filterNotes ? [hint(report.filterNotes)] : []),
         metrics,

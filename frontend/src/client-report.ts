@@ -1,13 +1,17 @@
 import type { Report } from "./report-view"
 import { serviceIconUrl, serviceName } from "./service-mark"
 
-export const reportInk = "#242E3D"
-export const reportNavy = "#153D75"
-export const reportMuted = "#586578"
-export const reportLine = "#E4E8ED"
-export const reportTint = "#F5F7FA"
-export const reportWarm = "#FFF0E9"
-export const reportAccent = "#F25C37"
+// AIRate redesign tokens, with darker text and status colors for white paper.
+export const reportInk = "#19142A"
+export const reportHeading = "#2C253E"
+export const reportMuted = "#5A5564"
+export const reportLine = "#E6E2EB"
+export const reportTint = "#F7F4EF"
+export const reportTableHeading = "#D6CEFF"
+export const reportAccent = "#B6A8FF"
+export const reportChartSurface = "#18181B"
+export const reportChartLine = "#333337"
+export const reportChartMuted = "#A4A2A9"
 const green = "#207657"
 const red = "#BE483F"
 const percent = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 })
@@ -25,13 +29,13 @@ export function clientReport(project: string, report: Input, filters: ReportFilt
   const { checked, found, skipped, issues, total, visibility_pct } = report.summary
   const outcomes = [
     { label: "С упоминанием", value: found, color: reportAccent },
-    { label: "Без упоминания", value: checked - found - skipped, color: "#8390A0" },
-    { label: "Без ИИ-блока", value: skipped, color: "#BECADA" },
-    { label: "Ошибки", value: issues, color: red },
-    { label: "Без результата", value: total - checked - issues, color: reportLine },
+    { label: "Без упоминания", value: checked - found - skipped, color: reportChartMuted },
+    { label: "Без ИИ-блока", value: skipped, color: "#72727A" },
+    { label: "Ошибки", value: issues, color: "#FF5965" },
+    { label: "Без результата", value: total - checked - issues, color: reportChartLine },
   ]
   const services = report.services.map(id => ({
-    label: serviceName(id), value: report.service_stats[id].current.visibility_pct, icon: serviceIconUrl(id),
+    id, label: serviceName(id), value: report.service_stats[id].current.visibility_pct, icon: serviceIconUrl(id),
   }))
   let unchanged = 0, unavailable = 0
   const changes = report.rows.flatMap(row => {

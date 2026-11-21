@@ -2,7 +2,7 @@ import pdfMake from "pdfmake/build/pdfmake"
 import fonts from "pdfmake/build/vfs_fonts"
 import type { Content, TableCell, TDocumentDefinitions } from "pdfmake/interfaces"
 import { clientReportCharts } from "./client-report-charts"
-import { reportInk, reportLine, reportMethod, reportMuted, reportNavy, reportTint, reportTitle, reportWarm, type ClientReport } from "./client-report"
+import { reportInk, reportLine, reportMethod, reportMuted, reportHeading, reportTint, reportTitle, reportTableHeading, type ClientReport } from "./client-report"
 
 pdfMake.addVirtualFileSystem(fonts)
 
@@ -12,15 +12,15 @@ const wrap = (text: string, limit = 24) => text.replace(new RegExp(`\\S{${limit}
 export async function clientReportPdf(report: ClientReport) {
   const charts = await clientReportCharts(report)
   const content: Content[] = [
-    { text: "AIRate", color: reportNavy, bold: true, fontSize: 14, margin: [0, 0, 0, 15] },
+    { text: "AIRate", color: reportHeading, bold: true, fontSize: 14, margin: [0, 0, 0, 15] },
     { text: reportTitle, fontSize: 26, bold: true, margin: [0, 0, 0, 7] },
-    { text: wrap(report.project), color: reportNavy, fontSize: 16, bold: true, margin: [0, 0, 0, 5] },
+    { text: wrap(report.project), color: reportHeading, fontSize: 16, bold: true, margin: [0, 0, 0, 5] },
     { text: `${report.period}  ·  ${report.mode}`, style: "note" },
     ...(report.filterNotes ? [{ text: wrap(report.filterNotes), style: "note" }] : []),
     {
       margin: [0, 13, 0, 13],
       columns: report.metrics.map(({ label, value }) => ({
-        stack: [{ text: value, fontSize: 23, color: reportNavy, bold: true }, { text: label, style: "note" }],
+        stack: [{ text: value, fontSize: 23, color: reportHeading, bold: true }, { text: label, style: "note" }],
       })),
     },
     { image: charts.url, width: 511 },
@@ -33,7 +33,7 @@ export async function clientReportPdf(report: ClientReport) {
         table: {
           widths: [85, "*", 62, 62, 58], headerRows: 1,
           body: [
-            report.tableHeaders.map((text, column) => ({ text, alignment: column < 2 ? "left" : "right", fillColor: reportWarm, bold: true })),
+            report.tableHeaders.map((text, column) => ({ text, alignment: column < 2 ? "left" : "right", fillColor: reportTableHeading, bold: true })),
             ...table.rows.map((row, index) => row.map<TableCell>((text, column) => ({
               text: column < 2 ? wrap(text, column === 0 ? 8 : 18) : text,
               alignment: column < 2 ? "left" : "right",
@@ -57,8 +57,8 @@ export async function clientReportPdf(report: ClientReport) {
     styles: {
       note: { fontSize: 9, color: reportMuted },
       dates: { fontSize: 9, color: reportMuted, margin: [0, 7, 0, 0] },
-      heading: { fontSize: 17, bold: true, color: reportNavy, margin: [0, 14, 0, 4] },
-      subheading: { fontSize: 12, bold: true, color: reportNavy, margin: [0, 12, 0, 4] },
+      heading: { fontSize: 17, bold: true, color: reportHeading, margin: [0, 14, 0, 4] },
+      subheading: { fontSize: 12, bold: true, color: reportHeading, margin: [0, 12, 0, 4] },
     },
     footer: (page, pages) => ({ text: `AIRate  /  ${page} из ${pages}`, alignment: "right", margin: [42, 11, 42, 0], style: "note" }),
     pageBreakBefore: (node, positions) => node.headlineLevel === 1 && !positions.getFollowingNodesOnPage().length,
