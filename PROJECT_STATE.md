@@ -1,23 +1,15 @@
 # AIRate current project state
 
-Updated 2026-11-03. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
+Updated 2026-11-21. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
 
 ## Current release
 
-- Published and live verified: [PR #85](https://github.com/egotrippingh/aiparser/pull/85),
-  release `c21633d347f922f4da4ded5e0d23764b8589636d`. XMLRiver failures now retain
-  safe timeout/network/HTTP/API/malformed/incomplete/cancellation diagnostics in the
-  bounded task history. Retry timing, provider budgets and billing are unchanged.
-- Independent correctness/risk review passed. Exact-SHA CI passed 423 PostgreSQL
-  server tests, shared checks, 137 frontend tests, lint/build and image smoke.
-  Backup/isolated restore, public readiness and installed diagnostic smoke passed.
-  [Delivery evidence](https://github.com/egotrippingh/aiparser/actions/runs/39821835936).
-  Live ordinary-attempt diagnostics verified: API500 and incomplete/missing_content;
-  two user-authorized diagnostic requests confirmed empty AI content, then API500;
-  the second full XML was saved outside Git and its transfer hash verified.
-- Included: unlimited/free admin checks (#83), owner-only saved-answer recompute
-  and common-base mention dynamics (#82), durable scan recovery/report UI (#81),
-  tariff165/frozen run prices (#80), shared projects, cabinet, SEO and auth.
+- Published: [PR #96](https://github.com/egotrippingh/aiparser/pull/96), release
+  `5948bfee2b80402f8243e6aaf19ef45f0b9ffa34`. The release adds account-key REST
+  integration, project removal in the cabinet and scan recovery changes.
+- [Exact-SHA CI and deployment](https://github.com/egotrippingh/aiparser/actions/runs/44515913170)
+  passed. On 2026-11-21 public readiness reported that SHA and the public project
+  list returned HTTP 401 without a key.
 
 ## Architecture and operating rules
 
@@ -43,24 +35,6 @@ Updated 2026-11-03. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Prepared work and next action
 
-`codex/admin-wallet-topups` is based on production `f767a44`. The admin
-users section supports manual balance credits by email. Credits use the
-existing wallet and ledger transaction with retry protection and require no
-migration. Independent frontend and money/auth reviews, 8 admin tests with
-disposable PostgreSQL, 143 frontend tests, lint/build and desktop/narrow
-browser checks passed. Next step is delivery CI before a production release.
-
-`codex/metrika-114026759`, based on production `709807b`, installs the supplied
-Yandex Metrika counter114026759 on public, legal and documentation HTML entries.
-Local counter checks cover asynchronous loading, init options and duplicate-tag
-protection. The cabinet is excluded to protect auth secrets and private reports;
-the public account header is masked from replay/click/link tracking. The privacy
-policy describes public-page analytics.
-Deployment/live evidence belongs in [PR #94](https://github.com/egotrippingh/aiparser/pull/94).
-
-`codex/xmlriver-retry-recovery` adds a bounded Yandex raw-page fallback after
-API500 or incomplete XML, using the existing request budget and durable save path.
-Independent correctness review passed; final risk review and delivery CI pending.
-A genuine Triol answer is saved privately for fenced recovery through the worker;
-terminal completion remains unverified. See [task evidence](docs/xmlriver-retry-recovery.md).
-Delivery checkout: `C:/Users/ego/.codex/worktrees/provider-failure-diagnostics/aiparser`.
+`codex/airate-mcp` adds a local stdio adapter for the public REST API. The
+[MCP guide](docs/airate-mcp.md) covers client setup and the required update when
+the public REST contract changes. The next action is PR review.

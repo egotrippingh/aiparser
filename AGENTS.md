@@ -20,6 +20,7 @@ Communicate in Russian; keep code and commit messages consistent with nearby fil
 |---|---|---|
 | Windows agent | `app/main.py`, `desktop.py`; `app/control_agent.py` → `app/scanner/orchestrator.py` → adapters → durable capture → analysis/result/outbox | `app/AGENTS.md`; session changes: `docs/session-preservation.md` |
 | Server | `server/app.py`; `server/control.py` runs/devices; `server/models.py` storage; `server/reporting.py`, `server/scan_feedback.py` reports | `server/AGENTS.md`; `server/README.md` for setup |
+| REST API and MCP | `/api/v1/public`; `integrations/airate_mcp.py` | [MCP setup and REST changes](docs/airate-mcp.md) |
 | UI | `frontend/src/` React/TypeScript; `frontend/vite.config.ts` builds the tracked `web/` directory | `frontend/AGENTS.md`; `PRODUCT.md`, `DESIGN.md` for interface work |
 | Delivery | `.github/workflows/delivery.yml`, `deploy/`, `scripts/build-*.ps1`, `scripts/publish-agent.py` | `deploy/DELIVERY.md`; `docs/updater.md` for agent releases |
 
@@ -36,6 +37,11 @@ data without authorization for that action. Reuse authorization already given; d
 ask again. A code push alone is not a production-release request.
 
 ## Load map — what to open
+
+- Public REST changes: update the corresponding MCP tool, its docs and the observable
+  contract check in `server/test_airate_mcp.py` in the same PR. For a public operation
+  intentionally excluded from MCP, document the reason and add a specific exclusion
+  to the coverage check. See [the MCP maintenance steps](docs/airate-mcp.md).
 
 - Short current state once at task start: `PROJECT_STATE.md` (keep it short; see below).
 - Python language/antipatterns: `PYTHON_RULES.md` (plus nested scope `AGENTS.md`).
