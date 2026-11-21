@@ -1,5 +1,5 @@
 import { Brand } from "./brand"
-import "./site-footer.css"
+import "./site-footer.scss"
 
 export const SUPPORT_URL = "https://t.me/egotrippintg"
 export const SUPPORT_EMAIL = "mailto:support@airate.tech"
@@ -12,7 +12,7 @@ export function SiteFooter() {
         <a href="/terms/">Пользовательское соглашение</a>
         <a href="/privacy/">Политика конфиденциальности</a>
         <a href="/docs/">Документация</a>
-        <a href={SUPPORT_EMAIL}>support@airate.tech</a>
+        <a href={SUPPORT_URL}>Поддержка</a>
       </nav>
     </div>
   </footer>

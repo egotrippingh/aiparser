@@ -100,8 +100,8 @@ def test_homepage_ships_content_metadata_and_a_real_social_image(client):
     headings = re.findall(r"<h1\b[^>]*>(.*?)</h1>", html, re.S)
     assert len(headings) == 1
     heading_text = " ".join(re.sub(r"<[^>]+>", " ", headings[0]).split())
-    assert heading_text == "Смотрите, где ИИ упоминает ваш бренд."
-    assert "Какие ИИ-системы доступны?" in html
+    assert heading_text.replace(" .", ".") == "Узнайте, что ИИ говорит о вашем бренде."
+    assert "Подключите Аирейт к своему агенту" in html
 
 
 def test_utility_pages_are_crawlable_but_not_indexable_and_unknown_pages_are_404(client):
@@ -112,6 +112,12 @@ def test_utility_pages_are_crawlable_but_not_indexable_and_unknown_pages_are_404
         assert not Head(response.text).canonicals
     for path in ("/missing-seo-page", "/news", "/sitemap.xml/extra"):
         assert client.get(path).status_code == 404
+    missing = client.get("/missing-seo-page", headers={"Accept": "text/html"})
+    assert missing.status_code == 404 and "Страница не найдена" in missing.text
+    assert missing.headers["x-robots-tag"] == "noindex, follow"
+    for path in ("/api/missing", "/assets/missing.css"):
+        missing = client.get(path, headers={"Accept": "text/html"})
+        assert missing.status_code == 404 and missing.json()["detail"] == "Not Found"
 
 
 @pytest.mark.parametrize("slug,body", HELP_PAGES.items())

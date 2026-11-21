@@ -5,5 +5,5 @@ export const serviceName = (id: string) => SCAN_SERVICES.find(service => service
 // Version changed fills so browsers do not reuse the old pale SVGs.
 const assets: Record<string, string> = {chatgpt:"chatgpt.svg?v=20261012",perplexity:"perplexity.svg?v=20261012",gemini:"gemini.png",google_aio:"google.svg",yandex_neuro:"yandex.ico"}
 export function ServiceMark({ id }: { id: string }) {
-  return <span className="service-mark">{assets[id] ? <img src={`/assets/services/${assets[id]}`} alt=""/> : id.slice(0, 1)}</span>
+  return <span className={id === "chatgpt" ? "service-mark service-mark--chatgpt" : "service-mark"}>{assets[id] ? <img src={`/assets/services/${assets[id]}`} alt=""/> : id.slice(0, 1)}</span>
 }

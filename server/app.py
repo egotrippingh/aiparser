@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.concurrency import run_in_threadpool
@@ -23,6 +24,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from server.agent_schemas import AgentHeartbeatIn, CloudResultsIn, ScanPreferencesIn
 from server.api_keys import KEY_PATH, PUBLIC_PREFIX, register_api_keys
@@ -39,7 +41,7 @@ from server.models import (AgentDevice, Check, CloudResult, ScanPreferences, Scr
                            EmailRegistration, PaymentOrder, SessionToken, TopupEmail, User, Wallet, YandexRegistration, make_session_factory, utcnow)
 from server.security import hash_password, new_token, token_hash, verify_password
 from server.storage import ScreenshotStorage, StorageError
-from server.yandex import YandexError, YandexOAuth
+from server.yandex import YandexError, YandexOAuth, profile_avatar_id
 from server.models import AccountApiKey, ControlProject, ControlRun, ControlLink, DeviceGrant
 from server.public_errors import public_error
 from server.control import register_control
@@ -241,6 +243,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         yandex_client = YandexOAuth(
             os.environ["YANDEX_CLIENT_ID"], os.environ["YANDEX_CLIENT_SECRET"],
             f"{public_base}/api/v1/auth/yandex/callback",
+            request_avatar=os.environ.get("YANDEX_AVATAR_ENABLED") == "1",
         )
     allow_test = os.environ.get("COINSO_ALLOW_TEST_PAYMENTS", "false").lower() == "true"
     price = int(os.environ.get("CHECK_PRICE_KOPEKS", "165"))
@@ -747,6 +750,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
         subject = str(profile.get("id") or "")
         if not subject or len(subject) > 190:
             return oauth_redirect("?auth_error=provider")
+        avatar_id = profile_avatar_id(profile)
         identity = db.scalar(select(OAuthIdentity).where(OAuthIdentity.provider == "yandex",
                                                        OAuthIdentity.subject == subject))
         if purpose == "link":
@@ -762,18 +766,21 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
                                                          OAuthIdentity.user_id == link_user_id))
             if other and other.subject != subject:
                 return oauth_redirect("?auth_error=already_linked")
-            if not identity:
-                db.add(OAuthIdentity(provider="yandex", subject=subject, user_id=link_user_id))
-                try:
-                    db.commit()
-                except IntegrityError:
-                    db.rollback()
-                    return oauth_redirect("?auth_error=retry")
+            if identity:
+                identity.avatar_id = avatar_id
+            else:
+                db.add(OAuthIdentity(provider="yandex", subject=subject, user_id=link_user_id, avatar_id=avatar_id))
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                return oauth_redirect("?auth_error=retry")
             return oauth_redirect("?linked=1")
         if identity:
             user = db.get(User, identity.user_id)
             if not user:
                 return oauth_redirect("?auth_error=retry")
+            identity.avatar_id = avatar_id
         else:
             email_raw = profile.get("default_email")
             if not isinstance(email_raw, str):
@@ -785,7 +792,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
             if db.scalar(select(User).where(User.email == email)):
                 return oauth_redirect("?auth_error=link_required")
             registration = new_token()
-            db.add(YandexRegistration(token_hash=token_hash(registration), email=email, subject=subject,
+            db.add(YandexRegistration(token_hash=token_hash(registration), email=email, subject=subject, avatar_id=avatar_id,
                                      connect_id=connect_id, expires_at=utcnow() + timedelta(minutes=10)))
             db.commit()
             return oauth_redirect(f"#registration_ticket={registration}")
@@ -851,7 +858,8 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
             raise HTTPException(422, str(exc)) from exc
         user = User(id=uuid.uuid4().hex, email=registration.email, password_hash=hash_password(body.password))
         db.add_all([user, Wallet(user_id=user.id, balance_kopeks=0),
-                    OAuthIdentity(provider="yandex", subject=registration.subject, user_id=user.id)])
+                    OAuthIdentity(provider="yandex", subject=registration.subject, user_id=user.id,
+                                  avatar_id=registration.avatar_id)])
         try:
             db.flush()
         except IntegrityError as exc:
@@ -1064,9 +1072,11 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
 
     @app.get("/api/v1/me")
     def me(user: User = Depends(current_user), db: Session = Depends(db_session)) -> dict:
-        linked = db.scalar(select(OAuthIdentity.id).where(OAuthIdentity.provider == "yandex",
-                                                        OAuthIdentity.user_id == user.id))
-        return {"id": user.id, "email": user.email, "yandex_linked": linked is not None,
+        identity = db.scalar(select(OAuthIdentity).where(OAuthIdentity.provider == "yandex",
+                                                       OAuthIdentity.user_id == user.id))
+        avatar_id = identity.avatar_id if identity else None
+        return {"id": user.id, "email": user.email, "yandex_linked": identity is not None,
+                "avatar_url": f"https://avatars.yandex.net/get-yapic/{avatar_id}/islands-68" if avatar_id else None,
                 "has_password": not user.password_hash.startswith("external:"),
                 "is_admin": user.is_admin,
                 "brand_clarifications_enabled": True}
@@ -1379,6 +1389,17 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
 
     web_dir = Path(__file__).resolve().parent.parent / "web"
     if (web_dir / "index.html").exists():
+        not_found_page = web_dir / "404" / "index.html"
+        if not_found_page.is_file():
+            @app.exception_handler(StarletteHTTPException)
+            async def themed_not_found(request: Request, error: StarletteHTTPException) -> Response:
+                if (error.status_code == 404 and request.method in {"GET", "HEAD"}
+                        and "text/html" in request.headers.get("accept", "")
+                        and request.url.path.split("/", 2)[1] not in {"api", "assets"}):
+                    return FileResponse(not_found_page, status_code=404,
+                                        headers={"Cache-Control": "no-cache", "X-Robots-Tag": "noindex, follow"})
+                return await http_exception_handler(request, error)
+
         app.mount("/assets", StaticFiles(directory=web_dir / "assets"), name="assets")
 
         @app.api_route("/robots.txt", methods=["GET", "HEAD"], include_in_schema=False)

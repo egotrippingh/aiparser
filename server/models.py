@@ -52,6 +52,7 @@ class OAuthIdentity(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     provider: Mapped[str] = mapped_column(String(24))
     subject: Mapped[str] = mapped_column(String(190))
+    avatar_id: Mapped[str | None] = mapped_column(String(190))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
 
 
@@ -81,6 +82,7 @@ class YandexRegistration(Base):
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     email: Mapped[str] = mapped_column(String(190))
     subject: Mapped[str] = mapped_column(String(190))
+    avatar_id: Mapped[str | None] = mapped_column(String(190))
     connect_id: Mapped[str | None] = mapped_column(String(32))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 

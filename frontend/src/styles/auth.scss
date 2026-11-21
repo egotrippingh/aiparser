@@ -1,0 +1,56 @@
+@use "../../design-system/screens";
+
+.auth-screen {
+  min-height: 100svh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+
+  &__header, &__footer {
+    min-height: 62px;
+    padding-inline: max(20px, calc((100% - var(--layout-max)) / 2));
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    border-block-end: 1px solid var(--air-line);
+  }
+  &__header { justify-content: space-between; }
+  &__footer {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    border-block-start: 1px solid var(--air-line);
+    border-block-end: 0;
+  }
+  &__header a, &__footer a {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--control);
+    color: var(--air-muted);
+    font: var(--type-small);
+    &:hover { color: var(--air-text); }
+  }
+  &__layout {
+    width: min(var(--layout-max), calc(100% - 2 * clamp(20px, 4vw, 48px)));
+    margin-inline: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: clamp(28px, 6vw, 84px);
+    align-items: center;
+    padding-block: var(--space-6);
+  }
+  &__form {
+    justify-self: center;
+    width: min(100%, 392px);
+    padding: 0;
+
+    .cab-auth-heading h1 { font: var(--type-h1); font-size: clamp(2rem, 3.3vw, 3rem); }
+    input { background: var(--air-bg); border-radius: var(--radius-control); }
+    .cab-forgot { justify-self: end; margin: 0; }
+  }
+  &__switch { margin: 0; color: var(--air-muted); text-align: center; font: var(--type-small); }
+
+  @media (max-width: 740px) {
+    &__layout { grid-template-columns: 1fr; }
+    &__footer { justify-content: center; gap: 0 var(--space-3); }
+  }
+}

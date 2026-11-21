@@ -1,8 +1,9 @@
+import { CabinetSkeleton } from "./cabinet-loading"
 import { useCallback, useEffect, useState } from "react"
 import { ExternalLink } from "lucide-react"
 import { AccountError, accountRequest } from "./account-api"
 import { SCAN_SERVICES } from "./lib/scan-preferences"
-import "./admin-overview.css"
+import "./admin-overview.scss"
 
 type Provider = { id: string; name: string; currency: string; balance: string | null; status: string; message: string | null; checked_at: string; topup_url: string; details: { label: string; amount: string; currency?: string; expires_at?: string }[] }
 type User = { id: string; email: string; is_admin: boolean; created_at: string; wallet: { balance_kopeks: number; reserved_kopeks: number; available_kopeks: number } }
@@ -87,9 +88,9 @@ export function AdminOverview({ token, userId, walletChanged }: { token: string;
     return () => { alive = false; clearTimeout(timer) }
   }, [search, offset, tick, token])
   return <>
-    <section className="cab-panel admin-overview"><div className="cab-section-head"><div><h2>ИИ-системы</h2><p>Пауза пропускает ещё не отправленные проверки. Уже отправленные ответы сохраняются и списываются один раз.</p></div></div>{serviceLoading && <p role="status">Загружаем ИИ-системы…</p>}{serviceError && <p role="alert">{serviceError} <button className="cc-button" onClick={loadServices}>Повторить</button></p>}{services && <div className="admin-provider-switches">{services.map(row => <label key={row.service}><span>{serviceName(row.service)}</span><input type="checkbox" role="switch" checked={!row.paused} disabled={changing.has(row.service)} onChange={() => void toggle(row)}/><b>{row.paused ? "Приостановлена" : "Включена"}</b></label>)}</div>}</section>
+    <section className="cab-panel admin-overview"><div className="cab-section-head"><div><h2>ИИ-системы</h2><p>Пауза пропускает ещё не отправленные проверки. Уже отправленные ответы сохраняются и списываются один раз.</p></div></div>{serviceLoading && !services && <CabinetSkeleton label="Загружаем ИИ-системы…"/>}{serviceError && <p role="alert">{serviceError} <button className="cc-button" onClick={loadServices}>Повторить</button></p>}{services && <div className="admin-provider-switches">{services.map(row => <label key={row.service}><span>{serviceName(row.service)}</span><input type="checkbox" role="switch" checked={!row.paused} disabled={changing.has(row.service)} onChange={() => void toggle(row)}/><b>{row.paused ? "Приостановлена" : "Включена"}</b></label>)}</div>}</section>
     <section className="cab-panel admin-overview"><div className="cab-section-head"><div><h2>Балансы поставщиков</h2><p>Остатки средств у поставщиков.</p></div><button className="cc-button" disabled={balanceLoading} onClick={() => setBalanceTick(n => n + 1)}>Обновить балансы</button></div>
-      {balanceLoading && <p role="status">Получаем актуальные балансы…</p>}{balanceError && <p role="alert">{balanceError}</p>}
+      {balanceLoading && !providers && <CabinetSkeleton label="Получаем актуальные балансы…"/>}{balanceError && <p role="alert">{balanceError}</p>}
       {providers && <ul className="admin-balances">{providers.map(p => <li key={p.id}><div><h2>{p.name}</h2><strong>{balanceLabel(p.balance, p.currency)}</strong>
         {p.details.filter(d => d.label !== "Credits").map(d => <p key={d.label}>{d.label}: {balanceLabel(d.amount, d.currency || p.currency)}{d.expires_at && <small>До {new Date(d.expires_at).toLocaleString("ru-RU")}</small>}</p>)}
         {p.message && <p role="status">{p.message}</p>}<small>Проверено {new Date(p.checked_at).toLocaleString("ru-RU")}</small></div><a className="cc-button" href={p.topup_url} target="_blank" rel="noopener noreferrer">Открыть {p.name} <ExternalLink size={14} aria-hidden="true"/></a></li>)}</ul>}
@@ -104,7 +105,7 @@ export function AdminOverview({ token, userId, walletChanged }: { token: string;
         {topupSuccess && <p role="status">{topupSuccess}</p>}
       </form>
       <label>Email пользователя<input value={search} onChange={e => { setSearch(e.target.value); setOffset(0) }}/></label>
-      {loading && <p role="status">Загружаем пользователей…</p>}{error && <p role="alert">{error}</p>}
+      {loading && !users && <CabinetSkeleton label="Загружаем пользователей…"/>}{error && <p role="alert">{error}</p>}
       {users && <><div className="admin-users-scroll" role="region" aria-label="Пользователи и балансы" tabIndex={0}><table><thead><tr><th>Email</th><th>Регистрация</th><th>Роль</th><th>Баланс</th><th>Резерв</th><th>Доступно</th></tr></thead><tbody>{users.users.map(u => <tr key={u.id}><td>{u.email}</td><td>{new Date(u.created_at).toLocaleDateString("ru-RU")}</td><td>{u.is_admin ? "Администратор" : "Пользователь"}</td><td>{rubles(u.wallet.balance_kopeks)}</td><td>{rubles(u.wallet.reserved_kopeks)}</td><td>{rubles(u.wallet.available_kopeks)}</td></tr>)}</tbody></table></div>
         {!users.users.length && <p>Пользователей по этому запросу нет.</p>}<div className="cc-actions"><button className="cc-button" disabled={loading || offset === 0} onClick={() => setOffset(n => Math.max(0, n - 50))}>Назад</button><button className="cc-button" disabled={loading || offset + 50 >= users.total} onClick={() => setOffset(n => n + 50)}>Далее</button></div></>}
     </section>

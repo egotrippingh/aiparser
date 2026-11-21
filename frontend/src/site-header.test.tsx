@@ -10,9 +10,8 @@ it("keeps guest entry links separate from account data", () => {
   expect(html).not.toContain("Выбрать проект")
   expect(html).toContain('href="/docs/"')
   expect(html).toContain(">Документация</a>")
-  expect(html).toContain('href="mailto:support@airate.tech"')
-  expect(html).toContain("lucide-mail")
-  expect(html).not.toContain("t.me")
+  expect(html).toContain('href="https://t.me/egotrippintg"')
+  expect(html).toContain("lucide-send")
 })
 
 it("links projects from the homepage to the cabinet and preserves the active cabinet tab", () => {
@@ -23,7 +22,7 @@ it("links projects from the homepage to the cabinet and preserves the active cab
   expect(publicHtml).toContain('href="/docs/"')
   expect(publicHtml).toContain('aria-label="Документация"')
   expect(publicHtml).toContain(">Документация</span>")
-  expect(publicHtml.match(/href="mailto:support@airate.tech"/g)).toHaveLength(2)
+  expect(publicHtml.split('href="https://t.me/egotrippintg"')).toHaveLength(3)
   expect(publicHtml).not.toContain("Регистрация")
   const cabinetHtml = renderToStaticMarkup(<SiteHeader {...props} cabinet projectTab="queries"/>)
   expect(cabinetHtml).toContain('href="#/project/one/queries" aria-current="true"')
@@ -36,6 +35,16 @@ it("distinguishes project loading, failure and empty account states", () => {
   expect(failed).toContain("Не удалось загрузить проекты")
   expect(failed).not.toContain("У вас пока нет проектов")
   expect(renderToStaticMarkup(<SiteHeader email="test@example.test"/>)).toContain("У вас пока нет проектов")
+})
+
+it("uses an account portrait without a referrer and falls back to initials", () => {
+  const email = "owner@example.test"
+  const avatar = "https://avatars.yandex.net/get-yapic/123/portrait/islands-68"
+  const withPortrait = renderToStaticMarkup(<SiteHeader cabinet email={email} avatarUrl={avatar}/>)
+  expect(withPortrait.match(/<img[^>]*referrerPolicy="no-referrer"/gi)).toHaveLength(2)
+  expect(withPortrait).toContain(avatar)
+  const withoutPortrait = renderToStaticMarkup(<SiteHeader cabinet email={email}/>)
+  expect(withoutPortrait.match(/class="sh-avatar"[^>]*>OW<\/span>/g)).toHaveLength(2)
 })
 
 

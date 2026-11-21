@@ -1,0 +1,33 @@
+@use "./styles/tokens";
+
+:root {
+  --air-bg: var(--bg);
+  --air-panel: var(--surface);
+  --air-raised: var(--raised);
+  --air-selected: var(--selected);
+  --air-line: var(--line);
+  --air-line-strong: var(--line-control);
+  --air-text: var(--text);
+  --air-muted: var(--muted);
+  --air-quiet: var(--muted);
+  --air-accent: var(--accent);
+  --air-icon-accent: var(--accent);
+  --air-chart-total: var(--accent);
+  --air-icon: var(--muted);
+  --air-chart-grid: var(--line);
+  --air-accent-strong: var(--focus);
+  --air-ink: var(--on-accent);
+  --air-success: var(--ok);
+  --air-success-bg: var(--ok-bg);
+  --air-warning: var(--warning);
+  --air-warning-bg: var(--warning-bg);
+  --air-danger: var(--danger);
+  --air-danger-bg: var(--danger-bg);
+  --air-danger-line: var(--danger-bg);
+  --air-brand-mention: var(--warning);
+  --air-brand-mention-bg: var(--warning-bg);
+  --air-icon-surface: var(--raised);
+  --cabinet-hover: color-mix(in srgb, var(--accent) 13%, var(--surface));
+}
+
+body { margin: 0; }

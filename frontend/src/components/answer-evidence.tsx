@@ -2,7 +2,7 @@ import { createElement, Fragment, useRef, useState, type ReactNode } from "react
 import { ChevronLeft, ChevronRight, ImageOff } from "lucide-react"
 import { AnswerContent, renderedSources, sourceLabel, sourcesOf } from "./answer-content"
 import { highlightedText, brandLink, type BrandHighlight } from "./brand-highlight"
-import "./answer-evidence.css"
+import "./answer-evidence.scss"
 
 export { highlightedText, brandLink } from "./brand-highlight"
 export type { BrandHighlight } from "./brand-highlight"

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Вход в аккаунт · Аирейт</title>
+  <link rel="icon" href="../aireyt-quote.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../tokens.scss">
+  <link rel="stylesheet" href="../stand.scss">
+  <link rel="stylesheet" href="../screens.scss">
+  <script type="module" src="./preview.js"></script>
+</head>
+<body class="preview-screen">
+  <a class="skip" href="#main">К содержанию</a>
+  <header class="screen-header"><div class="container screen-row"><a class="brand" href="../landing/" aria-label="Аирейт, на главную"><img src="../aireyt-quote.svg" alt="" width="28" height="28"><img src="../aireyt-wordmark.svg" alt="" width="136" height="38"></a><a class="screen-help" href="https://t.me/egotrippintg"><span class="telegram-icon" aria-hidden="true"></span>Поддержка</a></div></header>
+  <main class="container auth-layout" id="main" tabindex="-1">
+    <div class="auth-forms">
+      <section class="auth-form" id="login" aria-labelledby="login-title">
+        <h1 id="login-title">Вход в аккаунт</h1>
+        <form method="dialog" data-mode="login">
+          <div class="field"><label for="email">Электронная почта</label><input id="email" type="email" autocomplete="email" placeholder="name@company.ru" required></div>
+          <div class="field">
+            <label for="password">Пароль</label>
+            <div class="auth-password"><input id="password" type="password" autocomplete="current-password" required><button type="button" class="auth-eye" data-password="password" aria-controls="password" aria-label="Показать пароль" aria-pressed="false"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/><path class="eye-slash" d="m4 4 16 16"/></svg></button></div>
+            <a class="auth-forgot" href="#forgot">Забыли пароль?</a>
+          </div>
+          <button class="btn primary auth-submit">Войти</button>
+        </form>
+        <div class="auth-divider"><span>или</span></div>
+        <button class="btn auth-provider" type="button" data-provider><svg viewBox="44 16 24 24" width="20" height="20" aria-hidden="true"><rect x="44" y="16" width="24" height="24" rx="12" fill="#FC3F1D"/><path d="M57.6912 35.212H60.1982V20.812H56.5516C52.8843 20.812 50.9574 22.6975 50.9574 25.4739C50.9574 27.6909 52.0141 28.9962 53.8995 30.3429L50.6259 35.212H53.3401L56.9867 29.7628L55.7228 28.9133C54.1896 27.8773 53.4437 27.0693 53.4437 25.3288C53.4437 23.7956 54.1301 22.7596 56.5723 22.7596H57.6912V35.212Z" fill="white"/></svg>Продолжить с Яндекс ID</button>
+        <p class="auth-switch">Нет аккаунта? <a href="#register">Зарегистрироваться</a></p>
+      </section>
+
+      <section class="auth-form" id="register" aria-labelledby="register-title" hidden>
+        <h1 id="register-title">Создать аккаунт</h1>
+        <p class="auth-switch">Уже есть аккаунт? <a href="#login">Войти</a></p>
+        <button class="btn auth-provider" type="button" data-provider><svg viewBox="44 16 24 24" width="20" height="20" aria-hidden="true"><rect x="44" y="16" width="24" height="24" rx="12" fill="#FC3F1D"/><path d="M57.6912 35.212H60.1982V20.812H56.5516C52.8843 20.812 50.9574 22.6975 50.9574 25.4739C50.9574 27.6909 52.0141 28.9962 53.8995 30.3429L50.6259 35.212H53.3401L56.9867 29.7628L55.7228 28.9133C54.1896 27.8773 53.4437 27.0693 53.4437 25.3288C53.4437 23.7956 54.1301 22.7596 56.5723 22.7596H57.6912V35.212Z" fill="white"/></svg>Продолжить с Яндекс ID</button>
+        <div class="auth-divider"><span>или по почте</span></div>
+        <form method="dialog" data-mode="register">
+          <div class="field"><label for="register-email">Электронная почта</label><input id="register-email" type="email" autocomplete="email" placeholder="name@company.ru" required></div>
+          <details><summary>Есть промокод?</summary><div class="field"><label for="promo">Промокод</label><input id="promo" maxlength="64" autocomplete="off"></div></details>
+          <button class="btn primary auth-submit">Получить код на почту</button>
+        </form>
+      </section>
+
+      <section class="auth-form" id="confirm" aria-labelledby="confirm-title" hidden>
+        <a class="auth-back" href="#register"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7m-7 7h14"/></svg> Изменить почту</a>
+        <h1 id="confirm-title">Подтвердите почту</h1>
+        <p class="auth-switch">Введите код из письма и придумайте пароль.</p>
+        <form method="dialog" data-mode="confirm">
+          <div class="field"><label for="email-code">Код из письма</label><input id="email-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" aria-describedby="code-hint" required><small id="code-hint">6 цифр. Код действует 10 минут.</small></div>
+          <div class="field"><label for="new-password">Пароль</label><div class="auth-password"><input id="new-password" type="password" autocomplete="new-password" minlength="12" aria-describedby="password-hint" required><button type="button" class="auth-eye" data-password="new-password" aria-controls="new-password" aria-label="Показать пароль" aria-pressed="false"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/><path class="eye-slash" d="m4 4 16 16"/></svg></button></div><small id="password-hint">Не менее 12 символов.</small></div>
+          <div class="field"><label for="repeat-password">Повторите пароль</label><div class="auth-password"><input id="repeat-password" type="password" autocomplete="new-password" minlength="12" required><button type="button" class="auth-eye" data-password="repeat-password" aria-controls="repeat-password" aria-label="Показать пароль" aria-pressed="false"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/><path class="eye-slash" d="m4 4 16 16"/></svg></button></div></div>
+          <button class="btn primary auth-submit">Создать аккаунт</button>
+        </form>
+      </section>
+
+      <section class="auth-form" id="forgot" aria-labelledby="forgot-title" hidden>
+        <a class="auth-back" href="#login"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7m-7 7h14"/></svg> Вернуться ко входу</a>
+        <h1 id="forgot-title">Забыли пароль?</h1>
+        <p class="auth-switch">Укажите почту, с которой вы зарегистрировались. На неё придёт ссылка для восстановления.</p>
+        <form method="dialog" data-mode="forgot">
+          <div class="field"><label for="recovery-email">Электронная почта</label><input id="recovery-email" type="email" autocomplete="email" placeholder="name@company.ru" required></div>
+          <button class="btn primary auth-submit">Отправить ссылку</button>
+        </form>
+      </section>
+      <p class="auth-message" id="auth-message" role="status"></p>
+    </div>
+
+    <aside class="auth-screen__art" aria-label="Пример отчёта по бренду">
+      <img class="auth-screen__quote" src="../aireyt-quote.svg" alt="" width="470" height="470">
+      <figure class="auth-screen__report">
+        <figcaption><strong>Видимость бренда</strong></figcaption>
+        <div class="auth-screen__report-body">
+          <div class="auth-screen__metric"><strong>52,1<span>%</span></strong><span>ответов с упоминанием</span></div>
+          <div class="auth-screen__chart" aria-hidden="true">
+            <svg viewBox="0 0 360 105" preserveAspectRatio="none">
+              <defs><linearGradient id="auth-area" x2="0" y2="1"><stop stop-color="var(--accent)" stop-opacity=".32"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+              <path d="M0 85 60 74 120 77 180 54 240 62 300 35 360 20V105H0Z" fill="url(#auth-area)"/>
+              <path d="M0 85 60 74 120 77 180 54 240 62 300 35 360 20" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" fill="none"/>
+            </svg>
+          </div>
+        </div>
+      </figure>
+    </aside>
+  </main>
+  <footer class="screen-footer"><div class="container screen-row"><a href="/design-system/privacy/">Политика конфиденциальности</a><a href="/design-system/terms/">Условия использования</a></div></footer>
+</body>
+</html>

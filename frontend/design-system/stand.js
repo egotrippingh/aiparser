@@ -30,7 +30,7 @@ play.addEventListener("click", async () => {
   try {
     const [{ default: lottie }, response] = await Promise.all([
       import("lottie-web"),
-      fetch(new URL("../src/assets/landing/airate-hero.json", import.meta.url)),
+      fetch(new URL("./landing/hero-lavender-desktop.json", import.meta.url)),
     ]);
     if (!response.ok) throw new Error("Cannot load Lottie");
     const animationData = await response.json();

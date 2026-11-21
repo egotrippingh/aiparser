@@ -1,177 +1,163 @@
-import { useEffect, useRef, type ReactNode } from "react"
-import {
-  ArrowDownRight,
-  ArrowUpRight,
-  Check,
-  ChevronDown,
-  CircleHelp,
-  Link2,
-  ListFilter,
-  MessageSquareText,
-  ScanSearch,
-} from "lucide-react"
-
-import "./landing.css"
-import { SiteFooter } from "./site-footer"
+import { useEffect, useRef, type CSSProperties, type PointerEvent } from "react"
+import { Brand } from "./brand"
 import { PublicSiteHeader } from "./site-header"
-import { ProductPrinciples } from "./product-principles"
+import { SUPPORT_URL } from "./site-footer"
 import { LandingHeroAnimation } from "./components/landing-hero-animation"
-import SpotlightCard from "./components/reactbits/SpotlightCard"
-import { ProcessFlow } from "./components/process-flow"
+import { mountApiDemo } from "../design-system/landing/api-demo"
+import "./site-theme.scss"
+import "../design-system/stand.scss"
+import "../design-system/landing/landing.scss"
 
-const APP_URL = import.meta.env.VITE_APP_URL || "/cabinet/"
+const registerUrl = `${import.meta.env.VITE_APP_URL || "/cabinet/"}?register=1`
 
-// Set either source when demo GIFs are ready. Until then, each slot renders
-// an animated product illustration in the same rounded frame.
-const GIF_SOURCES = { interface: "", parsing: "" }
-
-function GifWindow({ slot, title, children }: { slot: keyof typeof GIF_SOURCES; title: string; children: ReactNode }) {
-  const source = GIF_SOURCES[slot]
-  return (
-    <div className="gif-window" data-gif-slot={slot}>
-      <div className="gif-window-bar"><span className="window-dots"><i /><i /><i /></span><span>{title}</span><span className="window-bar-action">AIRate</span></div>
-      {source ? <img src={source} alt={title} loading="lazy" /> : <div className="gif-window-preview">{children}</div>}
-    </div>
-  )
-}
-
-function InterfaceDemo() {
-  return <div className="interface-demo"><div className="demo-sidebar"><b>AIRate</b><span>Обзор</span><span>Запросы</span><span>Скан</span><span>Настройки</span></div><div className="demo-content"><div className="demo-breadcrumb">ПРОЕКТ / СЕВЕР</div><h4>Видимость бренда</h4><div className="demo-chart"><div className="demo-chart-line" /></div><div className="demo-query"><span>Лучшие средства для сухой кожи</span><strong>Найдено</strong></div><div className="demo-query"><span>Уход за чувствительной кожей</span><strong>Найдено</strong></div><div className="demo-query"><span>Что выбрать на каждый день?</span><em>Не найдено</em></div></div></div>
-}
-
-function ParsingDemo() {
-  return <div className="parsing-demo"><div className="parsing-head"><div><span>СКАН / В ПРОЦЕССЕ</span><h4>Проверяем запросы</h4></div><strong>03 / 04</strong></div><div className="parsing-progress"><span /></div><div className="parsing-events"><div><span className="parsing-dot is-done" /><span>ChatGPT</span><em>Ответ сохранён</em><Check size={15} /></div><div><span className="parsing-dot is-done" /><span>Perplexity</span><em>Источник найден</em><Check size={15} /></div><div className="is-current"><span className="parsing-dot" /><span>Gemini</span><em>Читаем ответ…</em><span className="typing-dots"><i /><i /><i /></span></div><div><span className="parsing-dot" /><span>Google AI Overview</span><em>Ожидает</em></div></div></div>
-}
-
-function ReportPreview() {
-  return (
-    <div className="report-frame" aria-label="Пример отчёта по упоминаниям бренда">
-      <div className="report-window">
-        <div className="report-topline">
-          <div className="report-project">
-            <span className="report-project-icon" aria-hidden="true">С</span>
-            <span><strong>Север</strong><small>Демонстрационный проект</small></span>
-          </div>
-          <span className="report-period">Последние 14 дней <ChevronDown size={12} aria-hidden="true" /></span>
-        </div>
-
-        <div className="report-heading">
-          <div><span className="report-kicker">ОБЗОР ВИДИМОСТИ</span><h3>Где нашли бренд</h3></div>
-          <span className="report-scan"><span /> Скан завершён</span>
-        </div>
-
-        <div className="report-metrics">
-          <div className="report-main-metric">
-            <span>Упоминания</span>
-            <strong>28 <small>/ 48</small></strong>
-            <em><ArrowUpRight size={13} aria-hidden="true" /> +6 к прошлой проверке</em>
-          </div>
-          <div className="report-chart" aria-hidden="true">
-            <div className="chart-grid" />
-            <svg viewBox="0 0 260 90" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="report-area" x1="0" x2="0" y1="0" y2="1"><stop stopColor="var(--air-accent)" stopOpacity=".24"/><stop offset="1" stopColor="var(--air-accent)" stopOpacity="0"/></linearGradient>
-              </defs>
-              <path d="M0 76 C28 72 36 68 57 70 S92 48 113 53 S150 38 166 42 S202 20 225 26 S250 11 260 13 V90 H0Z" fill="url(#report-area)" />
-              <path d="M0 76 C28 72 36 68 57 70 S92 48 113 53 S150 38 166 42 S202 20 225 26 S250 11 260 13" fill="none" stroke="var(--air-accent)" strokeWidth="3" strokeLinecap="round" />
-              <circle cx="260" cy="13" r="4.5" fill="var(--air-accent)" stroke="white" strokeWidth="3" />
-            </svg>
-          </div>
-        </div>
-
-        <div className="report-table-title"><strong>Поисковые запросы</strong><span>Найдено / проверено</span></div>
-        <div className="report-table" role="table" aria-label="Пример результатов по запросам">
-          <div className="report-row report-row-head" role="row">
-            <span role="columnheader">Запрос</span><span role="columnheader">ChatGPT</span><span role="columnheader">Perplexity</span><span role="columnheader">Gemini</span>
-          </div>
-          <div className="report-row" role="row">
-            <span role="cell">Как выбрать уход для кожи?</span><span role="cell" className="status-found"><Check size={13} /> Найдено</span><span role="cell" className="status-found"><Check size={13} /> Найдено</span><span role="cell" className="status-empty">—</span>
-          </div>
-          <div className="report-row" role="row">
-            <span role="cell">Средства для сухой кожи</span><span role="cell" className="status-empty">—</span><span role="cell" className="status-found"><Check size={13} /> Найдено</span><span role="cell" className="status-found"><Check size={13} /> Найдено</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
+function moveSpotlight(event: PointerEvent<HTMLDivElement>) {
+  if (event.pointerType === "touch" || !(event.target instanceof Element)) return
+  const card = event.target.closest<HTMLElement>(".task-card")
+  if (!card) return
+  const rect = card.getBoundingClientRect()
+  card.style.setProperty("--mouse-x", `${event.clientX - rect.left}px`)
+  card.style.setProperty("--mouse-y", `${event.clientY - rect.top}px`)
 }
 
 export function LandingPage() {
   const page = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const root = page.current
-    const header = root?.querySelector<HTMLElement>(".sh-header")
-    if (!root || !header) return
-    const measure = () => root.style.setProperty("--landing-header-height", `${header.getBoundingClientRect().height}px`)
-    const observer = new ResizeObserver(measure)
-    observer.observe(header)
-    measure()
-    return () => observer.disconnect()
+    if (page.current) return mountApiDemo(page.current)
   }, [])
-  return (
-    <div className="landing" id="top" ref={page}>
-      <PublicSiteHeader/>
-
-      <main>
-        <section className="hero" aria-labelledby="hero-title">
-          <div className="hero-intro">
-            <h1 id="hero-title">Смотрите, где<br/>ИИ упоминает ваш бренд.</h1>
-            <a className="hero-try" href={APP_URL}>Попробовать <span aria-hidden="true">→</span></a>
+  return <div className="landing-page" ref={page}>
+    <a href="#main" className="skip">К содержанию</a>
+    <PublicSiteHeader/>
+    <main id="main" tabIndex={-1}>
+      <section className="home-hero container" aria-labelledby="hero-title">
+        <div className="home-hero__message">
+          <h1 id="hero-title">Узнайте, что ИИ говорит<br/> о вашем бренде<span>.</span></h1>
+          <p>Добавьте вопросы, которые задают ваши покупатели. Аирейт проверит их в пяти ИИ-сервисах, сохранит ответы и покажет, где назвали ваш бренд.</p>
+          <div className="home-hero__actions">
+            <a className="btn primary" href={registerUrl}>Начать проверку <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a>
+            <a className="btn quiet" href="#tasks">Для каких задач <span aria-hidden="true">↓</span></a>
           </div>
-          <LandingHeroAnimation/>
-        </section>
+        </div>
+        <LandingHeroAnimation/>
+      </section>
 
-        <section className="proof-section" aria-label="Пример интерфейса отчёта"><div className="site-container proof-layout"><div className="proof-copy"><h2>Каждое упоминание видно в деталях.</h2><p>Смотрите ответы по каждому запросу и системе. Данные остаются под рукой для сравнения.</p></div><ReportPreview /></div></section>
+      <section className="home-audience" id="audience" aria-labelledby="audience-title">
+        <div className="container home-audience__layout">
+          <div className="home-audience__intro">
+            <h2 id="audience-title">Для кого</h2>
+            <p>Проверьте, по каким запросам ИИ уже упоминает ваш бренд. Найдите темы, где вас пока не называют.</p>
+            <figure className="home-audience__report">
+              <div className="report-sample">
+                <div className="report-sample__heading"><span>Отчёт по бренду</span><code>ПРИМЕР</code></div>
+                <div className="report-sample__stats">
+                  <div><span>Видимость</span><strong>52,1<span>%</span></strong></div>
+                  <div><span>С упоминанием</span><strong>609<span> / 1170</span></strong></div>
+                </div>
+                <ol className="report-sample__bars" aria-label="Пример видимости по сервисам">
+                  <li><img src="/assets/services/chatgpt.svg" width="18" height="18" alt=""/><span>ChatGPT</span><i style={{"--value": "68%"} as CSSProperties} aria-hidden="true"></i><b>68%</b></li>
+                  <li><img src="/assets/services/perplexity.svg" width="18" height="18" alt=""/><span>Perplexity</span><i style={{"--value": "54%"} as CSSProperties} aria-hidden="true"></i><b>54%</b></li>
+                  <li><img src="/assets/services/gemini.png" width="18" height="18" alt=""/><span>Gemini</span><i style={{"--value": "46%"} as CSSProperties} aria-hidden="true"></i><b>46%</b></li>
+                </ol>
+              </div>
+            </figure>
+          </div>
+          <ul className="home-audience__list">
+            <li><svg className="home-audience__icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6"><path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M6 14a12 12 0 0 0 2.4 7.2a2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14M8 6v8"/></g></svg><div><h3>Маркетинговые агентства</h3><p>Добавьте в отчёт для клиента долю ответов с упоминанием бренда и покажите, как она изменилась с прошлой проверки.</p></div></li>
+            <li><svg className="home-audience__icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6"><path d="m8 11l2 2l4-4"/><circle cx="11" cy="11" r="8"/><path d="m21 21l-4.3-4.3"/></g></svg><div><h3>Агентства поискового продвижения</h3><p>Проверьте запросы из семантики и найдите темы, в которых ИИ отвечает без упоминания клиента.</p></div></li>
+            <li><svg className="home-audience__icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6"><path d="M10 12h4m-4-4h4m0 13v-3a2 2 0 0 0-4 0v3"/><path d="M6 10H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2"/><path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/></g></svg><div><h3>Владельцы бизнеса</h3><p>Посмотрите, что ИИ советует покупателям, когда они выбирают товар или услугу в вашей категории.</p></div></li>
+            <li><svg className="home-audience__icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" d="M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2zm2.054 10.987H3.946"/></svg><div><h3>Специалисты на фрилансе</h3><p>Ведите проверку каждого бренда в отдельном проекте. Дайте клиенту доступ к отчёту с ответами.</p></div></li>
+          </ul>
+        </div>
+      </section>
 
-        <section className="intro-section" id="how" aria-labelledby="how-title">
-          <div className="site-container">
-            <div className="section-heading"><h2 id="how-title">От списка запросов<br />до понятного отчёта.</h2><p>Вы задаёте вопросы, которые задают ваши клиенты. Парсер собирает ответы и показывает, в каком виде появился бренд.</p></div>
-            <ProcessFlow />
-            <div className="steps-grid">
-              <article className="step-card"><div className="step-icon"><ListFilter size={23} strokeWidth={1.8} aria-hidden="true" /></div><h3>Добавьте запросы</h3><p>Укажите бренд, его варианты написания и список вопросов для проверки.</p></article>
-              <article className="step-card"><div className="step-icon"><ScanSearch size={23} strokeWidth={1.8} aria-hidden="true" /></div><h3>Запустите скан</h3><p>Парсер откроет ИИ-сервисы, задаст вопросы и сохранит ответы по каждой системе.</p></article>
-              <article className="step-card"><div className="step-icon"><MessageSquareText size={23} strokeWidth={1.8} aria-hidden="true" /></div><h3>Проверьте контекст</h3><p>Смотрите, где найден бренд: в тексте ответа, ссылке или карточке товара. Открывайте сохранённые источники и скриншоты.</p></article>
+      <section className="home-tasks container" id="tasks" aria-labelledby="tasks-title">
+        <div className="home-tasks__heading"><h2 id="tasks-title">Для каких задач</h2><p>Откройте сам ответ, посмотрите его источники и сравните с прошлой проверкой.</p></div>
+        <div className="home-tasks__grid" onPointerMove={moveSpotlight}>
+          <article className="task-card task-card--featured">
+            <div>
+              <div className="task-card__heading"><svg className="task-card__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 18h18M4 13l5-4 4 3 6-7m-4 0h4v4"/></svg><h3>Измерить видимость бренда</h3></div>
+              <p>Сравните долю ответов с вашим брендом в разных ИИ-сервисах. Посмотрите, где она выросла или снизилась.</p>
             </div>
-          </div>
-        </section>
-
-        <ProductPrinciples />
-
-        <section className="showcase-section" aria-labelledby="showcase-title"><div className="site-container"><div className="showcase-heading"><h2 id="showcase-title">Весь путь проверки — перед глазами.</h2><p>Список запросов, ход скана и результаты по каждой ИИ-системе собраны в одном интерфейсе.</p></div><div className="showcase-grid">
-          <SpotlightCard className="media-card" spotlightColor="rgba(202, 192, 160, 0.08)"><div className="media-card-heading"><h3>Все запросы и результаты в одном месте.</h3></div><GifWindow slot="interface" title="Обзор проекта"><InterfaceDemo /></GifWindow></SpotlightCard>
-          <SpotlightCard className="media-card" spotlightColor="rgba(202, 192, 160, 0.08)"><div className="media-card-heading"><h3>Видно, что происходит во время проверки.</h3></div><GifWindow slot="parsing" title="Ход проверки"><ParsingDemo /></GifWindow></SpotlightCard>
-        </div></div></section>
-
-        <section className="signals-section" id="signals" aria-labelledby="signals-title">
-          <div className="site-container signals-layout">
-            <div className="signals-copy"><h2 id="signals-title">У каждого упоминания есть источник.</h2><p>Бренд может появиться в словах ИИ, в карточках товаров, в ссылке на ваш сайт или в адресе чужой страницы. Отчёт сохраняет этот контекст, чтобы вы понимали, что именно произошло.</p><a className="text-link" href={APP_URL}>Посмотреть в парсере <ArrowUpRight size={17} aria-hidden="true" /></a></div>
-            <div className="signals-list">
-              <article><div className="signal-symbol"><MessageSquareText size={22} aria-hidden="true" /></div><div><h3>В словах ИИ</h3><p>Видно, назвал ли сервис бренд в собственном ответе.</p></div><ArrowUpRight className="signal-arrow" size={18} aria-hidden="true" /></article>
-              <article><div className="signal-symbol"><Link2 size={22} aria-hidden="true" /></div><div><h3>На вашем сайте или вне его</h3><p>Отдельно учитываются ссылки на ваш домен и упоминания в адресах сторонних страниц.</p></div><ArrowUpRight className="signal-arrow" size={18} aria-hidden="true" /></article>
-              <article><div className="signal-symbol"><ListFilter size={22} aria-hidden="true" /></div><div><h3>Сравнимые цифры</h3><p>Выбирайте ИИ-системы и даты для сравнения. Карточки товаров можно включать в статистику упоминаемости или исключать из неё.</p></div><ArrowUpRight className="signal-arrow" size={18} aria-hidden="true" /></article>
+            <div className="task-card__chart" role="img" aria-label="Иллюстрация роста видимости между проверками">
+              <svg viewBox="0 0 280 94" preserveAspectRatio="none" aria-hidden="true">
+                <defs><linearGradient id="trend-fill" x2="0" y2="1"><stop stopColor="var(--accent)" stopOpacity=".22"/><stop offset="1" stopColor="var(--accent)" stopOpacity="0"/></linearGradient></defs>
+                <path d="M0 75 46 69 91 73 135 46 181 53 229 28 280 17V94H0Z" fill="url(#trend-fill)"/>
+                <path d="M0 75 46 69 91 73 135 46 181 53 229 28 280 17" stroke="var(--accent)" strokeWidth="2" vector-effect="non-scaling-stroke" fill="none"/>
+                <circle cx="276" cy="18" r="3" fill="var(--accent)"/>
+              </svg>
             </div>
+          </article>
+          <article className="task-card">
+            <div className="task-card__heading"><svg className="task-card__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="5.5"/><path d="m14 14 5 5M8 10h4"/></svg><h3>Найти запросы без упоминаний</h3></div>
+            <p>Найдите вопросы, на которые ИИ дал ответ без вашего бренда. С них можно начать разбор тем.</p>
+          </article>
+          <article className="task-card">
+            <div className="task-card__heading"><svg className="task-card__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5h16v11H9l-5 4zM8 9h8m-8 3h5"/></svg><h3>Увидеть контекст упоминания</h3></div>
+            <p>Прочитайте ответ целиком. Проверьте, появился ли бренд в тексте, в ссылке или в карточке товара.</p>
+          </article>
+          <article className="task-card">
+            <div className="task-card__heading"><svg className="task-card__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m10 14 4-4m-5-1 3-3a4 4 0 0 1 6 6l-3 3m-6-6-3 3a4 4 0 0 0 6 6l3-3"/></svg><h3>Посмотреть источники ответов</h3></div>
+            <p>Посмотрите, какие сайты ИИ приводит в ответах с вашим брендом. Список доменов можно выгрузить в Excel.</p>
+          </article>
+          <article className="task-card">
+            <div className="task-card__heading"><svg className="task-card__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4m8-4v4M4 10h16m-11 5 2 2 4-4"/></svg><h3>Следить за изменениями</h3></div>
+            <p>Поставьте проверки на расписание. Команда или клиент смогут открыть отчёт и сравнить результаты за разные даты.</p>
+          </article>
+        </div>
+        <div className="home-tasks__action">
+          <div><h2>Начните с запросов покупателей</h2><p>Добавьте запросы в проект и выберите, где их проверить.</p></div>
+          <a className="btn primary" href={registerUrl}>Начать проверку <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a>
+        </div>
+      </section>
+      <section className="home-chapter container" id="how" aria-labelledby="how-title">
+        <div className="home-chapter__heading"><h2 id="how-title">Как работает</h2><p>От вопросов покупателей до отчёта с ответами ИИ.</p></div>
+        <ol className="home-chapter__steps">
+          <li><h3>Добавьте запросы</h3><p>Укажите бренд и вопросы, которые хотите проверить.</p></li>
+          <li><h3>Запустите проверку</h3><p>Аирейт отправит запросы в выбранные ИИ-сервисы и сохранит ответы.</p></li>
+          <li><h3>Откройте отчёт</h3><p>Сравните видимость по датам и откройте ответ за любым упоминанием.</p></li>
+        </ol>
+      </section>
+      <section className="home-chapter home-chapter--api" id="api" aria-labelledby="api-title">
+        <div className="container">
+          <div className="api-demo__intro">
+            <h2 id="api-title">Подключите Аирейт к своему агенту</h2>
+            <div><p>Ваш ИИ-агент может проверить список запросов сразу по нескольким брендам. Он рассчитает стоимость, запустит проверки и соберёт ответы со ссылками. Попросите его сравнить результаты по датам и выделить запросы, где бренд появился или пропал.</p><a className="btn" href="/docs/api/">Документация REST API <span aria-hidden="true">↗</span></a></div>
           </div>
-        </section>
+          <div className="api-demo" aria-label="Пример запроса и ответа REST API">
+            <section className="api-panel" aria-labelledby="api-request-title">
+              <div className="api-panel__heading"><h3 id="api-request-title">answers.sh</h3><button type="button" className="btn compact" id="copy-api" hidden>Скопировать</button></div>
+              <pre tabIndex={0} aria-label="Команда cURL"><code id="api-request">
+                <span className="code-verb">curl</span>{" -fsS --get \\\n  "}
+                <span className="code-string">"https://airate.tech/api/v1/public/projects/$PROJECT_ID/answers"</span>{" \\\n  -H "}
+                <span className="code-string">"Authorization: Bearer $AIRATE_API_KEY"</span>{" \\\n  --data-urlencode "}
+                <span className="code-string">"date_from=2026-11-01"</span>{" \\\n  --data-urlencode "}
+                <span className="code-string">"date_to=2026-11-19"</span>{" \\\n  --data-urlencode "}
+                <span className="code-string">"limit=1"</span>
+              </code></pre>
 
-        <section className="history-section" aria-labelledby="history-title">
-          <div className="site-container history-layout">
-            <div className="history-visual" aria-hidden="true"><div className="history-axis"><span>ВИДИМОСТЬ</span><span>100%</span><span>50%</span><span>0%</span></div><svg viewBox="0 0 620 270" preserveAspectRatio="none"><path d="M0 232 C72 207 96 210 142 191 S226 206 276 163 S351 168 407 102 S492 133 548 57 S586 47 620 27" fill="none" stroke="var(--air-accent)" strokeWidth="3"/><path d="M0 232 C72 207 96 210 142 191 S226 206 276 163 S351 168 407 102 S492 133 548 57 S586 47 620 27 V270 H0Z" fill="url(#history-fill)"/><defs><linearGradient id="history-fill" x1="0" x2="0" y1="0" y2="1"><stop stopColor="var(--air-accent)" stopOpacity=".31"/><stop offset="1" stopColor="var(--air-accent)" stopOpacity="0"/></linearGradient></defs></svg><div className="history-dates"><span>ПЕРВЫЙ СКАН</span><span>ПОСЛЕДНИЙ СКАН</span></div><div className="history-callout"><ArrowUpRight size={19} /> Изменение видно по датам</div></div>
-            <div className="history-copy"><h2 id="history-title">Сравнивайте ответы между сканами.</h2><p>Смотрите, в каких запросах бренд появился или пропал. При необходимости выгружайте таблицу упоминаний в Excel.</p><a className="button button-light" href={APP_URL}>Открыть отчёт <ArrowUpRight size={17} aria-hidden="true" /></a></div>
+            </section>
+            <section className="api-panel" aria-labelledby="api-response-title">
+              <div className="api-panel__heading"><h3 id="api-response-title"><span className="api-panel__indicator" aria-hidden="true"></span>Пример ответа</h3><span className="api-panel__format">JSON</span></div>
+              <pre tabIndex={0} aria-label="Пример ответа JSON"><code id="api-response">{"{\n  "}
+                <span className="code-property">"items"</span>{": [{\n    "}
+                <span className="code-property">"id"</span>{": 42,\n    "}
+                <span className="code-property">"service"</span>: <span className="code-string">"chatgpt"</span>{",\n    "}
+                <span className="code-property">"scan_date"</span>: <span className="code-string">"2026-11-18"</span>{",\n    "}
+                <span className="code-property">"answer_text"</span>: <span className="code-string">"Например, «Север» предлагает…"</span>{",\n    "}
+                <span className="code-property">"sources"</span>: [<span className="code-string">"https://example.com"</span>{"]\n  }],\n  "}
+                <span className="code-property">"next_after_id"</span>: <span className="code-verb">null</span>{"\n}"}
+              </code></pre>
+
+            </section>
           </div>
-        </section>
-
-        <section className="faq-section" id="faq" aria-labelledby="faq-title"><div className="site-container faq-layout"><div><h2 id="faq-title">Перед первым сканом.</h2><p>Коротко о том, что проверяет текущая версия.</p></div><div className="faq-list">
-          <details><summary><span>Какие ИИ-системы доступны?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Сейчас работают ChatGPT, Perplexity, Gemini, Яндекс Поиск с Алисой и Google AI Overview. Проверки выполняются на сервере.</p></details>
-          <details><summary><span>Что считается упоминанием?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Отчёт различает бренд в тексте ответа, ссылку на ваш сайт, карточку и упоминания в сторонних источниках. На дашборде можно выбрать, какие типы учитывать.</p></details>
-          <details><summary><span>Нужен ли вход в ИИ-сервисы?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Достаточно войти в аккаунт AIRate. Сбор ответов выполняется на сервере, входить в ИИ-сервисы на своём компьютере не нужно.</p></details>
-          <details><summary><span>Где хранятся результаты?</span><ChevronDown size={18} aria-hidden="true" /></summary><p>Проекты, настройки и ответы хранятся в аккаунте и доступны в кабинете. Сохранённый текст ответа передаётся ИИ-моделям через сервер для анализа упоминаний. Скриншоты исторических проверок доступны 90 дней.</p></details>
-        </div></div></section>
-
-        <section className="bottom-cta" aria-labelledby="cta-title"><div className="site-container cta-inner"><div><h2 id="cta-title">Проверьте, что ИИ уже говорит о вашем бренде.</h2></div><a className="button button-primary" href={APP_URL}>Начать проверку <ArrowUpRight size={18} aria-hidden="true" /></a><ArrowDownRight className="cta-decoration" size={210} strokeWidth={.5} aria-hidden="true" /></div></section>
-      </main>
-
-      <SiteFooter />
-      <a className="floating-help" href="#faq" aria-label="Частые вопросы"><CircleHelp size={22} aria-hidden="true" /></a>
-    </div>
-  )
+          <p className="api-demo__status" id="api-demo__status" role="status"></p>
+        </div>
+      </section>
+    </main>
+    <footer className="home-footer">
+      <div className="container home-footer__inner">
+        <Brand/>
+        <nav aria-label="Документы и поддержка"><a href="/terms/">Условия использования</a><a href="/privacy/">Политика конфиденциальности</a><a href={SUPPORT_URL}>Поддержка</a></nav>
+      </div>
+    </footer>
+  </div>
 }

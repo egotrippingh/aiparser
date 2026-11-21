@@ -1,7 +1,20 @@
 # Shared frontend rules
 
 Read root `AGENTS.md`; read `PRODUCT.md` and `DESIGN.md` for UI changes.
-Cabinet tokens: `src/prototype.css`; mock: `../mockups/dashboard.html`.
+The dark design uses the shared SCSS in `src/styles/`. The desktop design
+reference is the approved preview under `design-system/`.
+
+## Design system and SCSS
+
+- Keep authored website styles in SCSS. Use Sass modules with `@use` and
+  `@forward` for shared tokens, mixins and component styles.
+- Define palette, typography, spacing, radii and motion tokens once. Consume
+  the same tokens and component styles in the site, cabinet and preview.
+- Use BEM for new blocks, elements and variants (`block`, `block__element`,
+  `block--modifier`). When updating legacy markup, migrate its CSS and markup
+  together. Reuse shared button, form, table, dialog and loading states.
+- Verify desktop and narrow layouts, keyboard focus, hover, reduced motion,
+  loading, empty and error states. Keep generated and vendor CSS intact.
 
 - Reuse `AppChoice` for cabinet dropdown menus, including calendar modes and limits;
   use its shared popup, option and selected states rather than browser-native select menus.
@@ -11,8 +24,8 @@ Cabinet tokens: `src/prototype.css`; mock: `../mockups/dashboard.html`.
   keyboard focus, accessible labels and arrow-key/Escape operation. Check the actual
   row and open menu in the browser after changing controls.
 
-- React/TypeScript + Vite, existing components/styles; retain Russian copy, the supplied
-  white/navy/orange prototype palette, keyboard access, labelled controls, focus and reduced motion. Use native
+- React/TypeScript + Vite, existing components/styles; retain Russian copy, the approved
+  graphite/lavender palette, keyboard access, labelled controls, focus and reduced motion. Use native
   controls or installed components before dependencies. Do not edit vendored React Bits
   merely to match formatting; preserve licenses.
 - Website configures projects; server executes all five new service choices.

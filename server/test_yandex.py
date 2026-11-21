@@ -54,6 +54,7 @@ def complete_registration(client, response):
 
 def test_yandex_register_login_and_single_use_ticket(tmp_path, monkeypatch):
     client, fake = setup(tmp_path, monkeypatch)
+    fake.profile_data.update(default_avatar_id="123/portrait-1", is_avatar_empty=False)
     assert client.get("/api/v1/auth/providers").json() == {"yandex": True, "password_reset": False}
     state = start(client)
     assert callback(client, "wrong-state").status_code == 400
@@ -67,39 +68,52 @@ def test_yandex_register_login_and_single_use_ticket(tmp_path, monkeypatch):
     assert issued.status_code == 201
     user = issued.json()["user"]
     assert user["email"] == "owner@example.test"
-    assert client.get("/api/v1/me", headers={"Authorization": f"Bearer {issued.json()['token']}"}).json()["yandex_linked"]
+    me = client.get("/api/v1/me", headers={"Authorization": f"Bearer {issued.json()['token']}"}).json()
+    assert me["yandex_linked"]
+    assert me["avatar_url"] == "https://avatars.yandex.net/get-yapic/123/portrait-1/islands-68"
     assert client.post("/api/v1/auth/yandex/exchange", json={"ticket": ticket}).status_code == 401
     assert client.post("/api/v1/auth/yandex/register", json={"ticket": ticket, "password": "another-long-password"}).status_code == 401
     assert callback(client, state).status_code == 400
 
+    fake.profile_data["default_avatar_id"] = "123/portrait-2"
     second = callback(client, start(client))
     second_ticket = parse_qs(urlparse(second.headers["location"]).fragment)["auth_ticket"][0]
     again = client.post("/api/v1/auth/yandex/exchange", json={"ticket": second_ticket}).json()
     assert again["user"]["id"] == user["id"]
+    assert client.get("/api/v1/me", headers={"Authorization": f"Bearer {again['token']}"}).json()["avatar_url"] == (
+        "https://avatars.yandex.net/get-yapic/123/portrait-2/islands-68"
+    )
     assert fake.verifiers[0] != fake.verifiers[1]
     assert client.post("/api/v1/auth/login", json={"email": user["email"], "password": "a-long-test-password"}).status_code == 200
 
 
 def test_existing_email_requires_explicit_link(tmp_path, monkeypatch):
     client, fake = setup(tmp_path, monkeypatch)
+    fake.profile_data.update(default_avatar_id="123/portrait", is_avatar_empty=False)
     registered = register_account(client, json={
         "email": "owner@example.test", "password": "a-long-test-password",
     }).json()
     headers = {"Authorization": f"Bearer {registered['token']}"}
     collision = callback(client, start(client))
     assert "auth_error=link_required" in collision.headers["location"]
-    assert client.get("/api/v1/me", headers=headers).json()["yandex_linked"] is False
+    me = client.get("/api/v1/me", headers=headers).json()
+    assert me["yandex_linked"] is False
+    assert me["avatar_url"] is None
 
     started = client.post("/api/v1/auth/yandex/link/start", headers=headers)
     assert started.status_code == 200
     state = parse_qs(urlparse(started.json()["authorization_url"]).query)["state"][0]
     linked = callback(client, state)
     assert "linked=1" in linked.headers["location"]
-    assert client.get("/api/v1/me", headers=headers).json()["yandex_linked"] is True
+    me = client.get("/api/v1/me", headers=headers).json()
+    assert me["yandex_linked"] is True
+    assert me["avatar_url"] == "https://avatars.yandex.net/get-yapic/123/portrait/islands-68"
+    fake.profile_data.pop("default_avatar_id")
     logged_in = callback(client, start(client))
     ticket = parse_qs(urlparse(logged_in.headers["location"]).fragment)["auth_ticket"][0]
-    yandex_user = client.post("/api/v1/auth/yandex/exchange", json={"ticket": ticket}).json()["user"]
-    assert yandex_user["id"] == registered["user"]["id"]
+    yandex_login = client.post("/api/v1/auth/yandex/exchange", json={"ticket": ticket}).json()
+    assert yandex_login["user"]["id"] == registered["user"]["id"]
+    assert client.get("/api/v1/me", headers={"Authorization": f"Bearer {yandex_login['token']}"}).json()["avatar_url"] is None
     assert client.post("/api/v1/auth/login", json={
         "email": "owner@example.test", "password": "a-long-test-password",
     }).status_code == 200
@@ -169,8 +183,21 @@ def test_yandex_http_flow_uses_code_pkce_and_profile_header():
     assert params["redirect_uri"] == ["https://example.test/callback"]
     assert params["code_challenge_method"] == ["S256"]
     assert params["code_challenge"] == [challenge("test-verifier")]
+    assert "optional_scope" not in params
     assert oauth.profile("test-code", "test-verifier")["id"] == "123"
     assert len(requests) == 2
+
+
+def test_avatar_scope_is_optional_and_avatar_id_is_bounded():
+    from server.yandex import profile_avatar_id
+
+    oauth = YandexOAuth("test-client", "test-secret", "https://example.test/callback", request_avatar=True)
+    params = parse_qs(urlparse(oauth.authorize_url("state", "test-verifier")).query)
+    assert params["scope"] == ["login:info login:email"]
+    assert params["optional_scope"] == ["login:avatar"]
+    assert profile_avatar_id({"default_avatar_id": "portrait", "is_avatar_empty": True}) is None
+    assert profile_avatar_id({"default_avatar_id": "//other.test/path", "is_avatar_empty": False}) is None
+    assert profile_avatar_id({"default_avatar_id": "a" * 191, "is_avatar_empty": False}) is None
 
 
 def test_yandex_pending_registration_password_promo_expiry_and_connect_are_atomic(tmp_path, monkeypatch):

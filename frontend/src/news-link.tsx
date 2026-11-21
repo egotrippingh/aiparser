@@ -1,4 +1,4 @@
-import "./news-link.css"
+import "./news-link.scss"
 
 const NEWS_URL = "https://t.me/airtate_tech"
 

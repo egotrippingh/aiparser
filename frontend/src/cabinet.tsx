@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react"
 import { createRoot } from "react-dom/client"
-import { ArrowDownLeft, ArrowUpRight, Eye, EyeOff } from "lucide-react"
+import { ArrowDownLeft, ArrowUpRight, Eye, EyeOff, Send } from "lucide-react"
 import { ACCOUNT_API as API, COOKIE_SESSION, accountRequest as request, AccountError, onSessionExpired } from "./account-api"
 import { AdminScans } from "./admin-scans"
 import { AdminOverview } from "./admin-overview"
 import { AdminPromos } from "./admin-promos"
 import { PromoForm, type FreeScans } from "./components/promo-form"
 import { ControlCenter } from "./control-center"
-import "./cabinet.css"
-import "./account-refresh.css"
+import { CabinetSkeleton } from "./cabinet-loading"
+import "./cabinet.scss"
+import "./account-refresh.scss"
 import { AccountBalance } from "./components/account-balance"
 import { ApiKeySettings } from "./components/api-key-settings"
-import { SiteHeader } from "./site-header"
+import { Brand } from "./brand"
+import { SUPPORT_URL } from "./site-footer"
+import { AuthArtwork } from "./auth-artwork"
+import "./styles/auth.scss"
 import { TopupForm } from "./components/topup-form"
 import { PasswordSettings } from "./components/password-settings"
 import { paymentLabel, type Payment } from "./lib/payment"
@@ -23,7 +27,7 @@ const money = (kopeks: number) => new Intl.NumberFormat("ru-RU", {
   style: "currency", currency: "RUB", maximumFractionDigits: 2,
 }).format(kopeks / 100)
 
-type User = { id: string; email: string; has_password?: boolean; yandex_linked?: boolean; is_admin?: boolean; brand_clarifications_enabled?: boolean }
+type User = { id: string; email: string; avatar_url?: string | null; has_password?: boolean; yandex_linked?: boolean; is_admin?: boolean; brand_clarifications_enabled?: boolean }
 type Entry = { amount_kopeks: number; kind: string; reference: string; created_at: string }
 type Wallet = { balance_kopeks: number; reserved_kopeks: number; available_kopeks: number; entries: Entry[]; free_scans?: FreeScans }
 
@@ -313,7 +317,8 @@ function Cabinet() {
   const showRegistrationCredentials = needsRegistrationPassword(emailTicket, !!savedEmailProof, password, confirmation)
   const confirmingEmail = authMode === "register" && !!emailTicket
 
-  if (user && !checkingSession) return <ControlCenter key={token} token={token} email={user.email}
+  if (checkingSession) return <CabinetSkeleton label="Открываем кабинет…" format="screen"/>
+  if (user) return <ControlCenter key={token} token={token} email={user.email} avatarUrl={user.avatar_url}
     balance={user.is_admin ? "Безлимитно" : money(wallet?.available_kopeks || 0)} admin={!!user.is_admin}
     brandClarificationsEnabled={!!user.brand_clarifications_enabled} onDirtyChange={setEditorDirty}
     logout={logout} walletChanged={walletChanged} message={message} administration={<><AdminPromos token={token}/><AdminOverview token={token} userId={user.id} walletChanged={walletChanged}/><AdminScans token={token}/></>}
@@ -327,18 +332,13 @@ function Cabinet() {
         {payments.length > 0 && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ПОПОЛНЕНИЯ</span><h2>История платежей</h2></div><button className="cab-refresh" onClick={walletChanged}>Обновить</button></div><div className="cab-list">{payments.map(payment => <div className="cab-entry cab-payment-row" key={payment.id}><span><b>{money(payment.amount_kopeks)} · {payment.method === "crypto" ? "Криптовалюта" : payment.method === "sbp" ? "СБП" : "Банковская оплата"}</b><small>{new Date(payment.created_at).toLocaleString("ru-RU")}</small></span><span className={`cab-payment-status ${payment.status}`} role="status">{paymentLabel(payment.status)}</span>{payment.status === "pending" && payment.payment_url && <a className="cab-download" href={payment.payment_url}>Продолжить оплату</a>}</div>)}</div></section>}
         {(wallet?.entries.length || !user.is_admin) && <section className="cab-panel cab-history"><div className="cab-section-head"><div><span className="cab-kicker">ИСТОРИЯ</span><h2>Операции по балансу</h2></div><button onClick={walletChanged} className="cab-refresh">Обновить</button></div>{wallet?.entries.length ? <div className="cab-list">{wallet.entries.map((entry) => <div className="cab-entry" key={entry.reference}><span className={entry.amount_kopeks > 0 ? "cab-entry-icon in" : "cab-entry-icon out"}>{entry.amount_kopeks > 0 ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}</span><span><b>{entry.kind === "topup" ? "Пополнение" : entry.kind === "admin_credit" ? "Ручное пополнение" : entry.kind === "recompute" ? "Пересчёт ответа" : "Проверка запроса"}</b><small>{new Date(entry.created_at).toLocaleString("ru-RU")}</small></span><strong className={entry.amount_kopeks > 0 ? "positive" : ""}>{entry.amount_kopeks > 0 ? "+" : ""}{money(entry.amount_kopeks)}</strong></div>)}</div> : <p className="cab-empty">Пока нет операций по денежному балансу.</p>}</section>}
         {payments.some((p) => p.status === "pending") && <p className="cab-pending">Есть незавершённое пополнение. Если вы уже оплатили, нажмите «Обновить» после возврата на сайт.</p>}</div>}/>
-  return <div className="cabinet cab-auth-page">
-    <SiteHeader onLogin={() => {if (!busy) {setAuthMode("login"); setResetToken(""); setRegistrationTicket(""); setPassword(""); setConfirmation(""); setMessage("")}}} onRegister={() => {if (!busy) {setAuthMode("register"); setResetToken(""); setRegistrationTicket(""); setPassword(""); setConfirmation(""); setMessage("")}}}/>
-    <main className="cab-container cab-main">{checkingSession ? <p role="status">Открываем кабинет…</p> : <section className="cab-auth-wrap"><form className="cab-panel cab-auth" onSubmit={authenticate}>
+  return <div className="cabinet auth-screen">
+    <header className="auth-screen__header"><Brand/><a href={SUPPORT_URL}><Send size={17} aria-hidden="true"/>Поддержка</a></header>
+    <main className="auth-screen__layout">
+      <form className="cab-auth auth-screen__form" onSubmit={authenticate}>
           {authMode !== "login" && <button className="cab-back" type="button" disabled={busy} onClick={() => { setAuthMode("login"); setResetToken(""); setRegistrationTicket(""); setPassword(""); setConfirmation(""); setMessage("") }}>← Вернуться ко входу</button>}
           <div className="cab-auth-heading"><h1>{authMode === "login" ? "Вход в аккаунт" : confirmingEmail ? "Проверьте почту" : authMode === "register" ? "Создать аккаунт" : authMode === "forgot" ? "Забыли пароль?" : authMode === "reset" ? "Новый пароль" : "Завершите регистрацию"}</h1>
-            {confirmingEmail ? <p>Введите код из письма на {email}.</p> : (authMode === "login" || authMode === "register") && <p>{authMode === "login" ? <>Нет аккаунта? <button type="button" className="cab-inline-link" disabled={busy} onClick={() => {setAuthMode("register"); setMessage("")}}>Зарегистрироваться</button></> : <>Уже есть аккаунт? <button type="button" className="cab-inline-link" disabled={busy} onClick={() => {setAuthMode("login"); setMessage("")}}>Войти</button></>}</p>}</div>
-          {(authMode === "login" || authMode === "register") && !confirmingEmail && <><button className="cab-yandex" type="button" disabled={!yandexEnabled || busy}
-            title={yandexEnabled ? "" : "Доступно после настройки Яндекс ID на сервере"}
-            onClick={() => location.assign(`${API}/api/v1/auth/yandex/start`)}>
-            <span className="cab-yandex-mark" aria-hidden="true"><svg viewBox="44 16 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="44" y="16" width="24" height="24" rx="12" fill="#FC3F1D"/><path d="M57.6912 35.212H60.1982V20.812H56.5516C52.8843 20.812 50.9574 22.6975 50.9574 25.4739C50.9574 27.6909 52.0141 28.9962 53.8995 30.3429L50.6259 35.212H53.3401L56.9867 29.7628L55.7228 28.9133C54.1896 27.8773 53.4437 27.0693 53.4437 25.3288C53.4437 23.7956 54.5211 22.7596 56.5723 22.7596H57.6912V35.212Z" fill="white"/></svg></span> Продолжить с Яндекс
-          </button>
-          <p className="cab-provider-note">Для входа и регистрации</p><div className="cab-auth-divider"><span>или по email</span></div></>}
+            {confirmingEmail && <p>Введите код из письма на {email}.</p>}</div>
           {authMode === "reset" ? <p>Придумайте новый пароль для аккаунта.</p>
             : (!confirmingEmail || showRegistrationCredentials) && <label>Электронная почта<input type="email" autoComplete="email" placeholder="you@company.ru" required disabled={busy} readOnly={authMode === "yandex-register"} value={email} onChange={(e) => {setEmail(e.target.value); setEmailTicket(""); setEmailCode(""); setResendAfter(0); setSavedEmailProof(null); sessionStorage.removeItem(EMAIL_PROOF_KEY)}} /></label>}
           {authMode === "yandex-register" && <p>Завершите регистрацию: пароль позволит входить без Яндекса.</p>}
@@ -351,12 +351,20 @@ function Cabinet() {
             <small id="registration-code-hint">6 цифр. Код действует 10 минут. Если письма нет, проверьте папку «Спам».</small>
             <div className="cab-code-actions"><button className="cab-inline-link" type="button" disabled={busy || resendAfter > 0} onClick={resendRegistrationCode}>{resendAfter > 0 ? `Отправить повторно через ${resendAfter} с` : "Отправить код повторно"}</button><button className="cab-inline-link" type="button" disabled={busy} onClick={() => {setEmailTicket(""); setEmailCode(""); setResendAfter(0); setSavedEmailProof(null); sessionStorage.removeItem(EMAIL_PROOF_KEY)}}>Изменить почту</button></div>
           </>}
-          <button className="cab-primary" disabled={busy || (authMode === "forgot" && !resetEnabled)}>{busy ? "Подождите…" : authMode === "login" ? "Войти" : authMode === "register" ? emailTicket ? "Подтвердить почту и создать аккаунт" : "Получить код на почту" : authMode === "yandex-register" ? "Завершить регистрацию" : authMode === "forgot" ? "Отправить ссылку" : "Сменить пароль"}</button>
           {authMode === "login" && <button className="cab-inline-link cab-forgot" type="button" onClick={() => setAuthMode("forgot")}>Забыли пароль?</button>}
+          <button className="cab-primary" disabled={busy || (authMode === "forgot" && !resetEnabled)}>{busy ? "Подождите…" : authMode === "login" ? "Войти" : authMode === "register" ? emailTicket ? "Подтвердить почту и создать аккаунт" : "Получить код на почту" : authMode === "yandex-register" ? "Завершить регистрацию" : authMode === "forgot" ? "Отправить ссылку" : "Сменить пароль"}</button>
+          {(authMode === "login" || authMode === "register") && !confirmingEmail && <><div className="cab-auth-divider"><span>или</span></div><button className="cab-yandex" type="button" disabled={!yandexEnabled || busy}
+            title={yandexEnabled ? "" : "Доступно после настройки Яндекс ID на сервере"}
+            onClick={() => location.assign(`${API}/api/v1/auth/yandex/start`)}>
+            <span className="cab-yandex-mark" aria-hidden="true"><svg viewBox="44 16 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="44" y="16" width="24" height="24" rx="12" fill="#FC3F1D"/><path d="M57.6912 35.212H60.1982V20.812H56.5516C52.8843 20.812 50.9574 22.6975 50.9574 25.4739C50.9574 27.6909 52.0141 28.9962 53.8995 30.3429L50.6259 35.212H53.3401L56.9867 29.7628L55.7228 28.9133C54.1896 27.8773 53.4437 27.0693 53.4437 25.3288C53.4437 23.7956 54.5211 22.7596 56.5723 22.7596H57.6912V35.212Z" fill="white"/></svg></span> Продолжить с Яндекс ID
+          </button>
+          </>}
+          {(authMode === "login" || authMode === "register") && !confirmingEmail && <p className="auth-screen__switch">{authMode === "login" ? <>Нет аккаунта? <button type="button" className="cab-inline-link" disabled={busy} onClick={() => {setAuthMode("register"); setMessage("")}}>Зарегистрироваться</button></> : <>Уже есть аккаунт? <button type="button" className="cab-inline-link" disabled={busy} onClick={() => {setAuthMode("login"); setMessage("")}}>Войти</button></>}</p>}
           {message && <p className="cab-auth-message" role="status">{message}</p>}
-        </form></section>}
-      {checkingSession && message && <p className="cab-auth-message" role="status">{message}</p>}
-    </main><footer className="cab-auth-footer"><span>© {new Date().getFullYear()} AIRate</span><a href="/privacy/">Конфиденциальность</a></footer>
+      </form>
+      <AuthArtwork/>
+    </main>
+    <footer className="auth-screen__footer"><a href="/privacy/">Политика конфиденциальности</a><a href="/terms/">Условия использования</a></footer>
   </div>
 }
 
