@@ -3,7 +3,7 @@ import fonts from "pdfmake/build/vfs_fonts"
 import type { Content, TableCell, TDocumentDefinitions } from "pdfmake/interfaces"
 import { clientReportCharts } from "./client-report-charts"
 import { clientReportLogo, reportLogoSize } from "./client-report-logo"
-import { reportHeading, reportInk, reportLine, reportMethod, reportMuted, reportSurface, reportTint, reportTitle, type ClientReport } from "./client-report"
+import { reportChartMuted, reportHeading, reportInk, reportLine, reportMethod, reportMetricCard, reportMetricFontSize, reportMuted, reportSurface, reportTint, reportTitle, type ClientReport } from "./client-report"
 
 pdfMake.addVirtualFileSystem(fonts)
 
@@ -12,6 +12,8 @@ const wrap = (text: string, limit = 24) => text.replace(new RegExp(`\\S{${limit}
 
 export async function clientReportPdf(report: ClientReport) {
   const [charts, logo] = await Promise.all([clientReportCharts(report), clientReportLogo()])
+  const width = reportMetricCard.width * 0.75
+  const height = reportMetricCard.height * 0.75
   const content: Content[] = [
     { image: logo, width: reportLogoSize.width * 0.75, margin: [0, 0, 0, 15] },
     { text: reportTitle, fontSize: 26, bold: true, margin: [0, 0, 0, 7] },
@@ -20,8 +22,19 @@ export async function clientReportPdf(report: ClientReport) {
     ...(report.filterNotes ? [{ text: wrap(report.filterNotes), style: "note" }] : []),
     {
       margin: [0, 13, 0, 13],
+      columnGap: reportMetricCard.gap * 0.75,
       columns: report.metrics.map(({ label, value }) => ({
-        stack: [{ text: value, fontSize: 23, color: reportHeading, bold: true }, { text: label, style: "note" }],
+        width,
+        stack: [
+          { canvas: [{ type: "rect", x: 0, y: 0, w: width, h: height, r: reportMetricCard.radius * 0.75, color: reportSurface }] },
+          {
+            relativePosition: { x: 12, y: 9 - height },
+            stack: [
+              { text: value, fontSize: reportMetricFontSize(value), lineHeight: 1, color: reportTint, bold: true, margin: [0, 0, 0, 3] },
+              { text: label, fontSize: 9, lineHeight: 1, color: reportChartMuted },
+            ],
+          },
+        ],
       })),
     },
     { image: charts.url, width: 511 },

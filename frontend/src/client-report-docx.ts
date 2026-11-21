@@ -2,9 +2,10 @@ import {
   AlignmentType, BorderStyle, Document, Footer, HeadingLevel, ImageRun, Packer, PageNumber,
   Paragraph, Table, TableCell, TableLayoutType, TableRow, TextRun, WidthType, type IParagraphOptions,
 } from "docx"
+import { ShapeGroupRun } from "docx/shapes"
 import { chartSize, clientReportCharts } from "./client-report-charts"
 import { clientReportLogo, reportLogoSize } from "./client-report-logo"
-import { reportHeading, reportInk, reportLine, reportMethod, reportMuted, reportSurface, reportTint, reportTitle, type ClientReport } from "./client-report"
+import { reportChartMuted, reportHeading, reportInk, reportLine, reportMethod, reportMetricCard, reportMetricFontSize, reportMuted, reportSurface, reportTint, reportTitle, type ClientReport } from "./client-report"
 
 const headingColor = reportHeading.slice(1), ink = reportInk.slice(1), muted = reportMuted.slice(1)
 const widths = [1960, 3658, 1600, 1600, 1400]
@@ -44,15 +45,27 @@ export async function clientReportDocx(report: ClientReport) {
   const [charts, logo] = await Promise.all([clientReportCharts(report), clientReportLogo()])
   const metric = (text: string, size: number, bold: boolean, color: string, options: IParagraphOptions) =>
     new Paragraph({ ...options, children: [new TextRun({ text, size, bold, color })] })
-  const metrics = new Table({
-    width: { type: WidthType.PERCENTAGE, size: 100 },
-    borders: Object.fromEntries(["top", "bottom", "left", "right", "insideHorizontal", "insideVertical"]
-      .map(side => [side, noBorder])),
-    margins: { top: 90, bottom: 155, right: 85 },
-    rows: [new TableRow({ cantSplit: true, children: report.metrics.map(({ label, value }) => new TableCell({
-      width: { type: WidthType.DXA, size: Math.floor(pageWidth / 3) },
-      children: [metric(value, 44, true, headingColor, {}), metric(label, 18, false, muted, {})],
-    })) })],
+  const { width, height, gap, radius } = reportMetricCard
+  const metrics = new Paragraph({
+    spacing: { before: 180, after: 240 },
+    children: [new ShapeGroupRun({
+      altText: {
+        name: "Сводка",
+        description: report.metrics.map(({ label, value }) => `${label} — ${value}`).join(". "),
+      },
+      children: report.metrics.map(({ label, value }, index) => ({
+        type: "roundedRectangle",
+        transformation: { width, height, offset: { left: index * (width + gap), top: 0 } },
+        adjustments: { cornerRadius: 100 * radius / height },
+        fill: reportSurface.slice(1),
+        line: "none",
+        textOptions: { margins: { left: 12, right: 10 } },
+        children: [
+          metric(value, reportMetricFontSize(value) * 2, true, reportTint.slice(1), { spacing: { after: 55 } }),
+          metric(label, 18, false, reportChartMuted.slice(1), {}),
+        ],
+      })),
+    })],
   })
   const doc = new Document({
     title: reportTitle, creator: "AIRate",

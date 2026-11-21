@@ -11,6 +11,8 @@ export const reportAccent = "#B6A8FF"
 export const reportSurface = "#18181B"
 export const reportChartLine = "#333337"
 export const reportChartMuted = "#A4A2A9"
+export const reportMetricCard = { width: 220, height: 76, gap: 10, radius: 12 }
+export const reportMetricFontSize = (value: string) => Math.min(23, Math.floor(240 / value.length))
 const green = "#207657"
 const red = "#BE483F"
 const percent = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 })

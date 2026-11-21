@@ -1,8 +1,8 @@
 import markUrl from "../design-system/aireyt-quote.svg?inline"
-import wordmarkUrl from "../design-system/aireyt-wordmark.svg?inline"
-import { reportSurface } from "./client-report"
+import wordmarkSvg from "../design-system/aireyt-wordmark.svg?raw"
 
-export const reportLogoSize = { width: 142, height: 38 }
+const wordmarkUrl = `data:image/svg+xml,${encodeURIComponent(wordmarkSvg.replace("#F7F4EF", "#000000"))}`
+export const reportLogoSize = { width: 130, height: 34 }
 
 export async function clientReportLogo() {
   const [mark, wordmark] = await Promise.all([markUrl, wordmarkUrl].map(async url => {
@@ -17,12 +17,9 @@ export async function clientReportLogo() {
   const context = canvas.getContext("2d")
   if (!context) throw new Error("Не удалось подготовить логотип отчёта")
   context.scale(3, 3)
-  context.roundRect(0, 0, reportLogoSize.width, reportLogoSize.height, 8)
-  context.fillStyle = reportSurface
-  context.fill()
-  context.drawImage(mark, 7, 6, 26, 26)
+  context.drawImage(mark, 0, 4, 26, 26)
   const wordmarkWidth = 99
   const wordmarkHeight = wordmarkWidth * wordmark.naturalHeight / wordmark.naturalWidth
-  context.drawImage(wordmark, 36, (reportLogoSize.height - wordmarkHeight) / 2, wordmarkWidth, wordmarkHeight)
+  context.drawImage(wordmark, 30, (reportLogoSize.height - wordmarkHeight) / 2, wordmarkWidth, wordmarkHeight)
   return canvas.toDataURL("image/png")
 }
