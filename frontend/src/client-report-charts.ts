@@ -18,10 +18,36 @@ export async function clientReportCharts(report: ClientReport) {
     return image.decode().then(() => image, () => null)
   }))
 
-  function text(value: string, x: number, y: number, size = 13, color = reportTint, bold = false) {
+  function text(value: string, x: number, y: number, size = 13, color = reportTint, bold = false, outlinedWidth?: number) {
     ctx.font = `${bold ? "bold " : ""}${size}px Arial, sans-serif`
     ctx.fillStyle = color
-    ctx.fillText(value, x, y)
+    if (outlinedWidth !== undefined) {
+      ctx.save()
+      ctx.lineWidth = 1.6
+      ctx.lineJoin = "round"
+      ctx.strokeStyle = reportSurface
+      ctx.strokeText(value, x, y, outlinedWidth)
+      ctx.restore()
+      ctx.fillText(value, x, y, outlinedWidth)
+    } else ctx.fillText(value, x, y)
+  }
+
+  function barSegment(left: number, top: number, width: number, height: number, color: string, dashed = false) {
+    const stroke = dashed ? Math.min(1.5, height / 2) : 0
+    ctx.beginPath()
+    ctx.roundRect(left + stroke / 2, top + stroke / 2, width - stroke, height - stroke, Math.min(7, (height - stroke) / 2))
+    if (dashed) {
+      ctx.save()
+      ctx.strokeStyle = color
+      ctx.lineWidth = stroke
+      ctx.lineCap = "round"
+      ctx.setLineDash([4, 4])
+      ctx.stroke()
+      ctx.restore()
+    } else {
+      ctx.fillStyle = color
+      ctx.fill()
+    }
   }
 
   for (const x of [0, 344]) {
@@ -35,7 +61,7 @@ export async function clientReportCharts(report: ClientReport) {
   text("Результаты проверок", 18, 25, 17, reportTint, true)
   text("По ИИ-системам", 362, 25, 17, reportTint, true)
   if (report.comparison) {
-    text(`${report.comparison[0]} → ${report.comparison[1]} · Изм. в п. п.`, 362, 45, 11, reportChartMuted)
+    text(`${report.comparison[0]} → ${report.comparison[1]} · Изм., %`, 362, 45, 11, reportChartMuted)
   }
 
   const centerX = 81, centerY = 131, radius = 52
@@ -87,25 +113,18 @@ export async function clientReportCharts(report: ClientReport) {
     const x = plotLeft + spacing * (index + 0.5)
     const current = value ?? 0, reference = previous ?? current
     const height = plotHeight * Math.max(current, reference) / 100
+    const capHeight = plotHeight * Math.abs(current - reference) / 100
     const baseHeight = plotHeight * Math.min(current, reference) / 100
+    const gap = capHeight > 0 ? Math.min(3, baseHeight / 2) : 0
     const top = baseline - height
     const delta = current - reference
     const capColor = delta > 0 ? reportChartIncrease : reportChartDecrease
-    if (height > 0) {
-      ctx.save()
-      ctx.beginPath()
-      ctx.roundRect(x - width / 2, top, width, height, Math.min(7, height / 2))
-      ctx.clip()
-      ctx.fillStyle = reportAccent
-      ctx.fillRect(x - width / 2, top, width, height)
-      if (delta) {
-        ctx.fillStyle = capColor
-        ctx.fillRect(x - width / 2, top, width, height - baseHeight)
-      }
-      ctx.restore()
-    }
-    text(reportPercent(value), x, top - (delta ? 23 : 11), 13, value === null ? reportChartMuted : reportTint, true)
-    if (delta) text(reportSigned(delta), x, top - 10, 11, capColor, true)
+    const inside = capHeight >= 16
+    const left = x - width / 2
+    if (baseHeight > 0) barSegment(left, baseline - baseHeight + gap, width, baseHeight - gap, reportAccent)
+    if (capHeight > 0) barSegment(left, top, width, capHeight, capColor, delta < 0)
+    text(reportPercent(value), x, top - (delta && !inside ? 23 : 11), 13, value === null ? reportChartMuted : reportTint, true)
+    if (delta) text(`${reportSigned(delta)}%`, x, inside ? top + capHeight / 2 : top - 10, 11, "#FFFFFF", true, inside ? width - 6 : undefined)
     const icon = icons[index]
     if (icon) {
       const scale = 23 / Math.max(icon.naturalWidth, icon.naturalHeight)
@@ -123,7 +142,7 @@ export async function clientReportCharts(report: ClientReport) {
       ...report.outcomes.map(({ label, value }) => `${label} — ${value}`),
       ...(report.comparison ? [`Сравнение по ИИ-системам ${report.comparison.join(" → ")}`] : []),
       ...report.services.map(({ label, value, previous }) => value !== null && previous !== null
-        ? `${label} — ${reportPercent(previous)} → ${reportPercent(value)} (${reportSigned(value - previous)} п. п.)`
+        ? `${label} — ${reportPercent(previous)} → ${reportPercent(value)} (${reportSigned(value - previous)}%)`
         : `${label} — ${reportPercent(value)}`),
     ].join(". "),
   }
