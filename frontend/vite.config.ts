@@ -58,6 +58,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 1200,
     rollupOptions: {
       input: {
+        missing: path.resolve(import.meta.dirname, '404/index.html'),
         terms: path.resolve(import.meta.dirname, 'terms/index.html'),
         privacy: path.resolve(import.meta.dirname, 'privacy/index.html'),
         landing: path.resolve(import.meta.dirname, 'index.html'),

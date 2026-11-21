@@ -53,6 +53,10 @@ Do not reload `PROJECT_STATE.md` on every sub-step; reread only when release fac
 
 ## Preview and scope
 
+- Website UI follows the shared SCSS design system and BEM rules in
+  `frontend/AGENTS.md`. Reuse the same tokens and component styles in previews
+  and working routes.
+
 - UI work starts from current `origin/production`: record the base SHA and reuse its
   components, brand assets, colors and typography. Preserve newer authorized work.
 - Default UI delivery: interactive preview with disposable data, user feedback, then

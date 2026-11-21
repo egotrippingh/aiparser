@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { ControlCenter, scanPercent, ScanProgress, ScheduleDays, runStatus } from "./control-center"
 import { ProjectIcon, projectFavicon } from "./project-icon"
 import { choiceIndex } from "./app-choice"
-import { ReportChart, chartDays, chartIndex, linePath } from "./report-chart"
+import { ReportChart, chartDays, chartIndex, chartTooltipPosition, linePath } from "./report-chart"
 import { reportDisplayRows, reportRange, reportRows, reportSelection, trendText, trendTone, type Trend } from "./report-view"
 import { isCurrentService } from "./service-mark"
 import { LandingPage } from "./landing-page"
@@ -41,17 +41,17 @@ it("describes all five providers and keeps a responsive still before animation l
   vi.stubGlobal("window", {matchMedia:()=>({matches:true})})
   const html = renderToStaticMarkup(<LandingPage/>).split('</section>')[0]
   for (const name of ["Google", "Яндекса", "Gemini", "ChatGPT", "Perplexity"]) expect(html).toContain(name)
-  expect(html).toContain('<picture class="hero-still"')
+  expect(html).toContain('<picture class="home-hero__still"')
   expect(html).toContain('media="(max-aspect-ratio: 1/1)"')
-  expect(html).toContain('Попробовать')
+  expect(html).toContain('Начать проверку')
   expect(html).not.toContain('Войти в кабинет')
 })
 
-it("describes server collection without directing visitors to a desktop agent", () => {
+it("describes the REST API without directing visitors to a desktop installer", () => {
   vi.stubGlobal("window", {matchMedia:()=>({matches:true})})
   const html = renderToStaticMarkup(<LandingPage/>)
-  expect(html).not.toMatch(/агент|Агент|на вашем ПК|компьютер выполняет|\/app\/|\.exe|Windows\.zip/)
-  expect(html).toContain("Проверки выполняются на сервере")
+  expect(html).not.toMatch(/на вашем ПК|компьютер выполняет|\/app\/|\.exe|Windows\.zip/)
+  expect(html).toContain('href="/docs/api/"')
 })
 
 it("shows automatic retries as processing but preserves explicit pauses and terminal states", () => {
@@ -145,6 +145,16 @@ it("supports chart keyboard boundaries, empty days and Escape", () => {
   expect(chartIndex(1,"Escape",3)).toBeNull()
   expect(chartIndex(null,"End",0)).toBeNull()
   expect(linePath([10,20,null,30], i=>i,v=>v)).toBe("M0.0,10.0 L1.0,20.0  M3.0,30.0")
+})
+
+it("keeps the tooltip within the chart at each corner", () => {
+  expect(chartTooltipPosition(4, 3, 320, 240, 180, 90)).toEqual({ left: 16, top: 8 })
+  expect(chartTooltipPosition(312, 3, 320, 240, 180, 90)).toEqual({ left: 120, top: 8 })
+  expect(chartTooltipPosition(4, 238, 320, 240, 180, 90)).toEqual({ left: 16, top: 142 })
+  expect(chartTooltipPosition(312, 238, 320, 240, 180, 90)).toEqual({ left: 120, top: 142 })
+  expect(chartTooltipPosition(120, 80, 320, 240, 180, 90)).toEqual({ left: 132, top: 35 })
+  expect(chartTooltipPosition(120, 160, 320, 240, 180, 90)).toEqual({ left: 132, top: 115 })
+  expect(chartTooltipPosition(130, 95, 320, 140, 200, 112)).toEqual({ left: 8, top: 20 })
 })
 
 it("shows isolated measurements even when surrounding dates have no answers", () => {

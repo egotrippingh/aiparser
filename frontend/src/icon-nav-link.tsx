@@ -1,6 +1,6 @@
 import { useId, useState, type ReactNode } from "react"
 import { Tooltip } from "@base-ui/react/tooltip"
-import "./icon-nav-link.css"
+import "./icon-nav-link.scss"
 
 export function IconNavLink({ href, label, current, children, className, side = "right" }: {
   href: string; label: string; current?: boolean; children: ReactNode; className: string; side?: "right" | "bottom"

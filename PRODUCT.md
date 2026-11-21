@@ -14,8 +14,8 @@ ChatGPT, Perplexity and Gemini. Historical agent runs retain their local executi
 Collection failures keep requests unfinished; reports contain actual answers.
 
 ## Brand Personality
-Clear, calm and precise. Russian interface. Follow the supplied AIRate prototype:
-white panels, navy navigation, blue links and orange primary actions.
+Clear, calm and precise. Russian interface. Follow the approved AIRate design:
+graphite surfaces, lavender accents and warm neutral text.
 Topvisor is the user's reference for shared projects and scheduled checks.
 
 ## Anti-references

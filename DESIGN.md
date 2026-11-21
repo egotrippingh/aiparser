@@ -1,12 +1,11 @@
 # AI Mentions product interface
 
-Current visual direction: the supplied 2026-10-12 prototype, navy #153d75,
-blue #236ac6, orange #f25c37, white panels on #f5f7fa and subtle neutral borders.
-Keep the marketing landing separate from the operational cabinet.
+Current visual direction: graphite surfaces, warm neutral text and lavender
+accents. The landing, cabinet, documentation and previews share the same SCSS
+tokens in `frontend/src/styles/_tokens.scss`.
 
-Source of truth for cabinet chrome and tokens: `frontend/src/prototype.css`.
-Static layout reference: `mockups/dashboard.html`. Brand mark file: `assets/airate.ico`.
-Do not invent a parallel palette; refine in place.
+The quote mark and wordmark are in `frontend/public/assets/brand/`.
+Use BEM and the shared component styles described in `frontend/AGENTS.md`.
 
 Use the prototype sidebar for Overview, Projects, Queries, Sources, Settings,
 Schedule, Runs, Account and Help. Prefer aligned rows,

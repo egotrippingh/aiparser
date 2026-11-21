@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import re
 from urllib.parse import urlencode
 
 import httpx
@@ -18,13 +19,22 @@ def challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
+def profile_avatar_id(profile: dict) -> str | None:
+    value = profile.get("default_avatar_id")
+    if (profile.get("is_avatar_empty") is False and isinstance(value, str)
+            and len(value) <= 190 and re.fullmatch(r"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)?", value)):
+        return value
+    return None
+
+
 class YandexOAuth:
     def __init__(self, client_id: str, client_secret: str, redirect_uri: str,
-                 transport: httpx.BaseTransport | None = None):
+                 transport: httpx.BaseTransport | None = None, *, request_avatar: bool = False):
         self.client_id = client_id
         self.client_secret = client_secret
         self.redirect_uri = redirect_uri
         self.transport = transport
+        self.request_avatar = request_avatar
 
     def authorize_url(self, state: str, verifier: str) -> str:
         params = {
@@ -37,6 +47,8 @@ class YandexOAuth:
             "code_challenge": challenge(verifier),
             "code_challenge_method": "S256",
         }
+        if self.request_avatar:
+            params["optional_scope"] = "login:avatar"
         return "https://oauth.yandex.ru/authorize?" + urlencode(params)
 
     def profile(self, code: str, verifier: str) -> dict:

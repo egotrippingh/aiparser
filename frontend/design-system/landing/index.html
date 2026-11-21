@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="description" content="Узнайте, что ИИ говорит о вашем бренде. Аирейт проверяет запросы в пяти ИИ-сервисах и сохраняет ответы.">
+  <title>Аирейт · Мониторинг упоминаний бренда в ИИ</title>
+  <link rel="icon" href="/assets/brand/airate.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../tokens.scss">
+  <link rel="stylesheet" href="../stand.scss">
+  <link rel="stylesheet" href="./landing.scss">
+  <script type="module" src="./hero.js"></script>
+  <script type="module" src="./task-spotlight.js"></script>
+  <script type="module" src="./api-demo.ts"></script>
+</head>
+<body class="landing-page">
+  <a href="#main" class="skip">К содержанию</a>
+  <header class="home-header">
+    <div class="container home-header__inner">
+      <a class="brand" href="./" aria-label="Аирейт, на главную"><img src="../aireyt-quote.svg" alt="" width="28" height="28"><img src="../aireyt-wordmark.svg" alt="" width="136" height="38"></a>
+      <nav aria-label="О сервисе" class="home-header__nav">
+        <a href="#how">Как работает</a>
+
+        <a href="/design-system/docs/">Документация</a>
+        <a class="home-header__mobile-support" href="https://t.me/egotrippintg"><span class="telegram-icon" aria-hidden="true"></span>Поддержка</a>
+      </nav>
+      <div class="home-header__actions">
+        <a class="home-header__support" href="https://t.me/egotrippintg"><span class="telegram-icon" aria-hidden="true"></span>Поддержка</a>
+        <a class="btn quiet compact" href="/design-system/login/">Войти</a>
+        <a class="btn primary compact" href="/design-system/login/#register">Регистрация</a>
+      </div>
+    </div>
+  </header>
+  <main id="main" tabindex="-1">
+    <section class="home-hero container" aria-labelledby="hero-title">
+      <div class="home-hero__message">
+        <h1 id="hero-title">Узнайте, что ИИ говорит<br> о вашем бренде<span>.</span></h1>
+        <p>Добавьте вопросы, которые задают ваши покупатели. Аирейт проверит их в пяти ИИ-сервисах, сохранит ответы и покажет, где назвали ваш бренд.</p>
+        <div class="home-hero__actions">
+          <a class="btn primary" href="/design-system/login/#register">Начать проверку <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a>
+          <a class="btn quiet" href="#tasks">Для каких задач <span aria-hidden="true">↓</span></a>
+        </div>
+      </div>
+      <div class="home-hero__stage">
+        <div class="home-hero__art" role="img" aria-label="Пять ИИ-сервисов передают результаты проверок в отчёт Аирейт">
+          <picture class="home-hero__still" aria-hidden="true">
+            <source media="(max-aspect-ratio: 1/1)" srcset="./hero-lavender-mobile.webp">
+            <img src="./hero-lavender-desktop.webp" width="1000" height="400" fetchpriority="high" alt="">
+          </picture>
+          <div id="hero-lottie" aria-hidden="true"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="home-audience" id="audience" aria-labelledby="audience-title">
+      <div class="container home-audience__layout">
+        <div class="home-audience__intro">
+          <h2 id="audience-title">Для кого</h2>
+          <p>Проверьте, по каким запросам ИИ уже упоминает ваш бренд. Найдите темы, где вас пока не называют.</p>
+          <figure class="home-audience__report">
+            <div class="report-sample">
+              <div class="report-sample__heading"><span>Отчёт по бренду</span><code>ПРИМЕР</code></div>
+              <div class="report-sample__stats">
+                <div><span>Видимость</span><strong>52,1<span>%</span></strong></div>
+                <div><span>С упоминанием</span><strong>609<span> / 1170</span></strong></div>
+              </div>
+              <ol class="report-sample__bars" aria-label="Пример видимости по сервисам">
+                <li><img src="/assets/services/chatgpt.svg" width="18" height="18" alt=""><span>ChatGPT</span><i style="--value:68%" aria-hidden="true"></i><b>68%</b></li>
+                <li><img src="/assets/services/perplexity.svg" width="18" height="18" alt=""><span>Perplexity</span><i style="--value:54%" aria-hidden="true"></i><b>54%</b></li>
+                <li><img src="/assets/services/gemini.png" width="18" height="18" alt=""><span>Gemini</span><i style="--value:46%" aria-hidden="true"></i><b>46%</b></li>
+              </ol>
+            </div>
+          </figure>
+        </div>
+        <ul class="home-audience__list">
+          <li><svg class="home-audience__icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"><path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M6 14a12 12 0 0 0 2.4 7.2a2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14M8 6v8"/></g></svg><div><h3>Маркетинговые агентства</h3><p>Добавьте в отчёт для клиента долю ответов с упоминанием бренда и покажите, как она изменилась с прошлой проверки.</p></div></li>
+          <li><svg class="home-audience__icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"><path d="m8 11l2 2l4-4"/><circle cx="11" cy="11" r="8"/><path d="m21 21l-4.3-4.3"/></g></svg><div><h3>Агентства поискового продвижения</h3><p>Проверьте запросы из семантики и найдите темы, в которых ИИ отвечает без упоминания клиента.</p></div></li>
+          <li><svg class="home-audience__icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"><path d="M10 12h4m-4-4h4m0 13v-3a2 2 0 0 0-4 0v3"/><path d="M6 10H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2"/><path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/></g></svg><div><h3>Владельцы бизнеса</h3><p>Посмотрите, что ИИ советует покупателям, когда они выбирают товар или услугу в вашей категории.</p></div></li>
+          <li><svg class="home-audience__icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" d="M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2zm2.054 10.987H3.946"/></svg><div><h3>Специалисты на фрилансе</h3><p>Ведите проверку каждого бренда в отдельном проекте. Дайте клиенту доступ к отчёту с ответами.</p></div></li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="home-tasks container" id="tasks" aria-labelledby="tasks-title">
+      <div class="home-tasks__heading"><h2 id="tasks-title">Для каких задач</h2><p>Откройте сам ответ, посмотрите его источники и сравните с прошлой проверкой.</p></div>
+      <div class="home-tasks__grid">
+        <article class="task-card task-card--featured">
+          <div>
+            <div class="task-card__heading"><svg class="task-card__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 18h18M4 13l5-4 4 3 6-7m-4 0h4v4"/></svg><h3>Измерить видимость бренда</h3></div>
+            <p>Сравните долю ответов с вашим брендом в разных ИИ-сервисах. Посмотрите, где она выросла или снизилась.</p>
+          </div>
+          <div class="task-card__chart" role="img" aria-label="Иллюстрация роста видимости между проверками">
+            <svg viewBox="0 0 280 94" preserveAspectRatio="none" aria-hidden="true">
+              <defs><linearGradient id="trend-fill" x2="0" y2="1"><stop stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+              <path d="M0 75 46 69 91 73 135 46 181 53 229 28 280 17V94H0Z" fill="url(#trend-fill)"/>
+              <path d="M0 75 46 69 91 73 135 46 181 53 229 28 280 17" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" fill="none"/>
+              <circle cx="276" cy="18" r="3" fill="var(--accent)"/>
+            </svg>
+          </div>
+        </article>
+        <article class="task-card">
+          <div class="task-card__heading"><svg class="task-card__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="5.5"/><path d="m14 14 5 5M8 10h4"/></svg><h3>Найти запросы без упоминаний</h3></div>
+          <p>Найдите вопросы, на которые ИИ дал ответ без вашего бренда. С них можно начать разбор тем.</p>
+        </article>
+        <article class="task-card">
+          <div class="task-card__heading"><svg class="task-card__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5h16v11H9l-5 4zM8 9h8m-8 3h5"/></svg><h3>Увидеть контекст упоминания</h3></div>
+          <p>Прочитайте ответ целиком. Проверьте, появился ли бренд в тексте, в ссылке или в карточке товара.</p>
+        </article>
+        <article class="task-card">
+          <div class="task-card__heading"><svg class="task-card__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m10 14 4-4m-5-1 3-3a4 4 0 0 1 6 6l-3 3m-6-6-3 3a4 4 0 0 0 6 6l3-3"/></svg><h3>Посмотреть источники ответов</h3></div>
+          <p>Посмотрите, какие сайты ИИ приводит в ответах с вашим брендом. Список доменов можно выгрузить в Excel.</p>
+        </article>
+        <article class="task-card">
+          <div class="task-card__heading"><svg class="task-card__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4m8-4v4M4 10h16m-11 5 2 2 4-4"/></svg><h3>Следить за изменениями</h3></div>
+          <p>Поставьте проверки на расписание. Команда или клиент смогут открыть отчёт и сравнить результаты за разные даты.</p>
+        </article>
+      </div>
+      <div class="home-tasks__action">
+        <div><h2>Начните с запросов покупателей</h2><p>Добавьте запросы в проект и выберите, где их проверить.</p></div>
+        <a class="btn primary" href="/design-system/login/#register">Начать проверку <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a>
+      </div>
+    </section>
+    <section class="home-chapter container" id="how" aria-labelledby="how-title">
+      <div class="home-chapter__heading"><h2 id="how-title">Как работает</h2><p>От вопросов покупателей до отчёта с ответами ИИ.</p></div>
+      <ol class="home-chapter__steps">
+        <li><h3>Добавьте запросы</h3><p>Укажите бренд и вопросы, которые хотите проверить.</p></li>
+        <li><h3>Запустите проверку</h3><p>Аирейт отправит запросы в выбранные ИИ-сервисы и сохранит ответы.</p></li>
+        <li><h3>Откройте отчёт</h3><p>Сравните видимость по датам и откройте ответ за любым упоминанием.</p></li>
+      </ol>
+    </section>
+    <section class="home-chapter home-chapter--api" id="api" aria-labelledby="api-title">
+      <div class="container">
+        <div class="api-demo__intro">
+          <h2 id="api-title">Подключите Аирейт к своему агенту</h2>
+          <div><p>Ваш ИИ-агент может проверить список запросов сразу по нескольким брендам. Он рассчитает стоимость, запустит проверки и соберёт ответы со ссылками. Попросите его сравнить результаты по датам и выделить запросы, где бренд появился или пропал.</p><a class="btn" href="/design-system/docs/api/">Документация REST API <span aria-hidden="true">↗</span></a></div>
+        </div>
+        <div class="api-demo" aria-label="Пример запроса и ответа REST API">
+          <section class="api-panel" aria-labelledby="api-request-title">
+            <div class="api-panel__heading"><h3 id="api-request-title">answers.sh</h3><button type="button" class="btn compact" id="copy-api" hidden>Скопировать</button></div>
+            <pre tabindex="0" aria-label="Команда cURL"><code id="api-request"><span class="code-verb">curl</span> -fsS --get \
+  <span class="code-string">"https://airate.tech/api/v1/public/projects/$PROJECT_ID/answers"</span> \
+  -H <span class="code-string">"Authorization: Bearer $AIRATE_API_KEY"</span> \
+  --data-urlencode <span class="code-string">"date_from=2026-11-01"</span> \
+  --data-urlencode <span class="code-string">"date_to=2026-11-19"</span> \
+  --data-urlencode <span class="code-string">"limit=1"</span></code></pre>
+
+          </section>
+          <section class="api-panel" aria-labelledby="api-response-title">
+            <div class="api-panel__heading"><h3 id="api-response-title"><span class="api-panel__indicator" aria-hidden="true"></span>Пример ответа</h3><span class="api-panel__format">JSON</span></div>
+            <pre tabindex="0" aria-label="Пример ответа JSON"><code id="api-response">{
+  <span class="code-property">"items"</span>: [{
+    <span class="code-property">"id"</span>: 42,
+    <span class="code-property">"service"</span>: <span class="code-string">"chatgpt"</span>,
+    <span class="code-property">"scan_date"</span>: <span class="code-string">"2026-11-18"</span>,
+    <span class="code-property">"answer_text"</span>: <span class="code-string">"Например, «Север» предлагает…"</span>,
+    <span class="code-property">"sources"</span>: [<span class="code-string">"https://example.com"</span>]
+  }],
+  <span class="code-property">"next_after_id"</span>: <span class="code-verb">null</span>
+}</code></pre>
+
+          </section>
+        </div>
+        <p class="api-demo__status" id="api-demo__status" role="status"></p>
+      </div>
+    </section>
+  </main>
+  <footer class="home-footer">
+    <div class="container home-footer__inner">
+      <a class="brand" href="./" aria-label="Аирейт, на главную"><img src="../aireyt-quote.svg" alt="" width="28" height="28"><img src="../aireyt-wordmark.svg" alt="" width="136" height="38"></a>
+      <nav aria-label="Документы и поддержка"><a href="/design-system/terms/">Условия использования</a><a href="/design-system/privacy/">Политика конфиденциальности</a><a href="https://t.me/egotrippintg">Поддержка</a></nav>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import { expect, it } from "vitest"
-import desktop from "./assets/landing/airate-hero.json?raw"
-import mobile from "./assets/landing/airate-hero-mobile.json?raw"
+import desktop from "../design-system/landing/hero-lavender-desktop.json?raw"
+import mobile from "../design-system/landing/hero-lavender-mobile.json?raw"
 
 type Layer = { nm: string; ks: { o: { k: { t: number; s: number[] }[] } }; shapes: { ty: string; w?: { k: number }; ks?: { k: { s: unknown }[] } }[] }
 type Composition = { w: number; h: number; fr: number; ip: number; op: number; layers: Layer[]; assets: { layers?: Layer[] }[] }

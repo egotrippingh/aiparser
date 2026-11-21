@@ -43,6 +43,14 @@ Updated 2026-11-03. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Prepared work and next action
 
+`codex/airate-frontend-refresh` combines the dark SCSS design system,
+PDF/DOCX client reports from `codex/client-reports`, and optional Yandex
+avatars on production base `5948bfee`. Local frontend tests and compiled
+browser downloads passed. Production activation needs combined CI, backup
+and restore verification, a compatible rollback image and explicit admission
+of the nullable avatar migration. Administrative SSH for that step is unavailable.
+See [design system](frontend/design-system/README.md).
+
 `codex/admin-wallet-topups` is based on production `f767a44`. The admin
 users section supports manual balance credits by email. Credits use the
 existing wallet and ledger transaction with retry protection and require no

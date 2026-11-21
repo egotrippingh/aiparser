@@ -1,3 +1,4 @@
+import { CabinetSkeleton } from "./cabinet-loading"
 import { useEffect, useState } from "react"
 import { accountRequest } from "./account-api"
 import { AnswerContent, ResultIssue } from "./components/answer-content"
@@ -33,11 +34,11 @@ export function AdminScans({ token }: { token: string }) {
   }, [selected, token])
   return <section className="cab-panel admin-scans"><div className="cab-section-head"><div><h1>Сканы пользователей</h1><p>Сохранённые ответы ИИ, доказательства и отметки для проверки точности.</p></div><button className="cc-button" disabled={loading} onClick={() => setTick(n => n + 1)}>Обновить</button></div>
     <div className="cc-two"><label>Пользователь, проект, бренд или запрос<input value={search} onChange={e => { setSearch(e.target.value); setOffset(0); setSelected(null) }} /></label><label>Результат<select value={status} onChange={e => { setStatus(e.target.value); setOffset(0); setSelected(null) }}><option value="">Все результаты</option>{Object.entries(statuses).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div>
-    {error && <p role="alert">{error}</p>}{loading && <p role="status">Загружаем сканы…</p>}
+    {error && <p role="alert">{error}</p>}{loading && !data && <CabinetSkeleton label="Загружаем сканы…"/>}
     {data && <><p>{data.total} результатов</p><div className="admin-scan-list">{data.results.map(row => <article key={row.id}>
       <p className="ws-note">{row.email} · {row.project_name} · {row.scan_date} · {SCAN_SERVICES.find(s => s.id === row.service)?.label || row.service}</p><h3>{row.query_text}</h3><p>Бренд: {row.brand_name} · {statuses[row.status] || row.status} · {row.mention_types.join(", ")}</p>
       <button className="cc-button" aria-expanded={selected === row.id} onClick={() => setSelected(selected === row.id ? null : row.id)}>{selected === row.id ? "Скрыть ответ" : "Ответ и причина"}</button>
-      {selected === row.id && <div className="admin-scan-detail">{detailError?.id === row.id && <p role="alert">{detailError.message}</p>}{detail?.id !== row.id && detailError?.id !== row.id && <p role="status">Загружаем ответ…</p>}{detail?.id === row.id && <>
+      {selected === row.id && <div className="admin-scan-detail">{detailError?.id === row.id && <p role="alert">{detailError.message}</p>}{detail?.id !== row.id && detailError?.id !== row.id && <CabinetSkeleton label="Загружаем ответ…"/>}{detail?.id === row.id && <>
         {detail.status !== detail.original_status && <p>После ручного исправления: {statuses[detail.status] || detail.status}. В журнале показана оценка сервиса.</p>}
         {detail.feedback && <p>Отметка пользователя: <b>{labels[detail.feedback.label]}</b>{detail.feedback.comment && ` · ${detail.feedback.comment}`}</p>}
         {detail.evidence_quote && <blockquote>{detail.evidence_quote}</blockquote>}

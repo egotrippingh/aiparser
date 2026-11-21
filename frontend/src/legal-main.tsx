@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client"
 import { Brand } from "./brand"
 import { SiteFooter, SUPPORT_URL } from "./site-footer"
 import { privacy, terms } from "./legal-content"
-import "./legal.css"
+import "./legal.scss"
 import { initTelemetry, rootOptions } from "./telemetry"
 
 const documentContent = window.location.pathname.startsWith("/privacy") ? privacy : terms

@@ -1,3 +1,4 @@
+import { CabinetSkeleton } from "./cabinet-loading"
 import { useCallback, useEffect, useState, type FormEvent } from "react"
 import { accountRequest } from "./account-api"
 import { SCAN_SERVICES } from "./lib/scan-preferences"
@@ -70,7 +71,7 @@ export function AdminPromos({ token }: { token: string }) {
       <div className="cc-actions"><button className="cab-primary" disabled={busy || !code.trim()}>{busy ? "Сохраняем…" : editing ? "Сохранить условия" : "Создать промокод"}</button>{editing && <button className="cc-button" type="button" disabled={busy} onClick={clearForm}>Отменить редактирование</button>}</div>
       {error && <p className="cab-payment-error" role="alert">{error}</p>}{message && <p role="status">{message}</p>}
     </form>
-    {loading && <p role="status">Загружаем промокоды…</p>}{loadError && <p role="alert">{loadError} <button className="cc-button" onClick={reload}>Повторить</button></p>}
+    {loading && <CabinetSkeleton label="Загружаем промокоды…"/>}{loadError && <p role="alert">{loadError} <button className="cc-button" onClick={reload}>Повторить</button></p>}
     {page && !loadError && <><div className="admin-users-scroll" role="region" aria-label="Созданные промокоды" tabIndex={0}><table><thead><tr><th>Промокод</th>{SCAN_SERVICES.map(s => <th key={s.id}>{s.label}</th>)}<th>Активаций / лимит</th><th>Состояние</th><th>Действует до</th><th>Создан</th><th>Условия</th></tr></thead><tbody>{page.promos.map(p => <tr key={p.code}><td><b>{p.code}</b></td>{SCAN_SERVICES.map(s => <td key={s.id}>{p.scans[s.id] || 0}</td>)}<td>{p.redemptions} / {p.max_redemptions ?? "∞"}</td><td>{statuses[p.status] || p.status}</td><td>{p.expires_at ? new Date(p.expires_at).toLocaleString("ru-RU") : "Бессрочно"}</td><td>{new Date(p.created_at).toLocaleDateString("ru-RU")}</td><td><button className="cc-button" disabled={busy} onClick={() => edit(p)} aria-label={`Изменить условия ${p.code}`}>Изменить</button></td></tr>)}</tbody></table></div>{!page.promos.length && <p>Промокодов пока нет.</p>}<div className="cc-actions"><button className="cc-button" disabled={loading || offset === 0} onClick={() => setOffset(n => Math.max(0, n - 50))}>Предыдущие промокоды</button><button className="cc-button" disabled={loading || offset + 50 >= page.total} onClick={() => setOffset(n => n + 50)}>Следующие промокоды</button></div></>}
   </section>
 }

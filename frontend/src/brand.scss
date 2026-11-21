@@ -1,0 +1,6 @@
+.air-brand { display: inline-flex; align-items: center; flex-shrink: 0; gap: 8px; line-height: 1; text-decoration: none; }
+.air-brand img { display: block; flex: none; object-fit: contain; }
+@media (max-width: 620px) {
+  .air-brand__mark { width: 22px; }
+  .air-brand__wordmark { width: 104px; }
+}

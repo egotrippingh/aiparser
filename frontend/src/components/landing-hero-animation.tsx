@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import type { AnimationItem } from "lottie-web"
-import desktopAnimation from "../assets/landing/airate-hero.json?url"
-import mobileAnimation from "../assets/landing/airate-hero-mobile.json?url"
+import desktopAnimation from "../../design-system/landing/hero-lavender-desktop.json?url"
+import mobileAnimation from "../../design-system/landing/hero-lavender-mobile.json?url"
 
 export function mountHeroAnimation(container: HTMLElement, onReady: (item: AnimationItem | null) => void) {
   const mobile = window.matchMedia("(max-aspect-ratio: 1/1)")
@@ -70,13 +70,13 @@ export function LandingHeroAnimation() {
     return () => document.removeEventListener("visibilitychange", sync)
   }, [animation])
 
-  return <div className="hero-animation">
-    <div className={`hero-artwork${animation ? " is-ready" : ""}`} role="img" aria-label="Сканирование Google, Яндекса, Gemini, ChatGPT и Perplexity: данные поступают в отчёт, графики и упоминания обновляются.">
-      <picture className="hero-still" aria-hidden="true">
-        <source media="(max-aspect-ratio: 1/1)" srcSet="/assets/landing/hero-mobile-static-v13.webp"/>
-        <img src="/assets/landing/hero-desktop-static-v13.webp" alt="" width="1000" height="400" fetchPriority="high"/>
+  return <div className="home-hero__stage">
+    <div className={`home-hero__art${animation ? " home-hero__art--ready" : ""}`} role="img" aria-label="Сканирование Google, Яндекса, Gemini, ChatGPT и Perplexity: данные поступают в отчёт, графики и упоминания обновляются.">
+      <picture className="home-hero__still" aria-hidden="true">
+        <source media="(max-aspect-ratio: 1/1)" srcSet="/assets/landing/hero-lavender-mobile.webp"/>
+        <img src="/assets/landing/hero-lavender-desktop.webp" alt="" width="1000" height="400" fetchPriority="high"/>
       </picture>
-      <div className="hero-lottie" ref={container} aria-hidden="true"/>
+      <div id="hero-lottie" ref={container} aria-hidden="true"/>
     </div>
   </div>
 }

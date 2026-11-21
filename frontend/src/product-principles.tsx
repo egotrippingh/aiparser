@@ -1,5 +1,5 @@
 import { useRef, useState, type KeyboardEvent } from "react"
-import "./product-principles.css"
+import "./product-principles.scss"
 
 const features = [
   { id: "browser", title: "Смотрим на выдачу в браузере", text: "AIRate собирает ответы ИИ-сервисов на сервере. Сохраняет текст, ссылки на источники и доступные скриншоты." },

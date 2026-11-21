@@ -17,6 +17,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cn": "^0.2.6",
+    "docx": "9.16.0",
     "fumadocs-core": "16.17.5",
     "fumadocs-ui": "16.17.5",
     "lottie-web": "^5.13.0",
@@ -24,6 +25,7 @@
     "motion": "^13.2.0",
     "next-themes": "^0.4.6",
     "ogl": "^1.0.11",
+    "pdfmake": "0.3.15",
     "punycode": "2.3.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -36,10 +38,12 @@
   },
   "devDependencies": {
     "@types/node": "^24.13.4",
+    "@types/pdfmake": "0.3.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
     "oxlint": "^1.79.0",
+    "sass": "^1.108.2",
     "typescript": "~6.0.2",
     "vite": "^8.2.2",
     "vitest": "^5.0.0"

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru" data-airate-theme>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#101012">
+  <title>Кабинет Аирейт</title>
+  <link rel="stylesheet" href="/src/cabinet-theme.scss">
+  <link rel="stylesheet" href="/src/cabinet-loading.scss">
+</head>
+<body>
+  <div id="root"><div class="cab-skeleton cab-skeleton--screen" role="status" aria-label="Открываем кабинет…">
+    <div class="cab-skeleton__header" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="cab-skeleton__content" aria-hidden="true">
+      <div class="cab-skeleton__heading"></div>
+      <div class="cab-skeleton__meta"><span></span><span></span><span></span></div>
+      <div class="cab-skeleton__chart"></div>
+      <div class="cab-skeleton__rows"><span></span><span></span><span></span></div>
+    </div>
+  </div></div>
+  <script type="module">
+    if (location.port === "5174") {
+      await import("/src/cabinet.tsx");
+    } else {
+      const preview = new URL(location.href);
+      preview.port = "5174";
+      location.replace(preview);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,244 @@
+@use "./site-theme";
+
+[data-airate-theme] .air-app {
+  --canvas: var(--air-bg);
+  --text: var(--air-text);
+  --muted: var(--air-muted);
+  --line: var(--air-line);
+  --navy: var(--accent);
+  --blue: var(--accent);
+  --orange: var(--accent);
+  --green: var(--ok);
+  --red: var(--danger);
+  --report-series-chatgpt: var(--accent);
+  --report-series-perplexity: #58CCC6;
+  --report-series-gemini: #79A9FF;
+  --report-series-google_aio: #ECC084;
+  --report-series-yandex_neuro: #F093A6;
+}
+
+[data-airate-theme] .air-app .sidebar {
+  background-color: var(--air-bg);
+  border-color: var(--air-line);
+}
+[data-airate-theme] .air-app :is(.choice-menu, .metrics, .chart-tooltip) {
+  background-color: var(--air-panel);
+  border-color: var(--air-line);
+  color: var(--air-text);
+}
+[data-airate-theme] .air-app .sidebar .nav-link { color: var(--air-muted); }
+[data-airate-theme] .air-app .sidebar .nav-link:is(:hover, [aria-current=page]) {
+  background-color: var(--air-raised);
+  color: var(--accent);
+}
+[data-airate-theme] .air-app .sidebar .nav-link[aria-current=page] { border-color: var(--air-line); }
+[data-airate-theme] .air-app .sidebar .nav-link:focus-visible { outline-color: var(--focus); }
+[data-airate-theme] .air-nav-tip {
+  background-color: var(--air-raised);
+  border-color: var(--air-line);
+  color: var(--air-text);
+}
+[data-airate-theme] .air-nav-tip-arrow { fill: var(--air-raised); }
+
+[data-airate-theme] .air-app :is(.panel, .ql-layout, .cc-form-section, .side-note, dialog, .dialog-head, .screenshot-preview) {
+  background-color: var(--air-panel);
+  border-color: var(--air-line);
+  color: var(--air-text);
+}
+[data-airate-theme] .air-app :is(.table-wrap th, .table-scroll th, .cc-table th, .admin-users-scroll th, .ql-groups, .cc-checkboxes label, .answer-box, .screenshot-preview) {
+  background-color: var(--air-raised);
+  border-color: var(--air-line);
+  color: var(--air-text);
+}
+[data-airate-theme] .air-app :is(.ql-groups button[aria-pressed=true], .cc-days button[aria-pressed=true]) {
+  background-color: var(--air-selected);
+  color: var(--accent);
+}
+[data-airate-theme] .air-app :is(.btn, .cc-button, .search-box, .cc-search, .choice-trigger, .cc-days button, .select-control) {
+  background-color: var(--air-panel);
+  border-color: var(--air-line-strong);
+  color: var(--air-text);
+}
+[data-airate-theme] .air-app :is(.btn, .cc-button, .cc-days button):hover,
+[data-airate-theme] .air-app .choice-trigger[aria-expanded=true] {
+  background-color: var(--cabinet-hover);
+  border-color: var(--air-line-strong);
+}
+[data-airate-theme] :is(.air-app, .cabinet) :is(.btn.primary, .cc-button.primary, .cab-primary) {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+[data-airate-theme] :is(.air-app, .cabinet) :is(.btn.primary, .cc-button.primary, .cab-primary):hover {
+  background-color: var(--focus);
+}
+[data-airate-theme] .air-app :is(.cc-fields, .ws-dialog, .app-account, .admin-overview, .admin-scans) :is(input:not([type=checkbox], [type=radio]), textarea, select) {
+  background-color: var(--air-bg);
+  border-color: var(--air-line-strong);
+  color: var(--air-text);
+}
+[data-airate-theme] .air-app :is(.cc-fields label, .ws-dialog label:not(.cc-button), .scan-feedback label) { color: var(--air-muted); }
+[data-airate-theme] .air-app .answer-box mark { background-color: var(--air-brand-mention-bg); color: var(--air-brand-mention); }
+[data-airate-theme] .air-app :is(.cc-search input, .search-box input, .cc-query-table input:not([type=checkbox])) {
+  background-color: transparent;
+  color: var(--air-text);
+}
+[data-airate-theme] .air-app :is(.notice, .cc-alert, .badge, .project-initial, .source-favicon, .run-progress) {
+  background-color: var(--air-raised);
+  border-color: var(--air-line);
+  color: var(--air-text);
+}
+[data-airate-theme] .air-app .badge:is(.good, .green) { background-color: var(--ok-bg); color: var(--ok); }
+[data-airate-theme] .air-app .badge:is(.warn, .orange) { background-color: var(--warning-bg); color: var(--warning); }
+[data-airate-theme] .air-app .badge:is(.bad, .red) { background-color: var(--danger-bg); color: var(--danger); }
+[data-airate-theme] .air-app .badge.blue { background-color: var(--info-bg); color: var(--info); }
+[data-airate-theme] .air-app dialog::backdrop { background: #0b0b10b3; }
+
+[data-airate-theme] .air-app :is(.filterbar, .report-panel) :is(.btn, .search-box, .choice-trigger, .report-calendar-trigger) {
+  background-color: var(--air-panel);
+  border-color: var(--air-line-strong);
+  color: var(--air-text);
+}
+[data-airate-theme] .air-app :is(.filterbar, .report-panel) :is(.btn, .choice-trigger, .report-calendar-trigger):hover {
+  background-color: var(--cabinet-hover);
+}
+[data-airate-theme] .air-app :is(.note, .table-footer, .chart-note, .metric-label, .metric-caption, .metric-value .muted-value) { color: var(--air-muted); }
+[data-airate-theme] .air-app :is(.report-switch, .subtitle, .breadcrumbs, .page-note) { color: var(--air-muted); }
+[data-airate-theme] .air-app .filterbar .report-switch {
+  min-height: 36px;
+  color: var(--air-text);
+}
+[data-airate-theme] .air-app .report-switch input[role=switch] { border-radius: 5px; }
+[data-airate-theme] .air-app .report-switch input[role=switch]::after { border-radius: 3px; }
+[data-airate-theme] .air-app .report-switch input[role=switch]:focus-visible { outline: none; box-shadow: none; }
+[data-airate-theme] .air-app .filterbar .report-switch:has(input:focus-visible) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+[data-airate-theme] .air-app .metric-value:not(.positive, .negative) { color: var(--air-text); }
+[data-airate-theme] .air-app .metric-value.positive { color: var(--ok); }
+[data-airate-theme] .air-app .metric-value.negative { color: var(--danger); }
+[data-airate-theme] .air-app .choice-menu button:is(:hover, :focus, [aria-selected=true]) { background-color: var(--air-raised); }
+[data-airate-theme] .air-app .filterbar .choice-search {
+  margin-bottom: 5px;
+  padding: 9px 10px;
+  border: 1px solid var(--air-line);
+  border-radius: 8px;
+  background-color: var(--air-raised);
+  color: var(--air-muted);
+}
+[data-airate-theme] .air-app .filterbar .choice-search:focus-within { border-color: var(--air-line-strong); }
+[data-airate-theme] .air-app .filterbar .choice-search input,
+[data-airate-theme] .air-app .filterbar .choice-search input::placeholder { color: var(--air-text); }
+[data-airate-theme] .air-app .chart-wrap {
+  background: radial-gradient(ellipse at 35% 40%, #b6a8ff0a, transparent 75%);
+}
+[data-airate-theme] .air-app .line-chart :is(line[stroke], .chart-crosshair) { stroke: var(--air-chart-grid); }
+[data-airate-theme] .air-app .line-chart text { fill: var(--air-muted); }
+[data-airate-theme] .air-app .line-chart circle { stroke: var(--air-panel); }
+[data-airate-theme] .air-app .chart-tooltip :is(strong, b) { color: var(--air-text); }
+[data-airate-theme] .air-app .dashboard-grid .legend button:hover { background-color: var(--air-raised); }
+[data-airate-theme] .air-app .report-panel .trend-tooltip {
+  background-color: var(--air-raised);
+  border-color: var(--air-line);
+  color: var(--air-muted);
+  box-shadow: 0 8px 28px #0005;
+}
+
+[data-airate-theme] .air-app .dashboard-grid > .panel:has(> .service-list) {
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(ellipse at 5% 0%, #25232d, transparent 75%), var(--air-panel);
+  border-color: var(--air-line);
+}
+[data-airate-theme] .air-app .service-list { gap: 8px; }
+[data-airate-theme] .air-app .service-row {
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  padding: 10px 12px;
+  gap: 6px 9px;
+  border: 1px solid var(--air-line);
+  border-radius: 10px;
+  background: linear-gradient(130deg, #ffffff08, transparent 60%), var(--air-panel);
+}
+[data-airate-theme] .air-app .service-row strong { color: var(--air-text); }
+[data-airate-theme] .air-app .service-row .value { color: var(--air-text); }
+[data-airate-theme] .air-app .service-mark--chatgpt img { filter: brightness(0) invert(1); }
+[data-airate-theme] .air-app .service-row .bar-track { height: 3px; background-color: var(--air-line); }
+[data-airate-theme] .air-app .service-row .bar-fill {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--series) 52%, var(--air-panel)), var(--series));
+}
+[data-airate-theme] .air-app .dashboard-grid .panel-foot { margin-top: auto; color: var(--air-muted); align-items: center; }
+[data-airate-theme] .air-app .report-shortcut {
+  border-color: var(--air-line-strong);
+  background-color: var(--air-panel);
+  color: var(--air-text);
+}
+[data-airate-theme] .air-app .report-shortcut:hover { background-color: var(--cabinet-hover); }
+[data-airate-theme] .air-app .report-shortcut svg { color: var(--accent); }
+
+/* The report matrix keeps the original rules for geometry and scrolling. */
+[data-airate-theme] .air-app .report-panel :is(.query-text, .continuous-report td) {
+  background-color: var(--air-panel);
+  border-color: var(--air-line);
+}
+[data-airate-theme] .air-app .report-panel :is(.continuous-report th, .continuous-report .history-spacer, .table-progress, .count) {
+  background-color: var(--air-raised);
+  border-color: var(--air-line);
+  color: var(--air-muted);
+}
+[data-airate-theme] .air-app .report-panel .continuous-report .report-group-heading th {
+  background-color: var(--air-selected);
+  color: var(--air-text);
+}
+[data-airate-theme] .air-app .report-panel .group-total { background-color: var(--accent); color: var(--on-accent); font-weight: 700; }
+[data-airate-theme] .air-app .report-panel .continuous-report th { box-shadow: 0 1px 0 var(--air-line); }
+[data-airate-theme] .air-app .report-panel .continuous-report .query-heading { box-shadow: 1px 0 0 var(--air-line), 0 1px 0 var(--air-line); }
+[data-airate-theme] .air-app .report-panel .continuous-report .query-text { box-shadow: 1px 0 0 var(--air-line); }
+[data-airate-theme] .air-app .report-panel .continuous-report { scrollbar-color: var(--air-line-strong) transparent; }
+[data-airate-theme] .air-app .report-panel .search-box input { color: var(--air-text); }
+[data-airate-theme] .air-app .report-panel .query-cell button.found { background-color: var(--info-bg); color: var(--info); }
+[data-airate-theme] .air-app .report-panel .query-cell button:is(:hover, :focus-visible) { background-color: var(--air-selected); }
+
+[data-airate-theme] .air-app .app-main tbody tr:not(.report-group-heading):is(:hover, :has(:focus-visible)),
+[data-airate-theme] .air-app .app-main tbody tr:not(.report-group-heading):is(:hover, :has(:focus-visible)) > td {
+  background-color: var(--cabinet-hover);
+}
+[data-airate-theme] .air-app :is(.app-main td a:not(.btn), .app-main .text-link, .ws-dialog a):is(:hover, :focus-visible) {
+  color: var(--focus);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  [data-airate-theme] .air-app .app-main tbody td { transition: background-color 140ms ease-out; }
+  [data-airate-theme] .air-app :is(.app-main td a:not(.btn), .app-main .text-link, .ws-dialog a) { transition: color 140ms ease-out; }
+}
+
+[data-airate-theme] .air-app .calendar-dialog {
+  background-color: var(--air-panel);
+  border-color: var(--air-line);
+  color: var(--air-text);
+  color-scheme: dark;
+}
+[data-airate-theme] .air-app .calendar-dialog :is(.calendar-presets, input, .choice-trigger, .btn, .calendar-grid button) {
+  background-color: var(--air-raised);
+  border-color: var(--air-line);
+  color: var(--air-text);
+}
+[data-airate-theme] .air-app .calendar-dialog :is(.calendar-presets button:hover, .calendar-grid button:hover, .calendar-picked button:hover, .calendar-grid .in-range) {
+  background-color: var(--air-selected);
+}
+[data-airate-theme] .air-app .calendar-dialog :is(.calendar-presets button[aria-pressed=true], .calendar-grid button.endpoint) {
+  background-color: var(--accent);
+  color: var(--on-accent);
+}
+[data-airate-theme] .air-app .calendar-dialog .calendar-options label { color: var(--air-muted); }
+[data-airate-theme] .air-app .calendar-dialog .btn.primary {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+[data-airate-theme] .air-app .calendar-dialog :is(input, button):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+[data-airate-theme] .air-app .calendar-dialog .calendar-error { color: var(--danger); }

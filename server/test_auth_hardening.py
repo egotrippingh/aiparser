@@ -185,6 +185,7 @@ def test_legacy_database_upgrade_preserves_account(tmp_path):
         connection.execute(text("ALTER TABLE checks DROP COLUMN free_scan_service"))
         connection.execute(text("ALTER TABLE oauth_attempts DROP COLUMN connect_id"))
         connection.execute(text("ALTER TABLE oauth_attempts DROP COLUMN parent_hash"))
+        connection.execute(text("ALTER TABLE oauth_identities DROP COLUMN avatar_id"))
     with Session(engine) as db:
         db.add(User(id="legacy", email="legacy@example.test",
                     password_hash=hash_password("old-password-123")))
@@ -196,4 +197,6 @@ def test_legacy_database_upgrade_preserves_account(tmp_path):
         assert db.get(User, "legacy").email == "legacy@example.test"
         assert db.get(Wallet, "legacy").balance_kopeks == 12345
     assert "analysis_json" in {column["name"] for column in inspect(engine).get_columns("checks")}
+    for table in ("oauth_identities", "yandex_registrations"):
+        assert "avatar_id" in {column["name"] for column in inspect(engine).get_columns(table)}
     engine.dispose()

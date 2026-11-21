@@ -42,6 +42,8 @@ def upgrade_database(database_url: str) -> None:
                     if name == "oauth_attempts":
                         desired.discard("connect_id")
                         desired.discard("parent_hash")
+                    if name == "oauth_identities":
+                        desired.discard("avatar_id")
                     if name == "checks":
                         desired.discard("free_scan_service")
                     if name == "checks" and existing == desired - {"analysis_json"}:

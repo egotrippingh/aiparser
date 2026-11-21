@@ -2,7 +2,7 @@ import { Fragment, type ReactNode } from "react"
 import { toUnicode } from "punycode/"
 import { publicError } from "../lib/public-error"
 import { highlightedText, brandLink, type BrandHighlight } from "./brand-highlight"
-import "./answer-content.css"
+import "./answer-content.scss"
 
 function safeUrl(value: string) {
   try {

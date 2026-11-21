@@ -1,3 +1,4 @@
+import { CabinetSkeleton } from "../cabinet-loading"
 import { useEffect, useState } from "react"
 import { AccountError, accountRequest } from "../account-api"
 
@@ -65,7 +66,7 @@ export function ApiKeySettings({ token }: { token: string }) {
   return <section className="cab-panel cab-api-key" aria-labelledby="api-key-heading">
     <h2 id="api-key-heading">REST API</h2>
     <p>Запускайте проверки и получайте ответы из своих интеграций. <a href="/docs/api/">Документация API</a></p>
-    {!status && pending && <p role="status">Загружаем сведения о ключе…</p>}
+    {!status && pending && <CabinetSkeleton label="Загружаем сведения о ключе…"/>}
     {status && pending && <p role="status">Обновляем сведения о ключе…</p>}
     {status && <p>{status.suffix ? <>Ключ оканчивается на <code>{status.suffix}</code></> : "API-ключ ещё не создан."}</p>}
     {key && <div>

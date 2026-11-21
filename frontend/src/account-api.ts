@@ -25,15 +25,19 @@ function notifySessionExpired(status: number, listeners: { listener: SessionExpi
   }
 }
 
+export function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a"); link.href = url; link.download = filename; link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 export async function accountDownload(path: string, token: string, filename: string) { try {
   const listeners = [...sessionExpiryListeners].filter(listener => listener.token === token).map(listener => ({ listener, generation: listener.generation }))
   const response = await fetch(`${ACCOUNT_API}/api/v1${path}`, { credentials: "include", headers: {
     "X-AI-Client": "browser", ...(token !== COOKIE_SESSION ? { Authorization: `Bearer ${token}` } : {}),
   } })
   if (!response.ok) { const data = await response.json().catch(() => ({})); notifySessionExpired(response.status, listeners); throw new AccountError(typeof data.detail === "string" ? data.detail : "Не удалось выгрузить отчёт", response.status) }
-  const url = URL.createObjectURL(await response.blob())
-  const link = document.createElement("a"); link.href = url; link.download = filename; link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  downloadBlob(await response.blob(), filename)
 } catch (error) { capture(error, "account_download"); throw error }
 }
 

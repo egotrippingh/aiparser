@@ -4,6 +4,7 @@ import { HELP_ARTICLES } from "./help-content"
 import { HelpPage } from "./help-page"
 import { initTelemetry, rootOptions } from "./telemetry"
 import "./help.css"
+import "./help.scss"
 
 const slug = location.pathname.split("/")[2] || "quick-start"
 const article = HELP_ARTICLES.find(item => item.slug === slug) || HELP_ARTICLES[0]
