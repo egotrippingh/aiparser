@@ -120,7 +120,7 @@ export async function clientReportCharts(report: ClientReport) {
     text(reportPercent(value), x, top - (delta && !inside ? 23 : 11), 13, value === null ? reportChartMuted : reportTint, true)
     if (delta) {
       text(`${reportSigned(delta)}%`, x, inside ? top + capHeight / 2 : top - 10,
-        inside ? 9 : 11, delta < 0 ? reportChartDecrease : "#FFFFFF", !inside)
+        inside ? 7 : 11, delta < 0 ? reportChartDecrease : "#FFFFFF", !inside)
     }
     const icon = icons[index]
     if (icon) {
