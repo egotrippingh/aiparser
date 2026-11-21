@@ -17,6 +17,16 @@ Updated 2026-11-21. Repository: `egotrippingh/aiparser`; deployment branch: `pro
   Homepage, docs, HTTP 404, cabinet assets, PDF/DOCX modules and the optional
   Yandex scope were verified.
 
+## Prepared admin console
+
+- `codex/admin-subdomain`, based on production `d3307c0`, contains a separate
+  operator console with isolated sessions, existing administration, a shared
+  run journal, wallet totals and provider budgets. No schema change.
+- The forecast combines scheduled and outstanding checks, actual recorded
+  OpenRouter usage, recent manual pace and calibrated collector rates.
+  Production rollout follows preview approval and DNS/TLS setup.
+  [Rollout sequence](deploy/DELIVERY.md#admin-console-rollout).
+
 ## Architecture and operating rules
 
 - `server/`: FastAPI, PostgreSQL, all five managed providers, billing and recovery.

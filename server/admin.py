@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, StrictBool, StrictInt
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
+from server.admin_dashboard import register_dashboard
 from server.models import Check, LedgerEntry, PromoCode, PromoRedemption, ProviderAccount, User, Wallet, utcnow
 from server.promos import PromoIn, PromoUpdate, promo_payload
 
@@ -34,6 +35,20 @@ def amount(value):
     if not result.is_finite():
         raise ValueError("Invalid balance")
     return str(result)
+
+
+async def openrouter_monthly_usage(client):
+    key = os.environ.get("OPENROUTER_API_KEY", "")
+    if not key:
+        return None
+    try:
+        response = await client.get("https://openrouter.ai/api/v1/key",
+                                    headers={"Authorization": "Bearer " + key})
+        response.raise_for_status()
+        usage = amount(response.json()["data"]["usage_monthly"])
+        return usage if Decimal(usage) >= 0 else None
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, InvalidOperation):
+        return None
 
 
 async def provider_balances(client):
@@ -84,7 +99,12 @@ async def provider_balances(client):
         except (httpx.HTTPError, ValueError, KeyError, TypeError, InvalidOperation):
             row["message"] = "Не удалось получить актуальный баланс"
         return row
-    return list(await asyncio.gather(*(fetch(p) for p in ("openrouter", "scrapeless", "xmlriver"))))
+    openrouter, scrapeless, xmlriver, usage = await asyncio.gather(
+        fetch("openrouter"), fetch("scrapeless"), fetch("xmlriver"), openrouter_monthly_usage(client)
+    )
+    if usage is not None:
+        openrouter["usage_monthly_usd"] = usage
+    return [openrouter, scrapeless, xmlriver]
 
 
 def register_admin(app, db_session, current_user, normalize_email):
@@ -219,4 +239,5 @@ def register_admin(app, db_session, current_user, normalize_email):
         response.headers["Cache-Control"] = "no-store"
         return {"service": service, "paused": account.paused}
 
+    register_dashboard(router, db_session, admin)
     app.include_router(router)

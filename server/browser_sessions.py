@@ -73,7 +73,7 @@ def register_browser_login(app, db_session, current_user, issue_session):
         if request.headers.get("x-ai-client") != "browser":
             raise HTTPException(403, "Откройте ссылку в браузере")
         candidate = db.get(BrowserLoginTicket, token_hash(body.ticket))
-        if not candidate:
+        if not candidate or candidate.destination == "admin":
             raise HTTPException(401, "Ссылка истекла. Откройте кабинет из агента ещё раз.")
         user = lock_web_session(db, candidate.user_id, candidate.parent_hash)
         # Atomic consume works on both PostgreSQL and SQLite; replay cannot issue a session.

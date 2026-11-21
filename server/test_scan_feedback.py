@@ -149,6 +149,7 @@ def test_admin_review_all_accounts_without_disclosing_credentials(tmp_path):
         admin.is_admin = True
         row = db.get(CloudResult, ids[1])
         row.check_id = 'same-client-id'
+        row.run_id = 'a' * 32
         db.add(Check(user_id=row.user_id, client_check_id=row.check_id, price_kopeks=0,
                      analysis_json='{"found": true, "reasoning": "Owner analysis"}', analysis_model='model'))
         db.add(Check(user_id=admin.id, client_check_id=row.check_id, price_kopeks=0,
@@ -159,6 +160,9 @@ def test_admin_review_all_accounts_without_disclosing_credentials(tmp_path):
     assert response.headers['cache-control'] == 'no-store'
     assert response.json()['total'] == 3 and len(response.json()['results']) == 1
     assert 'answer_text' not in response.json()['results'][0]
+    by_run = client.get(route, headers=other, params={'run_id': 'a' * 32}).json()
+    assert by_run['total'] == 1 and by_run['results'][0]['id'] == ids[1]
+    assert client.get(route, headers=other, params={'run_id': 'invalid'}).status_code == 422
     assert client.get(route, headers=devices[0]).status_code == 403
     assert client.get(route + f'/{ids[1]}', headers=owner).status_code == 403
     detail = client.get(route + f'/{ids[1]}', headers=other).json()

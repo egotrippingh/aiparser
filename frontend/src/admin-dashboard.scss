@@ -1,0 +1,177 @@
+.admin-data {
+  &__heading {
+    align-items: center;
+    flex-wrap: wrap;
+
+    p {
+      margin: 6px 0 0;
+      color: var(--air-muted);
+    }
+  }
+
+  &__figures {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 194px), 1fr));
+    gap: 16px;
+    margin: 20px 0 0;
+
+    > div {
+      padding: 14px 16px;
+      border-top: 1px solid var(--air-line-strong);
+      background: var(--air-panel);
+      border-radius: 0 0 10px 10px;
+    }
+
+    dt {
+      color: var(--air-muted);
+      font-size: 13px;
+    }
+
+    dd {
+      margin: 5px 0 0;
+      font-size: clamp(18px, 2.5vw, 26px);
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    dd.admin-data__note {
+      font-size: 12px;
+      font-weight: 400;
+    }
+  }
+
+  &__figures--compact {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  }
+
+  &__figures--forecast {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  }
+
+  &__loss, &__error { color: var(--danger); }
+  &__gain { color: var(--ok); }
+  &__note { color: var(--air-muted); font-size: 13px; }
+
+  &__subheading {
+    margin-top: 28px;
+    h3 { margin: 0; }
+  }
+
+  &__rates {
+    summary {
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    p {
+      max-width: 82ch;
+    }
+  }
+
+  &__rate-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 225px), 1fr));
+    gap: 12px 16px;
+    margin: 16px 0;
+
+    label { margin: 0; max-width: none; }
+  }
+
+  &__calibration {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--air-line);
+    summary { font-size: 14px; }
+  }
+
+  &__toolbar, &__search {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 12px;
+  }
+
+  &__toolbar { margin: 20px 0 16px; }
+  &__search { flex: 1 1 360px; }
+
+  &__search label {
+    flex: 1 1 min(100%, 210px);
+    max-width: none;
+    min-width: 0;
+    margin: 0;
+    font-size: 13px;
+  }
+
+  &__toolbar :is(input, .cc-button, .choice-trigger) {
+    height: 36px;
+    min-height: 36px;
+    border-radius: 9px;
+  }
+
+  &__filter {
+    display: grid;
+    gap: 8px;
+    min-width: min(100%, 165px);
+    font-size: 13px;
+  }
+
+  &__scroll {
+    table { font-variant-numeric: tabular-nums; }
+    thead th { font-size: 12px; }
+    tbody th { font-size: inherit; font-weight: 650; }
+    small { display: block; max-width: 205px; margin-top: 5px; color: var(--air-muted); white-space: normal; overflow-wrap: anywhere; }
+  }
+
+  &__runs {
+    tr > :first-child {
+      min-width: 174px;
+      max-width: 250px;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    tr > :nth-child(4) { min-width: 110px; }
+
+    progress {
+      display: block;
+      width: 100%;
+      height: 5px;
+      margin-top: 6px;
+      accent-color: var(--air-accent);
+      border: 0;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    progress::-webkit-progress-bar { background: var(--air-raised); }
+    progress::-webkit-progress-value { background: var(--air-accent); }
+  }
+
+  &__pagination {
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+
+    span { margin-right: auto; color: var(--air-muted); font-size: 13px; }
+  }
+
+  :is(summary, input, a, button, [tabindex="0"]):focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-data .admin-overview, .admin-data.admin-overview { padding: 16px; }
+  .admin-data__toolbar :is(input, .cc-button, .choice-trigger) { min-height: 44px; }
+}
+
+@media (360px <= width <= 640px) {
+  .admin-data__figures--summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+
+    > div { padding-inline: 12px; overflow-wrap: anywhere; }
+  }
+}
