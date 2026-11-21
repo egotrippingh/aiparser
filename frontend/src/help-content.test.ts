@@ -5,7 +5,7 @@ import { parseQueryImport } from "./query-import"
 
 describe("help content", () => {
   it("has public articles with searchable body text and email-safe support guidance", () => {
-    expect(HELP_ARTICLES.map(article => article.slug)).toEqual(["quick-start", "projects-and-queries", "scans", "schedule", "reports", "answers-and-sources", "billing", "api", "troubleshooting"])
+    expect(HELP_ARTICLES.map(article => article.slug)).toEqual(["quick-start", "projects-and-queries", "scans", "schedule", "reports", "answers-and-sources", "billing", "api", "mcp", "troubleshooting"])
     expect(HELP_ARTICLES.find(article => article.slug === "projects-and-queries")?.sections.flatMap(section => section.body).join(" ")).toContain("CSV UTF-8")
     expect(helpSearchContent(HELP_ARTICLES.find(article => article.slug === "troubleshooting")!)).toContain("Не сообщайте")
   })

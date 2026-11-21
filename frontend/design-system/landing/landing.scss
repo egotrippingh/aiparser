@@ -185,6 +185,35 @@
 .code-verb { color: #9ED7C9; }
 .api-demo__status:not(:empty) { margin-top: var(--space-3); color: var(--muted); font: var(--type-small); }
 
+.home-chapter--mcp { background: radial-gradient(ellipse at 88% 8%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 62%); }
+.mcp-example {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
+  gap: var(--space-3);
+
+  &__prompt {
+    background: linear-gradient(145deg, var(--raised), var(--surface) 74%);
+
+    figcaption { font: var(--type-small); font-weight: 650; }
+    blockquote {
+      margin: 0;
+      padding: var(--space-5);
+      font-size: 1.125rem;
+      line-height: 1.55;
+    }
+  }
+
+  &__setup {
+    padding: var(--space-5);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-panel);
+
+    h3 { font: var(--type-h3); }
+    p { color: var(--muted); margin-top: var(--space-3); }
+    code { color: var(--accent); overflow-wrap: anywhere; }
+  }
+}
+
 @media (max-width: 960px) {
   .landing-page { --header-height: 100px; }
   .home-header__inner { flex-wrap: wrap; gap: 0 var(--space-2); }
@@ -199,6 +228,6 @@
   .home-header__inner .brand img:last-child { width: 104px; height: auto; }
   .home-header__actions .btn { padding-inline: var(--space-2); }
   .home-chapter { padding-block: var(--space-7); }
-  .home-chapter__steps, .api-demo, .api-demo__intro { grid-template-columns: 1fr; gap: var(--space-4); }
+  .home-chapter__steps, .api-demo, .api-demo__intro, .mcp-example { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
   .api-demo__intro h2 { font: var(--type-h2); }
 }

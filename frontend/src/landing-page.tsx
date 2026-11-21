@@ -119,8 +119,8 @@ export function LandingPage() {
       <section className="home-chapter home-chapter--api" id="api" aria-labelledby="api-title">
         <div className="container">
           <div className="api-demo__intro">
-            <h2 id="api-title">Подключите Аирейт к своему агенту</h2>
-            <div><p>Ваш ИИ-агент может проверить список запросов сразу по нескольким брендам. Он рассчитает стоимость, запустит проверки и соберёт ответы со ссылками. Попросите его сравнить результаты по датам и выделить запросы, где бренд появился или пропал.</p><a className="btn" href="/docs/api/">Документация REST API <span aria-hidden="true">↗</span></a></div>
+            <h2 id="api-title">Встройте Аирейт в свои инструменты</h2>
+            <div><p>Используйте REST API в скриптах, внутренних сервисах и клиентских отчётах. Запускайте проверки по списку брендов, забирайте ответы со ссылками и собирайте данные в своём дашборде.</p><a className="btn" href="/docs/api/">Документация REST API <span aria-hidden="true">↗</span></a></div>
           </div>
           <div className="api-demo" aria-label="Пример запроса и ответа REST API">
             <section className="api-panel" aria-labelledby="api-request-title">
@@ -150,6 +150,27 @@ export function LandingPage() {
             </section>
           </div>
           <p className="api-demo__status" id="api-demo__status" role="status"></p>
+        </div>
+      </section>
+      <section className="home-chapter home-chapter--mcp" id="mcp" aria-labelledby="mcp-title">
+        <div className="container">
+          <div className="api-demo__intro">
+            <h2 id="mcp-title">Подключите Аирейт к ИИ-агенту через MCP</h2>
+            <div>
+              <p>Попросите агента собрать сохранённые ответы по нужным проектам, сравнить даты и приложить ссылки на источники. Для новой проверки агент рассчитает стоимость, а вы подтвердите запуск.</p>
+              <a className="btn primary" href="/docs/mcp/">Как подключить MCP <span aria-hidden="true">↗</span></a>
+            </div>
+          </div>
+          <div className="mcp-example">
+            <figure className="api-panel mcp-example__prompt">
+              <figcaption className="api-panel__heading">Запрос агенту</figcaption>
+              <blockquote>«Сравни последние две недели в проекте „Север“. Покажи, в каких ответах ChatGPT упомянул бренд, и приложи ссылки на источники».</blockquote>
+            </figure>
+            <div className="mcp-example__setup">
+              <h3>Подключение</h3>
+              <p>Добавьте Аирейт в настройки Claude Desktop, Codex или Google Antigravity и укажите ключ. При первом запуске клиент скачает пакет через npx.</p>
+            </div>
+          </div>
         </div>
       </section>
     </main>

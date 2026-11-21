@@ -1,8 +1,10 @@
 """Public crawl endpoints and indexing policy, using the shipped website assets."""
 
+import io
 import json
 import re
 import struct
+import tarfile
 from html.parser import HTMLParser
 from urllib.robotparser import RobotFileParser
 from xml.etree import ElementTree
@@ -44,6 +46,7 @@ HELP_PAGES = {
     "answers-and-sources": "Сохраните полученный файл.",
     "billing": "Один промокод применяется один раз на аккаунт.",
     "api": "Полный ключ виден только после выпуска.",
+    "mcp": "Покажи мои проекты в Аирейт",
     "troubleshooting": "Сам код присылать не нужно.",
 }
 
@@ -101,7 +104,21 @@ def test_homepage_ships_content_metadata_and_a_real_social_image(client):
     assert len(headings) == 1
     heading_text = " ".join(re.sub(r"<[^>]+>", " ", headings[0]).split())
     assert heading_text.replace(" .", ".") == "Узнайте, что ИИ говорит о вашем бренде."
-    assert "Подключите Аирейт к своему агенту" in html
+    assert "Встройте Аирейт в свои инструменты" in html
+    assert 'href="/docs/mcp/"' in html
+
+
+def test_mcp_guide_downloads_the_npm_package(client):
+    guide = client.get("/docs/mcp/")
+    match = re.search(r'href="(/assets/mcp/airate-mcp-[\d.]+\.tgz)"', guide.text)
+    assert match and f"--package=https://airate.tech{match[1]}" in guide.text
+    package = client.get(match[1])
+    assert package.status_code == 200
+    with tarfile.open(fileobj=io.BytesIO(package.content), mode="r:gz") as archive:
+        metadata = json.load(archive.extractfile("package/package.json"))
+        assert metadata["bin"] == {"airate-mcp": "./cli.mjs"}
+        assert match[1] == f"/assets/mcp/airate-mcp-{metadata['version']}.tgz"
+        assert b'https://airate.tech/api/v1/public/' in archive.extractfile("package/server.mjs").read()
 
 
 def test_utility_pages_are_crawlable_but_not_indexable_and_unknown_pages_are_404(client):

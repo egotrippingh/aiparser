@@ -1,11 +1,24 @@
 import { QUERY_IMPORT_EXAMPLE } from "./query-import.ts"
+import mcpPackage from "../../integrations/mcp/package.json" with { type: "json" }
 
 export type HelpArticle = {
   slug: string
   label: string
   title: string
   summary: string
-  sections: { id: string; title: string; body: string[]; steps?: string[]; code?: string }[]
+  sections: { id: string; title: string; body: string[]; steps?: string[]; code?: string; links?: { label: string; href: string; download?: boolean }[] }[]
+}
+
+const airateMcpPath = `/assets/mcp/airate-mcp-${mcpPackage.version}.tgz`
+const airateMcpPackageArg = `--package=https://airate.tech${airateMcpPath}`
+const airateMcpArgs = ["/d", "/c", "npx", "--yes", "--ignore-scripts", airateMcpPackageArg, "airate-mcp"]
+
+function mcpJson(apiKey: string, options: { type?: "stdio"; tools?: string[] } = {}) {
+  return JSON.stringify({
+    mcpServers: {
+      airate: { command: "cmd.exe", args: airateMcpArgs, env: { AIRATE_API_KEY: apiKey }, ...options },
+    },
+  }, null, 2)
 }
 
 export const HELP_ARTICLES: HelpArticle[] = [
@@ -180,7 +193,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
   },
   {
     slug: "api", label: "REST API", title: "REST API AIRate",
-    summary: "Подключите AIRate к своей системе, чтобы создавать проекты, управлять запросами, запускать проверки и получать ответы за выбранные даты.",
+    summary: "Используйте REST API AIRate в скриптах и своих сервисах. Создавайте проекты, запускайте проверки и получайте ответы за выбранные даты.",
     sections: [
       { id: "key", title: "Получите API-ключ", body: [
         "Откройте меню аккаунта → «Настройки аккаунта» → «REST API» → «Создать ключ». Сохраните его в менеджере секретов вашей интеграции. Полный ключ виден только после выпуска. После замены, отзыва или смены пароля старый ключ перестаёт принимать новые запросы. Уже принятые запросы могут завершиться.",
@@ -233,6 +246,79 @@ export const HELP_ARTICLES: HelpArticle[] = [
       ].join("\n") },
       { id: "errors", title: "Ошибки API", body: [
         "401 — ключ отсутствует, отозван или недействителен. 402 — недостаточно средств. 404 — объект недоступен по этому ключу или ID. 409 — изменился расчёт либо у проекта уже есть активный запуск. 422 — проверьте поля запроса и настройки проекта. Подробности ошибки передаются в detail.",
+      ] },
+      { id: "mcp", title: "Подключение ИИ-агента", body: [], links: [
+        { label: "Как установить MCP для AIRate", href: "/docs/mcp/" },
+      ] },
+    ],
+  },
+  {
+    slug: "mcp", label: "MCP", title: "MCP для AIRate",
+    summary: "Подключите AIRate к клиенту с поддержкой локальных MCP-серверов, чтобы работать с проектами, проверками и сохранёнными ответами из диалога с агентом.",
+    sections: [
+      { id: "install", title: "Установка через npm", body: [
+        "Установите Node.js 22 или новее. npm и npx входят в комплект. Добавьте настройки для своего клиента ниже. При первом запуске npx скачает пакет Аирейт.",
+        "Примеры ниже для Windows. На macOS и Linux укажите npx в поле command и уберите первые три элемента из args: /d, /c и npx.",
+      ], steps: [
+        "В AIRate откройте «Настройки аккаунта» → «REST API» → «Создать ключ». Если пример читает переменную AIRATE_API_KEY, задайте её в окружении пользователя до запуска клиента.",
+        "Добавьте airate рядом с существующими MCP-серверами. Храните ключ в окружении или в личных настройках клиента, вне чата и репозитория.",
+        "Проверьте установку в терминале. Команда скачает пакет и выведет его версию.",
+      ], code: `npx --yes --ignore-scripts ${airateMcpPackageArg} airate-mcp --version`, links: [
+        { label: "Скачать Node.js", href: "https://nodejs.org/en/download" },
+        { label: "Скачать npm-пакет Аирейт", href: airateMcpPath, download: true },
+      ] },
+      { id: "claude", title: "Claude Desktop", body: [
+        "Откройте Settings → Developer → Edit Config. Добавьте airate в личный файл claude_desktop_config.json и подставьте свой ключ вместо ВСТАВЬТЕ_КЛЮЧ. Полностью закройте и снова откройте Claude Desktop. Сервер airate появится в списке подключений.",
+      ], code: mcpJson("ВСТАВЬТЕ_КЛЮЧ"), links: [
+        { label: "Локальные MCP-серверы в Claude Desktop", href: "https://modelcontextprotocol.io/docs/develop/connect-local-servers" },
+      ] },
+      { id: "codex", title: "Codex", body: [
+        "Добавьте блок в личный файл ~/.codex/config.toml и перезапустите Codex. Ключ будет прочитан из окружения. В терминале выполните codex mcp list, а в сессии Codex откройте /mcp, чтобы увидеть инструменты.",
+      ], code: [
+        "[mcp_servers.airate]",
+        'command = "cmd.exe"',
+        `args = ${JSON.stringify(airateMcpArgs)}`,
+        'env_vars = ["AIRATE_API_KEY"]',
+        "startup_timeout_sec = 120",
+      ].join("\n"), links: [
+        { label: "OpenAI Docs о настройке MCP", href: "https://learn.chatgpt.com/docs/extend/mcp?surface=cli" },
+      ] },
+      { id: "antigravity", title: "Google Antigravity", body: [
+        "В боковой панели агента откройте … → MCP Servers → Manage MCP Servers → View raw config. В личном файле ~/.gemini/config/mcp_config.json добавьте airate и подставьте свой ключ. Обновите список MCP-серверов после сохранения.",
+      ], code: mcpJson("ВСТАВЬТЕ_КЛЮЧ"), links: [
+        { label: "Настройка MCP в Antigravity IDE", href: "https://antigravity.google/docs/mcp?tab=ide" },
+      ] },
+      { id: "cursor", title: "Cursor", body: [
+        "Добавьте airate в личный файл ~/.cursor/mcp.json. Cursor подставит значение AIRATE_API_KEY из окружения. Перезапустите Cursor и найдите airate в разделе Customize.",
+      ], code: mcpJson("${env:AIRATE_API_KEY}", { type: "stdio" }), links: [
+        { label: "Настройка MCP в Cursor", href: "https://cursor.com/docs/mcp" },
+      ] },
+      { id: "copilot", title: "GitHub Copilot в VS Code", body: [
+        "В локальной сессии Copilot добавьте airate в личный файл ~/.copilot/mcp-config.json, который VS Code показывает как Copilot Global. Ключ будет прочитан из окружения. После перезапуска откройте Chat: Open Customizations → MCP Servers и проверьте airate.",
+      ], code: mcpJson("${AIRATE_API_KEY}", { type: "stdio", tools: ["*"] }), links: [
+        { label: "Добавление MCP-сервера в VS Code", href: "https://code.visualstudio.com/docs/agent-customization/mcp-servers" },
+        { label: "Формат личной конфигурации Copilot", href: "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference#mcp-configjson" },
+      ] },
+      { id: "windsurf", title: "Devin Desktop (Windsurf)", body: [
+        "В окне Agents откройте Customize → MCPs → This computer и откройте личный файл конфигурации. Добавьте airate, подставьте свой ключ и обновите список серверов.",
+      ], code: mcpJson("ВСТАВЬТЕ_КЛЮЧ"), links: [
+        { label: "Настройка MCP в Devin Desktop", href: "https://docs.devin.ai/desktop/devin-local/customizations#mcp-servers" },
+      ] },
+      { id: "gemini", title: "Gemini CLI", body: [
+        "Добавьте airate в личный файл ~/.gemini/settings.json. Ключ будет прочитан из окружения. Перезапустите Gemini CLI и выполните /mcp, чтобы увидеть сервер и его инструменты.",
+      ], code: mcpJson("$AIRATE_API_KEY"), links: [
+        { label: "Настройка MCP в Gemini CLI", href: "https://geminicli.com/docs/tools/mcp-server/" },
+      ] },
+      { id: "use", title: "Проверьте подключение и попробуйте запрос", body: [
+        "Начните с «Покажи мои проекты в Аирейт». Агент вызовет list_projects, которому не нужен ID проекта. Затем можно попросить «Покажи сохранённые ответы ChatGPT по проекту „Север“ за последние семь дней и приложи ссылки на источники».",
+        "Агент может прочитать настройки проекта, управлять запросами, рассчитать стоимость и запустить проверку. Перед платным запуском сначала запросите расчёт через get_scan_quote и подтвердите стоимость.",
+      ], links: [
+        { label: "Документация REST API", href: "/docs/api/" },
+      ] },
+      { id: "connect-errors", title: "Если MCP не подключается", body: [
+        "Если клиент не находит npx, проверьте, что установлен Node.js, а затем перезапустите клиент. Если первый запуск не успевает скачать пакет, сначала выполните команду с --version в терминале. После загрузки пакета перезапустите клиент.",
+        "При ошибке 401 проверьте, что клиент получил AIRATE_API_KEY и ключ по-прежнему действует. После ротации ключа обновите переменную и перезапустите клиент.",
+        "Для обновления скопируйте адрес новой версии пакета из примера для своего клиента и перезапустите клиент.",
       ] },
     ],
   },

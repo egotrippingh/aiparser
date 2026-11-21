@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
@@ -44,6 +45,14 @@ export default defineConfig({
         }
         const urls = ['/', ...HELP_ARTICLES.map(helpHref)]
         await writeFile(path.resolve(import.meta.dirname, '../web/sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(url => `  <url><loc>https://airate.tech${url}</loc></url>`).join('\n')}\n</urlset>\n`)
+        const mcpAssets = path.resolve(import.meta.dirname, '../web/assets/mcp')
+        await mkdir(mcpAssets, { recursive: true })
+        const npm = process.env.npm_execpath
+        if (!npm) throw new Error('Run npm run build to package AIRate MCP')
+        execFileSync(process.execPath, [npm, 'pack', '--ignore-scripts', '--pack-destination', mcpAssets], {
+          cwd: path.resolve(import.meta.dirname, '../integrations/mcp'),
+          stdio: 'inherit',
+        })
       } finally {
         await server.close()
       }

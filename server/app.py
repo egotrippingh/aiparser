@@ -48,7 +48,7 @@ from server.control import register_control
 from server.device_login import pending_connect, approve_login_connect
 from server.browser_sessions import COOKIE_NAME, request_token, web_session_response, register_browser_login, lock_web_session
 
-HELP_SLUGS = {"quick-start", "projects-and-queries", "scans", "schedule", "reports", "answers-and-sources", "billing", "api", "troubleshooting"}
+HELP_SLUGS = {"quick-start", "projects-and-queries", "scans", "schedule", "reports", "answers-and-sources", "billing", "api", "mcp", "troubleshooting"}
 
 
 class Credentials(BaseModel):

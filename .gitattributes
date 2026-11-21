@@ -1,6 +1,7 @@
 # start.bat должен остаться с CRLF: cmd на LF-переводах строк путает метки goto.
 *.bat text eol=crlf
 *.sh text eol=lf
+integrations/mcp/cli.mjs text eol=lf
 *.yml text eol=lf
 *.html text eol=lf
 # Generated bundles retain upstream CSS template literals byte-for-byte.

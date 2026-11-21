@@ -83,6 +83,7 @@ export function HelpPage({ article }: { article: HelpArticle }) {
                 {section.body.map(paragraph => <p key={paragraph}>{paragraph}</p>)}
                 {section.steps && <ol>{section.steps.map(step => <li key={step}>{step}</li>)}</ol>}
                 {section.code && <pre><code>{section.code}</code></pre>}
+                {section.links && <ul>{section.links.map(link => <li key={link.href}><a href={link.href} download={link.download}>{link.label}</a></li>)}</ul>}
               </section>)}
               <section className="help-support">
                 <h2>Не нашли ответ?</h2>

@@ -8,6 +8,7 @@ Open **one** row that matches the task. Do not preload briefs, release notes or
 | When you need… | Read |
 |---|---|
 | Cross-layer / multi-session work packet, Graphify install | [agent-workflow.md](agent-workflow.md) |
+| Connect an MCP client to AIRate or change the public REST API | [airate-mcp.md](airate-mcp.md) |
 | Saved Windows sessions / portable→installer data paths | [session-preservation.md](session-preservation.md) |
 | Agent EXE version, in-app update, installer publication | [updater.md](updater.md) |
 | Coinso top-up / payment webhook setup | [coinso.md](coinso.md) |
