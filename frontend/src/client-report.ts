@@ -11,17 +11,20 @@ export const reportAccent = "#B6A8FF"
 export const reportSurface = "#18181B"
 export const reportChartLine = "#333337"
 export const reportChartMuted = "#A4A2A9"
+export const reportChartIncrease = "#2BC180"
+export const reportChartDecrease = "#FF5965"
 export const reportMetricCard = { width: 220, height: 76, gap: 10, radius: 12 }
 export const reportMetricFontSize = (value: string) => Math.min(23, Math.floor(240 / value.length))
 const green = "#207657"
 const red = "#BE483F"
 const percent = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 })
 export const reportPercent = (value: number | null) => value === null ? "—" : `${percent.format(value)}%`
+export const reportSigned = (value: number) => `${value > 0 ? "+" : ""}${percent.format(value)}`
 const reportDate = (iso: string) => iso.split("-").reverse().join(".")
 const clean = (value: string) => value.replace(/[\s\p{Cc}\p{Cs}\uFFFE\uFFFF]+/gu, " ").trim()
 
 type ReportFilters = { compare: boolean; group: string; search: string; cards: boolean; external: boolean; dateMode: string }
-type Input = Pick<Report, "date_from" | "date_to" | "dates" | "period_from" | "period_to" | "services" | "summary" | "rows" | "service_stats">
+type Input = Pick<Report, "date_from" | "date_to" | "dates" | "period_from" | "period_to" | "services" | "summary" | "rows" | "service_stats" | "timeline">
 
 export function clientReport(project: string, report: Input, filters: ReportFilters) {
   const from = filters.compare ? report.date_from : report.period_from
@@ -32,12 +35,18 @@ export function clientReport(project: string, report: Input, filters: ReportFilt
     { label: "С упоминанием", value: found, color: reportAccent },
     { label: "Без упоминания", value: checked - found - skipped, color: reportChartMuted },
     { label: "Без ИИ-блока", value: skipped, color: "#72727A" },
-    { label: "Ошибки", value: issues, color: "#FF5965" },
+    { label: "Ошибки", value: issues, color: reportChartDecrease },
     { label: "Без результата", value: total - checked - issues, color: reportChartLine },
   ]
-  const services = report.services.map(id => ({
-    id, label: serviceName(id), value: report.service_stats[id].current.visibility_pct, icon: serviceIconUrl(id),
-  }))
+  const first = comparison ? report.timeline.find(day => day.date === from)?.services : undefined
+  const last = comparison ? report.timeline.find(day => day.date === to)?.services : undefined
+  const services = report.services.map(id => {
+    const value = comparison ? last?.[id]?.visibility_pct ?? null : report.service_stats[id].current.visibility_pct
+    return {
+      id, label: serviceName(id), icon: serviceIconUrl(id),
+      value, previous: value === null ? null : first?.[id]?.visibility_pct ?? null,
+    }
+  })
   let unchanged = 0, unavailable = 0
   const changes = report.rows.flatMap(row => {
     const { current, previous, delta } = filters.compare ? row.trend : row.period_trend
@@ -82,7 +91,7 @@ export function clientReport(project: string, report: Input, filters: ReportFilt
       ...table,
       rows: table.rows.map(row => [
         row.group || "Без группы", row.query, reportPercent(row.from), reportPercent(row.to),
-        `${row.delta > 0 ? "+" : ""}${reportPercent(row.delta)}`,
+        `${reportSigned(row.delta)}%`,
       ]),
     })),
   }

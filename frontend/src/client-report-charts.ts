@@ -1,4 +1,4 @@
-import { reportAccent, reportChartLine, reportChartMuted, reportPercent, reportSurface, reportTint, type ClientReport } from "./client-report"
+import { reportAccent, reportChartDecrease, reportChartIncrease, reportChartLine, reportChartMuted, reportPercent, reportSigned, reportSurface, reportTint, type ClientReport } from "./client-report"
 
 export const chartSize = { width: 680, height: 238 }
 
@@ -34,6 +34,9 @@ export async function clientReportCharts(report: ClientReport) {
   }
   text("Результаты проверок", 18, 25, 17, reportTint, true)
   text("По ИИ-системам", 362, 25, 17, reportTint, true)
+  if (report.comparison) {
+    text(`${report.comparison[0]} → ${report.comparison[1]} · Изм. в п. п.`, 362, 45, 11, reportChartMuted)
+  }
 
   const centerX = 81, centerY = 131, radius = 52
   function arc(start: number, end: number, color: string) {
@@ -64,7 +67,8 @@ export async function clientReportCharts(report: ClientReport) {
   text("всего", centerX, centerY + 14, 12, reportChartMuted)
   ctx.textAlign = "left"
 
-  const plotLeft = 396, plotRight = 662, baseline = 191, plotHeight = 122
+  const plotLeft = 396, plotRight = 662, baseline = 191
+  const plotHeight = report.comparison ? 109 : 122
   ctx.textAlign = "right"
   ctx.lineWidth = 1
   ctx.strokeStyle = reportChartLine
@@ -79,17 +83,29 @@ export async function clientReportCharts(report: ClientReport) {
   const spacing = (plotRight - plotLeft) / Math.max(1, report.services.length)
   const width = Math.min(44, spacing - 14)
   ctx.textAlign = "center"
-  report.services.forEach(({ id, label, value }, index) => {
+  report.services.forEach(({ id, label, value, previous }, index) => {
     const x = plotLeft + spacing * (index + 0.5)
-    const height = plotHeight * (value ?? 0) / 100
+    const current = value ?? 0, reference = previous ?? current
+    const height = plotHeight * Math.max(current, reference) / 100
+    const baseHeight = plotHeight * Math.min(current, reference) / 100
     const top = baseline - height
+    const delta = current - reference
+    const capColor = delta > 0 ? reportChartIncrease : reportChartDecrease
     if (height > 0) {
+      ctx.save()
       ctx.beginPath()
       ctx.roundRect(x - width / 2, top, width, height, Math.min(7, height / 2))
+      ctx.clip()
       ctx.fillStyle = reportAccent
-      ctx.fill()
+      ctx.fillRect(x - width / 2, top, width, height)
+      if (delta) {
+        ctx.fillStyle = capColor
+        ctx.fillRect(x - width / 2, top, width, height - baseHeight)
+      }
+      ctx.restore()
     }
-    text(reportPercent(value), x, top - 11, 13, value === null ? reportChartMuted : reportTint, true)
+    text(reportPercent(value), x, top - (delta ? 23 : 11), 13, value === null ? reportChartMuted : reportTint, true)
+    if (delta) text(reportSigned(delta), x, top - 10, 11, capColor, true)
     const icon = icons[index]
     if (icon) {
       const scale = 23 / Math.max(icon.naturalWidth, icon.naturalHeight)
@@ -105,7 +121,10 @@ export async function clientReportCharts(report: ClientReport) {
     url: canvas.toDataURL("image/png"),
     description: [
       ...report.outcomes.map(({ label, value }) => `${label} — ${value}`),
-      ...report.services.map(({ label, value }) => `${label} — ${reportPercent(value)}`),
+      ...(report.comparison ? [`Сравнение по ИИ-системам ${report.comparison.join(" → ")}`] : []),
+      ...report.services.map(({ label, value, previous }) => value !== null && previous !== null
+        ? `${label} — ${reportPercent(previous)} → ${reportPercent(value)} (${reportSigned(value - previous)} п. п.)`
+        : `${label} — ${reportPercent(value)}`),
     ].join(". "),
   }
 }

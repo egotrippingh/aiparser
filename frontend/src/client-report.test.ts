@@ -13,11 +13,21 @@ const trend = (from: number, to: number, coverage = 2): Trend => ({
 const row = (text: string, period_trend: Trend, comparison = period_trend): Report["rows"][number] => ({
   id: text, text, group_tag: "", period_trend, trend: comparison, cells: {}, latest: {},
 })
+const day = (date: string, chatgpt: number, gemini: number): Report["timeline"][number] => ({
+  ...stats(chatgpt + gemini, 4), total: 4, visibility_pct: (chatgpt + gemini) * 25,
+  date, services: { chatgpt: stats(chatgpt), gemini: stats(gemini) },
+})
 
 const report: Parameters<typeof clientReport>[1] = {
   date_from: "2026-11-01", date_to: "2026-11-20", dates: ["2026-11-04", "2026-11-19"],
   period_from: "2026-11-04", period_to: "2026-11-19",
   services: ["chatgpt", "gemini"], service_stats: { chatgpt: trend(1, 1), gemini: trend(2, 0) },
+  timeline: [
+    day("2026-11-01", 0, 1),
+    day("2026-11-04", 0, 2),
+    day("2026-11-19", 2, 1),
+    day("2026-11-20", 0, 2),
+  ],
   summary: { total: 16, checked: 13, found: 6, skipped: 2, issues: 1, visibility_pct: 37.5 },
   rows: [
     row("Малый рост", trend(0, 1)),
@@ -37,7 +47,7 @@ test("client report uses actual selected scans and includes all comparable mover
   })
   expect(doc.metrics[0].value).toBe("37,5%")
   expect(doc.outcomes.map(item => item.value)).toEqual([6, 5, 2, 1, 2])
-  expect(doc.services.map(item => item.value)).toEqual([50, 0])
+  expect(doc.services.map(({ previous, value }) => [previous, value])).toEqual([[0, 100], [100, 50]])
   expect(doc.services.map(item => item.icon)).toEqual(["/assets/services/chatgpt.svg?v=20261012", "/assets/services/gemini.png"])
   expect(doc.tables.map(table => table.color)).toEqual(["#207657", "#BE483F"])
   expect(doc.tables[0].rows).toEqual([
@@ -50,6 +60,7 @@ test("client report uses actual selected scans and includes all comparable mover
 test("two-date comparisons use calendar edges and the matching trend", () => {
   const doc = clientReport("Демо", report, { ...settings, compare: true, group: "", search: "тест", cards: false, external: false })
   expect(doc.comparison).toEqual(["01.11.2026", "20.11.2026"])
+  expect(doc.services.map(({ previous, value }) => [previous, value])).toEqual([[0, 0], [50, 100]])
   expect(doc.mode).toContain("Сводка за 20.11.2026")
   expect(doc.filterNotes).toBe("Группа: Без группы · Поиск: «тест» · Карточки товаров исключены · Учитываются упоминания со ссылкой на домен бренда")
   expect(doc.tables[1].rows.map(row => row[1])).toEqual(["Снижение", "Большой рост"])
@@ -58,6 +69,7 @@ test("two-date comparisons use calendar edges and the matching trend", () => {
 test("one date or no data does not create false movements", () => {
   const doc = clientReport("Демо", { ...report, period_from: "2026-11-04", period_to: "2026-11-04" }, settings)
   expect(doc.comparison).toBeNull()
+  expect(doc.services.map(({ previous, value }) => [previous, value])).toEqual([[null, 50], [null, 0]])
   expect(doc.tables.every(table => table.rows.length === 0)).toBe(true)
   const empty = clientReport("Демо", { ...report, rows: [], dates: [], period_from: null, period_to: null, summary: {
     total: 0, checked: 0, found: 0, skipped: 0, issues: 0, visibility_pct: null,
@@ -65,4 +77,12 @@ test("one date or no data does not create false movements", () => {
   expect(empty.changeSummary).toBe("В выбранном периоде нет запросов.")
   expect(empty.metrics[0].value).toBe("—")
   expect(empty.outcomes.every(item => item.value === 0)).toBe(true)
+})
+
+test("service bars keep available visibility values and omit a missing comparison endpoint", () => {
+  const timeline = report.timeline.map(day => day.date === report.period_from ? {
+    ...day, services: { ...day.services, chatgpt: stats(0, 1), gemini: stats(0, 0) },
+  } : day)
+  const doc = clientReport("Демо", { ...report, timeline }, settings)
+  expect(doc.services.map(({ previous, value }) => [previous, value])).toEqual([[0, 100], [null, 50]])
 })
