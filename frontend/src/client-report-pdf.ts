@@ -2,7 +2,8 @@ import pdfMake from "pdfmake/build/pdfmake"
 import fonts from "pdfmake/build/vfs_fonts"
 import type { Content, TableCell, TDocumentDefinitions } from "pdfmake/interfaces"
 import { clientReportCharts } from "./client-report-charts"
-import { reportInk, reportLine, reportMethod, reportMuted, reportHeading, reportTint, reportTitle, reportTableHeading, type ClientReport } from "./client-report"
+import { clientReportLogo, reportLogoSize } from "./client-report-logo"
+import { reportHeading, reportInk, reportLine, reportMethod, reportMuted, reportSurface, reportTint, reportTitle, type ClientReport } from "./client-report"
 
 pdfMake.addVirtualFileSystem(fonts)
 
@@ -10,9 +11,9 @@ pdfMake.addVirtualFileSystem(fonts)
 const wrap = (text: string, limit = 24) => text.replace(new RegExp(`\\S{${limit}}(?=\\S)`, "gu"), "$&\u200B")
 
 export async function clientReportPdf(report: ClientReport) {
-  const charts = await clientReportCharts(report)
+  const [charts, logo] = await Promise.all([clientReportCharts(report), clientReportLogo()])
   const content: Content[] = [
-    { text: "AIRate", color: reportHeading, bold: true, fontSize: 14, margin: [0, 0, 0, 15] },
+    { image: logo, width: reportLogoSize.width * 0.75, margin: [0, 0, 0, 15] },
     { text: reportTitle, fontSize: 26, bold: true, margin: [0, 0, 0, 7] },
     { text: wrap(report.project), color: reportHeading, fontSize: 16, bold: true, margin: [0, 0, 0, 5] },
     { text: `${report.period}  ·  ${report.mode}`, style: "note" },
@@ -33,7 +34,9 @@ export async function clientReportPdf(report: ClientReport) {
         table: {
           widths: [85, "*", 62, 62, 58], headerRows: 1,
           body: [
-            report.tableHeaders.map((text, column) => ({ text, alignment: column < 2 ? "left" : "right", fillColor: reportTableHeading, bold: true })),
+            report.tableHeaders.map((text, column) => ({
+              text, alignment: column < 2 ? "left" : "right", fillColor: reportSurface, color: reportTint, bold: true,
+            })),
             ...table.rows.map((row, index) => row.map<TableCell>((text, column) => ({
               text: column < 2 ? wrap(text, column === 0 ? 8 : 18) : text,
               alignment: column < 2 ? "left" : "right",

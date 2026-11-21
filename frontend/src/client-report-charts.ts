@@ -1,4 +1,4 @@
-import { reportAccent, reportChartLine, reportChartMuted, reportChartSurface, reportPercent, reportTint, type ClientReport } from "./client-report"
+import { reportAccent, reportChartLine, reportChartMuted, reportPercent, reportSurface, reportTint, type ClientReport } from "./client-report"
 
 export const chartSize = { width: 680, height: 238 }
 
@@ -27,7 +27,7 @@ export async function clientReportCharts(report: ClientReport) {
   for (const x of [0, 344]) {
     ctx.beginPath()
     ctx.roundRect(x + 0.5, 0.5, 335, chartSize.height - 1, 16)
-    ctx.fillStyle = reportChartSurface
+    ctx.fillStyle = reportSurface
     ctx.fill()
     ctx.strokeStyle = reportChartLine
     ctx.stroke()

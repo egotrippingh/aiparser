@@ -3,7 +3,8 @@ import {
   Paragraph, Table, TableCell, TableLayoutType, TableRow, TextRun, WidthType, type IParagraphOptions,
 } from "docx"
 import { chartSize, clientReportCharts } from "./client-report-charts"
-import { reportInk, reportLine, reportMethod, reportMuted, reportHeading, reportTint, reportTitle, reportTableHeading, type ClientReport } from "./client-report"
+import { clientReportLogo, reportLogoSize } from "./client-report-logo"
+import { reportHeading, reportInk, reportLine, reportMethod, reportMuted, reportSurface, reportTint, reportTitle, type ClientReport } from "./client-report"
 
 const headingColor = reportHeading.slice(1), ink = reportInk.slice(1), muted = reportMuted.slice(1)
 const widths = [1960, 3658, 1600, 1600, 1400]
@@ -26,11 +27,11 @@ function changeTable(headers: string[], { rows, color }: ClientReport["tables"][
       tableHeader: index === 0,
       children: row.map((text, column) => new TableCell({
         width: { size: widths[column], type: WidthType.DXA },
-        shading: { fill: index === 0 ? reportTableHeading.slice(1) : index % 2 === 0 ? reportTint.slice(1) : "FFFFFF" },
+        shading: { fill: index === 0 ? reportSurface.slice(1) : index % 2 === 0 ? reportTint.slice(1) : "FFFFFF" },
         children: [new Paragraph({
           alignment: column < 2 ? AlignmentType.LEFT : AlignmentType.RIGHT,
           children: [new TextRun({
-            text, size: 19, color: index > 0 && column === row.length - 1 ? color.slice(1) : ink,
+            text, size: 19, color: index === 0 ? reportTint.slice(1) : column === row.length - 1 ? color.slice(1) : ink,
             bold: index === 0 || column === row.length - 1,
           })],
         })],
@@ -40,7 +41,7 @@ function changeTable(headers: string[], { rows, color }: ClientReport["tables"][
 }
 
 export async function clientReportDocx(report: ClientReport) {
-  const charts = await clientReportCharts(report)
+  const [charts, logo] = await Promise.all([clientReportCharts(report), clientReportLogo()])
   const metric = (text: string, size: number, bold: boolean, color: string, options: IParagraphOptions) =>
     new Paragraph({ ...options, children: [new TextRun({ text, size, bold, color })] })
   const metrics = new Table({
@@ -65,7 +66,10 @@ export async function clientReportDocx(report: ClientReport) {
         children: [new TextRun({ color: muted, size: 18, children: ["AIRate  /  ", PageNumber.CURRENT, " из ", PageNumber.TOTAL_PAGES] })],
       })] }) },
       children: [
-        metric("AIRate", 28, true, headingColor, { spacing: { after: 235 } }),
+        new Paragraph({ spacing: { after: 235 }, keepNext: true, children: [new ImageRun({
+          type: "png", data: logo, transformation: reportLogoSize,
+          altText: { name: "Аирейт", title: "Аирейт", description: "Фирменный знак и надпись Аирейт" },
+        })] }),
         metric(reportTitle, 48, true, "000000", { heading: HeadingLevel.TITLE, spacing: { after: 100 }, keepNext: true }),
         metric(report.project, 32, true, headingColor, { spacing: { after: 80 } }),
         hint(`${report.period}  ·  ${report.mode}`),
