@@ -115,7 +115,16 @@ export async function clientReportCharts(report: ClientReport) {
     const capColor = delta > 0 ? reportChartIncrease : reportChartDecrease
     const inside = capHeight >= 13
     const left = x - width / 2
-    if (baseHeight > 0) barSegment(left, baseline - baseHeight + gap, width, baseHeight - gap, reportAccent)
+    if (baseHeight > 0) {
+      const baseTop = baseline - baseHeight + gap
+      const base = baseHeight - gap
+      barSegment(left, baseTop, width, base, reportAccent)
+      if (delta > 0) {
+        const capRadius = Math.min(7, capHeight / 2)
+        const baseRadius = Math.min(7, base / 2)
+        ctx.fillRect(left, baseTop - gap - capRadius, width, capRadius + gap + baseRadius)
+      }
+    }
     if (capHeight > 0) barSegment(left, top, width, capHeight, capColor, delta < 0)
     text(reportPercent(value), x, top - (delta && !inside ? 23 : 11), 13, value === null ? reportChartMuted : reportTint, true)
     if (delta) {
