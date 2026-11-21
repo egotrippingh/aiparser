@@ -43,6 +43,14 @@ Updated 2026-11-03. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Prepared work and next action
 
+`codex/client-reports` is based on production `5948bfe`. Project visibility
+reports can be downloaded as PDF or DOCX using the XLSX calendar selection.
+Both formats include a check breakdown, visibility by AI service, and changes
+for queries with complete results on both comparison dates. The local
+preview uses disposable data. Independent review, 147 frontend tests,
+34 reporting tests, lint, the build, and desktop and narrow browser downloads
+passed. Next step is approval of the report preview before release.
+
 `codex/admin-wallet-topups` is based on production `f767a44`. The admin
 users section supports manual balance credits by email. Credits use the
 existing wallet and ledger transaction with retry protection and require no

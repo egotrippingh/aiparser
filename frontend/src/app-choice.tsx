@@ -10,8 +10,9 @@ export function choiceIndex(index: number, key: string, length: number) {
   return (index + (key === "ArrowUp" ? -1 : 1) + length) % length
 }
 
-export function AppChoice({ label, value, options, change, searchable = false, disabled = false }: {
+export function AppChoice({ label, value, options, change, searchable = false, disabled = false, icon }: {
   label: string; value: string; options: Choice[]; change: (value: string) => void; searchable?: boolean; disabled?: boolean
+  icon?: React.ReactNode
 }) {
   const id = useId(), menu = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false), [search, setSearch] = useState("")
@@ -23,16 +24,19 @@ export function AppChoice({ label, value, options, change, searchable = false, d
     buttons[choiceIndex(index, key, buttons.length)]?.focus()
   }
   return <div className="custom-select app-choice">
-    <button ref={trigger} className="choice-trigger" disabled={disabled} popoverTarget={id} aria-label={label}
+    <button ref={trigger} className={icon ? "btn icon-only" : "choice-trigger"} disabled={disabled} popoverTarget={id} aria-label={label}
+      title={icon ? label : undefined}
       aria-haspopup="listbox" aria-controls={id} aria-expanded={open} onKeyDown={event => {
         if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
           event.preventDefault(); menu.current?.showPopover(); move(event.key)
         }
-      }}><span>{options.find(option => option.value === value)?.label || label}</span><ChevronDown size={13}/></button>
+      }}>{icon || <><span>{options.find(option => option.value === value)?.label || label}</span><ChevronDown size={13}/></>}</button>
     <div id={id} ref={menu} popover="auto" className="choice-menu" onToggle={event => {
       const expanded = event.newState === "open"; setOpen(expanded)
       if (expanded && trigger.current) {
-        const rect = trigger.current.getBoundingClientRect();setPosition({left:Math.max(10,Math.min(rect.left,innerWidth-270)),top:rect.bottom})
+        const rect = trigger.current.getBoundingClientRect()
+        const left = icon ? rect.right - event.currentTarget.offsetWidth : Math.min(rect.left, innerWidth - 270)
+        setPosition({left:Math.max(10,left),top:rect.bottom})
         if (searchable) menu.current?.querySelector<HTMLInputElement>("input")?.focus()
       }
       if (!expanded) setSearch("")

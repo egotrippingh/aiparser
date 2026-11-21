@@ -2,8 +2,9 @@ import { ScanFeedbackForm, type ScanFeedback, type FeedbackResult } from "./scan
 import { AnswerContent, ResultIssue } from "./components/answer-content"
 import { AnswerEvidenceView, EvidenceSources, type AnswerEvidence, type BrandHighlight } from "./components/answer-evidence"
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react"
-import { Download, RefreshCw, Search, X } from "lucide-react"
-import { accountDownload, accountRequest } from "./account-api"
+import { Download, FileDown, LoaderCircle, RefreshCw, Search, X } from "lucide-react"
+import { accountDownload, accountRequest, downloadBlob } from "./account-api"
+import { clientReport } from "./client-report"
 import { today } from "./lib/dates"
 import { ReportCalendar, shortDate, defaultDateSelection, restoreDateSelection, type ReportDateSelection } from "./report-calendar"
 import { AppChoice } from "./app-choice"
@@ -16,7 +17,7 @@ export type Trend = { current: Stats; previous: Stats; delta: number | null; rel
 type Cell = { id: number; status: string; found: boolean; date?: string }
 type Query = { id: string; text: string; group_tag: string; cells: Record<string,Record<string,Cell>>; latest: Record<string,Cell>; trend: Trend; period_trend: Trend }
 type Source = { domain: string; count: number; own: boolean; urls: string[]; queries: number; services: string[]; results: { id: number; query_text: string; date: string; service: string }[] }
-type Report = { period_from: string | null; period_to: string | null; period_trend: Trend; date_from: string; date_to: string; available_dates: string[]; dates: string[]; visible_dates: string[]; services: string[]; available_services: string[]; groups: string[]; summary: Stats; trend: Trend; service_stats: Record<string,Trend>; comparison: { from: Stats; to: Stats; delta: number | null }; timeline: (Stats & {date: string; services: Record<string,Stats>})[]; total: number; rows: Query[]; sources: Source[] }
+export type Report = { period_from: string | null; period_to: string | null; period_trend: Trend; date_from: string; date_to: string; available_dates: string[]; dates: string[]; visible_dates: string[]; services: string[]; available_services: string[]; groups: string[]; summary: Stats; trend: Trend; service_stats: Record<string,Trend>; comparison: { from: Stats; to: Stats; delta: number | null }; timeline: (Stats & {date: string; services: Record<string,Stats>})[]; total: number; rows: Query[]; sources: Source[] }
 type Detail = { id: number; feedback: ScanFeedback | null; mention_types: string[]; query_text: string; service: string; scan_date: string; status: string; original_status: string; answer_text: string | null; error_message?: string | null; evidence_quote: string | null; sources: string[]; check_id: string | null; answer_evidence?: AnswerEvidence | null; highlight?: BrandHighlight; has_screenshot?: boolean }
 const statuses: Record<string,string> = {found:"Упоминание",not_found:"Нет упоминания",skipped:"Нет AI-блока",error:"Требует внимания",captcha:"Требует внимания",auth_required:"Требует внимания",limit_reached:"Требует внимания"}
 const pct = (value: number | null) => value == null ? "—" : `${value}%`
@@ -58,7 +59,7 @@ export function reportSelection(saved: unknown, allowed = SCAN_SERVICES.map(serv
   const services = [...new Set(saved.filter(id=>isCurrentService(id) && allowed.includes(id)))]
   return services.length ? services : null
 }
-export function ReportView({ token, projectId, projectServices, sourcesOnly = false, canEdit = true, scanControl }: {token:string;projectId:string;projectServices:string[];sourcesOnly?:boolean;canEdit?:boolean;scanControl?:ReactNode}) {
+export function ReportView({ token, projectId, projectName, projectServices, sourcesOnly = false, canEdit = true, scanControl }: {token:string;projectId:string;projectName:string;projectServices:string[];sourcesOnly?:boolean;canEdit?:boolean;scanControl?:ReactNode}) {
   const availableServices = [...new Set(projectServices.filter(isCurrentService))]
   const rangeKey = `aimt.report.range.${projectId}`
   const [range,setRange] = useState<{from:string;to:string}|null>(() => {
@@ -86,6 +87,7 @@ export function ReportView({ token, projectId, projectServices, sourcesOnly = fa
   const [loadedReport,setReport] = useState<Report|null>(null), [error,setError] = useState("")
   const report = loadedReport && {...loadedReport,services:loadedReport.services.filter(id=>availableServices.includes(id))}
   const [loading,setLoading] = useState(true), [tick,setTick] = useState(0), [exporting,setExporting] = useState("")
+  const [documentError, setDocumentError] = useState("")
   const [detail,setDetail] = useState<(Detail & {requestId:number})|null>(null), [detailError,setDetailError] = useState(""), [shot,setShot] = useState("")
   const dialog = useRef<HTMLDialogElement>(null), detailRequest = useRef(0), mounted = useRef(true)
   const [loadedFilters, setLoadedFilters] = useState("")
@@ -108,6 +110,7 @@ export function ReportView({ token, projectId, projectServices, sourcesOnly = fa
   const filters = params.toString()
   const hasServices = availableServices.length > 0
   const stale = loadedFilters !== filters
+  const exportDisabled = !!exporting || !report?.services.length || loading || stale
   function chooseServices(next: string[]|null) {
     setSelectedServices(next); setLoading(true)
     try { if(next)sessionStorage.setItem(serviceKey,JSON.stringify(next));else sessionStorage.removeItem(serviceKey) } catch { /* Private browsing may disable storage. */ }
@@ -122,7 +125,10 @@ export function ReportView({ token, projectId, projectServices, sourcesOnly = fa
     return () => {alive=false;clearTimeout(timer)}
   },[base,filters,hasServices,tick,token])
   useEffect(() => { const timer=setInterval(() => {if(document.visibilityState === "visible")setTick(n => n+1)},20000);return () => clearInterval(timer) },[])
-  useEffect(() => () => {mounted.current=false;detailRequest.current++},[])
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false; detailRequest.current++ }
+  }, [])
   function closeDetail() { detailRequest.current++; dialog.current?.close() }
   async function openResult(id:number) {
     const requestId=++detailRequest.current;setDetail(null);setDetailError("");setShot("");dialog.current?.showModal()
@@ -143,6 +149,26 @@ export function ReportView({ token, projectId, projectServices, sourcesOnly = fa
     try {await accountDownload(path,token,`${kind}-${report?.date_from}-${report?.date_to}.xlsx`)}
     catch(e) {if(mounted.current)setError(e instanceof Error?e.message:"Ошибка выгрузки")}
     finally {if(mounted.current)setExporting("")}
+  }
+  async function exportDocument(format: string) {
+    if (exportDisabled || !report || !projectName || (format !== "pdf" && format !== "docx")) return
+    setExporting(format); setDocumentError("")
+    const dateMode = dateSelection.mode === "monthly" ? "Последняя проверка каждого месяца" :
+      dateSelection.mode === "custom" ? "Выбранные даты" : "За период"
+    try {
+      const data = clientReport(projectName, report, { compare, group, search, cards, external, dateMode })
+      const blob = format === "pdf"
+        ? await (await import("./client-report-pdf")).clientReportPdf(data)
+        : await (await import("./client-report-docx")).clientReportDocx(data)
+      if (mounted.current) {
+        const project = data.project.replace(/[<>:"/\\|?*]/g, "-").slice(0, 75)
+        downloadBlob(blob, `${project} — отчёт ${report.date_from} — ${report.date_to}.${format}`)
+      }
+    } catch {
+      if (mounted.current) setDocumentError("Не удалось сформировать отчёт. Повторите выгрузку.")
+    } finally {
+      if (mounted.current) setExporting("")
+    }
   }
   async function openShot(id:number) {const requestId=detailRequest.current;setShot("");try{const data=await accountRequest<{url:string}>(`${base}/results/${id}/screenshot`,token);if(mounted.current && requestId===detailRequest.current && dialog.current?.open)setShot(data.url)}catch(e){if(mounted.current && requestId===detailRequest.current && dialog.current?.open)setDetailError(e instanceof Error?e.message:"Не удалось открыть снимок")}}
   const dates = report ? [...report.dates].reverse() : []
@@ -170,10 +196,14 @@ export function ReportView({ token, projectId, projectServices, sourcesOnly = fa
       <AppChoice label="Группа запросов" value={group} searchable options={[{value:"*",label:"Все группы"},{value:"",label:"Без группы"},...(report?.groups || []).map(label => ({value:label,label}))]} change={setGroup}/>
       <label className="report-switch"><input type="checkbox" role="switch" checked={external} onChange={e => setExternal(e.target.checked)}/>Внешние источники</label>
       <label className="report-switch"><input type="checkbox" role="switch" checked={cards} onChange={e => setCards(e.target.checked)}/>Учитывать карточки</label>
-      <span className="spacer"/><button className="btn" disabled={!!exporting||!report?.services.length||loading||stale} onClick={() => exportReport(sourcesOnly?"sources":"mentions")}><Download size={14}/>{exporting?"Готовим…":"Экспорт XLSX"}</button><button className="btn icon-only" aria-label="Обновить отчёт" disabled={loading || stale} onClick={() => setTick(n=>n+1)}><RefreshCw size={14}/></button>
+      <span className="spacer"/><button className="btn" disabled={exportDisabled} onClick={() => exportReport(sourcesOnly?"sources":"mentions")}><Download size={14}/>{["sources", "mentions"].includes(exporting) ? "Готовим…" : "Экспорт XLSX"}</button>
+      {!sourcesOnly && <AppChoice label={exporting === "pdf" || exporting === "docx" ? "Готовим отчёт…" : "Скачать отчёт для клиента"} value="" options={[{value:"pdf",label:"Скачать PDF"},{value:"docx",label:"Скачать DOCX"}]} change={exportDocument} disabled={exportDisabled || !projectName}
+        icon={exporting === "pdf" || exporting === "docx" ? <LoaderCircle size={16} aria-hidden="true"/> : <FileDown size={16} aria-hidden="true"/>}/>}
+      <button className="btn icon-only" aria-label="Обновить отчёт" disabled={loading || stale} onClick={() => setTick(n=>n+1)}><RefreshCw size={14}/></button>
     </div>
     {!external && <p className="notice" role="status">Учитываются только ответы со ссылкой на домены бренда из настроек проекта. Если домены не указаны, упоминания не засчитываются.</p>}
     {error && <p className="cc-alert" role="alert">{error}<button className="btn" onClick={() => setTick(n=>n+1)}>Повторить</button></p>}
+    {!sourcesOnly && documentError && <p className="cc-alert" role="alert">{documentError}</p>}
     {!report ? <p className="empty-state" role="status">{loading ? "Загрузка отчёта…" : !availableServices.length ? "Выберите ИИ-системы в настройках проекта." : "Отчёт недоступен"}</p> : sourcesOnly ? <>
       <div className="stat-inline"><span><strong>{sources.length}</strong> источников</span><span>Учитываются ответы с упоминанием бренда</span></div><section className="panel"><div className="table-toolbar"><label className="search-box"><Search size={14}/><input aria-label="Поиск источника" placeholder="Найти домен" value={search} onChange={e => setSearch(e.target.value)}/></label><AppChoice label="Тип источника" value={sourceKind} options={[{value:"all",label:"Все источники"},{value:"own",label:"Сайт бренда"},{value:"external",label:"Внешние источники"}]} change={setSourceKind}/></div><div className="table-wrap"><table><thead><tr><th>Домен</th><th>Тип</th><th>Ответов со ссылкой</th><th>Запросы</th><th>ИИ-системы</th><th/></tr></thead>{sources.map(source => <tbody key={source.domain}><tr><td><a href={source.urls[0]} target="_blank" rel="noopener noreferrer">{source.domain} ↗</a></td><td><span className={`badge ${source.own?"blue":""}`}>{source.own?"Сайт бренда":"Внешний источник"}</span></td><td>{source.count}</td><td>{source.queries}</td><td><div className="system-marks">{source.services.map(id => <span key={id} title={name(id)}><ServiceMark id={id}/></span>)}</div></td><td><button className="text-link" aria-expanded={expandedSource === source.domain} onClick={() => setExpandedSource(expandedSource === source.domain ? "" : source.domain)}>Ответы →</button></td></tr>{expandedSource === source.domain && <tr><td colSpan={6}><div className="source-answers"><small>Последние {source.results.length} ответов со ссылкой</small>{source.results.map(result => <button className="btn" key={result.id} disabled={loading || stale} onClick={() => openResult(result.id)}>{shortDate(result.date)} · {name(result.service)} · {result.query_text}</button>)}</div></td></tr>}</tbody>)}</table>{!sources.length && !loading && !stale && <div className="empty-state">Источников по выбранным фильтрам нет.</div>}</div></section><p className="page-note">Число ответов со ссылкой на домен; несколько ссылок из одного ответа считаются один раз. Источники показываются только в ответах с упоминанием бренда. XLSX содержит домены и показатели с учётом выбранного типа источника и поиска.</p>
     </> : <>
