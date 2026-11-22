@@ -243,6 +243,7 @@ def test_migration_preserves_existing_accounts_sessions_and_balances(tmp_path):
     with engine.connect() as db:
         assert set(inspect(db).get_table_names()) == set(previous) | {
             "alembic_version", "email_registrations", "project_members", "account_api_keys",
+            "admin_allowed_ip",
         }
         for table, digest in previous.items():
             assert fingerprint([dict(row) for row in db.execute(text(f'SELECT * FROM "{table}"')).mappings()]) == digest

@@ -6,12 +6,14 @@ from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field, StrictBool, StrictInt
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import BaseModel, Field, StrictBool, StrictInt, field_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
-from server.models import Check, LedgerEntry, PromoCode, PromoRedemption, ProviderAccount, User, Wallet, utcnow
+from server import admin_ip_allowlist
+from server.admin_dashboard import register_dashboard
+from server.models import AdminAllowedIp, Check, LedgerEntry, PromoCode, PromoRedemption, ProviderAccount, User, Wallet, utcnow
 from server.promos import PromoIn, PromoUpdate, promo_payload
 
 SERVICES = ("chatgpt", "perplexity", "gemini", "google_aio", "yandex_neuro")
@@ -27,6 +29,32 @@ class ProviderPauseIn(BaseModel):
     paused: StrictBool
 
 
+class AllowedIpIn(BaseModel):
+    cidr: str = Field(min_length=1, max_length=64)
+    label: str | None = Field(default=None, max_length=100)
+
+    @field_validator("cidr")
+    @classmethod
+    def normalize_cidr(cls, value: str) -> str:
+        try:
+            return admin_ip_allowlist.parse_cidr(value)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @field_validator("label")
+    @classmethod
+    def clean_label(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = value.strip()
+        return text or None
+
+
+def _allowed_ip_payload(row: AdminAllowedIp) -> dict:
+    return {"id": row.id, "cidr": row.cidr, "label": row.label,
+            "created_at": row.created_at.isoformat(), "created_by": row.created_by}
+
+
 def amount(value):
     if isinstance(value, bool) or value is None:
         raise ValueError("Missing balance")
@@ -34,6 +62,20 @@ def amount(value):
     if not result.is_finite():
         raise ValueError("Invalid balance")
     return str(result)
+
+
+async def openrouter_monthly_usage(client):
+    key = os.environ.get("OPENROUTER_API_KEY", "")
+    if not key:
+        return None
+    try:
+        response = await client.get("https://openrouter.ai/api/v1/key",
+                                    headers={"Authorization": "Bearer " + key})
+        response.raise_for_status()
+        usage = amount(response.json()["data"]["usage_monthly"])
+        return usage if Decimal(usage) >= 0 else None
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, InvalidOperation):
+        return None
 
 
 async def provider_balances(client):
@@ -84,7 +126,12 @@ async def provider_balances(client):
         except (httpx.HTTPError, ValueError, KeyError, TypeError, InvalidOperation):
             row["message"] = "Не удалось получить актуальный баланс"
         return row
-    return list(await asyncio.gather(*(fetch(p) for p in ("openrouter", "scrapeless", "xmlriver"))))
+    openrouter, scrapeless, xmlriver, usage = await asyncio.gather(
+        fetch("openrouter"), fetch("scrapeless"), fetch("xmlriver"), openrouter_monthly_usage(client)
+    )
+    if usage is not None:
+        openrouter["usage_monthly_usd"] = usage
+    return [openrouter, scrapeless, xmlriver]
 
 
 def register_admin(app, db_session, current_user, normalize_email):
@@ -219,4 +266,32 @@ def register_admin(app, db_session, current_user, normalize_email):
         response.headers["Cache-Control"] = "no-store"
         return {"service": service, "paused": account.paused}
 
+    @router.get("/allowed-ips")
+    def list_allowed_ips(request: Request, response: Response, user=Depends(admin), db=Depends(db_session)):
+        response.headers["Cache-Control"] = "no-store"
+        rows = db.scalars(select(AdminAllowedIp).order_by(AdminAllowedIp.id)).all()
+        return {"client_ip": admin_ip_allowlist.client_ip(request), "env": admin_ip_allowlist.env_cidrs(),
+                "entries": [_allowed_ip_payload(row) for row in rows]}
+
+    @router.post("/allowed-ips", status_code=201)
+    def create_allowed_ip(body: AllowedIpIn, response: Response, user=Depends(admin), db=Depends(db_session)):
+        row = AdminAllowedIp(cidr=body.cidr, label=body.label, created_by=user.id)
+        db.add(row)
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(409, "Такой IP или CIDR уже есть в списке") from exc
+        response.headers["Cache-Control"] = "no-store"
+        return _allowed_ip_payload(row)
+
+    @router.delete("/allowed-ips/{entry_id}", status_code=204)
+    def delete_allowed_ip(entry_id: int, user=Depends(admin), db=Depends(db_session)):
+        row = db.get(AdminAllowedIp, entry_id)
+        if not row:
+            raise HTTPException(404, "Запись не найдена")
+        db.delete(row)
+        db.commit()
+
+    register_dashboard(router, db_session, admin)
     app.include_router(router)

@@ -433,6 +433,16 @@ class DeviceConnect(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class AdminAllowedIp(Base):
+    __tablename__ = "admin_allowed_ip"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cidr: Mapped[str] = mapped_column(String(64), unique=True)
+    label: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+
+
 def make_session_factory(database_url: str):
     pool = {"pool_size": 30, "max_overflow": 0} if database_url.startswith(("postgresql://", "postgresql+")) else {}
     engine = create_engine(database_url, pool_pre_ping=True, **pool)

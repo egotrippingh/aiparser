@@ -12,6 +12,20 @@ const accountBackend = 'http://127.0.0.1:8757'
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), {
+    name: 'admin-preview-root',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const port = server.config.server.port
+        if (port === 5174 && (req.url === '/' || req.url?.startsWith('/?'))) {
+          res.statusCode = 302
+          res.setHeader('Location', '/admin/' + (req.url?.slice(1) || ''))
+          res.end()
+          return
+        }
+        next()
+      })
+    },
+  }, {
     name: 'prerender-public-pages',
     apply: 'build',
     async writeBundle() {
@@ -72,11 +86,19 @@ export default defineConfig({
         privacy: path.resolve(import.meta.dirname, 'privacy/index.html'),
         landing: path.resolve(import.meta.dirname, 'index.html'),
         cabinet: path.resolve(import.meta.dirname, 'cabinet/index.html'),
+        admin: path.resolve(import.meta.dirname, 'admin/index.html'),
         docs: path.resolve(import.meta.dirname, 'docs/index.html'),
       },
     },
   },
   server: {
-    proxy: { '/api/v1': accountBackend, '/api': backend, '/shots': backend },
+    // Keep the browser Host so dual-port admin preview matches ADMIN_BASE_URL / PUBLIC_BASE_URL.
+    proxy: {
+      '/api/v1': { target: accountBackend, changeOrigin: false },
+      '/sign-in': { target: accountBackend, changeOrigin: false },
+      '/back-to-cabinet': { target: accountBackend, changeOrigin: false },
+      '/api': { target: backend, changeOrigin: true },
+      '/shots': { target: backend, changeOrigin: true },
+    },
   },
 })

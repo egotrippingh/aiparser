@@ -2,9 +2,6 @@ import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 
 import { createRoot } from "react-dom/client"
 import { ArrowDownLeft, ArrowUpRight, Eye, EyeOff, Send } from "lucide-react"
 import { ACCOUNT_API as API, COOKIE_SESSION, accountRequest as request, AccountError, onSessionExpired } from "./account-api"
-import { AdminScans } from "./admin-scans"
-import { AdminOverview } from "./admin-overview"
-import { AdminPromos } from "./admin-promos"
 import { PromoForm, type FreeScans } from "./components/promo-form"
 import { ControlCenter } from "./control-center"
 import { CabinetSkeleton } from "./cabinet-loading"
@@ -23,6 +20,36 @@ import { EMAIL_PROOF_KEY, needsRegistrationPassword, restoreEmailProof } from ".
 import { initTelemetry, rootOptions } from "./telemetry"
 
 const TOKEN_KEY = "aimt.account.token"
+const ADMIN_RETURN = "airate.admin-return"
+
+function AdminEntry({ allowed }: { allowed: boolean }) {
+  const [error, setError] = useState("")
+  const [attempt, setAttempt] = useState(0)
+  useEffect(() => {
+    if (!allowed) return
+    let active = true
+    request<{ url: string }>("/auth/admin-link", COOKIE_SESSION, {})
+      .then(({ url }) => {
+        if (active) {
+          sessionStorage.removeItem(ADMIN_RETURN)
+          location.replace(url)
+        }
+      })
+      .catch((failure: Error) => { if (active) setError(failure.message) })
+    return () => { active = false }
+  }, [allowed, attempt])
+  return <div className="cabinet auth-screen"><main className="auth-screen__layout">
+    <section className="cab-auth auth-screen__form">
+      <Brand/>
+      <h1>Администрирование</h1>
+      {allowed && !error && <p role="status">Открываем админку…</p>}
+      {!allowed && <p role="alert">Этот аккаунт не имеет доступа к админке.</p>}
+      {error && <p role="alert">{error}</p>}
+      {error && <button className="cab-primary" onClick={() => { setError(""); setAttempt(value => value + 1) }}>Повторить</button>}
+      <a className="cab-inline-link" href="/cabinet/" onClick={() => sessionStorage.removeItem(ADMIN_RETURN)}>Вернуться в кабинет</a>
+    </section>
+  </main></div>
+}
 const money = (kopeks: number) => new Intl.NumberFormat("ru-RU", {
   style: "currency", currency: "RUB", maximumFractionDigits: 2,
 }).format(kopeks / 100)
@@ -41,6 +68,13 @@ function PasswordField({ label, value, onChange, disabled, autoComplete = "new-p
 }
 
 function Cabinet() {
+  const [adminRequested] = useState(() => new URLSearchParams(location.search).get("admin") === "1"
+    || location.hash === "#/admin"
+    || (new URLSearchParams(location.hash.slice(1)).has("auth_ticket") && sessionStorage.getItem(ADMIN_RETURN) === "1"))
+  useEffect(() => {
+    if (adminRequested) sessionStorage.setItem(ADMIN_RETURN, "1")
+    else sessionStorage.removeItem(ADMIN_RETURN)
+  }, [adminRequested])
   const editorDirty = useRef(false)
   const [keySettingsVersion, setKeySettingsVersion] = useState(0)
   const [token, setToken] = useState(() =>
@@ -318,10 +352,11 @@ function Cabinet() {
   const confirmingEmail = authMode === "register" && !!emailTicket
 
   if (checkingSession) return <CabinetSkeleton label="Открываем кабинет…" format="screen"/>
+  if (user && adminRequested) return <AdminEntry allowed={!!user.is_admin}/>
   if (user) return <ControlCenter key={token} token={token} email={user.email} avatarUrl={user.avatar_url}
     balance={user.is_admin ? "Безлимитно" : money(wallet?.available_kopeks || 0)} admin={!!user.is_admin}
     brandClarificationsEnabled={!!user.brand_clarifications_enabled} onDirtyChange={setEditorDirty}
-    logout={logout} walletChanged={walletChanged} message={message} administration={<><AdminPromos token={token}/><AdminOverview token={token} userId={user.id} walletChanged={walletChanged}/><AdminScans token={token}/></>}
+    logout={logout} walletChanged={walletChanged} message={message}
     account={<div className="app-account"><div className="cab-title-row"><div><span className="cab-kicker">АККАУНТ И ОПЛАТА</span><h2>Пополнение баланса</h2><p>{user.email}</p></div><AccountBalance available={money(wallet?.available_kopeks ?? 0)} balance={money(wallet?.balance_kopeks ?? 0)} reserved={wallet?.reserved_kopeks ? money(wallet.reserved_kopeks) : undefined} admin={!!user.is_admin}/></div>
         <div className="cab-billing-grid">
           <TopupForm token={token} minimum={minimum} checkPrice={user.is_admin ? 0 : price} />
@@ -337,7 +372,7 @@ function Cabinet() {
     <main className="auth-screen__layout">
       <form className="cab-auth auth-screen__form" onSubmit={authenticate}>
           {authMode !== "login" && <button className="cab-back" type="button" disabled={busy} onClick={() => { setAuthMode("login"); setResetToken(""); setRegistrationTicket(""); setPassword(""); setConfirmation(""); setMessage("") }}>← Вернуться ко входу</button>}
-          <div className="cab-auth-heading"><h1>{authMode === "login" ? "Вход в аккаунт" : confirmingEmail ? "Проверьте почту" : authMode === "register" ? "Создать аккаунт" : authMode === "forgot" ? "Забыли пароль?" : authMode === "reset" ? "Новый пароль" : "Завершите регистрацию"}</h1>
+          <div className="cab-auth-heading"><h1>{authMode === "login" ? (adminRequested ? "Вход в админку" : "Вход в аккаунт") : confirmingEmail ? "Проверьте почту" : authMode === "register" ? "Создать аккаунт" : authMode === "forgot" ? "Забыли пароль?" : authMode === "reset" ? "Новый пароль" : "Завершите регистрацию"}</h1>
             {confirmingEmail && <p>Введите код из письма на {email}.</p>}</div>
           {authMode === "reset" ? <p>Придумайте новый пароль для аккаунта.</p>
             : (!confirmingEmail || showRegistrationCredentials) && <label>Электронная почта<input type="email" autoComplete="email" placeholder="you@company.ru" required disabled={busy} readOnly={authMode === "yandex-register"} value={email} onChange={(e) => {setEmail(e.target.value); setEmailTicket(""); setEmailCode(""); setResendAfter(0); setSavedEmailProof(null); sessionStorage.removeItem(EMAIL_PROOF_KEY)}} /></label>}

@@ -12,7 +12,7 @@ afterEach(() => vi.unstubAllGlobals())
 
 it("opens the project list without project context or an icon rail", () => {
   vi.stubGlobal("location", {hash:"#/projects"})
-  const html = renderToStaticMarkup(<ControlCenter token="test" email="owner@example.test" balance="0 ₽" admin={false} account={null} administration={null} message="" brandClarificationsEnabled={false} onDirtyChange={()=>{}} logout={()=>{}} walletChanged={()=>{}}/>)
+  const html = renderToStaticMarkup(<ControlCenter token="test" email="owner@example.test" balance="0 ₽" admin={false} account={null} message="" brandClarificationsEnabled={false} onDirtyChange={()=>{}} logout={()=>{}} walletChanged={()=>{}}/>)
   expect(html).toContain('air-app projects-page')
   expect(html).not.toContain('<aside class="sidebar">')
   expect(html).toContain('<span>Выбрать проект</span>')
@@ -114,7 +114,7 @@ it("limits saved report choices to the project's configured systems", () => {
 
 it("keeps project tools in an accessible icon rail and account navigation in the header", () => {
   vi.stubGlobal("location", {hash:"#/project/one/report"})
-  const props = {token:"test",email:"owner@example.test",balance:"0 ₽",admin:false,account:<p>Wallet</p>,administration:<p>Private admin</p>,message:"",brandClarificationsEnabled:false,onDirtyChange:()=>{},logout:()=>{},walletChanged:()=>{}}
+  const props = {token:"test",email:"owner@example.test",balance:"0 ₽",admin:false,account:<p>Wallet</p>,message:"",brandClarificationsEnabled:false,onDirtyChange:()=>{},logout:()=>{},walletChanged:()=>{}}
   const html = renderToStaticMarkup(<ControlCenter {...props}/>)
   const sidebar = html.match(/<aside class="sidebar">([\s\S]*?)<\/aside>/)![1]
   for (const label of ["Обзор видимости","Запросы","Источники","Настройки проекта","Расписание","История проверок"]) expect(sidebar).toContain(`aria-label="${label}"`)
@@ -122,7 +122,7 @@ it("keeps project tools in an accessible icon rail and account navigation in the
   expect(sidebar).not.toContain(">Запросы")
   expect(html).toContain("Меню аккаунта")
   expect(html).not.toMatch(/Администрирование|Компьютеры|Скачать агент|Private admin/)
-  expect(renderToStaticMarkup(<ControlCenter {...props} admin/>)).toContain("Администрирование")
+  expect(renderToStaticMarkup(<ControlCenter {...props} admin/>)).toContain('href="/cabinet/?admin=1"')
 })
 
 it("opens searchable choices at the correct end and wraps keyboard selection", () => {

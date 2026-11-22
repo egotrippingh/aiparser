@@ -11,7 +11,7 @@ type Detail = { check_id: string | null; id: number; answer_text: string | null;
 const statuses: Record<string, string> = { found: "Упоминание", not_found: "Нет упоминания", error: "Ошибка", skipped: "Нет AI-блока", captcha: "Капча", auth_required: "Нужен вход", limit_reached: "Лимит сервиса" }
 const labels = { correct: "Верно", false_positive: "Ложное срабатывание", missed: "Пропущено упоминание" }
 
-export function AdminScans({ token }: { token: string }) {
+export function AdminScans({ token, runId }: { token: string; runId?: string }) {
   const [search, setSearch] = useState(""), [status, setStatus] = useState("")
   const [shot, setShot] = useState<{ id: number; url?: string; error?: string; loading?: boolean } | null>(null)
   const [offset, setOffset] = useState(0), [tick, setTick] = useState(0)
@@ -22,21 +22,21 @@ export function AdminScans({ token }: { token: string }) {
     let alive = true
     const timer = setTimeout(() => {
       setLoading(true); setError(""); setData(null)
-      accountRequest<{ total: number; results: Row[] }>(`/admin/scan-results?${new URLSearchParams({ search, status, offset: String(offset), include_retired: "false" })}`, token)
+      accountRequest<{ total: number; results: Row[] }>(`/admin/scan-results?${new URLSearchParams({ search, status, offset: String(offset), ...(runId ? { run_id: runId } : {}) })}`, token)
         .then(d => { if (alive) setData(d) }).catch(e => { if (alive) setError(e.message) }).finally(() => { if (alive) setLoading(false) })
     }, 180)
     return () => { alive = false; clearTimeout(timer) }
-  }, [search, status, offset, tick, token])
+  }, [search, status, offset, tick, token, runId])
   useEffect(() => {
     let alive = true
     if (selected !== null) accountRequest<Detail>(`/admin/scan-results/${selected}`, token).then(d => { if (alive) setDetail(d) }).catch(e => { if (alive) setDetailError({ id: selected, message: e.message }) })
     return () => { alive = false }
   }, [selected, token])
-  return <section className="cab-panel admin-scans"><div className="cab-section-head"><div><h1>Сканы пользователей</h1><p>Сохранённые ответы ИИ, доказательства и отметки для проверки точности.</p></div><button className="cc-button" disabled={loading} onClick={() => setTick(n => n + 1)}>Обновить</button></div>
-    <div className="cc-two"><label>Пользователь, проект, бренд или запрос<input value={search} onChange={e => { setSearch(e.target.value); setOffset(0); setSelected(null) }} /></label><label>Результат<select value={status} onChange={e => { setStatus(e.target.value); setOffset(0); setSelected(null) }}><option value="">Все результаты</option>{Object.entries(statuses).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div>
+  return <section className="cab-panel admin-scans"><div className="cab-section-head"><div><h2>{runId ? "Ответы выбранного запуска" : "Сканы пользователей"}</h2><p>Сохранённые ответы ИИ, доказательства и отметки для проверки точности.</p>{runId && <a className="cc-button" href="#/runs">Ко всем запускам</a>}</div><button className="cc-button" disabled={loading} onClick={() => setTick(n => n + 1)}>Обновить</button></div>
+    <div className="cc-two"><label>Пользователь, проект, бренд или запрос<input maxLength={200} value={search} onChange={e => { setSearch(e.target.value); setOffset(0); setSelected(null) }} /></label><label>Результат<select value={status} onChange={e => { setStatus(e.target.value); setOffset(0); setSelected(null) }}><option value="">Все результаты</option>{Object.entries(statuses).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div>
     {error && <p role="alert">{error}</p>}{loading && !data && <CabinetSkeleton label="Загружаем сканы…"/>}
     {data && <><p>{data.total} результатов</p><div className="admin-scan-list">{data.results.map(row => <article key={row.id}>
-      <p className="ws-note">{row.email} · {row.project_name} · {row.scan_date} · {SCAN_SERVICES.find(s => s.id === row.service)?.label || row.service}</p><h3>{row.query_text}</h3><p>Бренд: {row.brand_name} · {statuses[row.status] || row.status} · {row.mention_types.join(", ")}</p>
+      <p className="ws-note">{row.email} · {row.project_name} · {row.scan_date} · {SCAN_SERVICES.find(s => s.id === row.service)?.label || (row.service === "alice" ? "Алиса (архив)" : row.service)}</p><h3>{row.query_text}</h3><p>Бренд: {row.brand_name} · {statuses[row.status] || row.status} · {row.mention_types.join(", ")}</p>
       <button className="cc-button" aria-expanded={selected === row.id} onClick={() => setSelected(selected === row.id ? null : row.id)}>{selected === row.id ? "Скрыть ответ" : "Ответ и причина"}</button>
       {selected === row.id && <div className="admin-scan-detail">{detailError?.id === row.id && <p role="alert">{detailError.message}</p>}{detail?.id !== row.id && detailError?.id !== row.id && <CabinetSkeleton label="Загружаем ответ…"/>}{detail?.id === row.id && <>
         {detail.status !== detail.original_status && <p>После ручного исправления: {statuses[detail.status] || detail.status}. В журнале показана оценка сервиса.</p>}
