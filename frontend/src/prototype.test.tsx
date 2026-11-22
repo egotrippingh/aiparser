@@ -122,7 +122,7 @@ it("keeps project tools in an accessible icon rail and account navigation in the
   expect(sidebar).not.toContain(">Запросы")
   expect(html).toContain("Меню аккаунта")
   expect(html).not.toMatch(/Администрирование|Компьютеры|Скачать агент|Private admin/)
-  expect(renderToStaticMarkup(<ControlCenter {...props} admin/>)).toContain('href="/cabinet/?admin=1"')
+  expect(renderToStaticMarkup(<ControlCenter {...props} admin/>)).not.toContain('href="/cabinet/?admin=1"')
 })
 
 it("opens searchable choices at the correct end and wraps keyboard selection", () => {

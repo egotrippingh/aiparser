@@ -428,7 +428,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
     from server.admin import register_admin
     register_admin(app, db_session, current_user, _email)
     if admin_base:
-        register_admin_sessions(app, db_session, current_user, public_base, admin_base)
+        register_admin_sessions(app, db_session, current_user, public_base, admin_base, SessionLocal)
 
     @app.get("/api/v1/auth/connect/{identifier}")
     def connect_login_info(identifier: str, response: Response, db: Session = Depends(db_session)):

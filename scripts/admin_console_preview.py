@@ -26,6 +26,7 @@ os.environ["APP_ENV"] = "test"
 os.environ["PUBLIC_BASE_URL"] = PUBLIC
 os.environ["ADMIN_BASE_URL"] = ADMIN
 os.environ["ADMIN_ALLOWED_IPS"] = "127.0.0.1,::1"
+os.environ["ADMIN_CONSOLE_PASSWORD"] = PASSWORD
 os.environ["AIRATE_ADMIN_PREVIEW"] = "1"
 
 import uvicorn
@@ -57,9 +58,8 @@ with sessions() as db:
 
 print(json.dumps({
     "cabinet": f"{PUBLIC}/cabinet/",
-    "admin": f"{ADMIN}/admin/",
-    "admin_entry": f"{PUBLIC}/cabinet/?admin=1",
-    "email": "admin@preview.local",
+    "admin": f"{ADMIN}/",
+    "login": "admin",
     "password": PASSWORD,
     "db": str(work),
 }, ensure_ascii=False), flush=True)

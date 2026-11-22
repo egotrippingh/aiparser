@@ -125,9 +125,20 @@
 .operator__skip:focus { transform: none; }
 
 .operator-login { display: grid; place-items: center; padding: 20px; }
-.operator-login__panel { width: min(100%, 464px); padding: clamp(22px, 6vw, 38px); }
-.operator-login__panel .air-brand { margin-bottom: 26px; }
-.operator-login__panel p { color: var(--air-muted); margin: 0 0 24px; }
+.operator-login__panel { display: grid; gap: 14px; width: min(100%, 464px); padding: clamp(22px, 6vw, 38px); }
+.operator-login__panel .air-brand { margin-bottom: 12px; }
+.operator-login__panel h1 { margin: 0; }
+.operator-login__panel p { color: var(--air-muted); margin: 0; }
+.operator-login__panel label { display: grid; gap: 6px; color: var(--air-muted); font-size: .875rem; }
+.operator-login__panel input {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--air-line);
+  border-radius: 9px;
+  background: var(--air-bg);
+  color: var(--air-text);
+}
+.operator-login__panel .cc-button { margin-top: 8px; justify-self: start; }
 
 @media (max-width: 820px) {
   .operator__layout { grid-template-columns: minmax(0, 1fr); }
