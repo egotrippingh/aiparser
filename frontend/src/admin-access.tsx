@@ -70,7 +70,7 @@ export function AdminAccess({ token }: { token: string }) {
     <div className="cab-section-head">
       <div>
         <h2>Разрешённые IP</h2>
-        <p>Список проверяется только при входе в админку. Уже открытая сессия продолжит работать при смене VPN.</p>
+        <p>Без адреса из списка домен отвечает 404. Env-список задаётся на сервере; ниже — дополнительные записи в базе.</p>
       </div>
       <button className="cc-button" disabled={loading} onClick={reload}>Обновить</button>
     </div>

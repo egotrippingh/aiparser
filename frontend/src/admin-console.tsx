@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { createRoot } from "react-dom/client"
-import { ArrowUpRight, ChartNoAxesCombined, ClipboardList, FileSearch, LogOut, Shield, Server, Ticket, Users } from "lucide-react"
+import { ChartNoAxesCombined, ClipboardList, FileSearch, LogOut, Shield, Server, Ticket, Users } from "lucide-react"
 import { AccountError, COOKIE_SESSION, accountRequest, onSessionExpired } from "./account-api"
 import { AdminAccess } from "./admin-access"
 import { AdminDashboard } from "./admin-dashboard"
@@ -22,7 +22,7 @@ const sections = {
   results: { label: "Результаты", title: "Результаты проверок", lead: "Ответы, статусы и скриншоты для разбора.", icon: FileSearch },
   providers: { label: "Провайдеры", title: "Провайдеры", lead: "Балансы и пауза приёма по ИИ-системам.", icon: Server },
   promos: { label: "Промокоды", title: "Промокоды", lead: "Создание и правка промокодов на бесплатные проверки.", icon: Ticket },
-  access: { label: "Доступ", title: "Доступ по IP", lead: "Разрешённые адреса для входа в админку.", icon: Shield },
+  access: { label: "Доступ", title: "Доступ по IP", lead: "Разрешённые адреса для открытия админки.", icon: Shield },
 }
 
 type Section = keyof typeof sections
@@ -35,23 +35,26 @@ function readRoute() {
   return { section, runId: /^[a-f0-9]{32}$/.test(runId) ? runId : undefined }
 }
 
-function AdminConsole({ ticket }: { ticket: string | null }) {
+function AdminConsole() {
   const [user, setUser] = useState<Identity | null>(null)
   const [loading, setLoading] = useState(true)
+  const [signingIn, setSigningIn] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
+  const [login, setLogin] = useState("admin")
+  const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [{ section, runId }, setRoute] = useState(readRoute)
 
   useEffect(() => {
     let active = true
-    const session = ticket
-      ? accountRequest<Identity>("/admin/session", undefined, { ticket })
-      : accountRequest<Identity>("/admin/session", COOKIE_SESSION)
-    session.then(result => { if (active) setUser(result) }).catch(failure => {
-      if (active && (ticket || !(failure instanceof AccountError && failure.status === 401))) setError(failure.message)
-    }).finally(() => { if (active) setLoading(false) })
+    accountRequest<Identity>("/admin/session", COOKIE_SESSION)
+      .then(result => { if (active) setUser(result) })
+      .catch(failure => {
+        if (active && !(failure instanceof AccountError && failure.status === 401)) setError(failure.message)
+      })
+      .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [ticket])
+  }, [])
 
   useEffect(() => {
     if (!user) return
@@ -71,6 +74,22 @@ function AdminConsole({ ticket }: { ticket: string | null }) {
     document.title = `${sections[section].label} — Администрирование AIRate`
   }, [section])
 
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    if (signingIn) return
+    setSigningIn(true)
+    setError("")
+    try {
+      const result = await accountRequest<Identity>("/admin/session", undefined, { login, password })
+      setUser(result)
+      setPassword("")
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Не удалось войти")
+    } finally {
+      setSigningIn(false)
+    }
+  }
+
   async function logout() {
     setSigningOut(true)
     setError("")
@@ -86,12 +105,14 @@ function AdminConsole({ ticket }: { ticket: string | null }) {
 
   if (loading) return <CabinetSkeleton label="Открываем админку…" format="screen"/>
   if (!user) return <main className="air-app operator-login">
-    <section className="cab-panel operator-login__panel">
+    <form className="cab-panel operator-login__panel" onSubmit={event => void submit(event)}>
       <Brand/>
       <h1>Администрирование</h1>
-      {error ? <p role="alert">{error}</p> : <p>Войдите в аккаунт AIRate с правами администратора.</p>}
-      <a href="/sign-in" className="cc-button primary">Войти через AIRate <ArrowUpRight size={16} aria-hidden="true"/></a>
-    </section>
+      {error ? <p role="alert">{error}</p> : <p>Вход только для операторов.</p>}
+      <label>Логин<input name="username" autoComplete="username" required maxLength={64} disabled={signingIn} value={login} onChange={event => setLogin(event.target.value)}/></label>
+      <label>Пароль<input name="password" type="password" autoComplete="current-password" required maxLength={200} disabled={signingIn} value={password} onChange={event => setPassword(event.target.value)}/></label>
+      <button className="cc-button primary" disabled={signingIn}>{signingIn ? "Входим…" : "Войти"}</button>
+    </form>
   </main>
 
   return <div className="air-app operator">
@@ -103,7 +124,6 @@ function AdminConsole({ ticket }: { ticket: string | null }) {
       <div className="operator__identity"><Brand href="#/overview"/><span>Администрирование</span></div>
       <div className="operator__account">
         <span>{user.email}</span>
-        <a className="cc-button" href="/back-to-cabinet">Кабинет <ArrowUpRight size={16} aria-hidden="true"/></a>
         <button className="cc-button" onClick={() => void logout()} disabled={signingOut} aria-label="Выйти из админки">
           <LogOut size={17} aria-hidden="true"/>
         </button>
@@ -135,6 +155,4 @@ function AdminConsole({ ticket }: { ticket: string | null }) {
   </div>
 }
 
-const ticket = new URLSearchParams(location.hash.slice(1)).get("ticket")
-if (ticket !== null) history.replaceState(history.state, "", location.pathname)
-createRoot(document.getElementById("root")!).render(<AdminConsole ticket={ticket}/>)
+createRoot(document.getElementById("root")!).render(<AdminConsole/>)

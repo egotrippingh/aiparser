@@ -1,4 +1,4 @@
-"""IP allowlist for creating an admin session (entry only)."""
+"""IP allowlist for the admin host (stealth 404 when denied)."""
 from __future__ import annotations
 
 import ipaddress
@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from server.models import AdminAllowedIp
 
 Network = IPv4Network | IPv6Network
-ENTRY_DENIED = "Вход в админку с вашего IP-адреса запрещён"
+NOT_FOUND = "Страница не найдена"
 _SPLIT = re.compile(r"[\s,]+")
 
 
@@ -77,4 +77,4 @@ def entry_allowed(request: Request, db: Session) -> bool:
 
 def require_admin_entry_ip(request: Request, db: Session) -> None:
     if not entry_allowed(request, db):
-        raise HTTPException(403, ENTRY_DENIED)
+        raise HTTPException(404, NOT_FOUND)

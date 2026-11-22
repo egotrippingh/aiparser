@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react"
-import { BookOpen, BriefcaseBusiness, ChevronDown, CirclePlus, FolderOpen, LogOut, Plus, Search, Send, Settings, ShieldCheck, Wallet } from "lucide-react"
+import { BookOpen, BriefcaseBusiness, ChevronDown, CirclePlus, FolderOpen, LogOut, Plus, Search, Send, Settings, Wallet } from "lucide-react"
 import { CabinetSkeleton } from "./cabinet-loading"
 import { Brand } from "./brand"
 import { ProjectIcon } from "./project-icon"
@@ -60,7 +60,7 @@ export function SiteHeader({ email, avatarUrl, balance, projects = [], selectedI
       {email ? <><a className="sh-help" aria-label="Документация" href="/docs/"><BookOpen size={21}/><span>Документация</span></a><a className="sh-balance" href={href("topup")} aria-label={`Пополнить баланс${balance ? `: ${balance}` : ""}`}><span>{balance || "Баланс"}</span><CirclePlus size={23}/></a>
         <Dropdown label="Меню аккаунта" trigger={<AccountAvatar key={avatarUrl} email={email} url={avatarUrl}/>}>
           <div className="sh-identity"><AccountAvatar key={avatarUrl} email={email} url={avatarUrl}/><span><strong>{email}</strong><small>{admin ? "Администратор" : "Личный аккаунт"}</small></span></div>
-          <a href={href("topup")}><Wallet size={19}/>Пополнить баланс</a><a href={href("account")}><Settings size={19}/>Настройки аккаунта</a><a href="/docs/"><BookOpen size={19}/>Документация</a><a href={SUPPORT_URL}><Send size={17} aria-hidden="true"/>Поддержка</a>{admin && <a href="/cabinet/?admin=1"><ShieldCheck size={19}/>Администрирование</a>}
+          <a href={href("topup")}><Wallet size={19}/>Пополнить баланс</a><a href={href("account")}><Settings size={19}/>Настройки аккаунта</a><a href="/docs/"><BookOpen size={19}/>Документация</a><a href={SUPPORT_URL}><Send size={17} aria-hidden="true"/>Поддержка</a>
           <button type="button" className="sh-logout" onClick={logout}><LogOut size={19}/>Выйти из аккаунта</button>
         </Dropdown></> : <>{onLogin ? <button className="sh-login" onClick={onLogin}>Войти</button> : <a className="sh-login" href={base}>Войти</a>}{onRegister ? <button className="sh-register" onClick={onRegister}>Регистрация</button> : <a className="sh-register" href={`${base}?register=1`}>Регистрация</a>}</>}
     </div>
