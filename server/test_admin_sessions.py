@@ -134,9 +134,12 @@ def test_admin_ticket_is_consumed_once_on_postgres(tmp_path, monkeypatch, postgr
     start = Barrier(2, timeout=5)
 
     def open_console():
-        with TestClient(admin.app, base_url=ADMIN) as client:
-            start.wait()
-            return exchange(client, ticket).status_code
+        # Fresh cookie jar per racer. Do not use `with TestClient`: entering lifespan
+        # in parallel threads starts/stops the shared control scheduler on different
+        # event loops (CI flake: RuntimeError at control.py stop_scheduler).
+        client = TestClient(admin.app, base_url=ADMIN)
+        start.wait()
+        return exchange(client, ticket).status_code
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         assert sorted(pool.map(lambda _: open_console(), range(2))) == [200, 401]
