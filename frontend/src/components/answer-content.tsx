@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from "react"
+import { Fragment, createContext, isValidElement, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react"
 import { toUnicode } from "punycode/"
 import { publicError } from "../lib/public-error"
 import { highlightedText, brandLink, type BrandHighlight } from "./brand-highlight"
@@ -62,6 +62,119 @@ function trimUrlPunctuation(value: string) {
 
 function readableUrlPart(value: string) {
   try { return decodeURIComponent(value) } catch { return value }
+}
+
+export type AnswerSourceCard = { title: string; text: string }
+export const AnswerSourceContext = createContext<ReturnType<typeof sourceCardLookup> | null>(null)
+
+function sourceCardKey(url: URL) {
+  const key = new URL(url)
+  key.hostname = key.hostname.replace(/^www\./, "")
+  const anchor = key.hash.split(":~:", 1)[0]
+  key.hash = anchor === "#" ? "" : anchor
+  return key.href
+}
+
+export function sourceCardLookup(cards: { title?: string; text?: string; url?: string }[]) {
+  const exact = new Map<string, AnswerSourceCard>()
+  const aliases = new Map<string, string | null>()
+  for (const card of cards) {
+    const url = safeUrl(card.url || "")
+    if (!url) continue
+    exact.set(url.href, { title: card.title || "", text: card.text || "" })
+    const key = sourceCardKey(url)
+    const previous = aliases.get(key)
+    aliases.set(key, previous === undefined || previous === url.href ? url.href : null)
+  }
+  return (url: URL) => {
+    const direct = exact.get(url.href)
+    if (direct) return direct
+    const alias = aliases.get(sourceCardKey(url))
+    return alias ? exact.get(alias) : undefined
+  }
+}
+
+export function sourceHost(value: string) {
+  const url = safeUrl(value)
+  if (!url) return ""
+  let host = url.hostname
+  try { host = toUnicode(host) } catch { /* Keep the validated host if decoding fails. */ }
+  return `${host.replace(/^www\./, "")}${url.port ? `:${url.port}` : ""}`
+}
+
+export function sourcePreviewCopy(href: string, card?: AnswerSourceCard, label = "") {
+  const url = sourcesOf([href])[0]
+  if (!url) return null
+  const host = sourceHost(url)
+  const title = (card?.title || "").trim()
+  const snippet = (card?.text || "").trim()
+  const fromLabel = label.trim()
+  const labelOk = Boolean(fromLabel) && fromLabel !== url && fromLabel !== host && !/^https?:\/\//i.test(fromLabel)
+  const shown = title || (labelOk ? fromLabel : "") || sourceLabel(url)
+  return { host, title: shown === host || shown === `${host}/` ? "" : shown, text: snippet && snippet !== shown ? snippet : "" }
+}
+
+export function chipLabel(href: string, group: string[]) {
+  const host = sourceHost(href)
+  if (!host) return href
+  const twins = group.filter(item => sourceHost(item) === host)
+  if (twins.length < 2) return host
+  const url = new URL(href)
+  return host + (url.pathname === "/" && !url.search ? "" : url.pathname + url.search)
+}
+
+function plainText(node: ReactNode): string {
+  if (node == null || typeof node === "boolean") return ""
+  if (typeof node === "string" || typeof node === "number") return String(node)
+  if (Array.isArray(node)) return node.map(plainText).join("")
+  if (isValidElement(node)) return plainText((node.props as { children?: ReactNode }).children)
+  return ""
+}
+
+function placeCard(anchor: HTMLElement) {
+  const width = Math.min(300, window.innerWidth - 24)
+  const rect = anchor.getBoundingClientRect()
+  const height = 136
+  let top = rect.bottom + 8
+  if (top + height > window.innerHeight - 8) top = Math.max(8, rect.top - height - 8)
+  let left = rect.left
+  if (left + width > window.innerWidth - 12) left = Math.max(12, window.innerWidth - width - 12)
+  return { top, left, width }
+}
+
+export function PreviewAnchor({ href, brand, label, chip = false, children }: { href: string; brand?: BrandHighlight; label?: string; chip?: boolean; children: ReactNode }) {
+  const lookupCard = useContext(AnswerSourceContext)
+  const link = useRef<HTMLAnchorElement>(null)
+  const timer = useRef(0)
+  const opened = useRef(0)
+  const tip = useId()
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null)
+  const url = sourcesOf([href])[0]
+  const copy = url && lookupCard ? sourcePreviewCopy(url, lookupCard(new URL(url)), label ?? plainText(children)) : null
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+  useEffect(() => {
+    if (!pos) return
+    const close = () => { if (performance.now() - opened.current < 250) return; setPos(null) }
+    window.addEventListener("scroll", close, true)
+    window.addEventListener("resize", close)
+    return () => {
+      window.removeEventListener("scroll", close, true)
+      window.removeEventListener("resize", close)
+    }
+  }, [pos])
+  if (!url) return <>{children}</>
+  const branded = brandLink(url, brand)
+  const className = [branded ? "answer-brand-link" : "", chip ? "source-chip" : ""].filter(Boolean).join(" ") || undefined
+  const show = () => {
+    window.clearTimeout(timer.current)
+    opened.current = performance.now()
+    if (link.current && copy) setPos(placeCard(link.current))
+  }
+  const hide = () => { timer.current = window.setTimeout(() => setPos(null), 120) }
+  const dismiss = () => setPos(null)
+  const anchor = <a ref={link} href={url} className={className} target="_blank" rel="noopener noreferrer" aria-describedby={pos ? tip : undefined} onMouseEnter={copy ? show : undefined} onMouseLeave={copy ? hide : undefined} onFocus={copy ? show : undefined} onBlur={copy ? dismiss : undefined} onKeyDown={copy ? event => { if (event.key === "Escape") dismiss() } : undefined}>{children}</a>
+  if (!copy) return anchor
+  return <span className={chip ? "source-preview source-preview--chip" : "source-preview"} onMouseEnter={show} onMouseLeave={hide}><>{anchor}{pos && <span className="source-preview__card" id={tip} role="tooltip" style={{ top: pos.top, left: pos.left, width: pos.width }}><span className="source-preview__host"><span className="source-preview__mark" aria-hidden="true">{copy.host.slice(0, 1).toUpperCase()}</span>{branded ? <mark className="answer-brand">{copy.host}</mark> : copy.host}</span>{copy.title && <span className="source-preview__title">{highlightedText(copy.title, brand)}</span>}{copy.text && <span className="source-preview__text">{highlightedText(copy.text, brand)}</span>}</span>}</></span>
 }
 
 export function sourceLabel(value: string) {
@@ -176,7 +289,7 @@ function linkedText(text: string, sources: string[], references: References, bol
   const flush = () => { if (plain) { output.push(highlightedText(plain, brand)); plain = "" } }
   const link = (label: string, url: URL) => {
     flush()
-    output.push(<a key={output.length} href={url.href} className={brandLink(url.href, brand) ? "answer-brand-link" : undefined} target="_blank" rel="noopener noreferrer">{highlightedText(label, brand)}</a>)
+    output.push(<PreviewAnchor key={output.length} href={url.href} brand={brand} label={label}>{highlightedText(label, brand)}</PreviewAnchor>)
   }
   while (index < text.length) {
     const rest = text.slice(index)
