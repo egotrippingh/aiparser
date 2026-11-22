@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react"
 import { createRoot } from "react-dom/client"
-import { ArrowUpRight, ChartNoAxesCombined, ClipboardList, FileSearch, LogOut, Server, Ticket, Users } from "lucide-react"
+import { ArrowUpRight, ChartNoAxesCombined, ClipboardList, FileSearch, LogOut, Shield, Server, Ticket, Users } from "lucide-react"
 import { AccountError, COOKIE_SESSION, accountRequest, onSessionExpired } from "./account-api"
+import { AdminAccess } from "./admin-access"
 import { AdminDashboard } from "./admin-dashboard"
 import { AdminOverview } from "./admin-overview"
 import { AdminPromos } from "./admin-promos"
@@ -15,12 +16,13 @@ import "./control-center.scss"
 import "./admin-console.scss"
 
 const sections = {
-  overview: { label: "Финансы", title: "Финансы и прогноз", icon: ChartNoAxesCombined },
-  users: { label: "Пользователи", title: "Пользователи и балансы", icon: Users },
-  runs: { label: "Запуски", title: "Запуски проверок", icon: ClipboardList },
-  results: { label: "Результаты", title: "Результаты проверок", icon: FileSearch },
-  providers: { label: "Провайдеры", title: "Провайдеры", icon: Server },
-  promos: { label: "Промокоды", title: "Промокоды", icon: Ticket },
+  overview: { label: "Финансы", title: "Финансы и прогноз", lead: "Выручка, расходы API, прогноз и пополнения поставщиков.", icon: ChartNoAxesCombined },
+  users: { label: "Пользователи", title: "Пользователи и балансы", lead: "Поиск аккаунтов и ручное пополнение кошелька.", icon: Users },
+  runs: { label: "Запуски", title: "Запуски проверок", lead: "Журнал запусков по всем аккаунтам.", icon: ClipboardList },
+  results: { label: "Результаты", title: "Результаты проверок", lead: "Ответы, статусы и скриншоты для разбора.", icon: FileSearch },
+  providers: { label: "Провайдеры", title: "Провайдеры", lead: "Балансы и пауза приёма по ИИ-системам.", icon: Server },
+  promos: { label: "Промокоды", title: "Промокоды", lead: "Создание и правка промокодов на бесплатные проверки.", icon: Ticket },
+  access: { label: "Доступ", title: "Доступ по IP", lead: "Разрешённые адреса для входа в админку.", icon: Shield },
 }
 
 type Section = keyof typeof sections
@@ -64,6 +66,10 @@ function AdminConsole({ ticket }: { ticket: string | null }) {
     window.addEventListener("hashchange", change)
     return () => window.removeEventListener("hashchange", change)
   }, [])
+
+  useEffect(() => {
+    document.title = `${sections[section].label} — Администрирование AIRate`
+  }, [section])
 
   async function logout() {
     setSigningOut(true)
@@ -112,12 +118,16 @@ function AdminConsole({ ticket }: { ticket: string | null }) {
         )}
       </nav>
       <main className="operator__main" id="operator-content" tabIndex={-1}>
-        <h1>{sections[section].title}</h1>
+        <header className="operator__pagehead">
+          <h1>{sections[section].title}</h1>
+          <p className="operator__lead">{sections[section].lead}</p>
+        </header>
         {error && <p role="alert">{error}</p>}
         {section === "overview" && <AdminDashboard token={COOKIE_SESSION}/>}
         {section === "users" && <AdminOverview key="users" section="users" token={COOKIE_SESSION} userId={user.id}/>}
         {section === "providers" && <AdminOverview key="providers" section="providers" token={COOKIE_SESSION} userId={user.id}/>}
         {section === "promos" && <AdminPromos token={COOKIE_SESSION}/>}
+        {section === "access" && <AdminAccess token={COOKIE_SESSION}/>}
         {section === "runs" && <AdminRuns token={COOKIE_SESSION} resultsHref={id => "#/results?run_id=" + encodeURIComponent(id)}/>}
         {section === "results" && <AdminScans key={runId ?? "all"} token={COOKIE_SESSION} runId={runId}/>}
       </main>

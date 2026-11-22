@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from "react"
+import { AdminFinanceCharts } from "./admin-finance-charts"
 import { balanceLabel } from "./admin-overview"
 import { adminRunStatuses, budgetBuffer, calibratedRate, collectors, defaultBuffer, forecastRates, rateFields, recommendedRefill, useAdminData } from "./admin-data"
 import { CabinetSkeleton } from "./cabinet-loading"
@@ -82,6 +83,12 @@ type Dashboard = {
   openrouter_usage_checks: number
   openrouter_missing_usage_checks: number
   providers: ProviderForecast[]
+  api_cost_complete?: boolean
+  forecast_complete?: boolean
+  next_month_complete?: boolean
+  missing_rates?: string[]
+  usd_rub_kopeks?: number | null
+  usd_rub_source?: "manual" | "cbr" | "none"
 }
 
 const ratesKey = "airate.admin.forecast-rates-v2"
@@ -127,6 +134,31 @@ function analysisBasis(row: ServiceForecast) {
     case "scenario": return `${name} · ${rate}${rate ? "ручная ставка" : "ручная ставка, нужен курс"}`
     case "unknown": return `${name} · недостаточно данных, нужна ставка`
   }
+}
+
+function gapLabel(id: string) {
+  if (id === "usd_rub_kopeks") return "курс $"
+  if (id === "analysis") return "OpenRouter · анализ"
+  if (id === "recompute") return "OpenRouter · пересчёт"
+  return serviceName(id)
+}
+
+function exchangeNote(data: Dashboard) {
+  if (data.usd_rub_kopeks == null) {
+    return data.usd_rub_source === undefined
+      ? "Курс доллара — в настройках расчёта или автоматически с ЦБ после обновления API"
+      : "Курс доллара не определён — рублевая оценка API недоступна"
+  }
+  const rate = rubles.format(data.usd_rub_kopeks / 100)
+  if (data.usd_rub_source === "cbr") return `Курс ЦБ автоматически · ${rate} за $1`
+  if (data.usd_rub_source === "manual") return `Курс вручную · ${rate} за $1`
+  return `Курс · ${rate} за $1`
+}
+
+function costCompleteness(complete: boolean | undefined, value: number | null) {
+  if (value === null) return "Нет оценки — задайте недостающие ставки"
+  if (complete === undefined) return "Оценка по доступным данным"
+  return complete ? "Полная оценка" : "Частичная · без недостающих ставок сбора"
 }
 
 export function AdminDashboard({ token }: { token: string }) {
@@ -183,6 +215,7 @@ export function AdminDashboard({ token }: { token: string }) {
   }
 
   const charged = data ? data.check_charges_kopeks + data.recompute_charges_kopeks : 0
+  const gaps = data?.missing_rates ?? []
   const analysisBasisNotes = data?.services.filter(row =>
     row.backlog_checks + row.remaining_checks + row.remaining_manual_checks + row.next_month_checks + row.next_month_manual_checks > 0,
   ).map(analysisBasis) ?? []
@@ -193,11 +226,18 @@ export function AdminDashboard({ token }: { token: string }) {
           <h2 id="admin-finance-heading">Финансовая сводка</h2>
           <p>{data ? `С начала месяца · ${calendarMonth(data.month)} · МСК` : "С начала месяца по московскому времени"}</p>
         </div>
-        <button className="cc-button" disabled={loading} onClick={() => setRefresh(n => n + 1)}>Обновить</button>
+        <div className="cc-actions">
+          {gaps.length > 0 && <button className="cc-button" type="button" onClick={openSettings}>Задать ставки</button>}
+          <button className="cc-button" disabled={loading} onClick={() => setRefresh(n => n + 1)}>Обновить</button>
+        </div>
       </div>
       {error && <p className="admin-data__error" role="alert">{error}</p>}
       {loading && <CabinetSkeleton label="Загружаем финансовую сводку…"/>}
       {data && !loading && <>
+        <p className={`admin-data__status${data.api_cost_complete ? "" : " admin-data__status--warn"}`} role="status">
+          {exchangeNote(data)}. OpenRouter по фактическому usage · сбор Scrapeless/XMLRiver — по ставкам.
+          {gaps.length > 0 ? ` Не хватает: ${gaps.map(gapLabel).join(", ")}.` : " Все ставки для текущей нагрузки заданы."}
+        </p>
         <dl className="admin-data__figures admin-data__figures--summary">
           <div>
             <dt>Оплаченные пополнения</dt><dd>{amount(data.paid_topups_kopeks)}</dd>
@@ -209,17 +249,17 @@ export function AdminDashboard({ token }: { token: string }) {
           </div>
           <div>
             <dt>Расходы API</dt><dd>{amount(data.api_cost_kopeks)}</dd>
-            <dd className="admin-data__note">Данные OpenRouter и оценка по сохранённым результатам</dd>
+            <dd className="admin-data__note">{costCompleteness(data.api_cost_complete, data.api_cost_kopeks)}</dd>
           </div>
           <div>
             <dt>Расчётная маржа</dt>
             <dd className={data.margin_kopeks === null ? undefined : data.margin_kopeks < 0 ? "admin-data__loss" : "admin-data__gain"}>{amount(data.margin_kopeks)}</dd>
-            <dd className="admin-data__note">{data.margin_kopeks !== null && charged > 0 ? `${percent.format(data.margin_kopeks / charged)} от списаний` : "Списания за услуги за вычетом расходов API"}</dd>
+            <dd className="admin-data__note">{data.margin_kopeks !== null && charged > 0 ? `${percent.format(data.margin_kopeks / charged)} от списаний` : "Списания минус известные расходы API"}</dd>
           </div>
         </dl>
-        {data.api_cost_kopeks === null && <p className="admin-data__note">Для расчёта расходов и маржи заполните недостающие ставки и курс.</p>}
       </>}
     </section>
+    <AdminFinanceCharts token={token} rates={rates}/>
     {data && !loading && <>
       <section className="cab-panel admin-overview" aria-labelledby="admin-forecast-heading">
         <h2 id="admin-forecast-heading">Прогноз расходов на API</h2>
@@ -227,12 +267,19 @@ export function AdminDashboard({ token }: { token: string }) {
           <div>
             <dt>Текущий месяц · {calendarMonth(data.month)}</dt>
             <dd>{amount(data.current_month_api_cost_kopeks)}</dd>
-            <dd className="admin-data__note">Оценка с начала месяца и прогноз до его конца · по расписанию {count.format(data.current_month_scheduled_runs)} · незавершённых запусков {count.format(data.backlog_runs)}</dd>
+            <dd className="admin-data__note">
+              {costCompleteness(data.forecast_complete, data.current_month_api_cost_kopeks)} ·
+              по расписанию {count.format(data.current_month_scheduled_runs)} ·
+              незавершённых {count.format(data.backlog_runs)}
+            </dd>
           </div>
           <div>
             <dt>Следующий месяц · {calendarMonth(data.next_month)}</dt>
             <dd>{amount(data.next_month_api_cost_kopeks)}</dd>
-            <dd className="admin-data__note">Запусков по расписанию · {count.format(data.next_month_scheduled_runs)}</dd>
+            <dd className="admin-data__note">
+              {costCompleteness(data.next_month_complete, data.next_month_api_cost_kopeks)} ·
+              запусков по расписанию {count.format(data.next_month_scheduled_runs)}
+            </dd>
           </div>
         </dl>
         <div className="cab-section-head admin-data__heading admin-data__subheading">
@@ -285,10 +332,7 @@ export function AdminDashboard({ token }: { token: string }) {
             })}</tbody>
           </table>
         </div>
-        <p className="admin-data__note">Сумма пополнения появляется, когда известны прогноз расходов и доступный остаток. Оценка бюджета следующего месяца приведена без учёта текущего остатка.</p>
-        {analysisBasisNotes.length > 0 && <p className="admin-data__note">
-          <strong>Ставки анализа OpenRouter за проверку.</strong> {analysisBasisNotes.join(". ")}.
-        </p>}
+        <p className="admin-data__note">Пополнение видно, когда известны прогноз и остаток. Бюджет следующего месяца — без учёта текущего остатка.</p>
         <h3 className="admin-data__subheading">Проверки и стоимость сбора</h3>
         <div className="admin-users-scroll admin-data__scroll" role="region" aria-label="Нагрузка и расходы по ИИ-системам" tabIndex={0}>
           <table>
@@ -312,9 +356,13 @@ export function AdminDashboard({ token }: { token: string }) {
             </tbody>
           </table>
         </div>
-        <p className="admin-data__note">Сохранённый расход OpenRouter по проверкам этого месяца: {providerAmount(data.openrouter_recorded_cost_usd, "USD")}. Данные есть по {count.format(data.openrouter_usage_checks)} проверкам, отсутствуют полностью или частично по {count.format(data.openrouter_missing_usage_checks)}. Биллинг ключа может включать незаписанные попытки и учитывать другую дату списания.</p>
-        <p className="admin-data__note">Пересчёты с начала месяца · {count.format(data.observed_recomputes)} / {amount(data.recompute_cost_kopeks)}. До конца месяца · {count.format(data.remaining_recomputes)} / {amount(data.remaining_recompute_cost_kopeks)}. Следующий месяц · {count.format(data.next_month_recomputes)} / {amount(data.next_month_recompute_cost_kopeks)}.</p>
-        <p className="admin-data__note">Прогноз учитывает очередь проверок, активные запросы в расписаниях и темп ручных проверок и пересчётов за 28 полных дней. В объём входят бесплатные проверки. Возможность запуска зависит от баланса и очереди.</p>
+        <details className="admin-data__method">
+          <summary>Как считается</summary>
+          <p className="admin-data__note">OpenRouter за месяц: {providerAmount(data.openrouter_recorded_cost_usd, "USD")} · данные по {count.format(data.openrouter_usage_checks)} проверкам, пробелы {count.format(data.openrouter_missing_usage_checks)}. Биллинг ключа может учитывать другие даты.</p>
+          <p className="admin-data__note">Пересчёты: с начала месяца {count.format(data.observed_recomputes)} / {amount(data.recompute_cost_kopeks)}; до конца {count.format(data.remaining_recomputes)} / {amount(data.remaining_recompute_cost_kopeks)}; следующий месяц {count.format(data.next_month_recomputes)} / {amount(data.next_month_recompute_cost_kopeks)}.</p>
+          <p className="admin-data__note">Прогноз = очередь + расписание + темп ручных проверок/пересчётов за 28 дней (включая бесплатные). Фактический запуск зависит от баланса и очереди.</p>
+          {analysisBasisNotes.length > 0 && <p className="admin-data__note">OpenRouter за проверку: {analysisBasisNotes.join(". ")}.</p>}
+        </details>
       </section>
       <section className="cab-panel admin-overview" aria-labelledby="admin-workload-heading">
         <h2 id="admin-workload-heading">Кошельки и нагрузка</h2>
@@ -334,9 +382,9 @@ export function AdminDashboard({ token }: { token: string }) {
       </section>
     </>}
     <details ref={settings} className="cab-panel admin-overview admin-data__rates">
-      <summary>Настройки расчёта</summary>
-      <p>Укажите среднюю цену сбора одного ответа с учётом повторов. Scrapeless учитывается в долларах, XMLRiver — в рублях. Курс применяется при пересчёте между валютами. Пустое поле означает, что ставка неизвестна. Для прогноза OpenRouter можно использовать средний расход по данным API или задать свою ставку.</p>
-      <p className="admin-data__note">Оценка учитывает сохранённые данные OpenRouter и средние ставки. Комиссии, инфраструктура и налоги находятся за пределами расчёта. Настройки сохраняются в этом браузере.</p>
+      <summary>Настройки расчёта{gaps.length > 0 ? ` · не хватает ${gaps.length}` : ""}</summary>
+      <p>Курс доллара подставляется автоматически по ЦБ, если поле пустое. OpenRouter считается по сохранённому usage; Scrapeless (USD) и XMLRiver (₽) — по средним ставкам сбора. Пустое поле = ставка неизвестна. Настройки хранятся в этом браузере.</p>
+      <p className="admin-data__note">Комиссии, инфраструктура и налоги вне расчёта. Калибровка ниже делит ваши расходы за 28 дней на число сохранённых проверок.</p>
       <form onSubmit={applyRates}>
         <div className="admin-data__rate-fields">
           {rateFields.map(({ id, label }) => <label key={id}>{label}

@@ -4,11 +4,29 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import select
 
+import server.admin_dashboard
 from server.models import (
     Check, CloudResult, ControlProject, ControlRun, FreeScanBalance, LedgerEntry,
     PaymentOrder, ProviderAccount, ProviderTask, ServerCapture, User, Wallet,
 )
 from server.test_cloud_scans import postgres_url, setup
+
+
+@pytest.fixture(autouse=True)
+def _offline_cbr(monkeypatch):
+    # Dashboard tests must not call the live CBR mirror.
+    monkeypatch.setattr("server.admin_dashboard._cbr_usd_rub_kopeks", lambda client=None: None)
+    server.admin_dashboard._FX_CACHE = None
+
+
+def test_cost_known_and_manual_exchange_resolution():
+    from decimal import Decimal
+    from server.admin_dashboard import _cost_known, _resolve_exchange
+    assert _cost_known([]) == (Decimal(0), True)
+    assert _cost_known([Decimal(1), None, Decimal(2)]) == (Decimal(3), False)
+    assert _cost_known([None, None]) == (None, False)
+    assert _resolve_exchange(7800) == (7800, "manual")
+    assert _resolve_exchange(None) == (None, "none")
 
 
 def _project(owner, slug, *, enabled=True, archived=False, zone="Europe/Moscow",
@@ -81,11 +99,19 @@ def test_dashboard_cash_ledger_and_observed_provider_coverage(tmp_path, monkeypa
     assert client.get(path, headers=other).status_code == 403
     for params in ({"chatgpt": "-1"}, {"analysis": "1.234"}, {"usd_rub_kopeks": "0"}, {"recompute": "1000001"}):
         assert client.get(path, headers=admin, params=params).status_code == 422
-    assert client.get(path, headers=admin).json()["api_cost_kopeks"] is None
+    monkeypatch.setattr("server.admin_dashboard._cbr_usd_rub_kopeks", lambda client=None: 9000)
+    server.admin_dashboard._FX_CACHE = None
+    partial = client.get(path, headers=admin).json()
+    assert partial["usd_rub_source"] == "cbr" and partial["usd_rub_kopeks"] == 9000
+    assert partial["api_cost_complete"] is False
+    assert "chatgpt" in partial["missing_rates"] and "recompute" in partial["missing_rates"]
+    # OpenRouter usage converts with the automatic FX even before collector rates are set.
+    assert partial["api_cost_kopeks"] == 6 and partial["margin_kopeks"] == 239
     response = client.get(path, headers=admin, params={"chatgpt": "0.10", "recompute": 5, "usd_rub_kopeks": 10000})
     assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
     data = response.json()
     assert data["month"] == "2026-12"
+    assert data["usd_rub_source"] == "manual" and data["api_cost_complete"] is True
     assert data["paid_topups_kopeks"] == 30000
     assert (data["check_charges_kopeks"], data["recompute_charges_kopeks"], data["observed_recomputes"]) == (165, 80, 2)
     assert (data["balance_kopeks"], data["reserved_kopeks"], data["available_kopeks"]) == (12300, 165, 12135)
@@ -105,6 +131,8 @@ def test_forecast_schedule_calendar_and_manual_pace(tmp_path, monkeypatch, reque
     client, admin, _, user_id, sessions = setup(tmp_path, monkeypatch, database_url=url)
     now = datetime(2026, 12, 31, 19, tzinfo=timezone.utc)
     monkeypatch.setattr("server.admin_dashboard.utcnow", lambda: now)
+    monkeypatch.setattr("server.admin_dashboard._cbr_usd_rub_kopeks", lambda client=None: None)
+    server.admin_dashboard._FX_CACHE = None
     with sessions() as db:
         primary = _project(user_id, "a")
         west = _project(user_id, "b", zone="America/Los_Angeles", time="14:00", services=("yandex_neuro",),
@@ -180,6 +208,86 @@ def test_forecast_schedule_calendar_and_manual_pace(tmp_path, monkeypatch, reque
     changed = {row["provider"]: row for row in different_fx["providers"]}
     assert changed["scrapeless"] == providers["scrapeless"]
     assert different_fx["next_month_api_cost_kopeks"] < data["next_month_api_cost_kopeks"]
+
+
+def test_dashboard_series_auth_range_points_and_week(tmp_path, monkeypatch):
+    client, admin, other, user_id, sessions = setup(tmp_path, monkeypatch)
+    day = datetime(2026, 12, 10, 12, tzinfo=timezone.utc)  # Thursday MSK midday
+    monday = datetime(2026, 12, 7, 10, tzinfo=timezone.utc)
+    with sessions() as db:
+        db.add(PaymentOrder(id="series-paid", user_id=user_id, created_at=day - timedelta(days=1),
+                            amount_kopeks=50000, method="sbp", status="paid", test_mode=False))
+        db.add(PaymentOrder(id="series-test", user_id=user_id, created_at=day - timedelta(days=1),
+                            amount_kopeks=50000, method="sbp", status="paid", test_mode=True))
+        db.add_all([
+            LedgerEntry(user_id=user_id, kind="topup", reference="payment:series-paid",
+                        amount_kopeks=50000, created_at=day),
+            LedgerEntry(user_id=user_id, kind="topup", reference="payment:series-test",
+                        amount_kopeks=50000, created_at=day),
+            LedgerEntry(user_id=user_id, kind="check", reference="series-check",
+                        amount_kopeks=-165, created_at=day),
+            LedgerEntry(user_id=user_id, kind="recompute", reference="series-recomp",
+                        amount_kopeks=-80, created_at=day),
+        ])
+        project = _project(user_id, "s", enabled=False)
+        db.add(project)
+        db.flush()
+        run = _run(project, "s", day)
+        db.add(run)
+        db.add_all([
+            _result(run, day, query_id="q1"),
+            _result(run, day, query_id="q1", service="gemini"),
+            _result(run, day, query_id="q2"),
+        ])
+        db.add(Check(user_id=user_id, client_check_id="series-usage", price_kopeks=0, status="settled",
+                     created_at=day, analysis_attempts=1, analysis_usage_json='{"cost":0.01}'))
+        db.add(User(id="newuser" + "0" * 25, email="series-new@test.example",
+                    password_hash="x", is_admin=False, created_at=day))
+        db.add(LedgerEntry(user_id=user_id, kind="check", reference="series-monday",
+                           amount_kopeks=-165, created_at=monday))
+        db.commit()
+
+    path = "/api/v1/admin/dashboard/series"
+    params = {"from": "2026-12-09", "to": "2026-12-11"}
+    assert client.get(path, params=params).status_code == 401
+    assert client.get(path, params=params, headers=other).status_code == 403
+    assert client.get(path, headers=admin, params={"from": "2026-12-11", "to": "2026-12-09"}).status_code == 422
+    assert client.get(path, headers=admin, params={"from": "2025-01-01", "to": "2026-12-31"}).status_code == 422
+    assert client.get(path, headers=admin, params={**params, "granularity": "hour"}).status_code == 422
+
+    rate_params = {"chatgpt": "0.10", "gemini": "0", "usd_rub_kopeks": 10000, "recompute": 5}
+    response = client.get(path, headers=admin, params={**params, **rate_params})
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+    data = response.json()
+    assert data["from"] == "2026-12-09" and data["to"] == "2026-12-11"
+    assert data["granularity"] == "day" and data["timezone"] == "Europe/Moscow"
+    assert [point["bucket"] for point in data["points"]] == ["2026-12-09", "2026-12-10", "2026-12-11"]
+    empty, active, trailing = data["points"]
+    assert empty == {
+        "bucket": "2026-12-09", "revenue_kopeks": 0, "charges_kopeks": 0, "api_cost_kopeks": 0,
+        "api_cost_complete": True, "margin_kopeks": 0, "cloud_results": 0, "queries_distinct": 0,
+        "new_users": 0,
+    }
+    assert active["bucket"] == "2026-12-10"
+    assert (active["revenue_kopeks"], active["charges_kopeks"], active["new_users"]) == (50000, 245, 1)
+    assert (active["cloud_results"], active["queries_distinct"]) == (3, 2)
+    # 2×chatgpt@0.10¢→20 + gemini@0 + OpenRouter 0.01$→100 + recompute 5
+    assert active["api_cost_complete"] is True and active["api_cost_kopeks"] == 125
+    assert active["margin_kopeks"] == 120
+    assert trailing["bucket"] == "2026-12-11" and trailing["revenue_kopeks"] == 0
+    assert data["totals"]["revenue_kopeks"] == 50000
+    assert data["totals"]["charges_kopeks"] == 245
+    assert data["totals"]["cloud_results"] == 3
+    assert data["totals"]["queries_distinct"] == 2
+    assert data["totals"]["new_users"] == 1
+
+    week = client.get(path, headers=admin, params={
+        "from": "2026-12-07", "to": "2026-12-13", "granularity": "week", **rate_params,
+    }).json()
+    assert week["granularity"] == "week"
+    assert [point["bucket"] for point in week["points"]] == ["2026-12-07"]
+    assert week["points"][0]["charges_kopeks"] == 410
+    assert week["totals"]["charges_kopeks"] == 410
 
 
 def test_run_journal_filters_cross_user_and_redacts_private_fields(tmp_path, monkeypatch):

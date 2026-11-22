@@ -17,11 +17,15 @@ ADMIN = "https://admin.airate.test"
 SITE_HEADERS = {"Origin": SITE, "X-AI-Client": "browser"}
 ADMIN_HEADERS = {**SITE_HEADERS, "Origin": ADMIN}
 PASSWORD = "long-test-password-123"
+ALLOWED_IP = "203.0.113.10"
+DENIED_IP = "198.51.100.20"
 
 
-def operator_clients(tmp_path, monkeypatch, database_url=None):
+def operator_clients(tmp_path, monkeypatch, database_url=None, *, client_ip=ALLOWED_IP, allow_ips=ALLOWED_IP):
     monkeypatch.setenv("PUBLIC_BASE_URL", SITE)
     monkeypatch.setenv("ADMIN_BASE_URL", ADMIN)
+    monkeypatch.setenv("ADMIN_ALLOWED_IPS", allow_ips)
+    monkeypatch.setattr("server.admin_ip_allowlist.client_ip", lambda _request: client_ip)
     url = database_url or f"sqlite:///{tmp_path / 'operator.db'}"
     app = create_app(database_url=url)
     _, sessions = make_session_factory(url)

@@ -2,15 +2,16 @@
 import calendar
 import json
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Query, Response
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, literal, select
 from sqlalchemy.orm import Session, load_only
@@ -27,6 +28,9 @@ MOSCOW = ZoneInfo("Europe/Moscow")
 MANAGED_CHECK = re.compile(r"[a-f0-9]{32}:[a-f0-9]{32}:[a-z_]+")
 CostRate = Annotated[Decimal | None, Field(ge=0, le=1_000_000, decimal_places=2)]
 DollarRate = Annotated[Decimal | None, Field(ge=0, le=1_000_000, decimal_places=4)]
+_FX_CACHE: tuple[datetime, int] | None = None
+_FX_TTL = timedelta(hours=6)
+_CBR_DAILY = "https://www.cbr-xml-daily.ru/daily_json.js"
 
 
 class CostRates(BaseModel):
@@ -98,8 +102,50 @@ def _cost_total(costs: list[Decimal | None]) -> Decimal | None:
     return sum((cost for cost in costs if cost is not None), Decimal(0))
 
 
+def _cost_known(costs: list[Decimal | None]) -> tuple[Decimal | None, bool]:
+    """Sum known parts; complete is False when any part is still unknown."""
+    if any(cost is None for cost in costs):
+        known = [cost for cost in costs if cost is not None]
+        return (sum(known, Decimal(0)) if known else None), False
+    return sum(costs, Decimal(0)), True
+
+
 def _rounded_kopeks(amount: Decimal | None) -> int | None:
     return int(amount.to_integral_value(rounding=ROUND_HALF_UP)) if amount is not None else None
+
+
+def _cbr_usd_rub_kopeks(client: httpx.Client | None = None) -> int | None:
+    """Official CBR USD rate mirrored as JSON; returns rubles×100 (kopeks per $1)."""
+    global _FX_CACHE
+    now = utcnow()
+    if _FX_CACHE and now - _FX_CACHE[0] < _FX_TTL:
+        return _FX_CACHE[1]
+    try:
+        own = client is None
+        http = client or httpx.Client(timeout=4.0)
+        try:
+            response = http.get(_CBR_DAILY)
+            response.raise_for_status()
+            value = Decimal(str(response.json()["Valute"]["USD"]["Value"]))
+        finally:
+            if own:
+                http.close()
+        if not value.is_finite() or value <= 0 or value > 10_000:
+            return None
+        kopeks = int((value * 100).to_integral_value(rounding=ROUND_HALF_UP))
+        if not 1 <= kopeks <= 1_000_000:
+            return None
+        _FX_CACHE = (now, kopeks)
+        return kopeks
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, InvalidOperation):
+        return _FX_CACHE[1] if _FX_CACHE else None
+
+
+def _resolve_exchange(manual: int | None) -> tuple[int | None, Literal["manual", "cbr", "none"]]:
+    if manual is not None:
+        return manual, "manual"
+    automatic = _cbr_usd_rub_kopeks()
+    return (automatic, "cbr") if automatic is not None else (None, "none")
 
 
 def _usd_from_kopeks(amount: Decimal | None, exchange_rate: int | None) -> Decimal | None:
@@ -294,6 +340,68 @@ def _journal_row(run: ControlRun, email: str, project_name: str, now: datetime) 
     }
 
 
+def _msk_day(value: datetime) -> date:
+    return aware(value).astimezone(MOSCOW).date()
+
+
+def _series_bucket(day: date, granularity: Literal["day", "week"]) -> date:
+    return day - timedelta(days=day.weekday()) if granularity == "week" else day
+
+
+def _series_axis(day_from: date, day_to: date, granularity: Literal["day", "week"]) -> list[date]:
+    step = timedelta(days=7 if granularity == "week" else 1)
+    cursor = _series_bucket(day_from, granularity)
+    last = _series_bucket(day_to, granularity)
+    axis: list[date] = []
+    while cursor <= last:
+        axis.append(cursor)
+        cursor += step
+    return axis
+
+
+def _series_api_cost(service_counts: Counter[str], analysis_usd: Decimal, analysis_gaps: int,
+                     recomputes: int, rates: CostRates, exchange: int | None) -> tuple[int | None, bool]:
+    """Observed collector + OpenRouter cost for one series bucket; mirrors monthly completeness."""
+    parts: list[Decimal | None] = []
+    for service, rate in rates.model_dump(exclude={"analysis", "recompute", "usd_rub_kopeks"}).items():
+        count = service_counts.get(service, 0)
+        if not count:
+            continue
+        observed = _estimate(count, rate)
+        if observed is None:
+            parts.append(None)
+            continue
+        native = observed / Decimal(100)
+        parts.append(
+            _kopeks_from_usd(native, exchange) if service in SCRAPELESS_SERVICES else native * 100
+        )
+    if analysis_usd or analysis_gaps:
+        converted = _kopeks_from_usd(analysis_usd, exchange)
+        if analysis_gaps:
+            parts.extend([converted, None] if converted is not None else [None])
+        else:
+            parts.append(converted)
+    if recomputes:
+        parts.append(_estimate(recomputes, rates.recompute))
+    if not parts:
+        return 0, True
+    total, complete = _cost_known(parts)
+    return _rounded_kopeks(total), complete
+
+
+@dataclass
+class _SeriesBucket:
+    revenue: int = 0
+    charges: int = 0
+    cloud_results: int = 0
+    query_ids: set[str] = field(default_factory=set)
+    new_users: int = 0
+    services: Counter[str] = field(default_factory=Counter)
+    analysis_usd: Decimal = Decimal(0)
+    analysis_gaps: int = 0
+    recomputes: int = 0
+
+
 def register_dashboard(router: APIRouter, db_session: Callable, admin: Callable) -> None:
     @router.get("/dashboard")
     def dashboard(response: Response, rates: CostRates = Depends(),
@@ -354,7 +462,7 @@ def register_dashboard(router: APIRouter, db_session: Callable, admin: Callable)
         remaining_recompute_cost = _estimate(remaining_recomputes, rates.recompute)
         next_recompute_cost = _estimate(next_recomputes, rates.recompute)
         recorded, baseline, service_usage = _analysis_usage(db, month_start, pace_start, pace_end, now)
-        exchange = rates.usd_rub_kopeks
+        exchange, exchange_source = _resolve_exchange(rates.usd_rub_kopeks)
         pace_checks = sum(recent.values())
         observed_checks_total = sum(observed.values())
         analysis_rate_usd = _usd_from_kopeks(rates.analysis, exchange)
@@ -377,6 +485,7 @@ def register_dashboard(router: APIRouter, db_session: Callable, admin: Callable)
         remaining_checks_total = following_checks_total = 0
         remaining_model_costs = []
         following_model_costs = []
+        missing_rates: list[str] = []
         for service, rate in rates.model_dump(exclude={"analysis", "recompute", "usd_rub_kopeks"}).items():
             observed_checks = observed.get(service, 0)
             recent_manual = manual.get(service, 0)
@@ -402,6 +511,8 @@ def register_dashboard(router: APIRouter, db_session: Callable, admin: Callable)
             observed_cost = _estimate(observed_checks, rate)
             remaining_cost = _estimate(remaining_count, rate)
             following_cost = _estimate(next_count, rate)
+            if rate is None and (observed_checks or remaining_count or next_count):
+                missing_rates.append(service)
             provider = "scrapeless" if service in SCRAPELESS_SERVICES else "xmlriver"
             currency = "USD" if provider == "scrapeless" else "RUB"
             native_costs = [cost / 100 if cost is not None else None
@@ -428,8 +539,8 @@ def register_dashboard(router: APIRouter, db_session: Callable, admin: Callable)
                 "remaining_cost_kopeks": _rounded_kopeks(remaining_kopeks), "next_month_cost_kopeks": _rounded_kopeks(following_kopeks),
             })
 
-        analysis_remaining = _cost_total(remaining_model_costs)
-        analysis_following = _cost_total(following_model_costs)
+        analysis_remaining, analysis_remaining_complete = _cost_known(remaining_model_costs)
+        analysis_following, analysis_following_complete = _cost_known(following_model_costs)
         remaining_analysis_kopeks = (
             _estimate(remaining_checks_total, rates.analysis) if rates.analysis is not None
             else _kopeks_from_usd(analysis_remaining, exchange)
@@ -438,31 +549,69 @@ def register_dashboard(router: APIRouter, db_session: Callable, admin: Callable)
             _estimate(following_checks_total, rates.analysis) if rates.analysis is not None
             else _kopeks_from_usd(analysis_following, exchange)
         )
-        scrapeless_usd = [_cost_total(amounts) for amounts in collectors["scrapeless"]]
-        xmlriver_rub = [_cost_total(amounts) for amounts in collectors["xmlriver"]]
+        if rates.recompute is None and (recomputes or remaining_recomputes or next_recomputes):
+            missing_rates.append("recompute")
+        if rates.analysis is None and analysis_rate_usd is None and (
+                remaining_checks_total or following_checks_total or observed_checks_total):
+            missing_rates.append("analysis")
+        if exchange is None and any(
+            total is not None for total in (
+                analysis_observed_usd, analysis_remaining, analysis_following,
+                _cost_known(collectors["scrapeless"][0])[0],
+                _cost_known(collectors["scrapeless"][1])[0],
+                _cost_known(collectors["scrapeless"][2])[0],
+            )
+        ):
+            missing_rates.append("usd_rub_kopeks")
+        scrapeless_parts = [_cost_known(amounts) for amounts in collectors["scrapeless"]]
+        scrapeless_usd = [total for total, _complete in scrapeless_parts]
+        scrapeless_complete = all(complete for _total, complete in scrapeless_parts)
+        xmlriver_parts = [_cost_known(amounts) for amounts in collectors["xmlriver"]]
+        xmlriver_rub = [total for total, _complete in xmlriver_parts]
+        xmlriver_complete = all(complete for _total, complete in xmlriver_parts)
         scrapeless_kopeks = [_kopeks_from_usd(total, exchange) for total in scrapeless_usd]
         xmlriver_kopeks = [total * 100 if total is not None else None for total in xmlriver_rub]
         openrouter_kopeks = [
-            _cost_total([analysis_observed_kopeks, recompute_cost]),
-            _cost_total([remaining_analysis_kopeks, remaining_recompute_cost]),
-            _cost_total([next_analysis_kopeks, next_recompute_cost]),
+            _cost_known([analysis_observed_kopeks, recompute_cost])[0],
+            _cost_known([remaining_analysis_kopeks, remaining_recompute_cost])[0],
+            _cost_known([next_analysis_kopeks, next_recompute_cost])[0],
         ]
+        openrouter_complete = all(
+            _cost_known(parts)[1] for parts in (
+                [analysis_observed_kopeks, recompute_cost],
+                [remaining_analysis_kopeks, remaining_recompute_cost],
+                [next_analysis_kopeks, next_recompute_cost],
+            )
+        )
         analysis_cost_usd = [analysis_observed_usd, analysis_remaining, analysis_following]
         recompute_costs = [recompute_cost, remaining_recompute_cost, next_recompute_cost]
         providers = [
             _native_costs("scrapeless", "USD", *scrapeless_usd),
             _native_costs("xmlriver", "RUB", *xmlriver_rub),
             _native_costs("openrouter", "USD", *(
-                _cost_total([analysis, _usd_from_kopeks(recompute, exchange)])
+                _cost_known([analysis, _usd_from_kopeks(recompute, exchange)])[0]
                 for analysis, recompute in zip(analysis_cost_usd, recompute_costs)
             )),
         ]
-        cost, remaining_total, following_total = (
-            _cost_total(list(amounts)) for amounts in zip(scrapeless_kopeks, xmlriver_kopeks, openrouter_kopeks)
-        )
+        # Period totals use known provider parts; completeness needs every part known.
+        period_totals = []
+        period_complete = []
+        for i in range(3):
+            total, complete = _cost_known([scrapeless_kopeks[i], xmlriver_kopeks[i], openrouter_kopeks[i]])
+            period_totals.append(total)
+            period_complete.append(
+                complete and scrapeless_complete and xmlriver_complete and openrouter_complete
+                and (i == 0 or analysis_remaining_complete) and (i != 2 or analysis_following_complete)
+            )
+        cost, remaining_total, following_total = period_totals
+        api_cost_complete = period_complete[0]
+        forecast_complete = period_complete[0] and period_complete[1]
+        next_complete = period_complete[2]
         rounded_cost = _rounded_kopeks(cost)
         run_counts = dict(db.execute(select(ControlRun.state, func.count()).where(
             ControlRun.created_at >= month_start, ControlRun.created_at <= now).group_by(ControlRun.state)).all())
+        # Deduplicate while preserving first-seen order for stable UI copy.
+        gaps = list(dict.fromkeys(missing_rates))
         return {
             "month": month.strftime("%Y-%m"), "next_month": next_month.strftime("%Y-%m"),
             "lookback_start": lookback_start.date().isoformat(), "lookback_end": lookback_end.date().isoformat(),
@@ -471,8 +620,14 @@ def register_dashboard(router: APIRouter, db_session: Callable, admin: Callable)
             "free_scans": free, "reserved_free_scans": held_free, "paid_topups_kopeks": cash,
             "check_charges_kopeks": check_charges, "recompute_charges_kopeks": recompute_charges,
             "api_cost_kopeks": rounded_cost,
+            "api_cost_complete": api_cost_complete,
+            "forecast_complete": forecast_complete,
+            "next_month_complete": next_complete,
+            "missing_rates": gaps,
+            "usd_rub_kopeks": exchange,
+            "usd_rub_source": exchange_source,
             "margin_kopeks": check_charges + recompute_charges - rounded_cost if rounded_cost is not None else None,
-            "current_month_api_cost_kopeks": _rounded_kopeks(_cost_total([cost, remaining_total])),
+            "current_month_api_cost_kopeks": _rounded_kopeks(_cost_known([cost, remaining_total])[0]),
             "next_month_api_cost_kopeks": _rounded_kopeks(following_total),
             "current_month_scheduled_runs": remaining.runs, "next_month_scheduled_runs": following.runs,
             "runs_this_month": sum(run_counts.values()), "recent_run_states": run_counts, "services": rows,
@@ -487,6 +642,118 @@ def register_dashboard(router: APIRouter, db_session: Callable, admin: Callable)
             "openrouter_usage_checks": recorded.recorded_checks,
             "openrouter_missing_usage_checks": recorded.missing_checks,
             "openrouter_lookback_missing_usage_checks": baseline.missing_checks,
+        }
+
+    @router.get("/dashboard/series")
+    def series(response: Response,
+               day_from: date = Query(alias="from"),
+               day_to: date = Query(alias="to"),
+               granularity: Literal["day", "week"] = "day",
+               rates: CostRates = Depends(),
+               _user: User = Depends(admin), db: Session = Depends(db_session)) -> dict[str, object]:
+        response.headers["Cache-Control"] = "no-store"
+        if day_from > day_to or (day_to - day_from).days > 365:
+            raise HTTPException(422, "Выберите период от 1 до 366 дней, начало не позже конца")
+        start_utc = datetime.combine(day_from, time.min, MOSCOW).astimezone(timezone.utc)
+        end_utc = datetime.combine(day_to + timedelta(days=1), time.min, MOSCOW).astimezone(timezone.utc)
+        exchange, _source = _resolve_exchange(rates.usd_rub_kopeks)
+        buckets: dict[date, _SeriesBucket] = defaultdict(_SeriesBucket)
+        period_queries: set[str] = set()
+
+        topups = select(LedgerEntry.created_at, LedgerEntry.amount_kopeks).join(
+            PaymentOrder, (LedgerEntry.reference == literal("payment:") + PaymentOrder.id)
+            & (LedgerEntry.user_id == PaymentOrder.user_id)
+        ).where(LedgerEntry.created_at >= start_utc, LedgerEntry.created_at < end_utc,
+                LedgerEntry.kind == "topup", PaymentOrder.status == "paid", PaymentOrder.test_mode.is_(False))
+        for created, amount in db.execute(topups):
+            buckets[_series_bucket(_msk_day(created), granularity)].revenue += amount
+
+        charges = select(LedgerEntry.created_at, LedgerEntry.amount_kopeks, LedgerEntry.kind).where(
+            LedgerEntry.created_at >= start_utc, LedgerEntry.created_at < end_utc,
+            LedgerEntry.kind.in_(("check", "recompute")))
+        for created, amount, kind in db.execute(charges):
+            key = _series_bucket(_msk_day(created), granularity)
+            buckets[key].charges += -amount
+            if kind == "recompute":
+                buckets[key].recomputes += 1
+
+        for created, in db.execute(select(User.created_at).where(
+                User.created_at >= start_utc, User.created_at < end_utc)):
+            buckets[_series_bucket(_msk_day(created), granularity)].new_users += 1
+
+        results = select(CloudResult.created_at, CloudResult.query_id, CloudResult.service).where(
+            CloudResult.created_at >= start_utc, CloudResult.created_at < end_utc)
+        for created, query_id, service in db.execute(results):
+            key = _series_bucket(_msk_day(created), granularity)
+            row = buckets[key]
+            row.cloud_results += 1
+            if query_id:
+                row.query_ids.add(query_id)
+                period_queries.add(query_id)
+            if service in CLOUD_SERVICES:
+                row.services[service] += 1
+
+        usage = select(
+            Check.created_at, Check.analysis_usage_json, Check.arbitration_usage_json,
+            Check.analysis_attempts, Check.arbitration_attempts,
+        ).where(Check.created_at >= start_utc, Check.created_at < end_utc,
+                (Check.analysis_attempts > 0) | (Check.arbitration_attempts > 0) |
+                Check.analysis_usage_json.is_not(None) | Check.arbitration_usage_json.is_not(None))
+        for created, primary, arbiter, primary_attempts, arbiter_attempts in db.execute(usage):
+            key = _series_bucket(_msk_day(created), granularity)
+            row = buckets[key]
+            for raw, attempted in ((primary, primary_attempts > 0), (arbiter, arbiter_attempts > 0)):
+                cost = _usage_cost(raw)
+                if cost is not None:
+                    row.analysis_usd += cost
+                elif attempted:
+                    row.analysis_gaps += 1
+
+        points = []
+        totals = _SeriesBucket()
+        for bucket in _series_axis(day_from, day_to, granularity):
+            row = buckets[bucket]
+            api_cost, complete = _series_api_cost(
+                row.services, row.analysis_usd, row.analysis_gaps, row.recomputes, rates, exchange)
+            margin = row.charges - api_cost if api_cost is not None else None
+            points.append({
+                "bucket": bucket.isoformat(),
+                "revenue_kopeks": row.revenue,
+                "charges_kopeks": row.charges,
+                "api_cost_kopeks": api_cost,
+                "api_cost_complete": complete,
+                "margin_kopeks": margin,
+                "cloud_results": row.cloud_results,
+                "queries_distinct": len(row.query_ids),
+                "new_users": row.new_users,
+            })
+            totals.revenue += row.revenue
+            totals.charges += row.charges
+            totals.cloud_results += row.cloud_results
+            totals.new_users += row.new_users
+            totals.services.update(row.services)
+            totals.analysis_usd += row.analysis_usd
+            totals.analysis_gaps += row.analysis_gaps
+            totals.recomputes += row.recomputes
+
+        total_cost, total_complete = _series_api_cost(
+            totals.services, totals.analysis_usd, totals.analysis_gaps, totals.recomputes, rates, exchange)
+        return {
+            "from": day_from.isoformat(),
+            "to": day_to.isoformat(),
+            "granularity": granularity,
+            "timezone": "Europe/Moscow",
+            "points": points,
+            "totals": {
+                "revenue_kopeks": totals.revenue,
+                "charges_kopeks": totals.charges,
+                "api_cost_kopeks": total_cost,
+                "api_cost_complete": total_complete,
+                "margin_kopeks": totals.charges - total_cost if total_cost is not None else None,
+                "cloud_results": totals.cloud_results,
+                "queries_distinct": len(period_queries),
+                "new_users": totals.new_users,
+            },
         }
 
     @router.get("/runs")

@@ -92,6 +92,12 @@ hostname must return 404 for the admin API. Verify administrator sign-in via
 the cabinet, access to the dashboard, and logout. The main site's session
 and the admin console session use distinct host-only cookies.
 
+Set `ADMIN_ALLOWED_IPS` in `/opt/airate/deploy/.env` to a comma-separated
+list of operator IPv4/IPv6 or CIDR values before the first admin sign-in.
+Empty env and DB allowlists deny ticket minting and session exchange; an
+established `__Host-airate_admin` session is not re-checked on later API
+calls. Extra addresses can be managed in the console «Доступ» section.
+
 On application rollback to an image that predates the console, remove the
 admin virtual host from Caddy and reload its previous config. The prior
 image still provides administration in the main cabinet.

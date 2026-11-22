@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import delete
 
+from server.admin_ip_allowlist import require_admin_entry_ip
 from server.browser_sessions import COOKIE_NAME, BrowserExchangeIn, lock_web_session
 from server.models import BrowserLoginTicket, DeviceGrant, SessionToken, User, utcnow
 from server.security import new_token, token_hash
@@ -71,6 +72,7 @@ def register_admin_sessions(app, db_session, current_user, public_base, admin_ba
         user = lock_web_session(db, user.id, parent_hash)
         if not user.is_admin or db.get(DeviceGrant, parent_hash):
             raise HTTPException(403, "Доступно только администратору")
+        require_admin_entry_ip(request, db)
         db.execute(delete(BrowserLoginTicket).where(
             (BrowserLoginTicket.expires_at <= utcnow()) |
             ((BrowserLoginTicket.parent_hash == parent_hash) & (BrowserLoginTicket.destination == "admin"))))
@@ -83,6 +85,7 @@ def register_admin_sessions(app, db_session, current_user, public_base, admin_ba
 
     @app.post("/api/v1/admin/session", include_in_schema=False)
     def exchange_admin_link(body: BrowserExchangeIn, request: Request, response: Response, db=Depends(db_session)):
+        require_admin_entry_ip(request, db)
         ticket_hash = token_hash(body.ticket)
         candidate = db.get(BrowserLoginTicket, ticket_hash)
         if not candidate or candidate.destination != "admin":
