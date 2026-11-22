@@ -67,7 +67,7 @@ export function evidenceSources(evidence: AnswerEvidence, sources: string[], ser
 export function SourceChipList({ sources, brand }: { sources: string[]; brand?: BrandHighlight }) {
   const values = sourcesOf(sources)
   if (!values.length) return null
-  return <section className="answer-dialog__sources"><h3>Источники · <span>{values.length}</span></h3><ul className="source-chips">{values.map(href => <li key={href}><PreviewAnchor href={href} brand={brand} chip label=""><span className="source-chip__mark" aria-hidden="true">{(sourceHost(href) || "?").slice(0, 1).toUpperCase()}</span>{chipLabel(href, values)}</PreviewAnchor></li>)}</ul></section>
+  return <section className="answer-dialog__sources"><h3>Источники · <span>{values.length}</span></h3><ul className="source-chips">{values.map(href => <li key={href}><PreviewAnchor href={href} brand={brand} chip label=""><span className="source-chip__mark" aria-hidden="true">{(sourceHost(href) || "?").slice(0, 1).toUpperCase()}</span><span className="source-chip__label">{chipLabel(href, values)}</span></PreviewAnchor></li>)}</ul></section>
 }
 
 export function HighlightedSources({ sources, brand }: { sources: string[]; brand?: BrandHighlight }) {

@@ -1,6 +1,6 @@
 import { expect, it } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
-import { chipLabel, sourcePreviewCopy } from "./answer-content"
+import { chipLabel, sourceCardLookup, sourcePreviewCopy } from "./answer-content"
 import { AnswerDialog } from "./answer-dialog"
 import { AnswerEvidenceView, HighlightedSources, SourceChipList, brandLink, evidenceSources, safeProductImage } from "./answer-evidence"
 
@@ -67,6 +67,26 @@ it("builds a source card from a saved title and fragment, and a short chip from 
   expect(sourcePreviewCopy("javascript:bad()", undefined, "плохо")).toBeNull()
   expect(chipLabel("https://sever.example/a", ["https://sever.example/a", "https://retsept.example/b"])).toBe("sever.example")
   expect(chipLabel("https://sever.example/catalog/tort", ["https://sever.example/a", "https://sever.example/catalog/tort"])).toBe("sever.example/catalog/tort")
+})
+
+it("distinguishes sources whose links differ by query, including on the home page", () => {
+  const sources = ["https://sever.example/?id=1", "https://sever.example/?id=2"]
+  const html = renderToStaticMarkup(<SourceChipList sources={sources}/>)
+  expect(html).toContain("sever.example/?id=1</span>")
+  expect(html).toContain("sever.example/?id=2</span>")
+})
+
+it("finds saved source cards through text fragments and www without guessing between cards", () => {
+  const first = { url: "https://www.sever.example/item?id=1#:~:text=one", title: "Первый", text: "Фрагмент" }
+  const second = { url: "https://www.sever.example/item?id=1#:~:text=two", title: "Второй", text: "Другой фрагмент" }
+  const link = new URL("https://sever.example/item?id=1")
+  const lookup = sourceCardLookup([first])
+  expect(lookup(link)).toEqual({ title: first.title, text: first.text })
+  expect(lookup(new URL("https://sever.example/item?id=2"))).toBeUndefined()
+  expect(lookup(new URL("https://sever.example/item?id=1#section"))).toBeUndefined()
+  const ambiguous = sourceCardLookup([first, second])
+  expect(ambiguous(link)).toBeUndefined()
+  expect(ambiguous(new URL(second.url))?.title).toBe(second.title)
 })
 
 it("uses one dialog shell and chips only for sources that are not already linked in the answer", () => {

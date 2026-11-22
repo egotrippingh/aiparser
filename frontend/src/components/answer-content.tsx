@@ -65,15 +65,33 @@ function readableUrlPart(value: string) {
 }
 
 export type AnswerSourceCard = { title: string; text: string }
-export const AnswerSourceContext = createContext<Map<string, AnswerSourceCard> | null>(null)
+export const AnswerSourceContext = createContext<ReturnType<typeof sourceCardLookup> | null>(null)
 
-export function sourceCardMap(cards: { title?: string; text?: string; url?: string }[]) {
-  const map = new Map<string, AnswerSourceCard>()
+function sourceCardKey(url: URL) {
+  const key = new URL(url)
+  key.hostname = key.hostname.replace(/^www\./, "")
+  const anchor = key.hash.split(":~:", 1)[0]
+  key.hash = anchor === "#" ? "" : anchor
+  return key.href
+}
+
+export function sourceCardLookup(cards: { title?: string; text?: string; url?: string }[]) {
+  const exact = new Map<string, AnswerSourceCard>()
+  const aliases = new Map<string, string | null>()
   for (const card of cards) {
-    const href = sourcesOf([card.url || ""])[0]
-    if (href) map.set(new URL(href).href, { title: card.title || "", text: card.text || "" })
+    const url = safeUrl(card.url || "")
+    if (!url) continue
+    exact.set(url.href, { title: card.title || "", text: card.text || "" })
+    const key = sourceCardKey(url)
+    const previous = aliases.get(key)
+    aliases.set(key, previous === undefined || previous === url.href ? url.href : null)
   }
-  return map
+  return (url: URL) => {
+    const direct = exact.get(url.href)
+    if (direct) return direct
+    const alias = aliases.get(sourceCardKey(url))
+    return alias ? exact.get(alias) : undefined
+  }
 }
 
 export function sourceHost(value: string) {
@@ -101,10 +119,8 @@ export function chipLabel(href: string, group: string[]) {
   if (!host) return href
   const twins = group.filter(item => sourceHost(item) === host)
   if (twins.length < 2) return host
-  const url = sourcesOf([href])[0]
-  const path = url ? new URL(url).pathname : ""
-  if (!path || path === "/") return host
-  return host + (path.length > 22 ? `${path.slice(0, 20)}…` : path)
+  const url = new URL(href)
+  return host + (url.pathname === "/" && !url.search ? "" : url.pathname + url.search)
 }
 
 function plainText(node: ReactNode): string {
@@ -127,14 +143,14 @@ function placeCard(anchor: HTMLElement) {
 }
 
 export function PreviewAnchor({ href, brand, label, chip = false, children }: { href: string; brand?: BrandHighlight; label?: string; chip?: boolean; children: ReactNode }) {
-  const cards = useContext(AnswerSourceContext)
+  const lookupCard = useContext(AnswerSourceContext)
   const link = useRef<HTMLAnchorElement>(null)
   const timer = useRef(0)
   const opened = useRef(0)
   const tip = useId()
   const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null)
   const url = sourcesOf([href])[0]
-  const copy = url && cards ? sourcePreviewCopy(url, cards.get(new URL(url).href), label ?? plainText(children)) : null
+  const copy = url && lookupCard ? sourcePreviewCopy(url, lookupCard(new URL(url)), label ?? plainText(children)) : null
   useEffect(() => () => window.clearTimeout(timer.current), [])
   useEffect(() => {
     if (!pos) return

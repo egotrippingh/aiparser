@@ -1,6 +1,6 @@
 import { X } from "lucide-react"
 import type { ReactNode } from "react"
-import { AnswerContent, AnswerSourceContext, ResultIssue, renderedSources, sourceCardMap, sourcesOf } from "./answer-content"
+import { AnswerContent, AnswerSourceContext, ResultIssue, renderedSources, sourceCardLookup, sourcesOf } from "./answer-content"
 import { AnswerEvidenceView, SourceChipList, evidenceSources, type AnswerEvidence, type BrandHighlight } from "./answer-evidence"
 import { longDate } from "../lib/format"
 import { ServiceMark, serviceName } from "../service-mark"
@@ -36,12 +36,12 @@ export function AnswerDialog({ service, scanDate, status, originalStatus, query,
   onClose: () => void
   children?: ReactNode
 }) {
-  const cards = sourceCardMap(evidence?.source_cards || [])
+  const lookupCard = sourceCardLookup(evidence?.source_cards || [])
   const remaining = evidence
     ? evidenceSources(evidence, sources, service, { skipRendered: true })
     : answer ? renderedSources(answer, sources, service) : sourcesOf(sources)
   const dated = /^\d{4}-\d{2}-\d{2}$/.test(scanDate) ? `${longDate(scanDate)} ${scanDate.slice(0, 4)}` : scanDate
-  return <AnswerSourceContext.Provider value={cards}><div className="answer-dialog">
+  return <AnswerSourceContext.Provider value={lookupCard}><div className="answer-dialog">
     <div className="answer-dialog__head">
       <div className="answer-dialog__service"><ServiceMark id={service}/><div><p className="answer-dialog__name">{serviceLabel(service)}</p><p className="answer-dialog__date">{dated}</p></div></div>
       <span className={`answer-dialog__status answer-dialog__status--${tone(status)}`}>{statuses[status] || status}</span>
