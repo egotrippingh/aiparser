@@ -12,6 +12,7 @@ from fastapi import Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server.admin_ip_allowlist import NOT_FOUND, entry_allowed, require_admin_entry_ip
@@ -51,11 +52,22 @@ def console_password_ok(password: str) -> bool:
 def ensure_operator_user(db: Session) -> User:
     user = db.get(User, OPERATOR_USER_ID)
     if user is None:
-        user = User(id=OPERATOR_USER_ID, email=OPERATOR_EMAIL,
-                    password_hash="external:console", is_admin=True, wallet=Wallet(balance_kopeks=0))
-        db.add(user)
-        db.flush()
-        return user
+        try:
+            with db.begin_nested():
+                user = User(
+                    id=OPERATOR_USER_ID,
+                    email=OPERATOR_EMAIL,
+                    password_hash="external:console",
+                    is_admin=True,
+                    wallet=Wallet(balance_kopeks=0),
+                )
+                db.add(user)
+                db.flush()
+        except IntegrityError:
+            # Parallel console logins can race on the fixed operator row.
+            user = db.get(User, OPERATOR_USER_ID)
+            if user is None:
+                raise
     user.is_admin = True
     user.password_hash = "external:console"
     if user.wallet is None:
