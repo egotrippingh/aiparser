@@ -10,11 +10,12 @@ from html.parser import HTMLParser
 import logging
 import os
 import re
-import ipaddress
 import time
 from dataclasses import dataclass, field
 from typing import Callable
 from urllib.parse import urlsplit
+
+from shared.source_urls import image_url as _image_url
 import xml.etree.ElementTree as ET
 
 import httpx
@@ -159,22 +160,6 @@ def _safe_url(raw: str | None) -> str:
     except ValueError:
         return ""
     return raw.strip() if url.scheme in ("http", "https") and url.hostname and not url.username and not url.password else ""
-
-
-def _image_url(raw: str | None) -> str:
-    value = _safe_url(raw)
-    if not value:
-        return ""
-    url = urlsplit(value)
-    host = url.hostname.lower()
-    if url.scheme != "https" or host == "localhost" or host.endswith((".localhost", ".local")) or "." not in host:
-        return ""
-    try:
-        if not ipaddress.ip_address(host).is_global:
-            return ""
-    except ValueError:
-        pass
-    return value
 
 
 class _SafeHTML(HTMLParser):
@@ -397,12 +382,18 @@ def _markup(node, *, omit_cards=False, preserve_provider_attrs=False):
     return f"<{node.tag}{attrs}>" + ("" if node.tag in _SafeHTML._void else content + f"</{node.tag}>")
 
 
-def _content(node):
+def _content(node: _Node, *, inline: bool = False) -> list:
+    if (node.classes & {"FuturisFootnoteGroup", "FuturisFootnote"}
+            or inline and node.attrs.get("data-xid", "").startswith("aim-aside")):
+        sources = list(dict.fromkeys(link.attrs["href"] for link in _walk(node)
+                                     if link.tag == "a" and link.attrs.get("href")))
+        return [{"tag": "citation", "children": [], "sources": sources}] if sources else []
     if _card(node):
         return []
     children = []
+    inline = inline or node.tag in {"p", "li", "td", "th", "h1", "h2", "h3", "h4", "h5", "h6"}
     for child in node.children:
-        children.extend([child] if isinstance(child, str) else _content(child))
+        children.extend([child] if isinstance(child, str) else _content(child, inline=inline))
     if not node.tag:
         return children
     return [{"tag": node.tag, "children": children, **({"href": node.attrs["href"]} if node.attrs.get("href") else {})}]
@@ -454,6 +445,20 @@ def evidence(markup: str | None, cards: list[tuple[str, str, str]], service_id: 
                 source_cards.append({"title": text, "text": "", "url": ""})
         for link in links:
             item = {"title": _plain(link), "text": _plain(node), "url": _safe_url(link.attrs["href"])}
+            if service_id == "google_aio":
+                if len(links) > 1:
+                    item["text"] = ""
+                photo_scope = node if len(links) == 1 else link
+                photo = next((photo for child in _walk(photo_scope) if child.tag == "img"
+                              and (photo := _image_url(child.attrs.get("src")))), "")
+                if photo:
+                    item["image_url"] = photo
+            elif service_id == "yandex_neuro":
+                icon_scope = node if len(links) == 1 else link
+                icon = next((icon for child in _walk(icon_scope) if child.tag == "img"
+                             and (icon := _image_url(child.attrs.get("src")))), "")
+                if icon:
+                    item["favicon"] = icon
             if item not in source_cards:
                 source_cards.append(item)
     sources = list(dict.fromkeys(filter(None, [_safe_url(n.attrs.get("href")) for n in _walk(root) if n.tag == "a"] +

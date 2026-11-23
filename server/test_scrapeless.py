@@ -26,6 +26,8 @@ def test_exact_actor_and_no_shopping(monkeypatch, service):
             assert data["input"]["web_search"] is True
         if service != "perplexity":
             assert data["input"]["shopping"] is False
+        else:
+            assert "shopping" not in data["input"]
         return httpx.Response(201, json={"task_id": "task-123"})
     async def scenario():
         async with scrapeless.ScrapelessClient(transport=httpx.MockTransport(handle)) as client:
@@ -1136,3 +1138,16 @@ def test_durable_cooldown_still_drains_submitted_handle(tmp_path, monkeypatch):
     assert supplier.posts == [] and supplier.gets == ["keep-polling"]
     with sessions() as db:
         assert db.get(ProviderTask, task.check_id).state == "completed"
+
+
+def test_preserves_citation_metadata_and_ignores_shopping_data():
+    result = scrapeless.evidence({
+        "result_text": "Сравнение",
+        "links": ["https://publisher.test/page"],
+        "content_references": [{"url": "https://publisher.test/page", "attribution": "Издание",
+            "favicon": "https://publisher.test:invalid/icon.png"}],
+        "products": [{"title": "ESTUS", "url": "https://brand.test/estus"}],
+    })
+    assert result["products"] == []
+    assert result["source_cards"] == [{"url": "https://publisher.test/page", "title": "", "text": "",
+        "name": "Издание"}]

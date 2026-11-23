@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from shared.errors import AdapterError
+from shared.source_urls import image_url
 
 SERVICES = {"chatgpt", "perplexity", "gemini"}
 BASE = "https://api.scrapeless.com/api/v2/scraper"
@@ -61,13 +62,13 @@ def safe_url(value):
     return None
 
 
-def evidence(result):
+def evidence(result: object) -> dict:
     if not isinstance(result, dict) or not isinstance(result.get("result_text"), str) or not result["result_text"].strip():
         raise IncompleteAnswer("Сервис сбора вернул пустой или неполный ответ")
     text = result["result_text"]
     if len(text) > 60000:
         raise CollectionDeferred("Ответ превышает допустимый размер; требуется проверка администратора")
-    sources, cards = [], []
+    sources, cards = [], {}
 
     def add(value):
         if isinstance(value, str):
@@ -78,10 +79,23 @@ def evidence(result):
             snippet = value.get("snippet") or ""
         else:
             return
-        if url and url not in sources and len(sources) < 50:
+        if not url:
+            return
+        first = url not in sources
+        if first:
+            if len(sources) >= 50:
+                return
             sources.append(url)
-            if isinstance(title, str) and isinstance(snippet, str) and (title or snippet):
-                cards.append({"url": url, "title": title[:2000], "text": snippet[:4000]})
+        if isinstance(value, dict):
+            name = value.get("website_name") or value.get("attribution")
+            favicon = image_url(value.get("favicon"))
+            if first and isinstance(title, str) and isinstance(snippet, str) and (title or snippet):
+                cards[url] = {"url": url, "title": title[:2000], "text": snippet[:4000]}
+            for field, copy, limit in (("name", name, 200), ("favicon", favicon, 2000)):
+                if isinstance(copy, str) and copy.strip():
+                    card = cards.setdefault(url, {"url": url, "title": "", "text": ""})
+                    if not card.get(field):
+                        card[field] = copy.strip()[:limit]
 
     for field in ("links", "search_result", "content_references", "web_results", "citations"):
         values = result.get(field)
@@ -94,7 +108,8 @@ def evidence(result):
             value = value[:-1]
         add(value)
     return {"shown": True, "main_text": text, "answer_text": text, "cards_text": "",
-        "format": "markdown", "content": [text], "products": [], "source_cards": cards, "sources": sources}
+        "format": "markdown", "content": [text], "products": [],
+        "source_cards": list(cards.values()), "sources": sources}
 
 
 class ScrapelessClient:

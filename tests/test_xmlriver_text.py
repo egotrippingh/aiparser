@@ -17,8 +17,8 @@ def payload(service, html, cards=""):
 
 
 def test_yandex_products_have_real_photos_and_stay_separate_from_prose():
-    html = """<div class='FuturisMarkdown'><h2>Выбор</h2><p>Полезный совет.</p>
-      <span class='FuturisFootnoteGroup'><a href='https://source.test'>Источник</a></span></div>
+    html = """<div class='FuturisMarkdown'><h2>Выбор</h2><p>Полезный совет.
+      <span class='FuturisFootnoteGroup'><a href='https://source.test'>Источник</a></span></p></div>
       <div class='EProductSnippet'><a href='https://shop.test/tuvio'><div class='EProductSnippet-Title'>Tuvio пылесос</div>
       <span class='EProductSnippet-Thumb' aria-hidden='true'><img class='EThumb-Image' aria-hidden='true' src='https://yastatic.net/photo.jpg' onerror='bad()'></span><span class='EPrice-Value'>23 455</span></a></div>"""
     markup, cards = xmlriver._parse_xml(payload("yandex_neuro", html), "yandex_neuro", include_images=True)
@@ -30,20 +30,26 @@ def test_yandex_products_have_real_photos_and_stay_separate_from_prose():
     verdict = evaluate(result["main_text"], result["sources"], "Tuvio", [], [], card_text=result["cards_text"])
     assert verdict.found and "card" in verdict.mention_types and "text" not in verdict.mention_types
     assert result["content"][0]["tag"] == "div"
+    paragraph = result["content"][0]["children"][-1]
+    assert paragraph == {"tag": "p", "children": ["Полезный совет.\n      ",
+        {"tag": "citation", "children": [], "sources": ["https://source.test"]}]}
 
 
 def test_google_prose_scope_sources_and_lazy_images_are_safe():
     html = """<div>Другой бренд из обычной выдачи</div><div id='m-x-content'>
       <div class='mZJni'><p>Основной ответ <a href='https://brand.test'>официальный сайт</a>.</p></div>
       <aside data-xid='aim-aside-1'><a href='https://source.test'>Источник Brand</a>
-      <img src='data:image/gif;base64,x' data-src='https://images.test/photo.jpg'></aside></div>
+      <img src='data:image/gif;base64,x' data-src='https://images.test/photo.jpg'>
+      <img src='https://images.test:65536/invalid.jpg'></aside></div>
       <script>bad()</script>"""
     markup, cards = xmlriver._parse_xml(payload("google_aio", html, "<item><title>Другой источник</title><url>https://more.test</url></item>"), "google_aio", include_images=True)
     result = xmlriver.evidence(markup, cards, "google_aio")
     assert "Другой бренд" not in result["answer_text"]
     assert result["sources"] == ["https://brand.test", "https://source.test", "https://more.test"]
     assert len(result["source_cards"]) == 2 and result["products"] == []
+    assert result["source_cards"][1]["image_url"] == "https://images.test/photo.jpg"
     assert "data:" not in markup and 'src="https://images.test/photo.jpg"' in markup
+    assert "invalid.jpg" not in markup
 
 
 @pytest.mark.parametrize("url", ["javascript:alert(1)", "data:image/svg+xml,bad", "http://images.test/photo", "https://127.0.0.1/photo", "https://169.254.169.254/photo", "https://localhost/photo", "https://user:secret@images.test/photo"])
@@ -326,3 +332,15 @@ def test_account_limits_fail_closed_when_api_is_unavailable(monkeypatch):
     monkeypatch.setattr(httpx, 'AsyncClient', lambda **kw: original(transport=httpx.MockTransport(
         lambda request: httpx.Response(503)), **kw))
     assert asyncio.run(xmlriver.account_limits()) == {'google_aio': 1, 'yandex_neuro': 1}
+
+
+def test_google_inline_citation_group_preserves_sources_without_inventing_snippets():
+    html = """<div id="m-x-content"><div class="mZJni"><p>Вывод.
+      <span data-xid="aim-aside-inline"><a href="https://first.test">Первый</a>
+      <a href="https://second.test">Второй</a></span></p></div></div>"""
+    markup, cards = xmlriver._parse_xml(payload("google_aio", html), "google_aio", include_images=True)
+    result = xmlriver.evidence(markup, cards, "google_aio")
+    assert result["main_text"] == "Вывод."
+    citation = result["content"][0]["children"][0]["children"][-1]
+    assert citation == {"tag": "citation", "children": [], "sources": ["https://first.test", "https://second.test"]}
+    assert [card["text"] for card in result["source_cards"]] == ["", ""]

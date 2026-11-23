@@ -98,9 +98,8 @@ it("uses one dialog shell and chips only for sources that are not already linked
   expect(html).toContain('class="source-preview"')
   expect(html).toContain("Клиника без ссылки")
   expect(html).toContain("sever.example")
-  const chips = html.match(/<a [^>]*class="source-chip"/g) || []
-  expect(chips).toHaveLength(1)
-  expect(chips[0]).toContain("https://sever.example/tort")
+  expect(html).toContain('aria-label="Источник: sever.example"')
+  expect(html).not.toContain('aria-label="Источник: retsept.example"')
   expect(html).not.toContain("Сохранённый ответ")
 })
 
@@ -117,4 +116,25 @@ it("keeps unusable image URLs out of the browser and accents matching source dom
   const html=renderToStaticMarkup(<HighlightedSources brand={brand} sources={["https://tuvio.test/product","https://source.test","javascript:bad()"]}/> )
   expect(html).toContain('class="answer-brand-link"')
   expect(html).not.toContain('javascript:')
+})
+
+it.each(["yandex_neuro", "google_aio", "gemini", "perplexity", "chatgpt"])("renders grouped saved citations in %s and preserves prose links", (service) => {
+  const text = "Сводка. ([One][1], [Two][2]) ([сайт производителя](https://factory.test)).\n\n[1]: https://one.test/page\n[2]: https://two.test/page"
+  const html = renderToStaticMarkup(<AnswerDialog service={service} scanDate="" status="found" originalStatus="found" query="Сравнение" answer={text} sources={["https://one.test/page", "https://two.test/page", "https://factory.test"]} onClose={() => {}}/>)
+  expect(html).toContain('data-citation-service="' + service + '"')
+  expect(html).toContain('class="answer-citation')
+  expect(html).toContain('href="https://factory.test/"')
+  expect(html).not.toContain("[One][1]")
+  if (service !== "yandex_neuro") expect(html).toContain(service === "gemini" ? "ещё 1</span>" : "+1")
+  if (["yandex_neuro", "perplexity"].includes(service)) expect(html).toContain("Источники")
+})
+
+it("renders ChatGPT products as comparison rows with saved descriptions and without an empty shopping block", () => {
+  const evidence = { format: "markdown" as const, answer_text: "Сравнение", content: [], products: [{ title: "ESTUS", url: "https://brand.test/estus", image_url: "https://images.test/estus.jpg", price: "", description: "Модульный комплекс" }], source_cards: [] }
+  const render = (data: typeof evidence) => renderToStaticMarkup(<AnswerEvidenceView evidence={data} service="chatgpt"/>)
+  const html = render(evidence)
+  expect(html).toContain("answer-comparison")
+  expect(html).toContain("Модульный комплекс")
+  expect(html).toContain('src="https://images.test/estus.jpg"')
+  expect(render({ ...evidence, products: [] })).not.toContain("answer-comparison")
 })

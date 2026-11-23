@@ -1,4 +1,6 @@
-import { Fragment, createContext, isValidElement, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react"
+import { Fragment, createContext, isValidElement, useContext, useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react"
+import { Popover } from "@base-ui/react/popover"
+import { ArrowUpRight, ChevronLeft, ChevronRight } from "lucide-react"
 import { toUnicode } from "punycode/"
 import { publicError } from "../lib/public-error"
 import { highlightedText, brandLink, type BrandHighlight } from "./brand-highlight"
@@ -64,7 +66,8 @@ function readableUrlPart(value: string) {
   try { return decodeURIComponent(value) } catch { return value }
 }
 
-export type AnswerSourceCard = { title: string; text: string }
+export type AnswerSourceCard = { title: string; text: string; name?: string; favicon?: string; image_url?: string }
+export const CitationContext = createContext<{ service: string; container: RefObject<HTMLDivElement | null> } | null>(null)
 export const AnswerSourceContext = createContext<ReturnType<typeof sourceCardLookup> | null>(null)
 
 function sourceCardKey(url: URL) {
@@ -75,13 +78,19 @@ function sourceCardKey(url: URL) {
   return key.href
 }
 
-export function sourceCardLookup(cards: { title?: string; text?: string; url?: string }[]) {
+export function sourceCardLookup(cards: (Partial<AnswerSourceCard> & { url?: string })[]) {
   const exact = new Map<string, AnswerSourceCard>()
   const aliases = new Map<string, string | null>()
   for (const card of cards) {
     const url = safeUrl(card.url || "")
     if (!url) continue
-    exact.set(url.href, { title: card.title || "", text: card.text || "" })
+    const previousCard = exact.get(url.href)
+    exact.set(url.href, {
+      title: previousCard?.title || card.title || "", text: previousCard?.text || card.text || "",
+      ...(previousCard?.name || card.name ? { name: previousCard?.name || card.name } : {}),
+      ...(previousCard?.favicon || card.favicon ? { favicon: previousCard?.favicon || card.favicon } : {}),
+      ...(previousCard?.image_url || card.image_url ? { image_url: previousCard?.image_url || card.image_url } : {}),
+    })
     const key = sourceCardKey(url)
     const previous = aliases.get(key)
     aliases.set(key, previous === undefined || previous === url.href ? url.href : null)
@@ -123,6 +132,83 @@ export function chipLabel(href: string, group: string[]) {
   return host + (url.pathname === "/" && !url.search ? "" : url.pathname + url.search)
 }
 
+export function safeAnswerImage(value: string) {
+  const url = safeUrl(value)
+  if (!url || url.protocol !== "https:") return ""
+  const host = url.hostname.replace(/\.$/, "")
+  return host.includes(".") && !host.endsWith(".local") && !host.endsWith(".localhost")
+    && !/^(?:\d{1,3}\.){3}\d{1,3}$/.test(host) ? url.href : ""
+}
+
+export function SourceIcon({ href, favicon }: { href: string; favicon?: string }) {
+  const src = safeAnswerImage(favicon || "")
+  const [failed, setFailed] = useState("")
+  return <span className="answer-source-icon" aria-hidden="true">{src && src !== failed
+    ? <img src={src} alt="" width={14} height={14} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(src)}/>
+    : sourceHost(href).slice(0, 1).toUpperCase()}</span>
+}
+
+export function CitationGroup({ sources, brand }: { sources: string[]; brand?: BrandHighlight }) {
+  const context = useContext(CitationContext)
+  const lookup = useContext(AnswerSourceContext)
+  const [page, setPage] = useState(0)
+  const values = sourcesOf(sources).map(href => {
+    const card = lookup?.(new URL(href))
+    return { href, card, copy: sourcePreviewCopy(href, card)!, branded: brandLink(href, brand) }
+  })
+  const first = values[0]
+  if (!first) return null
+  if (!context || context.service === "yandex_neuro") {
+    return <span className="answer-citation-links">{values.map(({ href, card, copy, branded }) =>
+      <a key={href} className={branded ? "answer-citation answer-citation--brand" : "answer-citation"} href={href} aria-label={sourceLabel(href)} title={sourceLabel(href)} target="_blank" rel="noopener noreferrer">
+        <SourceIcon href={href} favicon={card?.favicon}/><span className="answer-citation__label">{copy.host}</span>
+      </a>)}</span>
+  }
+  const { service, container } = context
+  const paged = service === "perplexity"
+  const name = first.card?.name || first.copy.host
+  const triggerLabel = values.length === 1 ? "Источник: "+name : "Источники: "+name+" и ещё "+(values.length-1)
+  const extra = values.length - 1
+  const entries = paged ? values.slice(page, page + 1) : values
+  return <Popover.Root onOpenChange={open => { if (open) setPage(0) }}>
+    <Popover.Trigger openOnHover delay={140} closeDelay={180} aria-label={triggerLabel}
+      className={values.some(value => value.branded) ? "answer-citation answer-citation--brand" : "answer-citation"}>
+      {service !== "gemini" && service !== "perplexity" && <SourceIcon href={first.href} favicon={first.card?.favicon}/>}
+      <span className="answer-citation__label">{name}</span>
+      {extra > 0 && <span className="answer-citation__count">{service === "gemini" ? "ещё " : "+"}{extra}</span>}
+    </Popover.Trigger>
+    <Popover.Portal container={container}>
+      <Popover.Positioner align="start" sideOffset={7} positionMethod="fixed" collisionPadding={12} className="answer-citation-position">
+        <Popover.Popup className="answer-citation-popup" data-service={service} aria-label="Источники" initialFocus={false}>
+          {paged && values.length > 1 && <div className="answer-citation-navigation">
+            <button type="button" aria-label="Предыдущий источник" disabled={page === 0} onClick={() => setPage(page - 1)}><ChevronLeft size={16}/></button>
+            <span aria-live="polite">{page + 1}/{values.length}</span>
+            <button type="button" aria-label="Следующий источник" disabled={page === extra} onClick={() => setPage(page + 1)}><ChevronRight size={16}/></button>
+          </div>}
+          <ul className="answer-citation-results">
+            {entries.map(({ href, card, copy, branded }) =>
+              <li key={href}><a href={href} className={branded ? "answer-citation-result answer-citation--brand" : "answer-citation-result"} target="_blank" rel="noopener noreferrer">
+                <span>
+                  <span className="answer-citation-result__host"><SourceIcon href={href} favicon={card?.favicon}/>{card?.name || copy.host}</span>
+                  {copy.title && <strong className="answer-citation-result__title">{highlightedText(copy.title, brand)}</strong>}
+                  {copy.text && <span className="answer-citation-result__text">{highlightedText(copy.text, brand)}</span>}
+                </span>
+                {service === "google_aio" && card?.image_url && <SourceThumbnail href={card.image_url}/>}
+                <ArrowUpRight className="answer-citation-result__out" size={14} aria-hidden="true"/>
+              </a></li>)}
+          </ul>
+        </Popover.Popup>
+      </Popover.Positioner>
+    </Popover.Portal>
+  </Popover.Root>
+}
+
+function SourceThumbnail({ href }: { href: string }) {
+  const src = safeAnswerImage(href)
+  const [failed, setFailed] = useState(false)
+  return src && !failed && <img className="answer-citation-result__photo" src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)}/>
+}
+
 function plainText(node: ReactNode): string {
   if (node == null || typeof node === "boolean") return ""
   if (typeof node === "string" || typeof node === "number") return String(node)
@@ -142,7 +228,7 @@ function placeCard(anchor: HTMLElement) {
   return { top, left, width }
 }
 
-export function PreviewAnchor({ href, brand, label, chip = false, children }: { href: string; brand?: BrandHighlight; label?: string; chip?: boolean; children: ReactNode }) {
+export function PreviewAnchor({ href, brand, label, accessibleLabel, chip = false, children }: { href: string; brand?: BrandHighlight; label?: string; accessibleLabel?: string; chip?: boolean; children: ReactNode }) {
   const lookupCard = useContext(AnswerSourceContext)
   const link = useRef<HTMLAnchorElement>(null)
   const timer = useRef(0)
@@ -172,7 +258,7 @@ export function PreviewAnchor({ href, brand, label, chip = false, children }: { 
   }
   const hide = () => { timer.current = window.setTimeout(() => setPos(null), 120) }
   const dismiss = () => setPos(null)
-  const anchor = <a ref={link} href={url} className={className} target="_blank" rel="noopener noreferrer" aria-describedby={pos ? tip : undefined} onMouseEnter={copy ? show : undefined} onMouseLeave={copy ? hide : undefined} onFocus={copy ? show : undefined} onBlur={copy ? dismiss : undefined} onKeyDown={copy ? event => { if (event.key === "Escape") dismiss() } : undefined}>{children}</a>
+  const anchor = <a ref={link} href={url} className={className} target="_blank" rel="noopener noreferrer" aria-label={accessibleLabel} aria-describedby={pos ? tip : undefined} onMouseEnter={copy ? show : undefined} onMouseLeave={copy ? hide : undefined} onFocus={copy ? show : undefined} onBlur={copy ? dismiss : undefined} onKeyDown={copy ? event => { if (event.key === "Escape") dismiss() } : undefined}>{children}</a>
   if (!copy) return anchor
   return <span className={chip ? "source-preview source-preview--chip" : "source-preview"} onMouseEnter={show} onMouseLeave={hide}><>{anchor}{pos && <span className="source-preview__card" id={tip} role="tooltip" style={{ top: pos.top, left: pos.left, width: pos.width }}><span className="source-preview__host"><span className="source-preview__mark" aria-hidden="true">{copy.host.slice(0, 1).toUpperCase()}</span>{branded ? <mark className="answer-brand">{copy.host}</mark> : copy.host}</span>{copy.title && <span className="source-preview__title">{highlightedText(copy.title, brand)}</span>}{copy.text && <span className="source-preview__text">{highlightedText(copy.text, brand)}</span>}</span>}</></span>
 }
@@ -220,7 +306,7 @@ function inlineCode(text: string, index: number) {
   return end < 0 ? null : { value: text.slice(start, end).replace(/\\([\\`])/g, "$1"), end: end + ticks.length }
 }
 
-type ParsedLink = { label: string; url: URL; end: number }
+type ParsedLink = { label: string; url: URL; end: number; reference?: string; explicit?: boolean }
 
 function parsedLink(text: string, index: number, references: References, saved: URL[]): ParsedLink | null {
   const rest = text.slice(index)
@@ -240,13 +326,14 @@ function parsedLink(text: string, index: number, references: References, saved: 
       if (!depth) href = text.slice(start, end - 1)
     }
     const url = safeUrl(href)
-    if (url) return { label: label[1].replace(/\\([\\[\]])/g, "$1"), url, end }
+    if (url) return { label: label[1].replace(/\\([\\[\]])/g, "$1"), url, end, explicit: true }
     return null
   }
   const reference = rest.match(/^\[([^\]]+)\](?:\[([^\]]*)\])?/)
   if (reference) {
-    const url = safeUrl(references.get(refKey(reference[2] || reference[1])) || "")
-    if (url) return { label: reference[1], url, end: index + reference[0].length }
+    const key = refKey(reference[2] || reference[1])
+    const url = safeUrl(references.get(key) || "")
+    if (url) return { label: reference[1], url, end: index + reference[0].length, reference: key, explicit: true }
   }
   if (/^[\w.+-]+@[\w.-]+/.test(rest)) return null
   const direct = rest.match(/^https?:\/\/[^\s<>]+/i)
@@ -283,7 +370,44 @@ function linkTargets(text: string, references: References, saved: URL[]) {
   return targets
 }
 
-function linkedText(text: string, sources: string[], references: References, bold = true, brand?: BrandHighlight) {
+function citationAt(text: string, start: number, references: References, saved: URL[]) {
+  const read = (from: number) => {
+    const wrapped = text[from] === "("
+    let index = from + Number(wrapped)
+    const sources: string[] = []
+    do {
+      if (text[index] !== "[") return null
+      const link = parsedLink(text, index, references, saved)
+      if (!link?.explicit) return null
+      const numericReference = /^\d+$/.test(link.reference || "")
+      const domainLabel = link.label.replace(/^www\./i, "").toLowerCase() === sourceHost(link.url.href).toLowerCase()
+      if (!(numericReference && (wrapped || /^\d+$/.test(link.label))) &&
+          !(domainLabel && saved.some(source => source.href === link.url.href))) return null
+      sources.push(link.url.href)
+      index = link.end
+      if (!wrapped) return { sources, end: index }
+      const separator = text.slice(index).match(/^[ \t]*(?:[,;][ \t]*|(?=\[))/)?.[0]
+      if (separator === undefined) break
+      index += separator.length
+    } while (sources.length < 50)
+    const closing = text.slice(index).match(/^[ \t]*\)/)
+    return closing ? { sources, end: index + closing[0].length } : null
+  }
+  const first = read(start)
+  if (!first) return null
+  let { end } = first
+  const { sources } = first
+  while (sources.length < 50) {
+    const gap = text.slice(end).match(/^[ \t]*/)?.[0].length || 0
+    const next = read(end + gap)
+    if (!next) break
+    sources.push(...next.sources)
+    end = next.end
+  }
+  return { sources, end }
+}
+
+function linkedText(text: string, sources: string[], references: References, bold = true, brand?: BrandHighlight, citations = false) {
   const saved = sourcesOf(sources).map(value => new URL(value)), output: ReactNode[] = []
   let index = 0, plain = ""
   const flush = () => { if (plain) { output.push(highlightedText(plain, brand)); plain = "" } }
@@ -300,7 +424,7 @@ function linkedText(text: string, sources: string[], references: References, bol
       }
       if (end > index + 2 && text.startsWith("**", end)) {
         flush()
-        output.push(<strong key={output.length}>{linkedText(text.slice(index + 2, end), sources, references, false, brand)}</strong>)
+        output.push(<strong key={output.length}>{linkedText(text.slice(index + 2, end), sources, references, false, brand, citations)}</strong>)
         index = end + 2; continue
       }
     }
@@ -311,6 +435,12 @@ function linkedText(text: string, sources: string[], references: References, bol
         output.push(<code key={output.length}>{code.value}</code>)
         index = code.end; continue
       }
+    }
+    const citation = citations && (rest[0] === "(" || rest[0] === "[") && citationAt(text, index, references, saved)
+    if (citation) {
+      flush()
+      output.push(<CitationGroup key={output.length} sources={citation.sources} brand={brand}/>)
+      index = citation.end; continue
     }
     const parsed = parsedLink(text, index, references, saved)
     if (parsed) { link(parsed.label, parsed.url); index = parsed.end; continue }
@@ -342,7 +472,8 @@ function tableCells(line: string) {
   return cells
 }
 
-function blocks(text: string, sources: string[], references: References, brand?: BrandHighlight) {
+function blocks(text: string, sources: string[], references: References, brand: BrandHighlight | undefined, citations: boolean) {
+  const inline = (line: string) => linkedText(line, sources, references, true, brand, citations)
   const lines = text.replace(/\r\n?/g, "\n").split("\n"), output: ReactNode[] = []
   let index = 0, key = 0, cleaned = false
   // ponytail: only standalone source counters; ambiguous inline +N stays literal.
@@ -366,7 +497,7 @@ function blocks(text: string, sources: string[], references: References, brand?:
   }
   const table = (data: NonNullable<ReturnType<typeof tableAt>>) => {
     index = data.end
-    return <div key={key++} className="answer-table-scroll" role="region" aria-label="Таблица ответа" tabIndex={0}><table className="answer-table">{data.headers.some(Boolean) && <thead><tr>{data.headers.map((cell, i) => <th key={i} scope="col" style={{textAlign:data.alignment[i]}}>{linkedText(cell, sources, references, true, brand)}</th>)}</tr></thead>}<tbody>{data.rows.map((row, r) => <tr key={r}>{row.map((cell, i) => <td key={i} style={{textAlign:data.alignment[i]}}>{linkedText(cell, sources, references, true, brand)}</td>)}</tr>)}</tbody></table></div>
+    return <div key={key++} className="answer-table-scroll" role="region" aria-label="Таблица ответа" tabIndex={0}><table className="answer-table">{data.headers.some(Boolean) && <thead><tr>{data.headers.map((cell, i) => <th key={i} scope="col" style={{textAlign:data.alignment[i]}}>{inline(cell)}</th>)}</tr></thead>}<tbody>{data.rows.map((row, r) => <tr key={r}>{row.map((cell, i) => <td key={i} style={{textAlign:data.alignment[i]}}>{inline(cell)}</td>)}</tr>)}</tbody></table></div>
   }
   const list = (indent: number, ordered: boolean): ReactNode => {
     const items: ReactNode[] = [], first = parseInt(listItem(lines[index])![2])
@@ -374,7 +505,7 @@ function blocks(text: string, sources: string[], references: References, brand?:
       const item = listItem(lines[index])
       if (!item || item[1].length !== indent || /^\d/.test(item[2]) !== ordered) break
       index++
-      const content: ReactNode[] = [<Fragment key="text">{linkedText(item[3] || "", sources, references, true, brand)}</Fragment>]
+      const content: ReactNode[] = [<Fragment key="text">{inline(item[3] || "")}</Fragment>]
       while (index < lines.length) {
         if (sourceCounter(lines[index])) { cleaned = true; index++; continue }
         if (!lines[index].trim()) {
@@ -396,7 +527,7 @@ function blocks(text: string, sources: string[], references: References, brand?:
         const nestedTable = lines[index].startsWith(" ".repeat(indent + 2)) && tableAt(index)
         if (nestedTable) { content.push(table(nestedTable)); continue }
         if (!child && lines[index].startsWith(" ".repeat(indent + 2))) {
-          content.push(<Fragment key={content.length}><br/>{linkedText(lines[index++].slice(indent + 2), sources, references, true, brand)}</Fragment>); continue
+          content.push(<Fragment key={content.length}><br/>{inline(lines[index++].slice(indent + 2))}</Fragment>); continue
         }
         break
       }
@@ -420,13 +551,13 @@ function blocks(text: string, sources: string[], references: References, brand?:
     const heading = lines[index].match(/^(#{1,6})\s+(.*)$/)
     if (heading) {
       const Tag = `h${heading[1].length}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
-      output.push(<Tag key={key++}>{linkedText(heading[2], sources, references, true, brand)}</Tag>); index++; continue
+      output.push(<Tag key={key++}>{inline(heading[2])}</Tag>); index++; continue
     }
     const item = listItem(lines[index])
     if (item) { output.push(list(item[1].length, /^\d/.test(item[2]))); continue }
     const paragraph: string[] = []
     while (index < lines.length && lines[index].trim() && lines[index].trim() !== "•" && !sourceCounter(lines[index]) && !/^#{1,6}\s+/.test(lines[index]) && !fenceOpen(lines[index]) && !listItem(lines[index]) && !tableAt(index)) paragraph.push(lines[index++])
-    output.push(<p key={key++}>{paragraph.map((line, i) => <Fragment key={i}>{i > 0 && <br/>}{linkedText(line, sources, references, true, brand)}</Fragment>)}</p>)
+    output.push(<p key={key++}>{paragraph.map((line, i) => <Fragment key={i}>{i > 0 && <br/>}{inline(line)}</Fragment>)}</p>)
   }
   return { output, cleaned }
 }
@@ -434,7 +565,8 @@ function blocks(text: string, sources: string[], references: References, brand?:
 export function AnswerContent({ text, service, sources = [], brand }: { text: string; service?: string; sources?: string[]; brand?: BrandHighlight }) {
   const fixed = service === "chatgpt" ? cleanChatGPTMap(text) : { text, changed: false }
   const display = displayText(fixed.text, service, sources)
-  const parsed = markdown(display.text), rendered = blocks(parsed.text, sources, parsed.references, brand)
+  const citations = Boolean(useContext(CitationContext))
+  const parsed = markdown(display.text), rendered = blocks(parsed.text, sources, parsed.references, brand, citations)
   return <div className="answer-content">{rendered.output}{(fixed.changed || display.text !== fixed.text || rendered.cleaned) && <details className="answer-original"><summary>Исходный текст</summary><pre>{text}</pre></details>}</div>
 }
 

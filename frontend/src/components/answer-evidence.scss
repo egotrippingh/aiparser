@@ -44,3 +44,193 @@ a.source-chip.answer-brand-link .source-chip__mark{background:var(--air-brand-me
 a.source-chip:focus-visible{outline:2px solid var(--air-accent);outline-offset:3px}
 @media(max-width:600px){.answer-product-rail>li{flex-basis:190px}.answer-evidence .answer-content{font-size:14px}.answer-dialog .answer-evidence .answer-content,.answer-dialog .report-answer>.answer-content{font-size:15px}.report-detail .answer-dialog__query{font-size:20px}}
 @media(prefers-reduced-motion:reduce){.answer-product-rail{scroll-behavior:auto}}
+
+.answer-source-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--air-selected);
+  color: var(--air-accent);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+.answer-source-icon img { width: 100%; height: 100%; object-fit: contain; }
+
+.answer-citation-links { display: inline; }
+.answer-dialog .answer-content .answer-citation,
+.answer-citation {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: baseline;
+  max-width: min(100%, 15rem);
+  min-height: 21px;
+  margin-inline: 3px;
+  padding: 1px 7px;
+  gap: 4px;
+  border: 1px solid var(--air-line);
+  border-radius: 999px;
+  background: var(--air-raised);
+  color: var(--air-text);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.answer-citation__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.answer-citation__count { flex: none; color: var(--air-muted); }
+.answer-dialog .answer-citation:is(:hover, [aria-expanded=true]) {
+  color: var(--air-text);
+  background: var(--air-selected);
+  text-decoration: none;
+}
+.answer-dialog .answer-citation.answer-citation--brand {
+  border-color: var(--air-brand-mention);
+  background: var(--air-brand-mention-bg);
+  color: var(--air-brand-mention);
+}
+.answer-citation:focus-visible,
+.answer-citation-popup :is(a, button):focus-visible {
+  outline: 2px solid var(--air-accent);
+  outline-offset: 2px;
+}
+[data-citation-service="yandex_neuro"] .answer-content .answer-citation {
+  margin-inline: 0 4px;
+  padding-inline: 4px 7px;
+}
+[data-citation-service="yandex_neuro"] .answer-content .answer-citation .answer-source-icon { border-radius: 50%; }
+[data-citation-service="gemini"] .answer-content .answer-citation:not(.answer-citation--brand) { border-color: transparent; }
+[data-citation-service="perplexity"] .answer-content .answer-citation {
+  border-radius: 6px;
+  padding-inline: 6px;
+}
+
+.answer-citation-position {
+  z-index: 45;
+  width: min(340px, var(--available-width, calc(100vw - 24px)));
+}
+.answer-citation-position[data-anchor-hidden] { visibility: hidden; }
+.answer-citation-popup {
+  max-height: min(320px, var(--available-height, 50dvh));
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--air-line-strong);
+  border-radius: 14px;
+  background: var(--air-panel);
+  color: var(--air-text);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .35);
+  outline: none;
+}
+.answer-citation-popup[data-service="google_aio"] { border-top: 2px solid var(--air-accent); }
+.answer-citation-popup[data-service="perplexity"] { border-radius: 10px; }
+.answer-citation-navigation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--air-line);
+  color: var(--air-muted);
+  font-size: 12px;
+}
+.answer-citation-navigation button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--air-text);
+}
+.answer-citation-navigation button:hover:not(:disabled) { background: var(--air-selected); }
+.answer-citation-navigation button:disabled { opacity: .38; cursor: default; }
+.answer-citation-results { margin: 0; padding: 5px; list-style: none; }
+.answer-citation-results li + li { border-top: 1px solid var(--air-line); }
+.answer-dialog a.answer-citation-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  color: var(--air-text);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.answer-dialog a.answer-citation-result:has(.answer-citation-result__photo) { grid-template-columns: minmax(0, 1fr) auto auto; }
+.answer-dialog a.answer-citation-result:is(:hover, :focus-visible) { background: var(--air-raised); color: var(--air-text); }
+.answer-citation-result__host {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--air-muted);
+}
+.answer-citation-result.answer-citation--brand .answer-citation-result__host { color: var(--air-brand-mention); }
+.answer-citation-result__title {
+  display: block;
+  margin-top: 5px;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.answer-citation-result__text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--air-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.answer-citation-result__photo {
+  width: 58px;
+  height: 58px;
+  align-self: center;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.answer-citation-result__out { color: var(--air-muted); }
+
+.answer-comparison { margin-block: 20px; }
+.answer-comparison ul {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+}
+.answer-comparison li {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px;
+  border: 1px solid var(--air-line);
+  border-radius: 10px;
+  background: var(--air-raised);
+  overflow-wrap: anywhere;
+}
+.answer-comparison li > :is(img, .answer-product-no-photo) {
+  width: clamp(64px, 17vw, 116px);
+  height: clamp(62px, 15vw, 94px);
+  flex: none;
+  border-radius: 7px;
+  object-fit: contain;
+  background: var(--air-panel);
+  text-align: center;
+}
+.answer-comparison li > div:last-child { min-width: 0; }
+.answer-comparison a { font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
+.answer-comparison p { margin: 3px 0 0; font-size: 14px; line-height: 1.5; }
+@media (pointer: coarse) {
+  .answer-dialog .answer-content .answer-citation { min-height: 30px; }
+  .answer-citation-navigation button { width: 44px; height: 44px; }
+}
