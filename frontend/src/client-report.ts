@@ -13,7 +13,12 @@ export const reportChartLine = "#333337"
 export const reportChartMuted = "#A4A2A9"
 export const reportChartIncrease = "#18845C"
 export const reportChartDecrease = "#FF5965"
+export const reportChangeColors = { up: reportChartIncrease, equal: reportChartMuted, down: reportChartDecrease }
+type Direction = keyof typeof reportChangeColors
 export const reportMetricCard = { width: 220, height: 76, gap: 10, radius: 12 }
+export type ReportMetric = { label: string; value: string; badge?: string }
+export type ServiceVisibility = { text: string; direction: Direction | null }
+export const serviceTableHeaders = ["Группа", "Запрос", "Видимость"]
 export const reportMetricFontSize = (value: string) => Math.min(23, Math.floor(240 / value.length))
 const green = "#207657"
 const red = "#BE483F"
@@ -25,8 +30,18 @@ const clean = (value: string) => value.replace(/[\s\p{Cc}\p{Cs}\uFFFE\uFFFF]+/gu
 
 type ReportFilters = { compare: boolean; group: string; search: string; cards: boolean; external: boolean; dateMode: string }
 type Input = Pick<Report, "date_from" | "date_to" | "dates" | "period_from" | "period_to" | "services" | "summary" | "rows" | "service_stats" | "timeline">
+type Cell = Report["rows"][number]["cells"][string][string]
+const mention = (cell: Cell | undefined) => cell && ["found", "not_found", "skipped"].includes(cell.status) ? cell.found : null
 
-export function clientReport(project: string, report: Input, filters: ReportFilters) {
+function serviceVisibility(previous: Cell | undefined, current: Cell | undefined): ServiceVisibility {
+  const before = mention(previous), after = mention(current)
+  if (after === null) return { text: "Нет данных", direction: null }
+  if (before === null) return { text: after ? "Есть упоминание" : "Нет упоминания", direction: null }
+  if (before === after) return { text: "Без изменений", direction: "equal" }
+  return after ? { text: "Появился", direction: "up" } : { text: "Исчез", direction: "down" }
+}
+
+export function clientReport(project: string, report: Input, filters: ReportFilters, details = report) {
   const from = filters.compare ? report.date_from : report.period_from
   const to = filters.compare ? report.date_to : report.period_to
   const comparison = from && to && from !== to ? [reportDate(from), reportDate(to)] as const : null
@@ -63,6 +78,14 @@ export function clientReport(project: string, report: Input, filters: ReportFilt
   })
   const increased = changes.filter(row => row.delta > 0).sort((a, b) => b.delta - a.delta)
   const decreased = changes.filter(row => row.delta < 0).sort((a, b) => a.delta - b.delta)
+  const comparable = changes.length + unchanged
+  const changeCards = comparison ? ([
+    { direction: "up", label: "Рост", count: increased.length },
+    { direction: "equal", label: "Без изменений", count: unchanged },
+    { direction: "down", label: "Снижение", count: decreased.length },
+  ] as const).map(({ count, ...card }) => ({
+    ...card, value: String(count), share: reportPercent(comparable ? count / comparable * 100 : null),
+  })) : []
   const period = report.date_from === report.date_to ? reportDate(report.date_from) :
     `${reportDate(report.date_from)} — ${reportDate(report.date_to)}`
   const filterNotes = [
@@ -72,6 +95,14 @@ export function clientReport(project: string, report: Input, filters: ReportFilt
     !filters.external && "Учитываются упоминания со ссылкой на домен бренда",
   ].filter(Boolean).join(" · ")
   const mode = filters.compare ? `Сравнение двух дат. Сводка за ${reportDate(report.date_to)}` : filters.dateMode
+  const detailFrom = filters.compare ? details.date_from : details.period_from
+  const detailTo = filters.compare ? details.date_to : details.period_to
+  const detailDates = [...new Set([detailFrom, detailTo])].filter(day => day !== null).map(reportDate).join(" — ")
+  const detailQueries = details.rows.map(({ group_tag, text, cells }) => ({
+    group: clean(group_tag) || "Без группы", query: clean(text),
+    previous: detailFrom && detailFrom !== detailTo ? cells[detailFrom] : undefined,
+    current: detailTo ? cells[detailTo] : undefined,
+  }))
   return {
     project: clean(project), period, mode, filterNotes, comparison, outcomes, services, total,
     dates: report.dates.map(reportDate),
@@ -80,9 +111,10 @@ export function clientReport(project: string, report: Input, filters: ReportFilt
       { label: "Ответы с упоминанием", value: `${found} / ${total}` },
       { label: "Запросов в отчёте", value: String(report.rows.length) },
     ],
-    changeSummary: comparison
-      ? `Рост — ${increased.length} · Снижение — ${decreased.length} · Без изменений — ${unchanged} · Недостаточно данных — ${unavailable}`
-      : report.rows.length ? "Для сравнения нужны проверки за две разные даты." : "В выбранном периоде нет запросов.",
+    changeCards,
+    changeNote: !report.rows.length ? "В выбранном периоде нет запросов." :
+      !comparison ? "Для сравнения нужны проверки за две разные даты." :
+        unavailable ? `Недостаточно данных — ${unavailable}` : "",
     tableHeaders: ["Группа", "Запрос", comparison?.[0] ?? "Было", comparison?.[1] ?? "Стало", "Изм., %"],
     tables: [
       { title: "Рост упоминаемости", empty: "Запросов с ростом нет.", color: green, rows: increased },
@@ -93,6 +125,12 @@ export function clientReport(project: string, report: Input, filters: ReportFilt
         row.group || "Без группы", row.query, reportPercent(row.from), reportPercent(row.to),
         `${reportSigned(row.delta)}%`,
       ]),
+    })),
+    detailDates,
+    serviceTables: details.services.map(id => ({
+      id, label: serviceName(id), icon: serviceIconUrl(id),
+      rows: detailQueries.map(({ group, query, previous, current }) =>
+        [group, query, serviceVisibility(previous?.[id], current?.[id])] as const),
     })),
   }
 }

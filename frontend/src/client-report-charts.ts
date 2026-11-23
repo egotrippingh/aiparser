@@ -1,6 +1,38 @@
-import { reportAccent, reportChartDecrease, reportChartIncrease, reportChartLine, reportChartMuted, reportPercent, reportSigned, reportSurface, reportTint, type ClientReport } from "./client-report"
+import { reportAccent, reportChangeColors, reportChartDecrease, reportChartIncrease, reportChartLine, reportChartMuted, reportPercent, reportSigned, reportSurface, reportTint, type ClientReport } from "./client-report"
 
-export const chartSize = { width: 680, height: 238 }
+export const chartSize = { width: 680, height: 260 }
+export const reportChangeBadgeSize = 14
+const servicePanelLeft = 344
+
+const changeMarks = {
+  up: "M7 10V4 M4 7L7 4L10 7",
+  equal: "M4 5.5H10 M4 8.5H10",
+  down: "M7 4V10 M4 7L7 10L10 7",
+}
+
+function changeBadge(direction: keyof typeof changeMarks) {
+  const canvas = document.createElement("canvas")
+  canvas.width = canvas.height = reportChangeBadgeSize * 4
+  const ctx = canvas.getContext("2d")
+  if (!ctx) throw new Error("Не удалось построить индикатор динамики")
+  ctx.scale(4, 4)
+  ctx.fillStyle = reportChangeColors[direction]
+  ctx.beginPath()
+  ctx.arc(7, 7, 7, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.lineWidth = 1.5
+  ctx.lineCap = "round"
+  ctx.lineJoin = "round"
+  ctx.strokeStyle = reportSurface
+  ctx.stroke(new Path2D(changeMarks[direction]))
+  return canvas.toDataURL("image/png")
+}
+
+function drawIcon(ctx: CanvasRenderingContext2D, icon: HTMLImageElement, x: number, y: number, size: number) {
+  const scale = size / Math.max(icon.naturalWidth, icon.naturalHeight)
+  const w = icon.naturalWidth * scale, h = icon.naturalHeight * scale
+  ctx.drawImage(icon, x - w / 2, y - h / 2, w, h)
+}
 
 export async function clientReportCharts(report: ClientReport) {
   const canvas = document.createElement("canvas")
@@ -11,12 +43,13 @@ export async function clientReportCharts(report: ClientReport) {
   const ctx = context
   ctx.scale(2, 2)
   ctx.textBaseline = "middle"
-  const icons = await Promise.all(report.services.map(async ({ icon }) => {
-    if (!icon) return null
+  const urls = new Map([...report.services, ...report.serviceTables].map(({ id, icon }) => [id, icon]))
+  const icons = new Map(await Promise.all([...urls].map(async ([id, url]) => {
+    if (!url) return [id, null] as const
     const image = new Image()
-    image.src = icon
-    return image.decode().then(() => image, () => null)
-  }))
+    image.src = url
+    return [id, await image.decode().then(() => image, () => null)] as const
+  })))
 
   function text(value: string, x: number, y: number, size = 13, color = reportTint, bold = false) {
     ctx.font = `${bold ? "bold " : ""}${size}px Arial, sans-serif`
@@ -44,7 +77,7 @@ export async function clientReportCharts(report: ClientReport) {
     }
   }
 
-  for (const x of [0, 344]) {
+  for (const x of [0, servicePanelLeft]) {
     ctx.beginPath()
     ctx.roundRect(x + 0.5, 0.5, 335, chartSize.height - 1, 16)
     ctx.fillStyle = reportSurface
@@ -87,7 +120,8 @@ export async function clientReportCharts(report: ClientReport) {
   text("всего", centerX, centerY + 14, 12, reportChartMuted)
   ctx.textAlign = "left"
 
-  const plotLeft = 396, plotRight = 662, baseline = 191
+  const serviceCenter = (servicePanelLeft + chartSize.width) / 2
+  const plotLeft = serviceCenter - 133, plotRight = serviceCenter + 133, baseline = 191
   const plotHeight = report.comparison ? 109 : 122
   ctx.textAlign = "right"
   ctx.lineWidth = 1
@@ -126,23 +160,37 @@ export async function clientReportCharts(report: ClientReport) {
       }
     }
     if (capHeight > 0) barSegment(left, top, width, capHeight, capColor, delta < 0)
-    text(reportPercent(value), x, top - (delta && !inside ? 23 : 11), 13, value === null ? reportChartMuted : reportTint, true)
     if (delta) {
       text(`${reportSigned(delta)}%`, x, inside ? top + capHeight / 2 : top - 10,
         inside ? 7 : 11, delta < 0 ? reportChartDecrease : "#FFFFFF", !inside)
     }
-    const icon = icons[index]
+    const icon = icons.get(id)
     if (icon) {
-      const scale = 23 / Math.max(icon.naturalWidth, icon.naturalHeight)
-      const w = icon.naturalWidth * scale, h = icon.naturalHeight * scale
       ctx.save()
       if (id === "chatgpt") ctx.filter = "brightness(0) invert(1)"
-      ctx.drawImage(icon, x - w / 2, 214 - h / 2, w, h)
+      drawIcon(ctx, icon, x, 214, 23)
       ctx.restore()
     } else text(label.slice(0, 2), x, 214, 12, reportChartMuted, true)
+    text(reportPercent(value), x, 240, 16, value === null ? reportChartMuted : reportTint, true)
   })
 
+  const serviceIcons = new Map<string, string>()
+  const iconCanvas = document.createElement("canvas")
+  iconCanvas.width = iconCanvas.height = 64
+  const iconContext = iconCanvas.getContext("2d")
+  if (iconContext) for (const [id, icon] of icons) {
+    if (!icon) continue
+    iconContext.clearRect(0, 0, 64, 64)
+    drawIcon(iconContext, icon, 32, 32, 62)
+    serviceIcons.set(id, iconCanvas.toDataURL("image/png"))
+  }
+  const badges = { up: changeBadge("up"), equal: changeBadge("equal"), down: changeBadge("down") }
   return {
+    serviceIcons,
+    badges,
+    changes: report.changeCards.map(({ label, value, share, direction }) => ({
+      label: `${label} (${share})`, value, badge: badges[direction],
+    })),
     url: canvas.toDataURL("image/png"),
     description: [
       ...report.outcomes.map(({ label, value }) => `${label} — ${value}`),

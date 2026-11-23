@@ -168,7 +168,15 @@ export function ReportView({ token, projectId, projectName, projectServices, las
     const dateMode = dateSelection.mode === "monthly" ? "Последняя проверка каждого месяца" :
       dateSelection.mode === "custom" ? "Выбранные даты" : "За период"
     try {
-      const data = clientReport(projectName, report, { compare, group, search, cards, external, dateMode })
+      const detailFilters = new URLSearchParams(historyFilters)
+      detailFilters.set("services", availableServices.join(","))
+      detailFilters.set("date_from", report.date_from)
+      detailFilters.set("date_to", report.date_to)
+      detailFilters.set("date_limit", String(dateSelection.maxDates))
+      const details = report.services.length === availableServices.length && report.dates.length === report.visible_dates.length
+        ? report : await accountRequest<Report>(`${base}/overview?${detailFilters}`, token)
+      if (!mounted.current) return
+      const data = clientReport(projectName, report, { compare, group, search, cards, external, dateMode }, details)
       const blob = format === "pdf"
         ? await (await import("./client-report-pdf")).clientReportPdf(data)
         : await (await import("./client-report-docx")).clientReportDocx(data)
