@@ -1,9 +1,9 @@
 import { X } from "lucide-react"
-import type { ReactNode } from "react"
-import { AnswerContent, AnswerSourceContext, ResultIssue, renderedSources, sourceCardLookup, sourcesOf } from "./answer-content"
+import { useRef, type ReactNode } from "react"
+import { AnswerContent, AnswerSourceContext, CitationContext, ResultIssue, renderedSources, sourceCardLookup, sourcesOf } from "./answer-content"
 import { AnswerEvidenceView, SourceChipList, evidenceSources, type AnswerEvidence, type BrandHighlight } from "./answer-evidence"
 import { longDate } from "../lib/format"
-import { ServiceMark, serviceName } from "../service-mark"
+import { ServiceMark, isCurrentService, serviceName } from "../service-mark"
 
 const statuses: Record<string, string> = {
   found: "Упоминание", not_found: "Нет упоминания", skipped: "Нет AI-блока",
@@ -37,11 +37,13 @@ export function AnswerDialog({ service, scanDate, status, originalStatus, query,
   children?: ReactNode
 }) {
   const lookupCard = sourceCardLookup(evidence?.source_cards || [])
-  const remaining = evidence
-    ? evidenceSources(evidence, sources, service, { skipRendered: true })
+  const container = useRef<HTMLDivElement>(null)
+  const citations = isCurrentService(service) ? { service, container } : null
+  const remaining = service === "yandex_neuro" || service === "perplexity" ? sourcesOf(sources)
+    : evidence ? evidenceSources(evidence, sources, service, { skipRendered: true })
     : answer ? renderedSources(answer, sources, service) : sourcesOf(sources)
   const dated = /^\d{4}-\d{2}-\d{2}$/.test(scanDate) ? `${longDate(scanDate)} ${scanDate.slice(0, 4)}` : scanDate
-  return <AnswerSourceContext.Provider value={lookupCard}><div className="answer-dialog">
+  return <AnswerSourceContext.Provider value={lookupCard}><CitationContext.Provider value={citations}><div ref={container} className="answer-dialog" data-citation-service={citations?.service}>
     <div className="answer-dialog__head">
       <div className="answer-dialog__service"><ServiceMark id={service}/><div><p className="answer-dialog__name">{serviceLabel(service)}</p><p className="answer-dialog__date">{dated}</p></div></div>
       <span className={`answer-dialog__status answer-dialog__status--${tone(status)}`}>{statuses[status] || status}</span>
@@ -52,7 +54,7 @@ export function AnswerDialog({ service, scanDate, status, originalStatus, query,
     {quote && <blockquote className="answer-dialog__quote"><AnswerContent text={quote} service={service} sources={sources} brand={brand}/></blockquote>}
     <div className="report-answer">{evidence ? <AnswerEvidenceView evidence={evidence} service={service} sources={sources} brand={brand} preview/> : answer && <AnswerContent text={answer} service={service} sources={sources} brand={brand}/>}<ResultIssue status={status} error={error} answer={answer}/></div>
     <p className="answer-dialog__meta">Типы упоминания: {mentionTypes?.join(", ") || "нет"}</p>
-    <SourceChipList sources={remaining} brand={brand}/>
+    <SourceChipList sources={remaining} brand={brand} service={service}/>
     {children}
-  </div></AnswerSourceContext.Provider>
+  </div></CitationContext.Provider></AnswerSourceContext.Provider>
 }
