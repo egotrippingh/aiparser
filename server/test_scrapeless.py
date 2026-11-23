@@ -1144,7 +1144,8 @@ def test_preserves_citation_metadata_and_ignores_shopping_data():
     result = scrapeless.evidence({
         "result_text": "Сравнение",
         "links": ["https://publisher.test/page"],
-        "content_references": [{"url": "https://publisher.test/page", "attribution": "Издание"}],
+        "content_references": [{"url": "https://publisher.test/page", "attribution": "Издание",
+            "favicon": "https://publisher.test:invalid/icon.png"}],
         "products": [{"title": "ESTUS", "url": "https://brand.test/estus"}],
     })
     assert result["products"] == []

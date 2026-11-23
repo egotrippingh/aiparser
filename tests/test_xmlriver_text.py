@@ -39,7 +39,8 @@ def test_google_prose_scope_sources_and_lazy_images_are_safe():
     html = """<div>Другой бренд из обычной выдачи</div><div id='m-x-content'>
       <div class='mZJni'><p>Основной ответ <a href='https://brand.test'>официальный сайт</a>.</p></div>
       <aside data-xid='aim-aside-1'><a href='https://source.test'>Источник Brand</a>
-      <img src='data:image/gif;base64,x' data-src='https://images.test/photo.jpg'></aside></div>
+      <img src='data:image/gif;base64,x' data-src='https://images.test/photo.jpg'>
+      <img src='https://images.test:65536/invalid.jpg'></aside></div>
       <script>bad()</script>"""
     markup, cards = xmlriver._parse_xml(payload("google_aio", html, "<item><title>Другой источник</title><url>https://more.test</url></item>"), "google_aio", include_images=True)
     result = xmlriver.evidence(markup, cards, "google_aio")
@@ -48,6 +49,7 @@ def test_google_prose_scope_sources_and_lazy_images_are_safe():
     assert len(result["source_cards"]) == 2 and result["products"] == []
     assert result["source_cards"][1]["image_url"] == "https://images.test/photo.jpg"
     assert "data:" not in markup and 'src="https://images.test/photo.jpg"' in markup
+    assert "invalid.jpg" not in markup
 
 
 @pytest.mark.parametrize("url", ["javascript:alert(1)", "data:image/svg+xml,bad", "http://images.test/photo", "https://127.0.0.1/photo", "https://169.254.169.254/photo", "https://localhost/photo", "https://user:secret@images.test/photo"])

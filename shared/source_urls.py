@@ -9,9 +9,11 @@ def image_url(value: object) -> str:
         return ""
     try:
         url = urlsplit(value.strip())
+        host = (url.hostname or "").rstrip(".")
+        if url.port == 0:
+            return ""
     except ValueError:
         return ""
-    host = (url.hostname or "").rstrip(".")
     if url.scheme != "https" or url.username is not None or url.password is not None or "." not in host or host.endswith((".localhost", ".local")):
         return ""
     try:
