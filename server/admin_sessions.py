@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import Depends, HTTPException, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete
@@ -90,6 +91,22 @@ def _stealth_not_found(request: Request) -> Response:
 def register_admin_sessions(app, db_session, current_user, public_base, admin_base, SessionLocal):
     admin_host = urlsplit(admin_base).netloc
 
+    def can_access_admin(request: Request) -> bool:
+        with SessionLocal() as db:
+            if entry_allowed(request, db):
+                return True
+            if request.method == "POST" and request.url.path.rstrip("/") == "/api/v1/admin/session":
+                return False
+            if not request.cookies.get(ADMIN_COOKIE):
+                return False
+            try:
+                user = current_user(request, db=db)
+            except HTTPException as exc:
+                if exc.status_code not in (401, 403):
+                    raise
+                return False
+            return bool(user and user.is_admin)
+
     @app.middleware("http")
     async def admin_boundary(request: Request, call_next):
         path = request.url.path
@@ -98,9 +115,7 @@ def register_admin_sessions(app, db_session, current_user, public_base, admin_ba
         if private_api and not on_admin_host:
             return JSONResponse({"detail": NOT_FOUND}, 404, headers=_PRIVATE)
         if on_admin_host:
-            with SessionLocal() as db:
-                allowed = entry_allowed(request, db)
-            if not allowed:
+            if not await run_in_threadpool(can_access_admin, request):
                 return _stealth_not_found(request)
             if not (private_api or path in {"/", "/robots.txt"} or path.startswith("/assets/")):
                 return JSONResponse({"detail": NOT_FOUND}, 404, headers=_PRIVATE)

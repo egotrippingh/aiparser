@@ -70,7 +70,7 @@ export function AdminAccess({ token }: { token: string }) {
     <div className="cab-section-head">
       <div>
         <h2>Разрешённые IP</h2>
-        <p>Без адреса из списка домен отвечает 404. Env-список задаётся на сервере; ниже — дополнительные записи в базе.</p>
+        <p>Для входа нужен адрес из списка. Действующая сессия сохраняется при смене IP.</p>
       </div>
       <button className="cc-button" disabled={loading} onClick={reload}>Обновить</button>
     </div>

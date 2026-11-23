@@ -86,19 +86,19 @@ installed separately from the application image. Validate the new file and
 confirm the subdomain presents a valid TLS certificate and reaches the existing
 app before activating the image.
 
-After deployment, check the admin hostname serves the console only from an
-allowlisted IP and returns 401 for an unauthenticated request to
-`/api/v1/admin/session`. Non-allowlisted clients must see a plain 404 for the
-whole admin host. The public hostname must return 404 for the admin API.
-Sign in with the dedicated console login (`admin` + `ADMIN_CONSOLE_PASSWORD`),
-open the dashboard, and logout. Do not rely on cabinet accounts for console
-access. The main site's session and the admin console session use distinct
-host-only cookies.
+After deployment, check that a signed-out browser can open the console only
+from an allowlisted IP and that `GET /api/v1/admin/session` then returns 401.
+Sign in with the dedicated console login (`admin` + `ADMIN_CONSOLE_PASSWORD`).
+From another IP, verify that the same session can reload the console, use
+the dashboard and log out. From that IP, a fresh login or a request without
+a valid console session must return 404. The public hostname must return
+404 for the admin API. Cabinet and console sessions use distinct host-only
+cookies.
 
 Set `ADMIN_ALLOWED_IPS` and `ADMIN_CONSOLE_PASSWORD` in
 `/opt/airate/deploy/.env` before the first admin sign-in. Empty env and DB
-allowlists make the admin host respond 404. Extra addresses can be managed in
-the console «Доступ» section. Never commit the console password.
+allowlists block new console logins with 404. Extra addresses can be managed
+in the console «Доступ» section. Never commit the console password.
 
 On application rollback to an image that predates the console, remove the
 admin virtual host from Caddy and reload its previous config. The prior
