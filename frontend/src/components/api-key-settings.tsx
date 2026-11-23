@@ -1,9 +1,22 @@
 import { CabinetSkeleton } from "../cabinet-loading"
 import { useEffect, useState } from "react"
+import { Eye, EyeOff } from "lucide-react"
 import { AccountError, accountRequest } from "../account-api"
 
-type KeyStatus = { suffix: string | null; created_at: string | null }
-type IssuedKey = KeyStatus & { key: string }
+type KeyStatus = { suffix: string | null; created_at: string | null; revealable: boolean }
+
+async function copyKey(key: Promise<string>) {
+  if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+    // Safari needs the clipboard request to start during the click, before fetching the key.
+    const text = key.then(value => new Blob([value], { type: "text/plain" }))
+    // A denied clipboard request may never consume the item.
+    void text.catch(() => {})
+    await navigator.clipboard.write([new ClipboardItem({ "text/plain": text })])
+  } else {
+    const value = await key
+    await navigator.clipboard.writeText(value)
+  }
+}
 
 export function ApiKeySettings({ token }: { token: string }) {
   const [status, setStatus] = useState<KeyStatus | null>(null)
@@ -30,23 +43,15 @@ export function ApiKeySettings({ token }: { token: string }) {
     if (status.suffix && !window.confirm(method === "PUT"
       ? "Заменить API-ключ? Подключённые интеграции перестанут работать со старым ключом."
       : "Отозвать API-ключ? Подключённые интеграции потеряют доступ.")) return
-    setPending(true); setError(""); setMessage("")
-    const expected = { created_at: status.created_at }
+    setPending(true); setError(""); setMessage(""); setKey("")
     try {
-      if (method === "PUT") {
-        const { key: newKey, ...metadata } = await accountRequest<IssuedKey>("/api-key", token, expected, method)
-        setStatus(metadata)
-        setKey(newKey)
-      } else {
-        setStatus(await accountRequest<KeyStatus>("/api-key", token, expected, method))
-        setKey("")
-        setMessage("API-ключ отозван.")
-      }
+      const updated = await accountRequest<KeyStatus>("/api-key", token, { created_at: status.created_at }, method)
+      setStatus({ suffix: updated.suffix, created_at: updated.created_at, revealable: updated.revealable })
+      if (method === "DELETE") setMessage("API-ключ отозван.")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось изменить API-ключ")
       if (e instanceof AccountError && e.status === 409) {
         setStatus(null)
-        setKey("")
         setLoadAttempt(attempt => attempt + 1)
         return
       }
@@ -54,13 +59,29 @@ export function ApiKeySettings({ token }: { token: string }) {
     setPending(false)
   }
 
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(key)
-      setMessage("API-ключ скопирован.")
-    } catch {
-      setMessage("Не удалось скопировать ключ. Выделите его и скопируйте вручную.")
+  async function toggleKey() {
+    if (pending || !status?.revealable) return
+    setError(""); setMessage("")
+    if (key) {
+      setKey("")
+      return
     }
+    setPending(true)
+    const revealed = accountRequest<{ key: string }>("/api-key/reveal", token, { created_at: status.created_at })
+      .then(result => result.key)
+    const copied = copyKey(revealed).then(() => true, () => false)
+    try {
+      setKey(await revealed)
+      setMessage(await copied ? "API-ключ скопирован." : "Не удалось скопировать ключ. Выделите его и скопируйте вручную.")
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось показать API-ключ")
+      if (e instanceof AccountError && (e.status === 409 || e.status === 404)) {
+        setStatus(null)
+        setLoadAttempt(attempt => attempt + 1)
+        return
+      }
+    }
+    setPending(false)
   }
 
   return <section className="cab-panel cab-api-key" aria-labelledby="api-key-heading">
@@ -68,15 +89,17 @@ export function ApiKeySettings({ token }: { token: string }) {
     <p>Запускайте проверки и получайте ответы из своих интеграций. <a href="/docs/api/">Документация API</a></p>
     {!status && pending && <CabinetSkeleton label="Загружаем сведения о ключе…"/>}
     {status && pending && <p role="status">Обновляем сведения о ключе…</p>}
-    {status && <p>{status.suffix ? <>Ключ оканчивается на <code>{status.suffix}</code></> : "API-ключ ещё не создан."}</p>}
-    {key && <div>
-      <p className="cab-payment-note">Скопируйте ключ сейчас. Полностью он показывается только после выпуска.</p>
-      <p><code style={{ overflowWrap: "anywhere" }}>{key}</code></p>
-      <div className="cc-actions">
-        <button className="btn" disabled={pending} onClick={copy}>Копировать ключ</button>
-        <button className="btn" disabled={pending} onClick={() => { setKey(""); setMessage("") }}>Скрыть ключ</button>
+    {status?.suffix ? <>
+      <div className="cab-api-key-row">
+        <code id="api-key-value" data-sentry-mask>{key || ("*".repeat(12) + status.suffix)}</code>
+        {status.revealable && <button type="button" className="btn" disabled={pending}
+          aria-controls="api-key-value" aria-expanded={!!key} aria-label={key ? "Скрыть API-ключ" : "Показать и скопировать API-ключ"}
+          title={key ? "Скрыть API-ключ" : "Показать и скопировать API-ключ"} onClick={() => void toggleKey()}>
+          {key ? <EyeOff size={18} aria-hidden="true"/> : <Eye size={18} aria-hidden="true"/>}
+        </button>}
       </div>
-    </div>}
+      {!status.revealable && <p className="cab-payment-note">Для этого ключа доступно только окончание. Чтобы показывать и копировать полный ключ, выпустите новый.</p>}
+    </> : status && <p>API-ключ ещё не создан.</p>}
     {error && <p className="cab-payment-error" role="alert">{error}</p>}
     {message && <p role="status">{message}</p>}
     <div className="cc-actions" aria-busy={pending}>

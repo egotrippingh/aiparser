@@ -299,7 +299,7 @@ def _create_app(*, database_url: str | None = None, coinso_client: CoinsoClient 
     async def sentry_boundary(request: Request, call_next):
         try:
             response = await call_next(request)
-            if request.url.path == KEY_PATH or request.url.path.startswith(PUBLIC_PREFIX + "/"):
+            if request.url.path == KEY_PATH or request.url.path.startswith((KEY_PATH + "/", PUBLIC_PREFIX + "/")):
                 response.headers["Cache-Control"] = "no-store"
             return response
         except Exception as exc:
