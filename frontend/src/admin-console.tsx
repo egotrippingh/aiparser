@@ -22,7 +22,7 @@ const sections = {
   results: { label: "Результаты", title: "Результаты проверок", lead: "Ответы, статусы и скриншоты для разбора.", icon: FileSearch },
   providers: { label: "Провайдеры", title: "Провайдеры", lead: "Балансы и пауза приёма по ИИ-системам.", icon: Server },
   promos: { label: "Промокоды", title: "Промокоды", lead: "Создание и правка промокодов на бесплатные проверки.", icon: Ticket },
-  access: { label: "Доступ", title: "Доступ по IP", lead: "Разрешённые адреса для открытия админки.", icon: Shield },
+  access: { label: "Доступ", title: "Доступ по IP", lead: "Разрешённые адреса для входа в админку.", icon: Shield },
 }
 
 type Section = keyof typeof sections
