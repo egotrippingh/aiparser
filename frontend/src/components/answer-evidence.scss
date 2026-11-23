@@ -91,8 +91,7 @@ a.source-chip:focus-visible{outline:2px solid var(--air-accent);outline-offset:3
   background: var(--air-selected);
   text-decoration: none;
 }
-.answer-dialog .answer-citation--brand,
-.answer-dialog .answer-citation--brand:is(:hover, [aria-expanded=true]) {
+.answer-dialog .answer-citation.answer-citation--brand {
   border-color: var(--air-brand-mention);
   background: var(--air-brand-mention-bg);
   color: var(--air-brand-mention);
@@ -107,7 +106,7 @@ a.source-chip:focus-visible{outline:2px solid var(--air-accent);outline-offset:3
   padding-inline: 4px 7px;
 }
 [data-citation-service="yandex_neuro"] .answer-content .answer-citation .answer-source-icon { border-radius: 50%; }
-[data-citation-service="gemini"] .answer-content .answer-citation { border-color: transparent; }
+[data-citation-service="gemini"] .answer-content .answer-citation:not(.answer-citation--brand) { border-color: transparent; }
 [data-citation-service="perplexity"] .answer-content .answer-citation {
   border-radius: 6px;
   padding-inline: 6px;

@@ -62,25 +62,6 @@ def safe_url(value):
     return None
 
 
-def _saved_products(values: object) -> list[dict[str, str]]:
-    products = []
-    for value in values[:50] if isinstance(values, list) else []:
-        if not isinstance(value, dict):
-            continue
-        title = value.get("title")
-        if not isinstance(title, str) or not title.strip():
-            continue
-        images = value.get("image_urls")
-        photo = next((safe for raw in images[:10] if (safe := image_url(raw))), "") if isinstance(images, list) else ""
-        item = {"title": title.strip()[:2000], "url": safe_url(value.get("url")) or "", "image_url": photo}
-        for field, limit in (("price", 100), ("description", 4000)):
-            copy = value.get(field)
-            item[field] = copy.strip()[:limit] if isinstance(copy, str) else ""
-        if item not in products:
-            products.append(item)
-    return products
-
-
 def evidence(result: object) -> dict:
     if not isinstance(result, dict) or not isinstance(result.get("result_text"), str) or not result["result_text"].strip():
         raise IncompleteAnswer("Сервис сбора вернул пустой или неполный ответ")
@@ -127,7 +108,7 @@ def evidence(result: object) -> dict:
             value = value[:-1]
         add(value)
     return {"shown": True, "main_text": text, "answer_text": text, "cards_text": "",
-        "format": "markdown", "content": [text], "products": _saved_products(result.get("products")),
+        "format": "markdown", "content": [text], "products": [],
         "source_cards": list(cards.values()), "sources": sources}
 
 
@@ -158,7 +139,7 @@ class ScrapelessClient:
         if service in {"chatgpt", "perplexity"}:
             input_data["web_search"] = True
         if service in {"chatgpt", "gemini"}:
-            input_data["shopping"] = service == "chatgpt" and os.environ.get("SCRAPELESS_CHATGPT_SHOPPING") == "1"
+            input_data["shopping"] = False
         body = {"actor": "scraper." + service, "input": input_data}
         if webhook_url:
             if not safe_url(webhook_url) or urlsplit(webhook_url).scheme != 'https':

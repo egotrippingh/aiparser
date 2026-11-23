@@ -14,10 +14,8 @@ from server.test_cloud_scans import setup, project_and_run, postgres_url  # noqa
 
 
 @pytest.mark.parametrize("service", ["chatgpt", "perplexity", "gemini"])
-@pytest.mark.parametrize("shopping", ["0", "1"])
-def test_exact_actor_and_opt_in_chatgpt_shopping(monkeypatch, service, shopping):
+def test_exact_actor_and_no_shopping(monkeypatch, service):
     monkeypatch.setenv("SCRAPELESS_API_KEY", "private-test-key")
-    monkeypatch.setenv("SCRAPELESS_CHATGPT_SHOPPING", shopping)
     def handle(request):
         assert request.headers["x-api-token"] == "private-test-key"
         assert "private-test-key" not in str(request.url)
@@ -27,7 +25,7 @@ def test_exact_actor_and_opt_in_chatgpt_shopping(monkeypatch, service, shopping)
         if service != "gemini":
             assert data["input"]["web_search"] is True
         if service != "perplexity":
-            assert data["input"]["shopping"] is (service == "chatgpt" and shopping == "1")
+            assert data["input"]["shopping"] is False
         else:
             assert "shopping" not in data["input"]
         return httpx.Response(201, json={"task_id": "task-123"})
@@ -1142,17 +1140,13 @@ def test_durable_cooldown_still_drains_submitted_handle(tmp_path, monkeypatch):
         assert db.get(ProviderTask, task.check_id).state == "completed"
 
 
-def test_captures_chatgpt_product_cards_and_citation_metadata():
+def test_preserves_citation_metadata_and_ignores_shopping_data():
     result = scrapeless.evidence({
         "result_text": "Сравнение",
         "links": ["https://publisher.test/page"],
         "content_references": [{"url": "https://publisher.test/page", "attribution": "Издание"}],
-        "products": [None, {"title": "ESTUS", "description": "Модульный комплекс",
-            "url": "https://brand.test/estus",
-            "image_urls": ["https://127.0.0.1/private", "https://images.test/estus.jpg"]},
-            {"title": None, "url": "https://brand.test/invalid"}],
+        "products": [{"title": "ESTUS", "url": "https://brand.test/estus"}],
     })
-    assert result["products"] == [{"title": "ESTUS", "description": "Модульный комплекс",
-        "url": "https://brand.test/estus", "image_url": "https://images.test/estus.jpg", "price": ""}]
+    assert result["products"] == []
     assert result["source_cards"] == [{"url": "https://publisher.test/page", "title": "", "text": "",
         "name": "Издание"}]
