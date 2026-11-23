@@ -43,7 +43,12 @@ test("client report uses actual selected scans and includes all comparable mover
   expect(doc).toMatchObject({
     period: "01.11.2026 — 20.11.2026", dates: ["04.11.2026", "19.11.2026"],
     tableHeaders: ["Группа", "Запрос", "04.11.2026", "19.11.2026", "Изм., %"],
-    changeSummary: "Рост — 2 · Снижение — 1 · Без изменений — 1 · Недостаточно данных — 1",
+    changeCards: [
+      { label: "Рост", value: "2", share: "50%", direction: "up" },
+      { label: "Без изменений", value: "1", share: "25%", direction: "equal" },
+      { label: "Снижение", value: "1", share: "25%", direction: "down" },
+    ],
+    changeNote: "Недостаточно данных — 1",
   })
   expect(doc.metrics[0].value).toBe("37,5%")
   expect(doc.outcomes.map(item => item.value)).toEqual([6, 5, 2, 1, 2])
@@ -69,14 +74,25 @@ test("two-date comparisons use calendar edges and the matching trend", () => {
 test("one date or no data does not create false movements", () => {
   const doc = clientReport("Демо", { ...report, period_from: "2026-11-04", period_to: "2026-11-04" }, settings)
   expect(doc.comparison).toBeNull()
+  expect(doc.changeCards).toEqual([])
+  expect(doc.changeNote).toBe("Для сравнения нужны проверки за две разные даты.")
   expect(doc.services.map(({ previous, value }) => [previous, value])).toEqual([[null, 50], [null, 0]])
   expect(doc.tables.every(table => table.rows.length === 0)).toBe(true)
   const empty = clientReport("Демо", { ...report, rows: [], dates: [], period_from: null, period_to: null, summary: {
     total: 0, checked: 0, found: 0, skipped: 0, issues: 0, visibility_pct: null,
   } }, settings)
-  expect(empty.changeSummary).toBe("В выбранном периоде нет запросов.")
+  expect(empty.changeNote).toBe("В выбранном периоде нет запросов.")
   expect(empty.metrics[0].value).toBe("—")
   expect(empty.outcomes.every(item => item.value === 0)).toBe(true)
+})
+
+test("change cards distinguish no comparable queries from zero movement", () => {
+  const missing = clientReport("Демо", { ...report, rows: [report.rows[4]] }, settings)
+  expect(missing.changeCards.map(({ value, share }) => [value, share])).toEqual([["0", "—"], ["0", "—"], ["0", "—"]])
+  expect(missing.changeNote).toBe("Недостаточно данных — 1")
+  const unchanged = clientReport("Демо", { ...report, rows: [report.rows[3]] }, settings)
+  expect(unchanged.changeCards.map(item => item.share)).toEqual(["0%", "100%", "0%"])
+  expect(unchanged.changeNote).toBe("")
 })
 
 test("service bars keep available visibility values and omit a missing comparison endpoint", () => {
@@ -85,4 +101,29 @@ test("service bars keep available visibility values and omit a missing compariso
   } : day)
   const doc = clientReport("Демо", { ...report, timeline }, settings)
   expect(doc.services.map(({ previous, value }) => [previous, value])).toEqual([[0, 100], [null, 50]])
+})
+
+test("service tables include all project systems and compare successful cells at the report edges", () => {
+  const from = "2026-11-04", to = "2026-11-19"
+  const cell = (status: string, found = status === "found") => ({ id: 1, status, found })
+  const detail = {
+    ...report,
+    services: ["chatgpt", "gemini", "perplexity"],
+    rows: [
+      { ...report.rows[0], cells: { [from]: { chatgpt: cell("skipped"), gemini: cell("found") },
+        [to]: { chatgpt: cell("found"), gemini: cell("found", false) } } },
+      { ...report.rows[1], cells: { [from]: { chatgpt: cell("found"), gemini: cell("error") },
+        [to]: { chatgpt: cell("found"), gemini: cell("found") } } },
+    ],
+  }
+  const doc = clientReport("Демо", report, settings, detail)
+  expect(doc.services).toHaveLength(2)
+  expect(doc.serviceTables.map(table => table.id)).toEqual(detail.services)
+  expect(doc.serviceTables.map(table => table.rows.map(([, , visibility]) => visibility))).toEqual([
+    [{ direction: "up", text: "Появился" }, { direction: "equal", text: "Без изменений" }],
+    [{ direction: "down", text: "Исчез" }, { direction: null, text: "Есть упоминание" }],
+    [{ direction: null, text: "Нет данных" }, { direction: null, text: "Нет данных" }],
+  ])
+  const single = clientReport("Демо", report, settings, { ...detail, period_from: to })
+  expect(single.serviceTables[0].rows[0][2]).toEqual({ direction: null, text: "Есть упоминание" })
 })
