@@ -12,7 +12,7 @@ from mcp import Client, StdioServerParameters
 
 from server.api_keys import PUBLIC_PREFIX
 from server.models import ControlProject, Wallet
-from server.test_public_api import issue_key
+from server.test_public_api import api_key_secret, issue_key
 from server.test_reporting import seed_report
 
 

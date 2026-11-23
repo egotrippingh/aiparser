@@ -11,7 +11,7 @@ from server import control
 from server.app import create_app
 from server.browser_sessions import COOKIE_NAME
 from server.models import AccountApiKey, ControlProject, Wallet
-from server.security import token_hash
+from server.security import new_token, token_hash
 from server.test_accounts import register_account
 from server.test_cloud_scans import postgres_url
 from server.test_control import setup
@@ -22,13 +22,18 @@ PROJECTS = "/api/v1/public/projects"
 CONTROL = "/api/v1/control/projects"
 
 
+@pytest.fixture(autouse=True)
+def api_key_secret(monkeypatch):
+    monkeypatch.setenv("AIRATE_API_KEY_SECRET", "a7" * 32)
+
+
 def issue_key(client: TestClient, headers: dict) -> dict:
     return client.put(KEY, headers=headers, json={"created_at": None}).json()
 
 
 def test_key_lifecycle_separates_integration_and_cabinet_sessions(tmp_path):
     client, owner, other, devices, _ = setup(tmp_path)
-    assert client.get(KEY, headers=owner).json() == {"suffix": None, "created_at": None}
+    assert client.get(KEY, headers=owner).json() == {"suffix": None, "created_at": None, "revealable": False}
     expected = {"created_at": None}
     assert client.put(KEY, headers=devices[0], json=expected).status_code == 403
     assert client.get(PROJECTS, headers=owner).status_code == 401
@@ -43,7 +48,7 @@ def test_key_lifecycle_separates_integration_and_cabinet_sessions(tmp_path):
     raw = issued.json()["key"]
     api = {"Authorization": "Bearer " + raw}
     metadata = client.get(KEY, headers=owner)
-    assert metadata.json() == {"suffix": raw[-4:], "created_at": issued.json()["created_at"]}
+    assert metadata.json() == {"suffix": raw[-4:], "created_at": issued.json()["created_at"], "revealable": True}
     assert metadata.headers["Cache-Control"] == "no-store"
     assert client.get(KEY, headers=other).json()["suffix"] is None
     with client.app.state.payment_sessions() as db:
@@ -66,7 +71,7 @@ def test_key_lifecycle_separates_integration_and_cabinet_sessions(tmp_path):
     assert client.request("DELETE", KEY, headers=owner, json=old_state).status_code == 409
     current_state = {"created_at": rotated["created_at"]}
     assert client.request("DELETE", KEY, headers=owner, json=current_state).status_code == 200
-    assert client.request("DELETE", KEY, headers=owner, json=current_state).json() == {"suffix": None, "created_at": None}
+    assert client.request("DELETE", KEY, headers=owner, json=current_state).json() == {"suffix": None, "created_at": None, "revealable": False}
     assert client.get(PROJECTS, headers=api2).status_code == 401
 
     raw3 = issue_key(client, owner)["key"]
@@ -75,6 +80,50 @@ def test_key_lifecycle_separates_integration_and_cabinet_sessions(tmp_path):
     })
     assert password.status_code == 200
     assert client.get(PROJECTS, headers={"Authorization": "Bearer " + raw3}).status_code == 401
+
+
+def test_key_reveal_is_owner_only_and_preserves_legacy_key(tmp_path):
+    client, owner, other, devices, url = setup(tmp_path)
+    issued = issue_key(client, owner)
+    version = {"created_at": issued["created_at"]}
+    path = KEY + "/reveal"
+    assert client.get(KEY, headers=owner).json()["revealable"] is True
+    assert client.post(path, json=version).status_code == 401
+    assert client.post(path, headers=devices[0], json=version).status_code == 403
+    other_key = issue_key(client, other)
+    assert client.post(path, headers=other, json=version).status_code == 409
+    assert client.post(path, headers=other, json={"created_at": other_key["created_at"]}).json() == {
+        "key": other_key["key"],
+    }
+    api = {"Authorization": "Bearer " + issued["key"]}
+    assert client.post(path, headers=api, json=version).status_code == 401
+    client.cookies.set(COOKIE_NAME, owner["Authorization"].removeprefix("Bearer "))
+    browser = {"X-AI-Client": "browser", "Origin": "http://testserver"}
+    assert client.post(path, json=version).status_code == 403
+    assert client.post(path, headers={**browser, "Origin": "https://outside.example"}, json=version).status_code == 403
+    revealed = client.post(path, headers=browser, json=version)
+    assert revealed.json() == {"key": issued["key"]}
+    assert revealed.headers["Cache-Control"] == "no-store"
+    client.cookies.clear()
+    restarted = TestClient(create_app(database_url=url))
+    assert restarted.post(path, headers=owner, json=version).json() == {"key": issued["key"]}
+
+    legacy = "airate_" + new_token()
+    with client.app.state.payment_sessions() as db:
+        owner_id = client.get("/api/v1/me", headers=owner).json()["id"]
+        row = db.get(AccountApiKey, owner_id)
+        row.token_hash, row.suffix = token_hash(legacy), legacy[-4:]
+        db.commit()
+    assert client.get(KEY, headers=owner).json()["revealable"] is False
+    assert client.post(path, headers=owner, json=version).status_code == 404
+    assert client.get(PROJECTS, headers={"Authorization": "Bearer " + legacy}).status_code == 200
+
+    rotated = client.put(KEY, headers=owner, json=version).json()
+    assert client.post(path, headers=owner, json=version).status_code == 409
+    current = {"created_at": rotated["created_at"]}
+    assert client.post(path, headers=owner, json=current).json() == {"key": rotated["key"]}
+    assert client.request("DELETE", KEY, headers=owner, json=current).status_code == 200
+    assert client.post(path, headers=owner, json=current).status_code == 404
 
 
 def test_public_scan_quote_retry_commands_and_project_changes(tmp_path, monkeypatch):

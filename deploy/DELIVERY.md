@@ -120,6 +120,15 @@ retain their snapshot price; older runs without a tariff snapshot retain 120.
 Existing reservations settle at their recorded price. Paused scans require
 «Продолжить» after sufficient top-up; completed checks are not repeated.
 
+### Recoverable REST API keys
+
+Before activating this feature, add the `AIRATE_API_KEY_SECRET` mapping from
+`compose.yml` to the installed web service. Set a stable 32-byte value generated
+with `openssl rand -hex 32` in the host `.env` and preserve it with the private
+deployment credentials. Losing or changing this value disables reveal for keys
+issued with it. Their stored hashes still authenticate integrations. Keys issued
+before this feature continue to authenticate and show only their last four characters.
+
 ### Runtime files
 
 - `/opt/airate/deploy/.env`: secrets, mode 0600; never in Git or the image.

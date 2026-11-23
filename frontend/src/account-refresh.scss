@@ -90,6 +90,9 @@
 .air-app .cab-api-key p { color: var(--air-text); }
 .air-app .cab-api-key .cc-actions { gap: 8px; margin-top: 8px; }
 .air-app .cab-api-key .btn { min-height: 44px; }
+.air-app .cab-api-key-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.air-app .cab-api-key-row code { flex: 1; overflow-wrap: anywhere; }
+.air-app .cab-api-key-row .btn { flex: 0 0 44px; padding: 0; }
 .app-account .cab-promo-form { margin: 12px 0 0; }
 
 @media (max-width: 1100px) {
