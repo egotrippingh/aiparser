@@ -407,10 +407,11 @@ function citationAt(text: string, start: number, references: References, saved: 
   return { sources, end }
 }
 
-function linkedText(text: string, sources: string[], references: References, bold = true, brand?: BrandHighlight, citations = false) {
+function linkedText(text: string, sources: string[], references: References, decodeSpaces: boolean, bold = true, brand?: BrandHighlight, citations = false) {
   const saved = sourcesOf(sources).map(value => new URL(value)), output: ReactNode[] = []
   let index = 0, plain = ""
-  const flush = () => { if (plain) { output.push(highlightedText(plain, brand)); plain = "" } }
+  const visibleText = (value: string) => decodeSpaces ? value.replaceAll("&#32;", " ") : value
+  const flush = () => { if (plain) { output.push(highlightedText(visibleText(plain), brand)); plain = "" } }
   const link = (label: string, url: URL) => {
     flush()
     output.push(<PreviewAnchor key={output.length} href={url.href} brand={brand} label={label}>{highlightedText(label, brand)}</PreviewAnchor>)
@@ -424,7 +425,7 @@ function linkedText(text: string, sources: string[], references: References, bol
       }
       if (end > index + 2 && text.startsWith("**", end)) {
         flush()
-        output.push(<strong key={output.length}>{linkedText(text.slice(index + 2, end), sources, references, false, brand, citations)}</strong>)
+        output.push(<strong key={output.length}>{linkedText(text.slice(index + 2, end), sources, references, decodeSpaces, false, brand, citations)}</strong>)
         index = end + 2; continue
       }
     }
@@ -443,7 +444,7 @@ function linkedText(text: string, sources: string[], references: References, bol
       index = citation.end; continue
     }
     const parsed = parsedLink(text, index, references, saved)
-    if (parsed) { link(parsed.label, parsed.url); index = parsed.end; continue }
+    if (parsed) { link(parsed.explicit ? visibleText(parsed.label) : parsed.label, parsed.url); index = parsed.end; continue }
     plain += text[index++]
   }
   flush()
@@ -472,8 +473,8 @@ function tableCells(line: string) {
   return cells
 }
 
-function blocks(text: string, sources: string[], references: References, brand: BrandHighlight | undefined, citations: boolean) {
-  const inline = (line: string) => linkedText(line, sources, references, true, brand, citations)
+function blocks(text: string, sources: string[], references: References, brand: BrandHighlight | undefined, citations: boolean, service?: string) {
+  const inline = (line: string) => linkedText(line, sources, references, service === "gemini", true, brand, citations)
   const lines = text.replace(/\r\n?/g, "\n").split("\n"), output: ReactNode[] = []
   let index = 0, key = 0, cleaned = false
   // ponytail: only standalone source counters; ambiguous inline +N stays literal.
@@ -566,7 +567,7 @@ export function AnswerContent({ text, service, sources = [], brand }: { text: st
   const fixed = service === "chatgpt" ? cleanChatGPTMap(text) : { text, changed: false }
   const display = displayText(fixed.text, service, sources)
   const citations = Boolean(useContext(CitationContext))
-  const parsed = markdown(display.text), rendered = blocks(parsed.text, sources, parsed.references, brand, citations)
+  const parsed = markdown(display.text), rendered = blocks(parsed.text, sources, parsed.references, brand, citations, service)
   return <div className="answer-content">{rendered.output}{(fixed.changed || display.text !== fixed.text || rendered.cleaned) && <details className="answer-original"><summary>Исходный текст</summary><pre>{text}</pre></details>}</div>
 }
 

@@ -147,6 +147,29 @@ it.each(['chatgpt', 'perplexity', 'alice', 'google_aio'])("formats tables and bo
   expect(html).toContain('<li><div class="answer-table-scroll"')
 })
 
+it("renders encoded Gemini spaces in table text while preserving code and link targets", () => {
+  const text = [
+    "| **Пресноводный&#32;аквариум** | Морской&#32;аквариум |",
+    "| --- | --- |",
+    "| Вода&#32;(после&#32;отстаивания) | [О&#32;воде](https://example.test/a?q=1&#32;) |",
+    "| `a&#32;b` | <img&#32;src=x> |",
+    "",
+    "```",
+    "a&#32;b",
+    "```",
+  ].join("\n")
+  const html = renderToStaticMarkup(<AnswerContent text={text} service="gemini"/>)
+  expect(html).toContain("<strong>Пресноводный аквариум</strong>")
+  expect(html).toContain(">Морской аквариум</th>")
+  expect(html).toContain(">Вода (после отстаивания)</td>")
+  expect(html).toContain('href="https://example.test/a?q=1&amp;#32;"')
+  expect(html).toContain(">О воде</a>")
+  expect(html).toContain("<code>a&amp;#32;b</code>")
+  expect(html).toContain("<pre><code>a&amp;#32;b</code></pre>")
+  expect(html).toContain("&lt;img src=x&gt;")
+  expect(renderToStaticMarkup(<AnswerContent text={text} service="chatgpt"/>)).toContain("Морской&amp;#32;аквариум")
+})
+
 it("keeps malformed tables and code literal; displays TSV and headerless tables safely", () => {
   const html = renderToStaticMarkup(<AnswerContent text={'Name\tPrice\nCompany\t100\n\n| | |\n| --- | --- |\n| x | y |\n\n| A | B |\n| --- | --- |\n| mismatched | row | keep |\n\n```\n| A | B |\n| --- | --- |\n| x | y |\n```\n\n| HTML | URL |\n| --- | --- |\n| <img src=x> | [bad](<javascript:alert(1)>) |'}/>)
   expect(html).toContain('>Company</td>')
