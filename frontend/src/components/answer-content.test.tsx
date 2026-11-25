@@ -170,6 +170,17 @@ it("renders encoded Gemini spaces in table text while preserving code and link t
   expect(renderToStaticMarkup(<AnswerContent text={text} service="chatgpt"/>)).toContain("Морской&amp;#32;аквариум")
 })
 
+it("ends Gemini autolinks at encoded spaces and counts the exact rendered source", () => {
+  const sources = ["https://example.test/item?q=1", "https://example.org/guide"]
+  const text = "https://example.test/item?q=1&#32;Подробнее\nexample.org/guide&#32;Также"
+  const html = renderToStaticMarkup(<AnswerContent text={text} sources={sources} service="gemini"/>)
+  expect(html).toContain('href="https://example.test/item?q=1"')
+  expect(html).toContain(">https://example.test/item?q=1</a> Подробнее")
+  expect(html).toContain('href="https://example.org/guide"')
+  expect(html).toContain(">example.org/guide</a> Также")
+  expect(renderedSources(text, sources, "gemini")).toEqual([])
+})
+
 it("keeps malformed tables and code literal; displays TSV and headerless tables safely", () => {
   const html = renderToStaticMarkup(<AnswerContent text={'Name\tPrice\nCompany\t100\n\n| | |\n| --- | --- |\n| x | y |\n\n| A | B |\n| --- | --- |\n| mismatched | row | keep |\n\n```\n| A | B |\n| --- | --- |\n| x | y |\n```\n\n| HTML | URL |\n| --- | --- |\n| <img src=x> | [bad](<javascript:alert(1)>) |'}/>)
   expect(html).toContain('>Company</td>')
