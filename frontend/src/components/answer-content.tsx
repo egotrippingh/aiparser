@@ -17,8 +17,9 @@ type References = Map<string, string>
 const refKey = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase()
 const fenceOpen = (line: string) => line.match(/^\s*(`{3,})(?:[^`]*)$/)?.[1] || ""
 const fenceClose = (line: string, fence: string) => line.trim() === fence
+const encodedSpace = "&#32;"
 
-function markdown(text: string) {
+function markdown(text: string, decodeSpaces: boolean) {
   const references: References = new Map(), kept: { line: string; value?: string }[] = []
   let fence = ""
   for (const line of text.replace(/\r\n?/g, "\n").split("\n")) {
@@ -32,7 +33,7 @@ function markdown(text: string) {
     }
     kept.push({ line })
   }
-  const targets = linkTargets(kept.filter(item => !item.value).map(item => item.line).join("\n"), references, [])
+  const targets = linkTargets(kept.filter(item => !item.value).map(item => item.line).join("\n"), references, [], decodeSpaces)
   return { text: kept.filter(item => !item.value || !targets.has(safeUrl(item.value)!.href)).map(item => item.line).join("\n"), references }
 }
 
@@ -56,7 +57,8 @@ function cleanChatGPTMap(text: string) {
   return prose ? { text: prose, changed: true } : { text, changed: false }
 }
 
-function trimUrlPunctuation(value: string) {
+function trimUrlPunctuation(value: string, decodeSpaces: boolean) {
+  if (decodeSpaces) value = value.split(encodedSpace, 1)[0]
   value = value.replace(/[.,;:!?]+$/, "")
   while (value.endsWith(")") && (value.match(/\)/g)?.length || 0) > (value.match(/\(/g)?.length || 0)) value = value.slice(0, -1)
   return value
@@ -308,7 +310,7 @@ function inlineCode(text: string, index: number) {
 
 type ParsedLink = { label: string; url: URL; end: number; reference?: string; explicit?: boolean }
 
-function parsedLink(text: string, index: number, references: References, saved: URL[]): ParsedLink | null {
+function parsedLink(text: string, index: number, references: References, saved: URL[], decodeSpaces = false): ParsedLink | null {
   const rest = text.slice(index)
   const label = rest.match(/^\[((?:\\.|[^\]\\])*)\]\(/)
   if (label) {
@@ -338,13 +340,13 @@ function parsedLink(text: string, index: number, references: References, saved: 
   if (/^[\w.+-]+@[\w.-]+/.test(rest)) return null
   const direct = rest.match(/^https?:\/\/[^\s<>]+/i)
   if (direct) {
-    const value = trimUrlPunctuation(direct[0]), url = safeUrl(value)
+    const value = trimUrlPunctuation(direct[0], decodeSpaces), url = safeUrl(value)
     if (url) return { label: value, url, end: index + value.length }
     return null
   }
   const domain = !/[\w@]/.test(text[index - 1] || "") && rest.match(/^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:[/?#][^\s<>]*)?/i)
   if (domain) {
-    const value = trimUrlPunctuation(domain[0]), url = safeUrl(`https://${value}`)
+    const value = trimUrlPunctuation(domain[0], decodeSpaces), url = safeUrl(`https://${value}`)
     const hasPath = /[/?#]/.test(value)
     const matches = url ? saved.filter(source => source.hostname.replace(/^www\./, "") === url.hostname.replace(/^www\./, "") && (!hasPath || source.pathname + source.search + source.hash === url.pathname + url.search + url.hash)) : []
     if (matches.length === 1) return { label: value, url: matches[0], end: index + value.length }
@@ -352,7 +354,7 @@ function parsedLink(text: string, index: number, references: References, saved: 
   return null
 }
 
-function linkTargets(text: string, references: References, saved: URL[]) {
+function linkTargets(text: string, references: References, saved: URL[], decodeSpaces: boolean) {
   const targets = new Set<string>()
   let fence = ""
   for (const line of text.split("\n")) {
@@ -362,7 +364,7 @@ function linkTargets(text: string, references: References, saved: URL[]) {
     for (let index = 0; index < line.length;) {
       const code = line[index] === "`" && inlineCode(line, index)
       if (code) { index = code.end; continue }
-      const link = parsedLink(line, index, references, saved)
+      const link = parsedLink(line, index, references, saved, decodeSpaces)
       if (link) { targets.add(link.url.href); index = link.end; continue }
       index++
     }
@@ -407,10 +409,11 @@ function citationAt(text: string, start: number, references: References, saved: 
   return { sources, end }
 }
 
-function linkedText(text: string, sources: string[], references: References, bold = true, brand?: BrandHighlight, citations = false) {
+function linkedText(text: string, sources: string[], references: References, decodeSpaces: boolean, bold = true, brand?: BrandHighlight, citations = false) {
   const saved = sourcesOf(sources).map(value => new URL(value)), output: ReactNode[] = []
   let index = 0, plain = ""
-  const flush = () => { if (plain) { output.push(highlightedText(plain, brand)); plain = "" } }
+  const visibleText = (value: string) => decodeSpaces ? value.replaceAll(encodedSpace, " ") : value
+  const flush = () => { if (plain) { output.push(highlightedText(visibleText(plain), brand)); plain = "" } }
   const link = (label: string, url: URL) => {
     flush()
     output.push(<PreviewAnchor key={output.length} href={url.href} brand={brand} label={label}>{highlightedText(label, brand)}</PreviewAnchor>)
@@ -424,7 +427,7 @@ function linkedText(text: string, sources: string[], references: References, bol
       }
       if (end > index + 2 && text.startsWith("**", end)) {
         flush()
-        output.push(<strong key={output.length}>{linkedText(text.slice(index + 2, end), sources, references, false, brand, citations)}</strong>)
+        output.push(<strong key={output.length}>{linkedText(text.slice(index + 2, end), sources, references, decodeSpaces, false, brand, citations)}</strong>)
         index = end + 2; continue
       }
     }
@@ -442,8 +445,8 @@ function linkedText(text: string, sources: string[], references: References, bol
       output.push(<CitationGroup key={output.length} sources={citation.sources} brand={brand}/>)
       index = citation.end; continue
     }
-    const parsed = parsedLink(text, index, references, saved)
-    if (parsed) { link(parsed.label, parsed.url); index = parsed.end; continue }
+    const parsed = parsedLink(text, index, references, saved, decodeSpaces)
+    if (parsed) { link(parsed.explicit ? visibleText(parsed.label) : parsed.label, parsed.url); index = parsed.end; continue }
     plain += text[index++]
   }
   flush()
@@ -472,8 +475,8 @@ function tableCells(line: string) {
   return cells
 }
 
-function blocks(text: string, sources: string[], references: References, brand: BrandHighlight | undefined, citations: boolean) {
-  const inline = (line: string) => linkedText(line, sources, references, true, brand, citations)
+function blocks(text: string, sources: string[], references: References, brand: BrandHighlight | undefined, citations: boolean, decodeSpaces: boolean) {
+  const inline = (line: string) => linkedText(line, sources, references, decodeSpaces, true, brand, citations)
   const lines = text.replace(/\r\n?/g, "\n").split("\n"), output: ReactNode[] = []
   let index = 0, key = 0, cleaned = false
   // ponytail: only standalone source counters; ambiguous inline +N stays literal.
@@ -566,13 +569,15 @@ export function AnswerContent({ text, service, sources = [], brand }: { text: st
   const fixed = service === "chatgpt" ? cleanChatGPTMap(text) : { text, changed: false }
   const display = displayText(fixed.text, service, sources)
   const citations = Boolean(useContext(CitationContext))
-  const parsed = markdown(display.text), rendered = blocks(parsed.text, sources, parsed.references, brand, citations)
+  const decodeSpaces = service === "gemini"
+  const parsed = markdown(display.text, decodeSpaces), rendered = blocks(parsed.text, sources, parsed.references, brand, citations, decodeSpaces)
   return <div className="answer-content">{rendered.output}{(fixed.changed || display.text !== fixed.text || rendered.cleaned) && <details className="answer-original"><summary>Исходный текст</summary><pre>{text}</pre></details>}</div>
 }
 
 export function renderedSources(text: string, sources: string[], service?: string) {
   const fixed = service === "chatgpt" ? cleanChatGPTMap(text) : { text, changed: false }
-  const parsed = markdown(displayText(fixed.text, service, sources).text), targets = linkTargets(parsed.text, parsed.references, sourcesOf(sources).map(value => new URL(value)))
+  const decodeSpaces = service === "gemini"
+  const parsed = markdown(displayText(fixed.text, service, sources).text, decodeSpaces), targets = linkTargets(parsed.text, parsed.references, sourcesOf(sources).map(value => new URL(value)), decodeSpaces)
   return sourcesOf(sources).filter(value => !targets.has(new URL(value).href))
 }
 
