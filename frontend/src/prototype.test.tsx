@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
-import { ControlCenter, scanPercent, ScanProgress, ScheduleDays, runStatus } from "./control-center"
+import { ControlCenter, ProjectRegistry, scanPercent, ScanProgress, ScheduleDays, runStatus } from "./control-center"
 import { ProjectIcon, projectFavicon } from "./project-icon"
 import { choiceIndex } from "./app-choice"
 import { ReportChart, chartDays, chartIndex, chartTooltipPosition, linePath } from "./report-chart"
@@ -17,6 +17,41 @@ it("opens the project list without project context or an icon rail", () => {
   expect(html).not.toContain('<aside class="sidebar">')
   expect(html).toContain('<span>Выбрать проект</span>')
   expect(html).toContain('aria-label="Поиск проекта"')
+})
+
+it("shows real registry progress and filters without exposing viewer scheduling", () => {
+  const project: Parameters<typeof ProjectRegistry>[0]["projects"][number] = {
+    id: "alpha", revision: 0, name: "Альфа", brand_name: "Север", device_id: null,
+    config: { brand_aliases: [], brand_domains: [], region_code: "213", services: ["chatgpt", "perplexity", "gemini", "google_aio", "yandex_neuro"], browser_mode: "headless", speed_profile: "fast", parallel: true },
+    schedule: { enabled: true, device_id: null, month_days: [15], last_day: true, time: "09:00", timezone: "Europe/Moscow" },
+    queries: [], query_count: 100, active_queries: 64,
+  }
+  const projects = [project, { ...project, id: "shared", name: "Общий", brand_name: "Доступный", shared: true, role: "viewer" as const }]
+  const run = {
+    id: "run-alpha", project_id: project.id, project_name: project.name, device_id: null, device_name: "", phase: "cloud",
+    state: "running", desired_state: "running", error: null, total: 100, created_at: "", scheduled_for: null, progress: { done: 64 },
+  }
+  const render = (search = "", filter: Parameters<typeof ProjectRegistry>[0]["filter"] = "all") =>
+    renderToStaticMarkup(<ProjectRegistry projects={projects} activeRuns={[run]} loading={false} loadFailed={false} openRun={()=>{}} search={search} filter={filter} onSearch={()=>{}} onFilter={()=>{}}/>)
+  const all = render()
+  expect(all).toContain('aria-label="Идёт проверка 64% — Альфа"')
+  expect(all).toContain('<progress max="100" value="64"')
+  expect(all).toContain('15-го и в последний день месяца')
+  expect(all).toContain('href="#/project/alpha/schedule"')
+  expect(all).not.toContain('href="#/project/shared/schedule"')
+  expect(all).toContain("только просмотр")
+  for (const mode of ["scheduled", "active"] as const) expect(render("", mode)).not.toContain('href="#/project/shared/report"')
+  expect(render("  АЛЬфа ")).toContain('href="#/project/alpha/report"')
+  expect(render("shared")).toContain('href="#/project/shared/report"')
+  expect(render("Пропуск")).toContain("Проекты не найдены")
+  expect(render("Пропуск")).toContain("Сбросить фильтры")
+})
+
+it("keeps a failed registry load distinct from an empty account", () => {
+  const render = (loading: boolean, loadFailed: boolean) => renderToStaticMarkup(<ProjectRegistry projects={[]} activeRuns={[]} loading={loading} loadFailed={loadFailed} openRun={()=>{}} search="" filter="all" onSearch={()=>{}} onFilter={()=>{}}/>)
+  expect(render(true, false)).toContain("Загрузка проектов")
+  expect(render(false, false)).toContain("Начните с первого проекта")
+  expect(render(false, true)).not.toContain("Начните с первого проекта")
 })
 
 it("offers days 1–28 and a last-day flag without converting legacy dates", () => {
@@ -69,6 +104,7 @@ it("reports real scan progress in bounded five-percent steps", () => {
   expect(scanPercent(0,0)).toBe(0)
   expect(scanPercent(-1,20)).toBe(0)
   expect(scanPercent(100,99)).toBe(100)
+  expect(scanPercent(29,100,1)).toBe(29)
 })
 
 it("exposes the progress pie value without displaying a number", () => {

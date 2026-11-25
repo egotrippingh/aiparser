@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react"
-import { CalendarClock, CalendarDays, ChartNoAxesCombined, ChevronRight, Flag, Link, List, Pause, Play, Plus, Search, Settings2, SlidersHorizontal, Square, Trash2, UserPlus, UserRoundPlus, X } from "lucide-react"
+import { Activity, CalendarClock, CalendarDays, ChartNoAxesCombined, Check, ChevronRight, Clock3, Flag, Link, List, Pause, Play, Plus, Search, Settings2, SlidersHorizontal, Square, Trash2, UserPlus, UserRoundPlus, X } from "lucide-react"
 import { Tooltip } from "@base-ui/react/tooltip"
 import { accountRequest as request } from "./account-api"
 import { SCAN_SERVICES, MONTH_DAYS } from "./lib/scan-preferences"
@@ -20,6 +20,7 @@ import "./app-layout.scss"
 import { publicError } from "./lib/public-error"
 import "./control-center.scss"
 import "./icon-sidebar.scss"
+import "./project-registry.scss"
 
 type Query = { id: string; text: string; group_tag: string; active: boolean }
 type Config = { brand_aliases: string[]; brand_domains: string[]; brand_clarification?: string; region_code: string; services: string[]; browser_mode: string; speed_profile: string; parallel: boolean }
@@ -40,8 +41,8 @@ export function runStatus(run: Pick<Run,"state"|"desired_state"|"phase">) {
   if (run.phase === "cloud" && run.state === "paused") return "В процессе"
   return names[run.state] || run.state
 }
-export function scanPercent(done: number, total: number) {
-  return total > 0 ? Math.max(0,Math.min(100,Math.floor(done / total * 20) * 5)) : 0
+export function scanPercent(done: number, total: number, step = 5) {
+  return total > 0 ? Math.max(0, Math.min(100, Math.floor(done * (100 / step) / total) * step)) : 0
 }
 export function ScanProgress({ percent }: {percent:number}) {
   return <span className="scan-pie" role="progressbar" aria-label="Прогресс проверки" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} style={{"--scan-target":`${percent}%`} as CSSProperties}/>
@@ -85,6 +86,135 @@ function QuotePopover({ quote, item, note, action, above = false, trigger, after
   return <div ref={dialog} className={`cc-quote-popover${above ? " above" : ""}`} role="dialog" aria-modal="false" aria-label={`Подтверждение: ${action}`}><p>К списанию: до <b>{money(quote.total_kopeks)}</b></p><small>{quote.free_count ? `${quote.free_count} бесплатно по промокоду · ${quote.count - quote.free_count} платных × ${money(quote.unit_kopeks)}` : `${quote.count} ${item} × ${money(quote.unit_kopeks)}`} · доступно {money(quote.available_kopeks)}</small>{quote.payer === "owner" && <p className="cc-quote-note">Оплата и промокоды владельца проекта.</p>}<p className="cc-quote-note">{note}</p><div><button className="cc-quote-cancel" onClick={onCancel}>Отменить</button><button className="cc-button primary" onClick={() => { confirmed.current = true; onConfirm(); requestAnimationFrame(() => afterConfirm?.current?.focus()) }}>{action}</button></div></div>
 }
 
+const registryFilters = [
+  { id: "all", label: "Все проекты" },
+  { id: "scheduled", label: "По расписанию" },
+  { id: "active", label: "Активные проверки" },
+] as const
+type RegistryFilter = typeof registryFilters[number]["id"]
+const registryNumber = new Intl.NumberFormat("ru-RU")
+const registryPlural = new Intl.PluralRules("ru-RU")
+
+function registryScheduleDays(schedule: Schedule) {
+  const days = schedule.month_days.map(day => String(day) + "-го").join(", ")
+  if (!days) return scheduleDaysLabel(schedule)
+  return schedule.last_day ? days + " и в последний день месяца" : days + " числа"
+}
+
+function ProjectTotals({ projects }: { projects: Project[] }) {
+  const count = projects.length
+  const queries = projects.reduce((total, project) => total + project.query_count, 0)
+  const projectWord = { one: "проект", few: "проекта", many: "проектов" }[registryPlural.select(count) as "one" | "few" | "many"]
+  const queryWord = { one: "запрос", few: "запроса", many: "запросов" }[registryPlural.select(queries) as "one" | "few" | "many"]
+  return <p className="project-registry__summary">
+    <strong>{registryNumber.format(count)}</strong> {projectWord} <span aria-hidden="true">·</span> <strong>{registryNumber.format(queries)}</strong> {queryWord}
+  </p>
+}
+
+function RegistryCheck({ project, run, openRun }: { project: Project; run?: Run; openRun: (id: string) => void }) {
+  if (!run) return <span className="project-registry__status-label"><Check size={16} aria-hidden="true"/>Готов к проверкам</span>
+  const status = runStatus(run)
+  const queued = status === names.queued
+  const paused = status === names.paused
+  const Icon = paused ? Pause : queued ? Clock3 : Activity
+  const label = status === names.running ? "Идёт проверка" : status
+  const percent = scanPercent(run.progress.done ?? 0, run.total, 1)
+  const showProgress = !queued || percent > 0
+  return <button
+    type="button"
+    className={paused || queued ? "project-registry__check-button project-registry__check-button--waiting" : "project-registry__check-button"}
+    aria-label={`${label}${showProgress ? ` ${percent}%` : ""} — ${project.name}`}
+    aria-haspopup="dialog"
+    onClick={() => openRun(run.id)}
+  >
+    <span className="project-registry__status-label"><Icon size={16} aria-hidden="true"/><span>{label}</span>{showProgress && <strong>{percent}%</strong>}</span>
+    {showProgress && <progress max={100} value={percent} aria-hidden="true"/>}
+  </button>
+}
+
+export function ProjectRegistry({ projects, activeRuns, loading, loadFailed, search, filter, onSearch, onFilter, openRun }: {
+  projects: Project[]
+  activeRuns: Run[]
+  loading: boolean
+  loadFailed: boolean
+  search: string
+  filter: RegistryFilter
+  onSearch: (search: string) => void
+  onFilter: (filter: RegistryFilter) => void
+  openRun: (id: string) => void
+}) {
+  const searchInput = useRef<HTMLInputElement>(null)
+  const term = search.trim().toLocaleLowerCase("ru-RU")
+  const rows = projects.map(project => ({ project, run: activeRuns.find(item => item.project_id === project.id) })).filter(({ project, run }) => {
+    if (filter === "scheduled" && (project.role === "viewer" || !project.schedule.enabled)) return false
+    if (filter === "active" && !run) return false
+    return [project.name, project.brand_name, project.id].some(value => value.toLocaleLowerCase("ru-RU").includes(term))
+  })
+
+  return <section className="project-registry" aria-label="Реестр проектов">
+    <div className="project-registry__toolbar">
+      <label className="search-box project-registry__search">
+        <Search size={17} aria-hidden="true"/>
+        <input ref={searchInput} type="search" aria-label="Поиск проекта" placeholder="Найти проект или бренд" value={search} onChange={event => onSearch(event.target.value)}/>
+      </label>
+      <div className="project-registry__filters" role="group" aria-label="Фильтр проектов">
+        {registryFilters.map(option => <button type="button" key={option.id} aria-pressed={filter === option.id} onClick={() => onFilter(option.id)}>{option.label}</button>)}
+      </div>
+    </div>
+    {loading ? <div className="panel"><CabinetSkeleton label="Загрузка проектов…"/></div> : !projects.length ? (
+      !loadFailed && <div className="panel empty-state"><h2>Начните с первого проекта</h2><p>Укажите бренд, добавьте запросы и выберите ИИ-системы.</p><a className="btn primary" href="#/project/new/settings">Создать проект</a></div>
+    ) : !rows.length ? (
+      <div className="panel empty-state project-registry__empty">
+        <h2>Проекты не найдены</h2>
+        <p>Попробуйте другой запрос или сбросьте фильтры.</p>
+        <button type="button" className="btn" onClick={() => { onSearch(""); onFilter("all"); searchInput.current?.focus() }}>Сбросить фильтры</button>
+      </div>
+    ) : (
+      <div className="panel table-scroll project-registry__table-wrap" role="region" tabIndex={0} aria-label="Список проектов">
+        <table className="project-registry__table" role="table" aria-label="Проекты">
+          <thead role="rowgroup"><tr role="row">
+            <th scope="col" role="columnheader">Проект</th>
+            <th scope="col" role="columnheader" className="project-registry__check">Проверка</th>
+            <th scope="col" role="columnheader">Запросы</th>
+            <th scope="col" role="columnheader">ИИ-системы</th>
+            <th scope="col" role="columnheader">Расписание</th>
+          </tr></thead>
+          <tbody role="rowgroup">
+            {rows.map(({ project, run }) => {
+              const services = project.config.services.filter(isCurrentService)
+              return <tr key={project.id} role="row">
+                <td role="cell" className="project-registry__identity">
+                  <a href={`#/project/${project.id}/report`}>
+                    <ProjectIcon name={project.name} domains={project.config.brand_domains}/>
+                    <span><strong>{project.name}</strong><small>{project.brand_name}{project.shared ? (project.role === "editor" ? " · редактор" : " · только просмотр") : ""}</small></span>
+                    <ChevronRight size={16} className="project-registry__mobile-chevron" aria-hidden="true"/>
+                  </a>
+                </td>
+                <td role="cell" className="project-registry__check"><RegistryCheck project={project} run={run} openRun={openRun}/></td>
+                <td role="cell" className="project-registry__queries"><span className="project-registry__mobile-label">Запросы </span><strong>{registryNumber.format(project.query_count)}</strong><small>{registryNumber.format(project.active_queries)} активно</small></td>
+                <td role="cell" className="project-registry__systems">
+                  {services.length ? <ul aria-label="ИИ-системы">{services.map(id => <li key={id} title={service(id)} aria-label={service(id)}><ServiceMark id={id}/></li>)}</ul> : <small>Не выбраны</small>}
+                </td>
+                <td role="cell" className="project-registry__schedule">
+                  {project.role === "viewer" ? <span title="Расписание недоступно">—</span> : (
+                    <a href={`#/project/${project.id}/schedule`}>
+                      <CalendarDays size={16} aria-hidden="true"/>
+                      {project.schedule.enabled
+                        ? <span><strong>{project.schedule.time}</strong><small>{registryScheduleDays(project.schedule)}</small></span>
+                        : <small>По запросу</small>}
+                    </a>
+                  )}
+                </td>
+              </tr>
+            })}
+          </tbody>
+        </table>
+      </div>
+    )}
+    <p className="project-registry__count" role="status">{!loading && projects.length > 0 && `Показано ${rows.length} из ${projects.length}`}</p>
+  </section>
+}
+
 export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange, email, avatarUrl, balance, admin, account, message, logout, walletChanged }: {
   token: string; brandClarificationsEnabled: boolean; onDirtyChange: (dirty: boolean) => void;
   email: string; avatarUrl?: string | null; balance: string; admin: boolean; account: ReactNode; message: string; logout: () => void; walletChanged: () => void
@@ -93,6 +223,7 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
   const [lastProject, setLastProject] = useState(() => routeNow().split("/")[1] || "")
   const editorDirty = useRef(false), editorProject = useRef(""), previousHash = useRef(location.hash), previousPosition = useRef(0), restoringHistory = useRef(false)
   const [projects, setProjects] = useState<Project[]>([])
+  const [projectsLoaded, setProjectsLoaded] = useState(false)
   const [runs, setRuns] = useState<Run[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -100,6 +231,8 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
   const [copyMessage, setCopyMessage] = useState<{id:string;text:string}|null>(null)
   const [busy, setBusy] = useState("")
   const [filter, setFilter] = useState("")
+  const [projectSearch, setProjectSearch] = useState("")
+  const [projectFilter, setProjectFilter] = useState<RegistryFilter>("all")
   const [runState, setRunState] = useState("")
   const [runDetail, setRunDetail] = useState<string | null>(null)
   const runDialog = useRef<HTMLDialogElement>(null)
@@ -116,7 +249,7 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
     const version = ++refreshVersion.current
     const [p, r] = await Promise.all([request<Project[]>("/control/projects", token), request<Run[]>("/control/runs", token)])
     if (!mounted.current || version !== refreshVersion.current) return
-    setProjects(p); setRuns(r); setError(""); setLoading(false)
+    setProjects(p); setRuns(r); setProjectsLoaded(true); setError(""); setLoading(false)
   }, [token])
   const noteEditorDirty = useCallback((dirty: boolean, projectId: string) => {
     editorDirty.current = dirty
@@ -250,18 +383,18 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
       <nav aria-label="Разделы приложения">{nav.map(([id, label, Icon]) => <IconNavLink key={id} className="nav-link" label={label} current={page === id} href={["report","queries","sources","settings","schedule","access"].includes(id) ? projectLink(id) : `#/${id}`}><Icon size={24} strokeWidth={1.7} aria-hidden="true"/></IconNavLink>)}</nav>
     </aside>}
     <main ref={main} className="app-main" id="app-content" tabIndex={-1}>
-      <div className="breadcrumb"><a href="#/projects">Проекты</a><ChevronRight size={12}/>{selected && <><span>{selected.name}</span><ChevronRight size={12}/></>}<span className="current">{title}</span></div>
-      <div className="heading-row"><div><div className="heading-title"><h1 ref={projectHeading} tabIndex={-1}>{title}</h1>{selected && ["project","overview"].includes(area) && <span className="domain-label">{selected.config.brand_domains[0] || selected.brand_name}</span>}</div><p className="subtitle">{page === "report" ? "Как часто ИИ упоминает ваш бренд и откуда берёт информацию." : page === "projects" ? "Бренды, запросы и результаты — в одном рабочем пространстве." : page === "queries" ? "Промптовая база проекта: запросы и группы для регулярных проверок." : page === "sources" ? "Сайты, на которые ссылаются ответы с упоминанием бренда." : page === "schedule" ? "Автоматические проверки в выбранные дни месяца." : page === "runs" ? "Ручные запуски и расписания проектов аккаунта." : ""}</p></div>
-        <div className="heading-actions">{selected && <span className="row-note">ID: <code style={{overflowWrap:"anywhere"}}>{selected.id}</code> · {selected.role === "owner" ? "Владелец" : selected.role === "editor" ? "Редактор" : "Просмотр"} <button className="text-link" aria-label="Копировать ID проекта" onClick={async()=>{try {await navigator.clipboard.writeText(selected.id);setCopyMessage({id:selected.id,text:"ID скопирован"})} catch {setCopyMessage({id:selected.id,text:"Не удалось скопировать. Выделите ID вручную."})}}}>Копировать</button>{copyMessage?.id === selected.id && <span role="status"> · {copyMessage.text}</span>}</span>}{page === "projects" ? <a className="btn primary" href="#/project/new/settings"><Plus size={15}/>Новый проект</a> : null}</div>
+      {page !== "projects" && <div className="breadcrumb"><a href="#/projects">Проекты</a><ChevronRight size={12}/>{selected && <><span>{selected.name}</span><ChevronRight size={12}/></>}<span className="current">{title}</span></div>}
+      <div className={page === "projects" ? "heading-row project-registry__heading" : "heading-row"}><div><div className="heading-title"><h1 ref={projectHeading} tabIndex={-1}>{title}</h1>{selected && ["project","overview"].includes(area) && <span className="domain-label">{selected.config.brand_domains[0] || selected.brand_name}</span>}</div>{page === "projects" ? (projectsLoaded && <ProjectTotals projects={projects}/>) : <p className="subtitle">{page === "report" ? "Как часто ИИ упоминает ваш бренд и откуда берёт информацию." : page === "queries" ? "Промптовая база проекта: запросы и группы для регулярных проверок." : page === "sources" ? "Сайты, на которые ссылаются ответы с упоминанием бренда." : page === "schedule" ? "Автоматические проверки в выбранные дни месяца." : page === "runs" ? "Ручные запуски и расписания проектов аккаунта." : ""}</p>}</div>
+        <div className="heading-actions">{selected && <span className="row-note">ID: <code style={{overflowWrap:"anywhere"}}>{selected.id}</code> · {selected.role === "owner" ? "Владелец" : selected.role === "editor" ? "Редактор" : "Просмотр"} <button className="text-link" aria-label="Копировать ID проекта" onClick={async()=>{try {await navigator.clipboard.writeText(selected.id);setCopyMessage({id:selected.id,text:"ID скопирован"})} catch {setCopyMessage({id:selected.id,text:"Не удалось скопировать. Выделите ID вручную."})}}}>Копировать</button>{copyMessage?.id === selected.id && <span role="status"> · {copyMessage.text}</span>}</span>}{page === "projects" ? <a className="btn primary project-registry__new" href="#/project/new/settings"><Plus size={17} aria-hidden="true"/>Новый проект</a> : null}</div>
       </div>
-      {error && <div className="cc-alert" role="alert">{error}<button className="btn" onClick={() => refresh().catch(e => setError(e.message))}>Повторить</button><button className="btn icon-only" aria-label="Закрыть сообщение" onClick={() => setError("")}><X size={16}/></button></div>}
+      {error && <div className="cc-alert" role="alert">{error}<button className="btn" onClick={() => refresh().catch(e => setError(e.message))}>Повторить</button>{(page !== "projects" || projectsLoaded) && <button className="btn icon-only" aria-label="Закрыть сообщение" onClick={() => setError("")}><X size={16}/></button>}</div>}
       {message && <p className="notice" role="status">{message}</p>}
       {page === "projects" && projectNotice && <p className="notice" role="status">{projectNotice}</p>}
       {page === "account" ? account : page === "help" ? <p className="page-intro">Открываем документацию… <a href="/docs/">Перейти к документации</a></p> : loading && ["project","overview"].includes(area) && projectId !== "new" ? <CabinetSkeleton label="Загрузка проекта…" format={page === "report" ? "report" : "rows"}/> : ["project","overview"].includes(area) && projectId ? <>
         {tab === "access" && selected?.role === "owner" ? <ProjectAccess key={projectId} token={token} projectId={projectId}/> : ["report","sources"].includes(tab) && projectId !== "new" ? <ReportView key={projectId} token={token} projectId={projectId} projectName={selected?.name ?? ""} projectServices={selected?.config.services || []} lastFinishedRunId={lastFinishedRunId} sourcesOnly={tab === "sources"} canEdit={!viewer} scanControl={viewer ? undefined : scanControl}/> : <ProjectEditor key={projectId} token={token} projectId={projectId} tab={projectId === "new" ? "settings" : tab} brandClarificationsEnabled={brandClarificationsEnabled} admin={admin} saved={refresh} archived={projectArchived} onDirtyChange={noteEditorDirty} walletChanged={walletChanged}/>}
-      </> : page === "runs" ? <><div className="filterbar"><label className="search-box"><Search size={15}/><input aria-label="Поиск проверки" placeholder="Поиск по проекту" value={filter} onChange={e => setFilter(e.target.value)}/></label><AppChoice label="Статус проверки" value={runState} options={[{value:"",label:"Все статусы"},...Object.entries(names).map(([value,label]) => ({value,label}))]} change={setRunState}/></div><section className="panel">{loading ? <CabinetSkeleton label="Загрузка проверок…"/> : runs.length ? runRows(runs.filter(r => (!runState || runStatus(r) === names[runState]) && r.project_name.toLowerCase().includes(filter.toLowerCase()))) : <div className="empty-state">Проверок пока нет. <a href="#/projects">К проектам</a></div>}</section></> : <>
-        <div className="stat-inline"><span><strong>{projects.length}</strong> проектов</span><span><strong>{projects.reduce((n,p) => n + p.query_count, 0)}</strong> запросов</span></div><div className="filterbar"><label className="search-box"><Search size={15}/><input aria-label="Поиск проекта" placeholder="Найти проект или бренд" value={filter} onChange={e => setFilter(e.target.value)}/></label></div><section className="panel">{loading ? <CabinetSkeleton label="Загрузка проектов…"/> : !projects.length ? <div className="empty-state"><h2>Начните с первого проекта</h2><p>Укажите бренд, добавьте запросы и выберите ИИ-системы.</p><a className="btn primary" href="#/project/new/settings">Создать проект</a></div> : <div className="table-scroll"><table><thead><tr><th>Проект</th><th>Проверка</th><th>Запросы</th><th>ИИ-системы</th><th>Расписание</th></tr></thead><tbody>{projects.filter(p => `${p.name} ${p.brand_name} ${p.id}`.toLowerCase().includes(filter.toLowerCase())).map(p => { const run = activeRuns.find(r => r.project_id === p.id); return <tr key={p.id}><td><a className="project-name" href={`#/project/${p.id}/report`}><ProjectIcon name={p.name} domains={p.config.brand_domains}/>{p.name}</a><small className="row-note">{p.brand_name}{p.shared ? ` · ${p.role === "editor" ? "редактор" : "только просмотр"}` : ""}</small><small className="row-note">ID: <code>{p.id}</code></small></td><td>{run ? <button className="btn icon-only" aria-label={`${runStatus(run)}: ${scanPercent(run.progress.done ?? 0, run.total)}%`} onClick={() => { setRunDetail(run.id); runDialog.current?.showModal() }}><ScanProgress percent={scanPercent(run.progress.done ?? 0, run.total)}/></button> : <span className="badge blue">Готов к проверкам</span>}</td><td>{p.query_count}<small className="row-note">{p.active_queries} активно</small></td><td><div className="system-marks">{p.config.services.filter(isCurrentService).map(id => <span key={id} title={service(id)}><ServiceMark id={id}/></span>)}</div></td><td>{p.role === "viewer" ? "—" : <a href={`#/project/${p.id}/schedule`}>{p.schedule.enabled ? `${p.schedule.time} · ${scheduleDaysLabel(p.schedule)}` : "По запросу"}</a>}</td></tr>})}</tbody></table></div>}</section>
-      </>}
+      </> : page === "runs" ? <><div className="filterbar"><label className="search-box"><Search size={15}/><input aria-label="Поиск проверки" placeholder="Поиск по проекту" value={filter} onChange={e => setFilter(e.target.value)}/></label><AppChoice label="Статус проверки" value={runState} options={[{value:"",label:"Все статусы"},...Object.entries(names).map(([value,label]) => ({value,label}))]} change={setRunState}/></div><section className="panel">{loading ? <CabinetSkeleton label="Загрузка проверок…"/> : runs.length ? runRows(runs.filter(r => (!runState || runStatus(r) === names[runState]) && r.project_name.toLowerCase().includes(filter.toLowerCase()))) : <div className="empty-state">Проверок пока нет. <a href="#/projects">К проектам</a></div>}</section></> : (
+        <ProjectRegistry projects={projects} activeRuns={activeRuns} loading={loading} loadFailed={!projectsLoaded} search={projectSearch} filter={projectFilter} onSearch={setProjectSearch} onFilter={setProjectFilter} openRun={id => { setRunDetail(id); runDialog.current?.showModal() }}/>
+      )}
       <dialog ref={runDialog} aria-labelledby="run-title"><div className="dialog-head"><h2 id="run-title">Проверка проекта</h2><button className="btn icon-only" aria-label="Закрыть проверку" onClick={() => runDialog.current?.close()}><X size={16}/></button></div><div className="dialog-body">{currentRun ? <><h3>{currentRun.project_name}</h3><p>{runStatus(currentRun)} · {currentRun.progress.done || 0} / {currentRun.total} проверок</p>{currentRun.error && <p className="cc-error-text">{publicError(currentRun.error)}</p>}{Object.entries(currentRun.progress.services || {}).filter(([id])=>isCurrentService(id)).map(([id, stats]) => <p key={id}>{service(id)}: {stats.done} / {stats.total}{stats.error ? ` · ${publicError(stats.error)}` : ""}</p>)}<p>Незавершённые запросы остаются в очереди; счётчик показывает готовые ответы.</p>{projectIds.has(currentRun.project_id) && <a className="btn blue" href={`#/project/${currentRun.project_id}/report`} onClick={() => runDialog.current?.close()}>Открыть отчёт</a>}</> : <p>Проверка недоступна</p>}</div></dialog>
     </main>
   </div>
