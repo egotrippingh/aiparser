@@ -4,12 +4,12 @@
   width: 100%;
   margin-block: 1.25em;
   border: 0;
-  border-top: 1px solid var(--air-border, var(--border));
+  border-top: 1px solid var(--air-line, var(--border, currentColor));
 }
 .answer-content blockquote {
   margin: 0 0 1em;
   padding-inline-start: .8em;
-  border-inline-start: 2px solid var(--air-border, var(--border));
+  border-inline-start: 2px solid var(--air-line, var(--border, currentColor));
 }
 .answer-content__photo {
   display: inline-block;
