@@ -390,6 +390,8 @@ def _content(node: _Node, *, inline: bool = False) -> list:
         return [{"tag": "citation", "children": [], "sources": sources}] if sources else []
     if _card(node):
         return []
+    if node.tag == "img":
+        return [{"tag": "img", "children": [], **_prose_image_attrs(node)}]
     children = []
     inline = inline or node.tag in {"p", "li", "td", "th", "h1", "h2", "h3", "h4", "h5", "h6"}
     for child in node.children:
@@ -397,6 +399,38 @@ def _content(node: _Node, *, inline: bool = False) -> list:
     if not node.tag:
         return children
     return [{"tag": node.tag, "children": children, **({"href": node.attrs["href"]} if node.attrs.get("href") else {})}]
+
+
+def _prose_image_attrs(node: _Node) -> dict[str, str]:
+    src = _image_url(node.attrs.get("src"))
+    return {"src": src, "alt": (node.attrs.get("alt") or "")[:500]} if src else {}
+
+
+def restore_legacy_images(content: list, markup: str) -> None:
+    """Fill old image nodes from the sanitized HTML kept with the same answer."""
+    if "<img " not in markup:
+        return
+    images = []
+    stack = list(reversed(content))
+    while stack:
+        node = stack.pop()
+        if not isinstance(node, dict):
+            continue
+        if node.get("tag") == "img":
+            images.append(node)
+        children = node.get("children")
+        if isinstance(children, list):
+            stack.extend(reversed(children))
+    if not any(not image.get("src") for image in images):
+        return
+    try:
+        stored = [_prose_image_attrs(node) for node in _walk(_Tree(markup).root) if node.tag == "img"]
+    except XMLRiverResponseError:
+        return
+    if len(stored) == len(images):
+        for node, attrs in zip(images, stored):
+            if not node.get("src"):
+                node.update(attrs)
 
 
 def evidence(markup: str | None, cards: list[tuple[str, str, str]], service_id: str) -> dict:

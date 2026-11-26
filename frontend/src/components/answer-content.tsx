@@ -18,6 +18,9 @@ const refKey = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase(
 const fenceOpen = (line: string) => line.match(/^\s*(`{3,})(?:[^`]*)$/)?.[1] || ""
 const fenceClose = (line: string, fence: string) => line.trim() === fence
 const encodedSpace = "&#32;"
+const imageTag = /^<img(?=[ \t/>])((?:"[^"\n]*"|'[^'\n]*'|[^<>"'\n])*)>/i
+const answerEntities: Record<string, string> = { amp: "&", apos: "'", "#39": "'", quot: '"', lt: "<", gt: ">", nbsp: "\u00a0" }
+const decodeEntities = (value: string) => value.replace(/&(amp|apos|#39|quot|lt|gt|nbsp);/g, (_, name: string) => answerEntities[name])
 
 function markdown(text: string, decodeSpaces: boolean) {
   const references: References = new Map(), kept: { line: string; value?: string }[] = []
@@ -33,8 +36,16 @@ function markdown(text: string, decodeSpaces: boolean) {
     }
     kept.push({ line })
   }
-  const targets = linkTargets(kept.filter(item => !item.value).map(item => item.line).join("\n"), references, [], decodeSpaces)
-  return { text: kept.filter(item => !item.value || !targets.has(safeUrl(item.value)!.href)).map(item => item.line).join("\n"), references }
+  const images = new Set<string>()
+  const targets = linkTargets(kept.filter(item => !item.value).map(item => item.line).join("\n"), references, [], decodeSpaces, images)
+  return {
+    text: kept.filter(item => {
+      if (!item.value) return true
+      const href = safeUrl(item.value)!.href
+      return !targets.has(href) && !images.has(href)
+    }).map(item => item.line).join("\n"),
+    references,
+  }
 }
 
 export function sourcesOf(values: string[]) {
@@ -282,8 +293,8 @@ function displayText(text: string, service?: string, sources: string[] = []) {
     if (fence) { if (fenceClose(lines[line], fence)) fence = ""; continue }
     const parts = lines[line].split(/(`+[^`]*`+)/)
     lines[line] = parts.map((part, index) => index % 2 ? part : part
-      .replace(/<(\/?)strong>/gi, "**")
-      .replace(/\\([!"'(),.\-/:;?])/g, "$1")).join("")
+      .replace(/<(\/?)(?:strong|b)>/gi, "**")
+      .replace(/\\(!(?!\[)|["'(),.\-/:;?])/g, "$1")).join("")
   }
   if (service !== "yandex_neuro") return { text: lines.join("\n"), sourcesMoved: false }
   const start = lines.findIndex(line => /^(?:#{1,6}\s*)?(?:источники|sources?)\s*:?\s*$/i.test(line.trim()))
@@ -354,7 +365,50 @@ function parsedLink(text: string, index: number, references: References, saved: 
   return null
 }
 
-function linkTargets(text: string, references: References, saved: URL[], decodeSpaces: boolean) {
+type AnswerImage = { src: string; alt: string; title?: string; width?: number }
+
+export function AnswerPhoto({ src, alt, title, width }: AnswerImage) {
+  const [failed, setFailed] = useState(false)
+  return src && !failed
+    ? <img className="answer-content__photo" src={src} alt={alt} width={width} title={title} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)}/>
+    : <span className="answer-content__photo-error">{alt ? "Фото недоступно: " + alt : "Фото недоступно"}</span>
+}
+
+function answerImageAt(text: string, index: number, references: References): (AnswerImage & { end: number; original: string }) | null {
+  const rest = text.slice(index)
+  if (rest.startsWith("<")) {
+    const tag = rest.match(imageTag)
+    if (!tag) return null
+    const attrs = new Map<string, string>()
+    for (const [, name, doubleQuoted, singleQuoted, bare] of tag[1].matchAll(/([^ \t"'<>/=]+)(?:[ \t]*=[ \t]*(?:"([^"]*)"|'([^']*)'|([^ \t"'<>]+)))?/g)) {
+      const key = name.toLowerCase()
+      if (!attrs.has(key)) attrs.set(key, doubleQuoted ?? singleQuoted ?? bare ?? "")
+    }
+    const original = attrs.get("src")
+    if (original === undefined) return null
+    const alt = decodeEntities(attrs.get("alt") || "")
+    const title = decodeEntities(attrs.get("title") || "")
+    const width = Number(attrs.get("width"))
+    return {
+      src: safeAnswerImage(decodeEntities(original)), original, alt: alt || title, title: title || undefined,
+      width: Number.isSafeInteger(width) && width > 0 ? width : undefined, end: index + tag[0].length,
+    }
+  }
+  if (!rest.startsWith("![")) return null
+  const titled = rest.match(/^!\[((?:\\.|[^\]\\])*)\]\((?:<([^<>\s]+)>|((?:[^()\s]|\([^()\s]*\))+))[ \t]+(?:"([^"]*)"|'([^']*)')[ \t]*\)/)
+  if (titled) {
+    const original = titled[2] || titled[3]
+    const title = decodeEntities(titled[4] ?? titled[5])
+    const alt = decodeEntities(titled[1].replace(/\\([\\[\]])/g, "$1"))
+    return { src: safeAnswerImage(decodeEntities(original)), original, alt: alt || title, title: title || undefined, end: index + titled[0].length }
+  }
+  const link = parsedLink(text, index + 1, references, [])
+  if (!link?.explicit) return null
+  const original = link.url.href
+  return { src: safeAnswerImage(decodeEntities(original)), original, alt: decodeEntities(link.label), end: link.end }
+}
+
+function linkTargets(text: string, references: References, saved: URL[], decodeSpaces: boolean, images?: Set<string>) {
   const targets = new Set<string>()
   let fence = ""
   for (const line of text.split("\n")) {
@@ -364,6 +418,14 @@ function linkTargets(text: string, references: References, saved: URL[], decodeS
     for (let index = 0; index < line.length;) {
       const code = line[index] === "`" && inlineCode(line, index)
       if (code) { index = code.end; continue }
+      if (line.startsWith("\\![", index)) { index += 2; continue }
+      const image = (line[index] === "<" || line[index] === "!") && answerImageAt(line, index, references)
+      if (image) {
+        const original = safeUrl(image.original)
+        if (image.src) images?.add(image.src)
+        if (original) images?.add(original.href)
+        index = image.end; continue
+      }
       const link = parsedLink(line, index, references, saved, decodeSpaces)
       if (link) { targets.add(link.url.href); index = link.end; continue }
       index++
@@ -412,7 +474,7 @@ function citationAt(text: string, start: number, references: References, saved: 
 function linkedText(text: string, sources: string[], references: References, decodeSpaces: boolean, bold = true, brand?: BrandHighlight, citations = false) {
   const saved = sourcesOf(sources).map(value => new URL(value)), output: ReactNode[] = []
   let index = 0, plain = ""
-  const visibleText = (value: string) => decodeSpaces ? value.replaceAll(encodedSpace, " ") : value
+  const visibleText = (value: string) => decodeEntities(decodeSpaces ? value.replaceAll(encodedSpace, " ") : value)
   const flush = () => { if (plain) { output.push(highlightedText(visibleText(plain), brand)); plain = "" } }
   const link = (label: string, url: URL) => {
     flush()
@@ -420,12 +482,14 @@ function linkedText(text: string, sources: string[], references: References, dec
   }
   while (index < text.length) {
     const rest = text.slice(index)
-    if (bold && rest.startsWith("**")) {
+    const strong = bold && (rest.startsWith("**") ? "**"
+      : rest.startsWith("__") && !/[\p{L}\p{N}_]/u.test(text[index - 1] || "") ? "__" : "")
+    if (strong) {
       let end = index + 2
-      while (end < text.length && text[end] !== "\n" && !text.startsWith("**", end)) {
+      while (end < text.length && text[end] !== "\n" && !text.startsWith(strong, end)) {
         end = inlineCode(text, end)?.end || end + 1
       }
-      if (end > index + 2 && text.startsWith("**", end)) {
+      if (end > index + 2 && text.startsWith(strong, end)) {
         flush()
         output.push(<strong key={output.length}>{linkedText(text.slice(index + 2, end), sources, references, decodeSpaces, false, brand, citations)}</strong>)
         index = end + 2; continue
@@ -437,6 +501,38 @@ function linkedText(text: string, sources: string[], references: References, dec
         flush()
         output.push(<code key={output.length}>{code.value}</code>)
         index = code.end; continue
+      }
+    }
+    if (rest.startsWith("\\![")) { plain += "!"; index += 2; continue }
+    if (rest[0] === "<" || rest[0] === "!") {
+      const image = answerImageAt(text, index, references)
+      if (image) {
+        flush()
+        output.push(<AnswerPhoto key={output.length + ":" + image.src} src={image.src} alt={image.alt} title={image.title} width={image.width}/>)
+        index = image.end; continue
+      }
+    }
+    if (rest[0] === "<") {
+      const lineBreak = rest.match(/^<br[ \t]*\/?>/i)
+      if (lineBreak) {
+        flush()
+        output.push(<br key={output.length}/>)
+        index += lineBreak[0].length; continue
+      }
+    }
+    if (bold) {
+      const html = rest[0] === "<" ? rest.match(/^<(em|i|s|del|u)>(.+?)<\/\1>/i) : null
+      const emphasis = /[*_]/.test(rest[0]) && !/[\p{L}\p{N}_*]/u.test(text[index - 1] || "")
+        ? rest.match(/^([*_])(?![*_])(?=\S)(.+?)(?<=\S)\1(?![\p{L}\p{N}_*])/u) : null
+      const strike = rest.startsWith("~~") ? rest.match(/^~~(?=\S)(.+?)(?<=\S)~~/) : null
+      const format = html || emphasis || strike
+      if (format) {
+        const tag = html?.[1].toLowerCase()
+        const Tag = tag === "u" ? "u" : tag === "s" || tag === "del" || strike ? "del" : "em"
+        const value = strike ? format[1] : format[2]
+        flush()
+        output.push(<Tag key={output.length}>{linkedText(value, sources, references, decodeSpaces, false, brand, citations)}</Tag>)
+        index += format[0].length; continue
       }
     }
     const citation = citations && (rest[0] === "(" || rest[0] === "[") && citationAt(text, index, references, saved)
@@ -481,7 +577,9 @@ function blocks(text: string, sources: string[], references: References, brand: 
   let index = 0, key = 0, cleaned = false
   // ponytail: only standalone source counters; ambiguous inline +N stays literal.
   const sourceCounter = (line: string) => /^\+\d+$/.test(line.trim())
-  const listItem = (line: string) => line.match(/^( *)([-*•]|\d+[.)])(?:\s+(.*)|$)/)
+  const divider = (line: string) => /^(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|<hr[ \t]*\/?>)$/i.test(line.trim())
+  const quote = (line: string) => line.match(/^ *>[ \t]?(.*)$/)
+  const listItem = (line: string) => divider(line) ? null : line.match(/^( *)([-*•]|\d+[.)])(?:\s+(.*)|$)/)
   const tableAt = (start: number) => {
     const header = tableCells(lines[start]), separator = tableCells(lines[start + 1] || "")
     const markdown = header.length > 0 && (header.length > 1 || lines[start].trim().startsWith("|")) && separator.length === header.length && separator.every(cell => /^:?-{3,}:?$/.test(cell))
@@ -493,7 +591,7 @@ function blocks(text: string, sources: string[], references: References, brand: 
     while (end < lines.length && lines[end].match(/^ */)![0].length === indent) {
       if (markdown && headers.length === 1 && !lines[end].trim().startsWith("|")) break
       const values = markdown ? tableCells(lines[end]) : lines[end].split("\t").map(cell => cell.trim())
-      if (!lines[end].trim() || values.length !== headers.length) break
+      if (!lines[end].trim() || divider(lines[end]) || values.length !== headers.length) break
       rows.push(values); end++
     }
     return { headers, rows, end, alignment: markdown ? separator.map(cell => cell.startsWith(":") && cell.endsWith(":") ? "center" as const : cell.endsWith(":") ? "right" as const : "left" as const) : headers.map(() => "left" as const) }
@@ -519,6 +617,11 @@ function blocks(text: string, sources: string[], references: References, brand: 
         }
         const child = listItem(lines[index])
         if (child && child[1].length > indent) { content.push(list(child[1].length, /^\d/.test(child[2]))); continue }
+        const indented = lines[index].startsWith(" ".repeat(indent + 2))
+        if (divider(lines[index])) {
+          if (!indented) break
+          content.push(<hr key={content.length}/>); index++; continue
+        }
         const fence = lines[index].match(/^( +)(`{3,})(?:[^`]*)$/)
         if (fence && fence[1].length > indent) {
           const start = ++index, closing = fence[1] + fence[2]
@@ -527,9 +630,9 @@ function blocks(text: string, sources: string[], references: References, brand: 
           if (index < lines.length) index++
           continue
         }
-        const nestedTable = lines[index].startsWith(" ".repeat(indent + 2)) && tableAt(index)
+        const nestedTable = indented && tableAt(index)
         if (nestedTable) { content.push(table(nestedTable)); continue }
-        if (!child && lines[index].startsWith(" ".repeat(indent + 2))) {
+        if (!child && indented) {
           content.push(<Fragment key={content.length}><br/>{inline(lines[index++].slice(indent + 2))}</Fragment>); continue
         }
         break
@@ -551,6 +654,14 @@ function blocks(text: string, sources: string[], references: References, brand: 
     }
     const grid = tableAt(index)
     if (grid) { output.push(table(grid)); continue }
+    if (divider(lines[index])) { output.push(<hr key={key++}/>); index++; continue }
+    if (quote(lines[index])) {
+      const content: ReactNode[] = []
+      for (let line = quote(lines[index]); line; line = quote(lines[++index] || "")) {
+        content.push(<Fragment key={content.length}>{content.length > 0 && <br/>}{inline(line[1])}</Fragment>)
+      }
+      output.push(<blockquote key={key++}>{content}</blockquote>); continue
+    }
     const heading = lines[index].match(/^(#{1,6})\s+(.*)$/)
     if (heading) {
       const Tag = `h${heading[1].length}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
@@ -559,7 +670,7 @@ function blocks(text: string, sources: string[], references: References, brand: 
     const item = listItem(lines[index])
     if (item) { output.push(list(item[1].length, /^\d/.test(item[2]))); continue }
     const paragraph: string[] = []
-    while (index < lines.length && lines[index].trim() && lines[index].trim() !== "•" && !sourceCounter(lines[index]) && !/^#{1,6}\s+/.test(lines[index]) && !fenceOpen(lines[index]) && !listItem(lines[index]) && !tableAt(index)) paragraph.push(lines[index++])
+    while (index < lines.length && lines[index].trim() && lines[index].trim() !== "•" && !divider(lines[index]) && !quote(lines[index]) && !sourceCounter(lines[index]) && !/^#{1,6}\s+/.test(lines[index]) && !fenceOpen(lines[index]) && !listItem(lines[index]) && !tableAt(index)) paragraph.push(lines[index++])
     output.push(<p key={key++}>{paragraph.map((line, i) => <Fragment key={i}>{i > 0 && <br/>}{inline(line)}</Fragment>)}</p>)
   }
   return { output, cleaned }
@@ -574,11 +685,16 @@ export function AnswerContent({ text, service, sources = [], brand }: { text: st
   return <div className="answer-content">{rendered.output}{(fixed.changed || display.text !== fixed.text || rendered.cleaned) && <details className="answer-original"><summary>Исходный текст</summary><pre>{text}</pre></details>}</div>
 }
 
-export function renderedSources(text: string, sources: string[], service?: string) {
+export function renderedSources(text: string, sources: string[], service?: string, keepLinked = false) {
   const fixed = service === "chatgpt" ? cleanChatGPTMap(text) : { text, changed: false }
   const decodeSpaces = service === "gemini"
-  const parsed = markdown(displayText(fixed.text, service, sources).text, decodeSpaces), targets = linkTargets(parsed.text, parsed.references, sourcesOf(sources).map(value => new URL(value)), decodeSpaces)
-  return sourcesOf(sources).filter(value => !targets.has(new URL(value).href))
+  const images = new Set<string>()
+  const parsed = markdown(displayText(fixed.text, service, sources).text, decodeSpaces)
+  const targets = linkTargets(parsed.text, parsed.references, sourcesOf(sources).map(value => new URL(value)), decodeSpaces, images)
+  return sourcesOf(sources).filter(value => {
+    const href = new URL(value).href
+    return !images.has(href) && (keepLinked || !targets.has(href))
+  })
 }
 
 export function SourceList({ sources }: { sources: string[] }) {

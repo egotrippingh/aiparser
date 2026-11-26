@@ -1,12 +1,12 @@
 import { createElement, Fragment, useContext, useRef, useState, type ReactNode } from "react"
 import { ChevronLeft, ChevronRight, ImageOff } from "lucide-react"
-import { AnswerContent, AnswerSourceContext, CitationContext, CitationGroup, PreviewAnchor, SourceIcon, chipLabel, renderedSources, safeAnswerImage, sourceHost, sourceLabel, sourcesOf, type AnswerSourceCard } from "./answer-content"
+import { AnswerContent, AnswerPhoto, AnswerSourceContext, CitationContext, CitationGroup, PreviewAnchor, SourceIcon, chipLabel, renderedSources, safeAnswerImage, sourceHost, sourceLabel, sourcesOf, type AnswerSourceCard } from "./answer-content"
 import { highlightedText, type BrandHighlight } from "./brand-highlight"
 import "./answer-evidence.scss"
 
 export { highlightedText, brandLink } from "./brand-highlight"
 export type { BrandHighlight } from "./brand-highlight"
-export type AnswerNode = string | { tag: string; href?: string; children: AnswerNode[]; sources?: string[] }
+export type AnswerNode = string | { tag: string; href?: string; src?: string; alt?: string; children: AnswerNode[]; sources?: string[] }
 export type AnswerEvidence = {
   format?: "markdown"
   answer_text?: string
@@ -25,6 +25,7 @@ function answerNodes(nodes: AnswerNode[], brand: BrandHighlight | undefined, cit
   return nodes.map((node,i) => {
     if (typeof node === "string") return <Fragment key={i}>{highlightedText(node, brand)}</Fragment>
     if (node.tag === "citation") return <CitationGroup key={i} sources={node.sources || []} brand={brand}/>
+    if (node.tag === "img" && node.src) return <AnswerPhoto key={node.src + ":" + i} src={safeAnswerImage(node.src)} alt={node.alt || ""}/>
     if (!tags.has(node.tag)) return null
     const children = answerNodes(node.children, brand, citations, depth+1)
     if (node.tag === "a") {

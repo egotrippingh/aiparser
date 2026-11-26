@@ -35,6 +35,16 @@ it("renders XML structure and red brand accents without injecting provider marku
   expect(brandLink("https://tuvio.test.evil.test",brand)).toBe(false)
   expect(brandLink("https://evil.test/?next=tuvio.test",brand)).toBe(false)
 })
+
+it.each(["google_aio", "yandex_neuro"])("shows inline photos and dividers from structured answers for %s", service => {
+  const content = [{ tag: "p", children: ["Интерьер", { tag: "img", children: [], src: "https://images.test/room.jpg", alt: "Комната" }] },
+    { tag: "hr", children: [] }, { tag: "img", children: [], src: "javascript:alert(1)" }]
+  const html = renderToStaticMarkup(<AnswerEvidenceView service={service} evidence={{content, products: [], source_cards: []}}/>)
+  expect(html).toContain('src="https://images.test/room.jpg" alt="Комната"')
+  expect(html).toContain('</p><hr/>')
+  expect(html.match(/<img /g)).toHaveLength(1)
+  expect(html).toContain('Фото недоступно')
+})
 it("shows photo products in a labelled carousel and source cards with safe links", () => {
   const html = renderToStaticMarkup(<AnswerEvidenceView brand={brand} evidence={{content:["Совет"],products:[{title:"Tuvio робот",url:"https://shop.test/product",image_url:"https://photos.test/robot.jpg",price:"23 455 ₽"}],source_cards:[{title:"Источник Tuvio",url:"https://source.test",text:"Описание товара"}]}}/> )
   expect(html).toContain('src="https://photos.test/robot.jpg"')

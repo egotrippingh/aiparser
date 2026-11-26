@@ -12,6 +12,7 @@ from sqlalchemy.orm import load_only
 from server.models import Check, CloudResult, ControlProject, ControlRun, Screenshot, ServerCapture, User, utcnow
 from server.public_errors import public_error
 from server.storage import StorageError
+from shared.xmlriver import restore_legacy_images
 
 KEY = "scan_feedback"
 MAX_EXAMPLES = 20
@@ -79,6 +80,8 @@ def result_detail(db, row, *, shared=False):
             or any(not isinstance(evidence.get(field), list)
                    for field in ("content", "products", "source_cards"))):
         evidence = None
+    elif isinstance(evidence.get("html"), str):
+        restore_legacy_images(evidence["content"], evidence["html"])
     has_screenshot = bool(check and db.get(Screenshot, check.id))
     return {"id": row.id, "query_text": row.query_text, "service": row.service, "scan_date": row.scan_date,
             "status": effective_status(row, feedback), "original_status": row.status,

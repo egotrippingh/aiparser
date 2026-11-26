@@ -4,9 +4,38 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.dml import Update
 
-from server.models import Check, CloudResult, ControlProject, ControlRun, User, make_session_factory
+from server.models import Check, CloudResult, ControlProject, ControlRun, ServerCapture, User, make_session_factory
 from server.scan_feedback import KEY, analysis_content, learning_context
 from server.test_reporting import seed_report
+
+
+def test_report_restores_legacy_answer_photos_from_saved_html(tmp_path):
+    client, owner, other, _, project, ids, url = seed_report(tmp_path)
+    content = [{"tag": "p", "children": ["Ответ", {"tag": "img", "children": []}]}]
+    saved = {"shown": True, "content": content, "products": [], "source_cards": [],
+             "html": "<p>Ответ<img src='https://images.test/room.jpg' alt='Комната'></p>"}
+    run = "r" * 32
+    with make_session_factory(url)[1]() as db:
+        result = db.get(CloudResult, ids[1])
+        result.run_id = run
+        result.check_id = f"{run}:{result.query_id}:google_aio"
+        db.add(ControlRun(id=run, user_id=result.user_id, project_id=project["id"],
+                          request_key="legacy-photo-fixture", snapshot_json="{}"))
+        db.flush()
+        capture = ServerCapture(run_id=run, query_id=result.query_id, service=result.service,
+                                check_id=result.check_id, answer_json=json.dumps(saved))
+        db.add(capture)
+        db.flush()
+        capture_id = capture.id
+        db.commit()
+    path = f"/api/v1/control/projects/{project['id']}/mentions/results/{ids[1]}"
+    assert client.get(path, headers=other).status_code == 404
+    response = client.get(path, headers=owner)
+    assert response.status_code == 200
+    image = response.json()["answer_evidence"]["content"][0]["children"][1]
+    assert image == {"tag": "img", "children": [], "src": "https://images.test/room.jpg", "alt": "Комната"}
+    with make_session_factory(url)[1]() as db:
+        assert json.loads(db.get(ServerCapture, capture_id).answer_json) == saved
 
 
 def test_feedback_ownership_validation_and_removal(tmp_path):
