@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { renderToStaticMarkup } from "react-dom/server"
 import { ControlCenter, ProjectRegistry, scanPercent, ScanProgress, ScheduleDays, runStatus } from "./control-center"
+import { QueryLibrary } from "./query-library"
 import { ProjectIcon, projectFavicon } from "./project-icon"
 import { choiceIndex } from "./app-choice"
 import { ReportChart, chartDays, chartIndex, chartTooltipPosition, linePath } from "./report-chart"
@@ -290,4 +291,24 @@ it("includes absent AI blocks as no mention in period and comparison filters", (
     expect(reportRows(rows,"not_found",false,dates)).toEqual([rows[0]])
     expect(reportRows(rows,"found",false,dates)).toEqual([])
   }
+})
+
+it("opens account-wide run history with the shared status filter", () => {
+  vi.stubGlobal("location", { hash: "#/runs" })
+  const html = renderToStaticMarkup(<ControlCenter token="test" email="owner@example.test" balance="0 ₽" admin={false} account={null} message="" brandClarificationsEnabled={false} onDirtyChange={()=>{}} logout={()=>{}} walletChanged={()=>{}}/>)
+  expect(html).toContain('aria-label="Тип запуска"')
+  expect(html).toContain('aria-label="Статус проверки"')
+  expect(html).toContain("Загрузка проверок")
+})
+
+it("renders legacy query groups as folders without selecting active queries for bulk actions", () => {
+  const html = renderToStaticMarkup(<QueryLibrary saving={false} onChange={()=>{}} queries={[
+    { id: "first", text: "Активный запрос", group_tag: "Оборудование", active: true },
+    { id: "second", text: "Запрос без папки", group_tag: "", active: false },
+  ]}/>)
+  expect(html).toContain(">Оборудование</span><small>1</small>")
+  expect(html).toContain(">Без папки</span><small>1</small>")
+  expect(html).toMatch(/aria-label="Выбрать запрос: Активный запрос"\/>/)
+  expect(html).toMatch(/aria-label="Проверять: Активный запрос" checked=""/)
+  expect(html).not.toContain("Удалить выбранные")
 })

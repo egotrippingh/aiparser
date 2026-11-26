@@ -1,5 +1,0 @@
-import{wn as e}from"./account-api-CZQ_cEkJ.js";var t={name:`play`,size:24,node:[[`path`,{d:`M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z`,key:`10ikf1`}]]};t.node;var n=e(t),r=`Запрос;Группа\r
-Где купить оригинальное оборудование?;Покупка\r
-Официальный сайт бренда?;Бренд\r
-`;function i(e,t=``){let n=e.replace(/^\uFEFF/,``).split(/\r?\n/)[0]||``,r=n.includes(`	`)?`	`:n.includes(`;`)?`;`:/^(?:"?(?:query|запрос|group|группа)"?,)/i.test(n)?`,`:null;if(!r)return e.split(/\r?\n/).map(e=>({text:e.trim(),group_tag:t})).filter(e=>e.text);let i=[],a=[],o=``,s=!1,c=e.replace(/^\uFEFF/,``);for(let e=0;e<=c.length;e++){let t=c[e];t===`"`?s&&c[e+1]===`"`?(o+=`"`,e++):s=!s:!s&&(t===r||t===`
-`||t===void 0)?(a.push(o.trim()),o=``,t!==r&&(a.some(Boolean)&&i.push(a),a=[])):t!==`\r`&&t!==void 0&&(o+=t)}if(s)throw Error(`В файле не закрыты кавычки`);let l=i[0]?.map(e=>e.toLowerCase())||[],u=l.findIndex(e=>[`query`,`запрос`,`промпт`].includes(e)),d=l.findIndex(e=>[`group`,`группа`].includes(e));return(u>=0?i.slice(1):i).map(e=>({text:e[u>=0?u:0]||``,group_tag:e[d>=0?d:1]||t})).filter(e=>e.text)}export{i as n,n as r,r as t};

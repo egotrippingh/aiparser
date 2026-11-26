@@ -36,18 +36,9 @@
 .air-app .cc-quote-cancel { color: var(--muted); }
 .air-app .filterbar .cc-quote-popover { left: 0; right: auto; }
 .air-app .cc-two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-.air-app .ql-layout { background: var(--air-panel); border: 1px solid var(--line); border-radius: 13px; overflow: hidden; }
-.air-app .ql-groups { background: #fafbfc; }
-.air-app .ql-groups button { color: var(--muted); }
-.air-app .ql-groups button[aria-pressed=true] { color: var(--navy); background: #eaf1fb; }
-.air-app .ql-heading { padding: 0 0 20px; }
-.air-app .ql-heading p { color: var(--muted); font-size: 12px; margin-top: 8px; }
-.air-app .ql-main { padding: 20px; }
 .air-app .cc-search { background: var(--air-panel); color: var(--muted); border: 1px solid var(--line); border-radius: 7px; }
 .air-app .cc-search { display: flex; align-items: center; gap: 8px; padding: 9px 12px; }
 .air-app .cc-search input { color: var(--text); border: 0; min-width: 0; width: 100%; font: inherit; }
-.air-app .cc-query-table input:not([type=checkbox]) { background: var(--air-panel); color: var(--text); border: 1px solid transparent; border-radius: 5px; width: 100%; }
-.air-app .cc-query-table input:not([type=checkbox]):hover { border-color: var(--line); }
 .air-app dialog { color-scheme: light; width: min(720px, calc(100vw - 30px)); max-height: calc(100dvh - 40px); overflow: auto; color: var(--text); background: var(--air-panel); border: 1px solid var(--line); }
 .air-app .ws-dialog { padding: 24px; }
 .air-app dialog:focus { outline: none; }
@@ -159,8 +150,6 @@
   .air-app .workspace-label { display: none; }
   .air-app .topbar-right { gap: 8px; }
   .air-app .balance-link > span { display: none; }
-  .air-app .sidebar { position: static; width: auto; height: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 12px 15px; }
-  .air-app .sidebar nav { display: flex; overflow: auto; gap: 5px; }
   .air-app .nav-link { white-space: nowrap; flex-shrink: 0; min-height: 44px; }
   .air-app .nav-link[aria-current=page]::before { display: none; }
   .air-app .all-projects, .air-app .project-label, .air-app .sidebar-bottom { display: none; }
@@ -175,6 +164,5 @@
   .air-app .btn, .air-app .cc-button { min-height: 44px; }
   .air-app .query-cell button { min-height: 44px; min-width: 44px; }
   .air-app .choice-trigger { min-height: 44px; }
-  .air-app .ql-main { padding: 12px; }
   .air-app .search-box { min-width: 0; width: 100%; max-width: none; }
 }

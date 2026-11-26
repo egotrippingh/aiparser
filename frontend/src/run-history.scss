@@ -1,0 +1,94 @@
+.air-app .run-history {
+  &__filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  &__filters .choice-trigger,
+  &__actions .btn { min-height: var(--control-compact); border-radius: 9px; font-size: .8125rem; }
+
+  &__table { min-width: 650px; }
+  &__table th:nth-child(2) { width: 19%; }
+  &__table th:nth-child(3) { width: 18%; }
+  &__table th:last-child { width: 1%; }
+
+  &__project {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: var(--control);
+    max-width: 100%;
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: var(--radius-control);
+    color: var(--air-text);
+    text-align: left;
+    cursor: pointer;
+
+    > span:not(.project-initial) { min-width: 0; overflow-wrap: anywhere; }
+    > svg { flex: none; color: var(--air-muted); }
+    &:hover strong { text-decoration: underline; text-underline-offset: 3px; }
+    &:focus-visible { outline-offset: 4px; }
+  }
+
+  &__status {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    svg { flex: none; }
+
+    &--active { color: var(--air-accent-strong); }
+    &--waiting { color: var(--warning); }
+    &--good { color: var(--ok); }
+    &--bad { color: var(--danger); }
+    &--muted { color: var(--air-muted); }
+  }
+
+  &__completion {
+    font-variant-numeric: tabular-nums;
+    color: var(--air-muted);
+
+    progress {
+      display: block;
+      margin-top: 5px;
+      width: min(100%, 9rem);
+      height: 6px;
+      accent-color: var(--accent);
+      border: 0;
+      border-radius: var(--radius-pill);
+      overflow: hidden;
+      appearance: none;
+      background: var(--air-line);
+    }
+
+    progress::-webkit-progress-bar { background: var(--air-line); }
+    progress::-webkit-progress-value { background: var(--accent); border-radius: var(--radius-pill); }
+    progress::-moz-progress-bar { background: var(--accent); border-radius: var(--radius-pill); }
+  }
+
+  &__actions .cc-actions { flex-wrap: nowrap; }
+  &__actions .btn { white-space: nowrap; }
+
+  @media (max-width: 760px) {
+    &__filters, &__filters .project-registry__filters { display: grid; }
+    &__filters { width: 100%; grid-template-columns: minmax(0, 1fr); }
+    &__filters .project-registry__filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    &__filters .choice-trigger,
+    .project-registry__search { width: 100%; min-height: var(--control); }
+
+    &__table { min-width: 0; }
+    &__table .run-history__completion { text-align: right; }
+    &__completion progress { margin-inline-start: auto; }
+    &__table td.run-history__actions { grid-column: 1 / -1; justify-self: stretch; }
+    &__actions .cc-actions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+
+      > :only-child { grid-column: 3; }
+    }
+    &__actions .btn { min-height: var(--control); white-space: normal; }
+  }
+}
