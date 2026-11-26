@@ -40,17 +40,17 @@
 }
 [data-airate-theme] .air-nav-tip-arrow { fill: var(--air-raised); }
 
-[data-airate-theme] .air-app :is(.panel, .ql-layout, .cc-form-section, .side-note, dialog, .dialog-head, .screenshot-preview) {
+[data-airate-theme] .air-app :is(.panel, .cc-form-section, .side-note, dialog, .dialog-head, .screenshot-preview) {
   background-color: var(--air-panel);
   border-color: var(--air-line);
   color: var(--air-text);
 }
-[data-airate-theme] .air-app :is(.table-wrap th, .table-scroll th, .cc-table th, .admin-users-scroll th, .ql-groups, .cc-checkboxes label, .answer-box, .screenshot-preview) {
+[data-airate-theme] .air-app :is(.table-wrap th, .table-scroll th, .cc-table th, .admin-users-scroll th, .cc-checkboxes label, .answer-box, .screenshot-preview) {
   background-color: var(--air-raised);
   border-color: var(--air-line);
   color: var(--air-text);
 }
-[data-airate-theme] .air-app :is(.ql-groups button[aria-pressed=true], .cc-days button[aria-pressed=true]) {
+[data-airate-theme] .air-app .cc-days button[aria-pressed=true] {
   background-color: var(--air-selected);
   color: var(--accent);
 }
@@ -79,7 +79,7 @@
 }
 [data-airate-theme] .air-app :is(.cc-fields label, .ws-dialog label:not(.cc-button), .scan-feedback label) { color: var(--air-muted); }
 [data-airate-theme] .air-app .answer-box mark { background-color: var(--air-brand-mention-bg); color: var(--air-brand-mention); }
-[data-airate-theme] .air-app :is(.cc-search input, .search-box input, .cc-query-table input:not([type=checkbox])) {
+[data-airate-theme] .air-app :is(.cc-search input, .search-box input) {
   background-color: transparent;
   color: var(--air-text);
 }

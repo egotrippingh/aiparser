@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react"
-import { Activity, CalendarClock, CalendarDays, ChartNoAxesCombined, Check, ChevronRight, Clock3, Flag, Link, List, Pause, Play, Plus, Search, Settings2, SlidersHorizontal, Square, Trash2, UserPlus, UserRoundPlus, X } from "lucide-react"
+import { Activity, CalendarClock, CalendarDays, ChartNoAxesCombined, Check, ChevronRight, CircleAlert, Clock3, Flag, Link, List, Pause, Play, Plus, Search, Settings2, SlidersHorizontal, Square, Trash2, UserPlus, UserRoundPlus, X } from "lucide-react"
 import { Tooltip } from "@base-ui/react/tooltip"
 import { accountRequest as request } from "./account-api"
 import { SCAN_SERVICES, MONTH_DAYS } from "./lib/scan-preferences"
@@ -12,6 +12,7 @@ import { IconNavLink } from "./icon-nav-link"
 import { AppChoice } from "./app-choice"
 import { ReportCalendar, type ReportDateSelection } from "./report-calendar"
 import { today } from "./lib/dates"
+import { plural } from "./lib/format"
 import { recomputeSelection, selectionLabel, type RecomputeSelection } from "./recompute-selection"
 import { ServiceMark, isCurrentService } from "./service-mark"
 import { ProjectIcon } from "./project-icon"
@@ -21,6 +22,7 @@ import { publicError } from "./lib/public-error"
 import "./control-center.scss"
 import "./icon-sidebar.scss"
 import "./project-registry.scss"
+import "./run-history.scss"
 
 type Query = { id: string; text: string; group_tag: string; active: boolean }
 type Config = { brand_aliases: string[]; brand_domains: string[]; brand_clarification?: string; region_code: string; services: string[]; browser_mode: string; speed_profile: string; parallel: boolean }
@@ -215,6 +217,90 @@ export function ProjectRegistry({ projects, activeRuns, loading, loadFailed, sea
   </section>
 }
 
+
+const runSources = [
+  { value: "all", label: "Все запуски" },
+  { value: "manual", label: "Вручную" },
+  { value: "scheduled", label: "По расписанию" },
+] as const
+const runStatuses = [{ value: "", label: "Все статусы" }, ...[...Object.values(names), "Останавливается"].map(label => ({ value: label, label }))]
+const runDate = new Intl.DateTimeFormat("ru-RU", { dateStyle: "medium", timeStyle: "short" })
+
+function RunHistory({ runs, projects, loading, loadFailed, busy, openRun, command }: {
+  runs: Run[]; projects: Project[]; loading: boolean; loadFailed: boolean; busy: boolean
+  openRun: (id: string) => void
+  command: (id: string, action: "pause" | "resume" | "stop") => void
+}) {
+  const [search, setSearch] = useState("")
+  const [status, setStatus] = useState("")
+  const [source, setSource] = useState<typeof runSources[number]["value"]>("all")
+  const searchInput = useRef<HTMLInputElement>(null)
+  const term = search.trim().toLocaleLowerCase("ru-RU")
+  const rows = runs.filter(run =>
+    (!status || runStatus(run) === status) &&
+    (source === "all" || (source === "scheduled") === !!run.scheduled_for) &&
+    run.project_name.toLocaleLowerCase("ru-RU").includes(term)
+  )
+  const projectsById = new Map(projects.map(project => [project.id, project]))
+  function reset() { setSearch(""); setStatus(""); setSource("all"); searchInput.current?.focus() }
+
+  return <section className="project-registry run-history" aria-label="Запуски проверок">
+    <div className="project-registry__toolbar">
+      <label className="search-box project-registry__search"><Search size={17} aria-hidden="true"/>
+        <input ref={searchInput} type="search" aria-label="Поиск проверок по проекту" placeholder="Найти проект" value={search} onChange={event => setSearch(event.target.value)}/>
+      </label>
+      <div className="run-history__filters">
+        <div className="project-registry__filters" role="group" aria-label="Тип запуска">
+          {runSources.map(option => <button key={option.value} type="button" aria-pressed={source === option.value} onClick={() => setSource(option.value)}>{option.label}</button>)}
+        </div>
+        <AppChoice label="Статус проверки" value={status} options={runStatuses} change={setStatus}/>
+      </div>
+    </div>
+    {loading ? <div className="panel"><CabinetSkeleton label="Загрузка проверок…"/></div> : !runs.length ? (
+      !loadFailed && <div className="panel empty-state project-registry__empty"><h2>Проверок пока нет</h2><p>Откройте проект, чтобы запустить первую проверку.</p><a className="btn" href="#/projects">К проектам</a></div>
+    ) : !rows.length ? (
+      <div className="panel empty-state project-registry__empty"><h2>Проверки не найдены</h2><button type="button" className="btn" onClick={reset}>Сбросить фильтры</button></div>
+    ) : (
+      <div className="panel table-scroll project-registry__table-wrap" role="region" tabIndex={0} aria-label="Список запусков">
+        <table className="project-registry__table run-history__table" role="table" aria-label="История проверок">
+          <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader">Проект и запуск</th><th scope="col" role="columnheader">Статус</th><th scope="col" role="columnheader">Проверки</th><th scope="col" role="columnheader">Действия</th></tr></thead>
+          <tbody role="rowgroup">{rows.map(run => {
+            const project = projectsById.get(run.project_id)
+            const pending = !terminal(run)
+            const label = runStatus(run)
+            const paused = run.desired_state === "paused"
+            const complete = run.progress.done ?? 0
+            const StatusIcon = run.state === "done" ? Check : run.state === "failed" ? CircleAlert : paused ? Pause : pending && label === names.running ? Activity : Clock3
+            const tone = run.state === "done" ? "good" : run.state === "failed" ? "bad" : paused || label === names.queued ? "waiting" : pending ? "active" : "muted"
+            return <tr key={run.id} role="row">
+              <td role="cell" className="project-registry__identity">
+                <button type="button" className="run-history__project" aria-haspopup="dialog" onClick={() => openRun(run.id)}>
+                  <ProjectIcon name={run.project_name} domains={project?.config.brand_domains ?? []}/>
+                  <span><strong>{run.project_name}</strong><small><time dateTime={run.created_at}>{runDate.format(new Date(run.created_at))}</time> · {run.scheduled_for ? "По расписанию" : "Вручную"}</small></span>
+                  <ChevronRight size={16} aria-hidden="true"/>
+                </button>
+              </td>
+              <td role="cell"><span className={`run-history__status run-history__status--${tone}`}><StatusIcon size={16} aria-hidden="true"/>{label}</span></td>
+              <td role="cell" className="run-history__completion">
+                <span><strong>{complete}</strong> / {run.total}</span>
+                {pending && <progress value={complete} max={run.total || 1} aria-label={`Ход проверки проекта ${run.project_name}`}/>}
+              </td>
+              <td role="cell" className="run-history__actions"><div className="cc-actions">
+                {pending && <>
+                  <button type="button" className="btn" disabled={busy} onClick={() => command(run.id, paused ? "resume" : "pause")}>{paused ? <Play size={14} aria-hidden="true"/> : <Pause size={14} aria-hidden="true"/>}{paused ? "Продолжить" : "Пауза"}</button>
+                  <button type="button" className="btn" disabled={busy} onClick={() => command(run.id, "stop")}><Square size={13} aria-hidden="true"/>Стоп</button>
+                </>}
+                {project && <a className="btn" href={`#/project/${run.project_id}/report`}>Отчёт<ChevronRight size={14} aria-hidden="true"/></a>}
+              </div></td>
+            </tr>
+          })}</tbody>
+        </table>
+      </div>
+    )}
+    <p className="project-registry__count" role="status">{!loading && runs.length > 0 && `Показано ${rows.length} из ${runs.length}`}</p>
+  </section>
+}
+
 export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange, email, avatarUrl, balance, admin, account, message, logout, walletChanged }: {
   token: string; brandClarificationsEnabled: boolean; onDirtyChange: (dirty: boolean) => void;
   email: string; avatarUrl?: string | null; balance: string; admin: boolean; account: ReactNode; message: string; logout: () => void; walletChanged: () => void
@@ -230,10 +316,8 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
   const [projectNotice, setProjectNotice] = useState("")
   const [copyMessage, setCopyMessage] = useState<{id:string;text:string}|null>(null)
   const [busy, setBusy] = useState("")
-  const [filter, setFilter] = useState("")
   const [projectSearch, setProjectSearch] = useState("")
   const [projectFilter, setProjectFilter] = useState<RegistryFilter>("all")
-  const [runState, setRunState] = useState("")
   const [runDetail, setRunDetail] = useState<string | null>(null)
   const runDialog = useRef<HTMLDialogElement>(null)
   const mounted = useRef(true), refreshVersion = useRef(0)
@@ -365,8 +449,9 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
   const title = projectId === "new" ? "Новый проект" : ({projects: "Проекты", account: "Аккаунт и оплата", help: "Документация"} as Record<string, string>)[page] || nav.find(([id]) => id === page)?.[1] || "Обзор видимости"
   const currentRun = runs.find(r => r.id === runDetail)
   const projectIds = new Set(projects.map(project => project.id))
-  function runRows(items: Run[]) {
-    return <div className="table-scroll"><table><thead><tr><th>Проект / запуск</th><th>Статус</th><th>Проверки</th><th>Действия</th></tr></thead><tbody>{items.map(r => <tr key={r.id}><td><button className="text-link" onClick={() => { setRunDetail(r.id); runDialog.current?.showModal() }}>{r.project_name}</button><small className="row-note">{new Date(r.created_at).toLocaleString("ru-RU")} · {r.scheduled_for ? "По расписанию" : "Вручную"}</small></td><td><span className={`badge ${r.state === "done" ? "green" : r.state === "failed" ? "red" : "blue"}`}>{runStatus(r)}</span></td><td>{r.progress.done || 0} / {r.total}<progress max={r.total || 1} value={r.progress.done || 0} aria-label={`Прогресс ${r.project_name}`}/></td><td><div className="cc-actions">{!terminal(r) && <><button className="btn" disabled={!!busy} onClick={() => action(r.id, () => request(`/control/runs/${r.id}/command`, token, {action:r.desired_state === "paused" ? "resume" : "pause"}))}>{r.desired_state === "paused" ? <Play size={14}/> : <Pause size={14}/>} {r.desired_state === "paused" ? "Продолжить" : "Пауза"}</button><button className="btn" disabled={!!busy} onClick={() => action(r.id, () => request(`/control/runs/${r.id}/command`, token, {action:"stop"}))}><Square size={13}/>Стоп</button></>}{projectIds.has(r.project_id) && <a className="btn" href={`#/project/${r.project_id}/report`}>Отчёт</a>}</div></td></tr>)}</tbody></table></div>
+  function openRun(id: string) {
+    setRunDetail(id)
+    runDialog.current?.showModal()
   }
   const progress = projectRun ? scanPercent(projectRun.progress.done ?? 0,projectRun.total) : 0
   const scanLabel = projectRun ? `${runStatus(projectRun)}: ${progress}%` : "Запустить проверку"
@@ -383,17 +468,17 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
       <nav aria-label="Разделы приложения">{nav.map(([id, label, Icon]) => <IconNavLink key={id} className="nav-link" label={label} current={page === id} href={["report","queries","sources","settings","schedule","access"].includes(id) ? projectLink(id) : `#/${id}`}><Icon size={24} strokeWidth={1.7} aria-hidden="true"/></IconNavLink>)}</nav>
     </aside>}
     <main ref={main} className="app-main" id="app-content" tabIndex={-1}>
-      {page !== "projects" && <div className="breadcrumb"><a href="#/projects">Проекты</a><ChevronRight size={12}/>{selected && <><span>{selected.name}</span><ChevronRight size={12}/></>}<span className="current">{title}</span></div>}
-      <div className={page === "projects" ? "heading-row project-registry__heading" : "heading-row"}><div><div className="heading-title"><h1 ref={projectHeading} tabIndex={-1}>{title}</h1>{selected && ["project","overview"].includes(area) && <span className="domain-label">{selected.config.brand_domains[0] || selected.brand_name}</span>}</div>{page === "projects" ? (projectsLoaded && <ProjectTotals projects={projects}/>) : <p className="subtitle">{page === "report" ? "Как часто ИИ упоминает ваш бренд и откуда берёт информацию." : page === "queries" ? "Промптовая база проекта: запросы и группы для регулярных проверок." : page === "sources" ? "Сайты, на которые ссылаются ответы с упоминанием бренда." : page === "schedule" ? "Автоматические проверки в выбранные дни месяца." : page === "runs" ? "Ручные запуски и расписания проектов аккаунта." : ""}</p>}</div>
-        <div className="heading-actions">{selected && <span className="row-note">ID: <code style={{overflowWrap:"anywhere"}}>{selected.id}</code> · {selected.role === "owner" ? "Владелец" : selected.role === "editor" ? "Редактор" : "Просмотр"} <button className="text-link" aria-label="Копировать ID проекта" onClick={async()=>{try {await navigator.clipboard.writeText(selected.id);setCopyMessage({id:selected.id,text:"ID скопирован"})} catch {setCopyMessage({id:selected.id,text:"Не удалось скопировать. Выделите ID вручную."})}}}>Копировать</button>{copyMessage?.id === selected.id && <span role="status"> · {copyMessage.text}</span>}</span>}{page === "projects" ? <a className="btn primary project-registry__new" href="#/project/new/settings"><Plus size={17} aria-hidden="true"/>Новый проект</a> : null}</div>
+      {page !== "projects" && <div className="breadcrumb"><a href="#/projects">Проекты</a><ChevronRight size={12}/>{selected && page !== "runs" && <><span>{selected.name}</span><ChevronRight size={12}/></>}<span className="current">{title}</span></div>}
+      <div className={page === "queries" ? "heading-row project-registry__heading query-editor__heading" : ["projects", "runs"].includes(page) ? "heading-row project-registry__heading" : "heading-row"}><div><div className="heading-title"><h1 ref={projectHeading} tabIndex={-1}>{title}</h1>{selected && ["project","overview"].includes(area) && <span className="domain-label">{selected.config.brand_domains[0] || selected.brand_name}</span>}</div>{page === "projects" ? (projectsLoaded && <ProjectTotals projects={projects}/>) : page === "runs" ? (projectsLoaded && <p className="project-registry__summary"><strong>{registryNumber.format(runs.length)}</strong> {plural(runs.length, "запуск", "запуска", "запусков")} <span aria-hidden="true">·</span> <strong>{registryNumber.format(activeRuns.length)}</strong> {activeRuns.length === 1 ? "активный" : "активных"}</p>) : page !== "queries" && <p className="subtitle">{page === "report" ? "Как часто ИИ упоминает ваш бренд и откуда берёт информацию." : page === "sources" ? "Сайты, на которые ссылаются ответы с упоминанием бренда." : page === "schedule" ? "Автоматические проверки в выбранные дни месяца." : ""}</p>}</div>
+        <div className="heading-actions">{selected && page !== "runs" && <span className="row-note">ID: <code style={{overflowWrap:"anywhere"}}>{selected.id}</code> · {selected.role === "owner" ? "Владелец" : selected.role === "editor" ? "Редактор" : "Просмотр"} <button className="text-link" aria-label="Копировать ID проекта" onClick={async()=>{try {await navigator.clipboard.writeText(selected.id);setCopyMessage({id:selected.id,text:"ID скопирован"})} catch {setCopyMessage({id:selected.id,text:"Не удалось скопировать. Выделите ID вручную."})}}}>Копировать</button>{copyMessage?.id === selected.id && <span role="status"> · {copyMessage.text}</span>}</span>}{page === "projects" ? <a className="btn primary project-registry__new" href="#/project/new/settings"><Plus size={17} aria-hidden="true"/>Новый проект</a> : null}</div>
       </div>
       {error && <div className="cc-alert" role="alert">{error}<button className="btn" onClick={() => refresh().catch(e => setError(e.message))}>Повторить</button>{(page !== "projects" || projectsLoaded) && <button className="btn icon-only" aria-label="Закрыть сообщение" onClick={() => setError("")}><X size={16}/></button>}</div>}
       {message && <p className="notice" role="status">{message}</p>}
       {page === "projects" && projectNotice && <p className="notice" role="status">{projectNotice}</p>}
       {page === "account" ? account : page === "help" ? <p className="page-intro">Открываем документацию… <a href="/docs/">Перейти к документации</a></p> : loading && ["project","overview"].includes(area) && projectId !== "new" ? <CabinetSkeleton label="Загрузка проекта…" format={page === "report" ? "report" : "rows"}/> : ["project","overview"].includes(area) && projectId ? <>
         {tab === "access" && selected?.role === "owner" ? <ProjectAccess key={projectId} token={token} projectId={projectId}/> : ["report","sources"].includes(tab) && projectId !== "new" ? <ReportView key={projectId} token={token} projectId={projectId} projectName={selected?.name ?? ""} projectServices={selected?.config.services || []} lastFinishedRunId={lastFinishedRunId} sourcesOnly={tab === "sources"} canEdit={!viewer} scanControl={viewer ? undefined : scanControl}/> : <ProjectEditor key={projectId} token={token} projectId={projectId} tab={projectId === "new" ? "settings" : tab} brandClarificationsEnabled={brandClarificationsEnabled} admin={admin} saved={refresh} archived={projectArchived} onDirtyChange={noteEditorDirty} walletChanged={walletChanged}/>}
-      </> : page === "runs" ? <><div className="filterbar"><label className="search-box"><Search size={15}/><input aria-label="Поиск проверки" placeholder="Поиск по проекту" value={filter} onChange={e => setFilter(e.target.value)}/></label><AppChoice label="Статус проверки" value={runState} options={[{value:"",label:"Все статусы"},...Object.entries(names).map(([value,label]) => ({value,label}))]} change={setRunState}/></div><section className="panel">{loading ? <CabinetSkeleton label="Загрузка проверок…"/> : runs.length ? runRows(runs.filter(r => (!runState || runStatus(r) === names[runState]) && r.project_name.toLowerCase().includes(filter.toLowerCase()))) : <div className="empty-state">Проверок пока нет. <a href="#/projects">К проектам</a></div>}</section></> : (
-        <ProjectRegistry projects={projects} activeRuns={activeRuns} loading={loading} loadFailed={!projectsLoaded} search={projectSearch} filter={projectFilter} onSearch={setProjectSearch} onFilter={setProjectFilter} openRun={id => { setRunDetail(id); runDialog.current?.showModal() }}/>
+      </> : page === "runs" ? <RunHistory runs={runs} projects={projects} loading={loading} loadFailed={!projectsLoaded} busy={!!busy} openRun={openRun} command={(id, command) => void action(id, () => request(`/control/runs/${id}/command`, token, {action:command}))}/> : (
+        <ProjectRegistry projects={projects} activeRuns={activeRuns} loading={loading} loadFailed={!projectsLoaded} search={projectSearch} filter={projectFilter} onSearch={setProjectSearch} onFilter={setProjectFilter} openRun={openRun}/>
       )}
       <dialog ref={runDialog} aria-labelledby="run-title"><div className="dialog-head"><h2 id="run-title">Проверка проекта</h2><button className="btn icon-only" aria-label="Закрыть проверку" onClick={() => runDialog.current?.close()}><X size={16}/></button></div><div className="dialog-body">{currentRun ? <><h3>{currentRun.project_name}</h3><p>{runStatus(currentRun)} · {currentRun.progress.done || 0} / {currentRun.total} проверок</p>{currentRun.error && <p className="cc-error-text">{publicError(currentRun.error)}</p>}{Object.entries(currentRun.progress.services || {}).filter(([id])=>isCurrentService(id)).map(([id, stats]) => <p key={id}>{service(id)}: {stats.done} / {stats.total}{stats.error ? ` · ${publicError(stats.error)}` : ""}</p>)}<p>Незавершённые запросы остаются в очереди; счётчик показывает готовые ответы.</p>{projectIds.has(currentRun.project_id) && <a className="btn blue" href={`#/project/${currentRun.project_id}/report`} onClick={() => runDialog.current?.close()}>Открыть отчёт</a>}</> : <p>Проверка недоступна</p>}</div></dialog>
     </main>
@@ -530,7 +615,7 @@ function ProjectEditor({token,projectId,tab,brandClarificationsEnabled,admin,sav
   }
   if(!project)return error?<p className="cc-alert" role="alert">{error}</p>:<CabinetSkeleton label="Загрузка проекта…"/>
   const clarificationEnabled = projectId === "new" ? brandClarificationsEnabled : !!project.brand_clarifications_enabled
-  return <div className={tab === "queries" ? "cc-editor" : "cc-editor settings-layout"}><div>
+  return <div className={tab === "queries" ? "cc-editor query-editor" : "cc-editor settings-layout"}><div>
     {error&&<p className="cc-alert" role="alert">{error}</p>}
     <fieldset disabled={busy}>
     {tab==="queries"?<QueryLibrary queries={project.queries} saving={busy} onChange={queries=>change({...project,queries})}/>:<>

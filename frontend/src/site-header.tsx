@@ -33,7 +33,7 @@ function Dropdown({ label, trigger, children, className = "" }: { label: string;
     <div ref={panel} id={id} popover="auto" className="sh-popover" onBeforeToggle={event => {
       if (event.newState !== "open" || !button.current) return
       const rect = button.current.getBoundingClientRect()
-      event.currentTarget.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - 352))}px`
+      event.currentTarget.style.setProperty("--sh-popover-left", `${Math.max(12, Math.min(rect.left, window.innerWidth - 352))}px`)
       event.currentTarget.style.top = `${rect.bottom + 10}px`
     }} onToggle={event => {
       setOpen(event.newState === "open")

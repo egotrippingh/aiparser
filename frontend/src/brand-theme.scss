@@ -5,11 +5,9 @@
   stroke-width: 1.75;
   flex-shrink: 0;
 }
-.cabinet .cc-sidebar nav a .lucide,
-.cabinet .ql-groups button .lucide {
+.cabinet .cc-sidebar nav a .lucide {
   color: var(--air-icon);
 }
-.cabinet .cc-sidebar nav a[aria-current=page] .lucide,
-.cabinet .ql-groups button[aria-pressed=true] .lucide {
+.cabinet .cc-sidebar nav a[aria-current=page] .lucide {
   color: var(--air-icon-accent);
 }

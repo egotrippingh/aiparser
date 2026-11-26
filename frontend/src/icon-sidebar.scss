@@ -7,9 +7,37 @@
 .air-app .sidebar .nav-link[aria-current=page] { color: #153d75; background: #eaf1fb; border-color: #d7e4f5; }
 .air-app .sidebar .nav-link:focus-visible { outline: 2px solid #f25c37; outline-offset: 3px; }
 .air-app .sidebar .nav-link svg { width: 24px; height: 24px; }
-@media(max-width: 700px) {
-  .air-app { --sidebar: 0px; }
-  .air-app .sidebar { position: static; width: auto; padding: 8px 15px; }
-  .air-app .sidebar nav { flex-direction: row; gap: 5px; overflow: auto; padding: 4px; }
-  .air-app .sidebar .nav-link { width: 44px; min-height: 44px; flex-shrink: 0; }
+@media (max-width: 700px) {
+  .air-app {
+    --sidebar: 0px;
+
+    .app-main { padding: var(--space-5) var(--space-4) var(--space-6); }
+
+    .sidebar {
+      position: static;
+      width: auto;
+      padding: var(--space-2) var(--space-4);
+      border-right: 0;
+
+      nav {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(0, 1fr);
+        gap: var(--space-1);
+        overflow: visible;
+      }
+
+      .nav-link {
+        width: 100%;
+        min-height: var(--control);
+        border-radius: var(--radius-control);
+
+        &:focus-visible { outline-offset: -3px; }
+      }
+    }
+  }
+}
+
+@media (max-width: 360px) {
+  .air-app .sidebar nav { gap: 0; }
 }
