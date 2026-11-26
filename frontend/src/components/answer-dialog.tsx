@@ -39,7 +39,8 @@ export function AnswerDialog({ service, scanDate, status, originalStatus, query,
   const lookupCard = sourceCardLookup(evidence?.source_cards || [])
   const container = useRef<HTMLDivElement>(null)
   const citations = isCurrentService(service) ? { service, container } : null
-  const remaining = service === "yandex_neuro" || service === "perplexity" ? sourcesOf(sources)
+  const keepLinked = service === "yandex_neuro" || service === "perplexity"
+  const remaining = keepLinked ? renderedSources(evidence?.answer_text || answer || "", sources, service, true)
     : evidence ? evidenceSources(evidence, sources, service, { skipRendered: true })
     : answer ? renderedSources(answer, sources, service) : sourcesOf(sources)
   const dated = /^\d{4}-\d{2}-\d{2}$/.test(scanDate) ? `${longDate(scanDate)} ${scanDate.slice(0, 4)}` : scanDate

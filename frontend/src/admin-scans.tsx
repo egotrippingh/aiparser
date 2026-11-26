@@ -41,7 +41,7 @@ export function AdminScans({ token, runId }: { token: string; runId?: string }) 
       {selected === row.id && <div className="admin-scan-detail">{detailError?.id === row.id && <p role="alert">{detailError.message}</p>}{detail?.id !== row.id && detailError?.id !== row.id && <CabinetSkeleton label="Загружаем ответ…"/>}{detail?.id === row.id && <>
         {detail.status !== detail.original_status && <p>После ручного исправления: {statuses[detail.status] || detail.status}. В журнале показана оценка сервиса.</p>}
         {detail.feedback && <p>Отметка пользователя: <b>{labels[detail.feedback.label]}</b>{detail.feedback.comment && ` · ${detail.feedback.comment}`}</p>}
-        {detail.evidence_quote && <blockquote>{detail.evidence_quote}</blockquote>}
+        {detail.evidence_quote && <blockquote><AnswerContent text={detail.evidence_quote} service={detail.service} sources={detail.sources} brand={detail.highlight}/></blockquote>}
         {detail.analysis?.reasoning && <p>Анализ ({detail.analysis_model}): {detail.analysis.reasoning}</p>}{detail.arbitration?.reasoning && <p>Арбитр ({detail.arbitration_model}): {detail.arbitration.reasoning}</p>}
         {detail.answer_evidence ? <AnswerEvidenceView key={detail.id} evidence={detail.answer_evidence} service={detail.service} sources={detail.sources} brand={detail.highlight}/> : detail.answer_text && <AnswerContent text={detail.answer_text} service={detail.service} sources={detail.sources} />}<ResultIssue status={detail.status} error={detail.error_message} answer={detail.answer_text} />
         <EvidenceSources evidence={detail.answer_evidence} answerText={detail.answer_text} service={detail.service} sources={detail.sources} brand={detail.highlight}/>

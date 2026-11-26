@@ -28,6 +28,64 @@ it("renders paragraphs, real lists and safe links while keeping HTML literal", (
   expect(renderToStaticMarkup(<AnswerContent text={'(https://example.test/item)'}/>)).toContain('href="https://example.test/item"')
 })
 
+it.each(["chatgpt", "google_aio", "yandex_neuro", "perplexity", "gemini", "alice"])("renders answer media and separators for %s", service => {
+  const photo = "https://images.example.test/photo?q=1&size=2"
+  const text = `Вступление\n<img src="${photo.replace("&", "&amp;")}" alt="" title="Фото &quot;Комната&quot;" width="112" height="auto" style="position:fixed" />\n---\n![Второе фото](https://images.example.test/room_(2).jpg "Интерьер")\n<hr />\nПродолжение`
+  const html = renderToStaticMarkup(<AnswerContent text={text} service={service}/>)
+  expect(html).toContain('src="https://images.example.test/photo?q=1&amp;size=2"')
+  expect(html).toContain('alt="Фото &quot;Комната&quot;" width="112"')
+  expect(html).toContain('src="https://images.example.test/room_(2).jpg" alt="Второе фото"')
+  expect(html).toContain('loading="lazy"')
+  expect(html).toContain('referrerPolicy="no-referrer"')
+  expect(html).toContain('</p><hr/><p>')
+  expect(html.match(/<hr\/>/g)).toHaveLength(2)
+  expect(html).not.toContain('position:fixed')
+  expect(renderedSources(text, [photo, photo.replace("&", "&amp;"), "https://source.test/"], service)).toEqual(["https://source.test/"])
+})
+
+it("formats common inline markup and preserves code, literal text and safe image boundaries", () => {
+  const text = [
+    "<b>Важное</b><br/> <em>выделено</em> &amp; ~~старое~~ и *новое*",
+    "__Тоже важное__ \\![буквально](https://images.example.test/literal.jpg)",
+    "> Цитата",
+    "> Продолжение",
+    '<img src="https://images.example.test/p.jpg" title="Вид > вход" onerror="alert(1)" srcset="https://other.test/p.jpg">',
+    '<img src="javascript:alert(1)"><img src="https://127.0.0.1/file">',
+    '`<img src="https://code.test/p.jpg">` и `---`',
+    "```html",
+    "---",
+    "<hr>",
+    "```",
+    "Диапазон от 2---5 и имя camel_case",
+  ].join("\n")
+  const html = renderToStaticMarkup(<AnswerContent text={text}/>)
+  expect(html).toContain('<strong>Важное</strong><br/> <em>выделено</em> &amp; <del>старое</del> и <em>новое</em>')
+  expect(html).toContain('<strong>Тоже важное</strong> !<a href="https://images.example.test/literal.jpg"')
+  expect(html).toContain('<blockquote>Цитата<br/>Продолжение</blockquote>')
+  expect(html).toContain('alt="Вид &gt; вход"')
+  expect(html.match(/<img /g)).toHaveLength(1)
+  expect(html.match(/<img [^>]+>/)?.[0]).not.toMatch(/ onerror=| srcSet=/i)
+  expect(html).toContain('Фото недоступно')
+  expect(html).toContain('<code>---</code>')
+  expect(html).toContain('<pre><code>---\n&lt;hr&gt;</code></pre>')
+  expect(html).toContain('Диапазон от 2---5 и имя camel_case')
+})
+
+it("keeps image references and markup separate from linked sources and code", () => {
+  const photo = "https://images.example.test/ref.jpg"
+  const source = "https://source.test/guide"
+  const text = "![Комната][photo]\n\n[Источник](" + source + ")\n\n[photo]: " + photo
+  const html = renderToStaticMarkup(<AnswerContent text={text}/>)
+  expect(html).toContain('src="' + photo + '" alt="Комната"')
+  expect(html).not.toContain("[photo]")
+  expect(renderedSources(text, [photo, source], "perplexity", true)).toEqual([source])
+})
+
+it("renders spaced and indented Markdown dividers without turning them into list items", () => {
+  const html = renderToStaticMarkup(<AnswerContent text={"- Пункт\n  ---\n* * *\nПосле списка"}/>)
+  expect(html).toContain("<li>Пункт<hr/></li></ul><hr/><p>После списка</p>")
+})
+
 it("keeps distinct query-string sources, deduplicates identical URLs and rejects unsafe URLs", () => {
   const sources=['https://example.test/?q=1','https://example.test/?q=2','https://example.test/?q=1','javascript:alert(1)','data:text/html,evil','https://user:secret@example.test','broken']
   expect(sourcesOf(sources)).toEqual(sources.slice(0,2))

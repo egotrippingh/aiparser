@@ -1,5 +1,27 @@
 .answer-content{font-size:14px;line-height:1.75;overflow-wrap:anywhere;white-space:normal}
 .answer-content p{margin:0 0 1em;white-space:pre-wrap}
+.answer-content hr {
+  width: 100%;
+  margin-block: 1.25em;
+  border: 0;
+  border-top: 1px solid var(--air-line, var(--border, currentColor));
+}
+.answer-content blockquote {
+  margin: 0 0 1em;
+  padding-inline-start: .8em;
+  border-inline-start: 2px solid var(--air-line, var(--border, currentColor));
+}
+.answer-content__photo {
+  display: inline-block;
+  vertical-align: middle;
+  max-width: 100%;
+  height: auto;
+  margin-block: .25em;
+  border-radius: var(--radius-control, 8px);
+}
+.answer-content__photo-error {
+  color: var(--air-muted, var(--muted-foreground));
+}
 .answer-content ul,.answer-content ol{padding-left:24px;margin:0 0 1em;list-style:revert}
 .answer-content li{margin-block:6px;white-space:pre-wrap}
 .answer-content a,.answer-sources a{color:var(--air-accent,var(--primary));text-decoration:underline;text-underline-offset:3px}

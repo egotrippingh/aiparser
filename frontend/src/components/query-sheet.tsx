@@ -145,7 +145,7 @@ export function QuerySheet({
                       </div>
                       {info.evidence_quote ? (
                         <blockquote className="mt-2.5 border-l-2 pl-3 text-sm italic">
-                          {info.evidence_quote}
+                          <AnswerContent text={info.evidence_quote} service={s.id} sources={info.sources || []}/>
                         </blockquote>
                       ) : null}
                       <ResultIssue status={info.status} error={info.error_message} answer={info.answer_text}/>

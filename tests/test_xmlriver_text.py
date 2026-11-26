@@ -57,6 +57,20 @@ def test_unsafe_product_photos_are_not_rendered(url):
     assert xmlriver._image_url(url) == ""
 
 
+@pytest.mark.parametrize("service", ["google_aio", "yandex_neuro"])
+def test_prose_evidence_keeps_inline_photos_and_dividers(service):
+    html = """<p>Интерьер<img src='https://images.test/room.jpg' alt='Комната'
+        onerror='bad()'><img src='javascript:bad()'></p><hr><p>Продолжение</p>"""
+    markup, cards = xmlriver._parse_xml(payload(service, html), service, include_images=True)
+    result = xmlriver.evidence(markup, cards, service)
+    image = {"tag": "img", "children": [], "src": "https://images.test/room.jpg", "alt": "Комната"}
+    assert result["content"] == [{"tag": "p", "children": ["Интерьер", image]},
+                                 {"tag": "hr", "children": []},
+                                 {"tag": "p", "children": ["Продолжение"]}]
+    assert result["main_text"] == "Интерьер\n\nПродолжение"
+    assert "onerror" not in result["html"]
+
+
 def test_text_only_prompt_preserves_brand_after_old_truncation_and_all_sources():
     text = "Полезный ответ. " * 700 + "Нужный бренд в конце"
     prompt = _build_prompt("Brand", [], text, [f"https://source{i}.test" for i in range(20)], text_only=True)
