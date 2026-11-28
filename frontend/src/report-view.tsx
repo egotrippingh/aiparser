@@ -1,8 +1,6 @@
-import { ScanFeedbackForm, type ScanFeedback, type FeedbackResult } from "./scan-feedback"
-import { AnswerDialog } from "./components/answer-dialog"
-import type { AnswerEvidence, BrandHighlight } from "./components/answer-evidence"
+import { useReportAnswer } from "./report-answer"
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react"
-import { ArrowRight, Download, FileDown, LoaderCircle, Search, X } from "lucide-react"
+import { ArrowRight, Download, FileDown, LoaderCircle, Search } from "lucide-react"
 import { accountDownload, accountRequest, downloadBlob } from "./account-api"
 import { clientReport } from "./client-report"
 import { today } from "./lib/dates"
@@ -19,7 +17,6 @@ type Cell = { id: number; status: string; found: boolean; date?: string }
 type Query = { id: string; text: string; group_tag: string; cells: Record<string,Record<string,Cell>>; latest: Record<string,Cell>; trend: Trend; period_trend: Trend }
 type Source = { domain: string; count: number; own: boolean; urls: string[]; queries: number; services: string[]; results: { id: number; query_text: string; date: string; service: string }[] }
 export type Report = { period_from: string | null; period_to: string | null; period_trend: Trend; date_from: string; date_to: string; available_dates: string[]; dates: string[]; visible_dates: string[]; services: string[]; available_services: string[]; groups: string[]; summary: Stats; trend: Trend; service_stats: Record<string,Trend>; comparison: { from: Stats; to: Stats; delta: number | null }; timeline: (Stats & {date: string; services: Record<string,Stats>})[]; total: number; rows: Query[]; sources: Source[] }
-type Detail = { id: number; feedback: ScanFeedback | null; mention_types: string[]; query_text: string; service: string; scan_date: string; status: string; original_status: string; answer_text: string | null; error_message?: string | null; evidence_quote: string | null; sources: string[]; check_id: string | null; answer_evidence?: AnswerEvidence | null; highlight?: BrandHighlight; has_screenshot?: boolean }
 const statuses: Record<string,string> = {found:"Упоминание",not_found:"Нет упоминания",skipped:"Нет AI-блока",error:"Требует внимания",captcha:"Требует внимания",auth_required:"Требует внимания",limit_reached:"Требует внимания"}
 const pct = (value: number | null) => value == null ? "—" : `${value}%`
 const cellLabel = (cell: Cell) => cell.status === "found" && !cell.found ? "Не учитывается по фильтрам" : statuses[cell.status] || cell.status
@@ -89,11 +86,13 @@ export function ReportView({ token, projectId, projectName, projectServices, las
   const report = loadedReport && {...loadedReport,services:loadedReport.services.filter(id=>availableServices.includes(id))}
   const [loading,setLoading] = useState(true), [tick,setTick] = useState(0), [exporting,setExporting] = useState("")
   const [documentError, setDocumentError] = useState("")
-  const [detail,setDetail] = useState<(Detail & {requestId:number})|null>(null), [detailError,setDetailError] = useState(""), [shot,setShot] = useState("")
-  const dialog = useRef<HTMLDialogElement>(null), detailRequest = useRef(0), mounted = useRef(true)
   const [loadedFilters, setLoadedFilters] = useState("")
   const [historyWindow,setHistoryWindow] = useState({filters:"",offset:0,limit:14})
   const base = `/control/projects/${encodeURIComponent(projectId)}/mentions`
+  const mounted = useRef(true)
+  const {openResult, answerDialog} = useReportAnswer(base,token,canEdit,() => {
+    setLoading(true); setTick(value => value + 1)
+  })
   const params = new URLSearchParams({include_cards:String(cards),include_external:String(external),compare:String(compare),date_to:range?.to||today()})
   if (!sourcesOnly) params.set("search",search)
   params.set("services",(selection || availableServices).join(","))
@@ -139,19 +138,8 @@ export function ReportView({ token, projectId, projectName, projectServices, las
   }, [hasServices])
   useEffect(() => {
     mounted.current = true
-    return () => { mounted.current = false; detailRequest.current++ }
+    return () => { mounted.current = false }
   }, [])
-  function closeDetail() { detailRequest.current++; dialog.current?.close() }
-  async function openResult(id:number) {
-    const requestId=++detailRequest.current;setDetail(null);setDetailError("");setShot("");dialog.current?.showModal()
-    try { const data=await accountRequest<Detail>(`${base}/results/${id}`,token);if(mounted.current && requestId===detailRequest.current && dialog.current?.open)setDetail({...data,requestId}) } catch(e) {if(mounted.current && requestId===detailRequest.current && dialog.current?.open)setDetailError(e instanceof Error?e.message:"Не удалось загрузить ответ")}
-  }
-  function feedbackSaved(id:number, requestId:number, result:FeedbackResult) {
-    if (!mounted.current) return
-    if (requestId === detailRequest.current && dialog.current?.open)
-      setDetail(current => current?.id === id ? {...current,...result} : current)
-    setLoading(true); setTick(value => value+1)
-  }
   async function exportReport(kind:string) {
     if (stale || loading || !report?.services.length) return
     setExporting(kind);setError("")
@@ -190,7 +178,6 @@ export function ReportView({ token, projectId, projectName, projectServices, las
       if (mounted.current) setExporting("")
     }
   }
-  async function openShot(id:number) {const requestId=detailRequest.current;setShot("");try{const data=await accountRequest<{url:string}>(`${base}/results/${id}/screenshot`,token);if(mounted.current && requestId===detailRequest.current && dialog.current?.open)setShot(data.url)}catch(e){if(mounted.current && requestId===detailRequest.current && dialog.current?.open)setDetailError(e instanceof Error?e.message:"Не удалось открыть снимок")}}
   const dates = report ? [...report.dates].reverse() : []
   const visibleDates = report ? [...report.visible_dates].reverse() : []
   const dateStart = visibleDates.length ? dates.indexOf(visibleDates[0]) : 0
@@ -244,6 +231,6 @@ export function ReportView({ token, projectId, projectName, projectServices, las
         <div className="table-footer"><span>{rows.length} запросов · групп: {groups.length} · {dates.length} дат · последняя проверка за день</span><span role="status">{loading || stale ? "Обновляем отчёт…" : "Новые даты слева · прокрутка вправо →"}</span></div>
       </section><p className="page-note">Упоминаемость — доля упоминаний от общего числа выбранных запросов и ИИ-систем в датах проверок. Отсутствие AI-блока считается проверкой без упоминания. Технические ошибки отмечаются отдельно; при отсутствии успешных проверок процент не рассчитывается. Цвет и стрелка показывают изменение {compare ? "конечной даты к начальной" : "последнего скана к первому в выбранном периоде"}; если на одной из дат нет данных для сравнения, изменение не рассчитывается. Исторические незавершённые проверки доступны для просмотра.</p>
     </>}
-    <dialog className="ws-dialog report-detail" ref={dialog} aria-labelledby="result-title" onClose={()=>{detailRequest.current++}}>{!detail && <div className="ws-dialog-head"><h2 id="result-title">Ответ ИИ</h2><button className="cc-button icon" type="button" aria-label="Закрыть ответ" onClick={()=>closeDetail()}><X size={18}/></button></div>}{detailError&&<p className="cc-alert" role="alert">{detailError}</p>}{detail?<AnswerDialog key={detail.id} service={detail.service} scanDate={detail.scan_date} status={detail.status} originalStatus={detail.original_status} query={detail.query_text} quote={detail.evidence_quote} answer={detail.answer_text} evidence={detail.answer_evidence} sources={detail.sources} brand={detail.highlight} mentionTypes={detail.mention_types} error={detail.error_message} onClose={closeDetail}>{canEdit && (detail.status === "found" || detail.status === "not_found") && detail.answer_text && <ScanFeedbackForm key={detail.id} token={token} base={base} id={detail.id} status={detail.original_status} feedback={detail.feedback} onSaved={result => feedbackSaved(detail.id,detail.requestId,result)} />}{detail.check_id&&detail.has_screenshot!==false&&!detail.answer_evidence&&<button className="cc-button" type="button" onClick={()=>openShot(detail.id)}>Открыть скриншот</button>}{shot&&<img className="report-shot" src={shot} alt="Скриншот ответа ИИ"/>}</AnswerDialog>:!detailError&&<CabinetSkeleton label="Загружаем ответ…"/>}</dialog>
+    {answerDialog}
   </section>
 }

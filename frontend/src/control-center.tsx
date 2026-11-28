@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react"
-import { Activity, CalendarClock, CalendarDays, ChartNoAxesCombined, Check, ChevronRight, CircleAlert, Clock3, Flag, Link, List, Pause, Play, Plus, Search, Settings2, SlidersHorizontal, Square, Trash2, UserPlus, UserRoundPlus, X } from "lucide-react"
+import { Activity, CalendarClock, CalendarDays, ChartNoAxesCombined, Check, ChevronRight, CircleAlert, Clock3, Flag, Link, List, Pause, Play, Plus, Search, Settings2, SlidersHorizontal, Square, Trash2, UserPlus, UserRoundPlus, Users, X } from "lucide-react"
 import { Tooltip } from "@base-ui/react/tooltip"
 import { accountRequest as request } from "./account-api"
 import { SCAN_SERVICES, MONTH_DAYS } from "./lib/scan-preferences"
 import { ReportView } from "./report-view"
+import { ProjectAnalysis, SourceNavigation } from "./project-analysis"
 import { QueryLibrary } from "./query-library"
 import "./workspace.scss"
 import { SiteHeader } from "./site-header"
@@ -22,6 +23,7 @@ import { publicError } from "./lib/public-error"
 import "./control-center.scss"
 import "./icon-sidebar.scss"
 import "./project-registry.scss"
+import "./project-analysis.scss"
 import "./run-history.scss"
 
 type Query = { id: string; text: string; group_tag: string; active: boolean }
@@ -435,18 +437,18 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
   const lastFinishedRunId = runs.find(r => r.project_id === projectId && terminal(r))?.id
   const requestedTab = projectTab || "report"
   const viewer = selected?.role === "viewer"
-  const tab = (viewer && !["report", "sources"].includes(requestedTab)) || (requestedTab === "access" && selected?.role !== "owner") ? "report" : requestedTab
+  const tab = (viewer && !["report", "sources", "source-domains", "competitors"].includes(requestedTab)) || (requestedTab === "access" && selected?.role !== "owner") ? "report" : requestedTab
   const projectLink = (next: string) => projectId ? `#/project/${projectId}/${next}` : "#/projects"
   const nav = [
     ["report", "Обзор видимости", ChartNoAxesCombined],
-    ...(!viewer ? [["queries", "Запросы", List] as const] : []), ["sources", "Источники", Link],
+    ...(!viewer ? [["queries", "Запросы", List] as const] : []), ["competitors", "Конкуренты", Users], ["sources", "Источники", Link],
     ...(!viewer ? [["settings", "Настройки проекта", SlidersHorizontal] as const, ["schedule", "Расписание", CalendarDays] as const] : []),
     ...(selected?.role === "owner" ? [["access", "Доступ", UserRoundPlus] as const] : []),
     ...(!viewer ? [["runs", "История проверок", Play] as const] : []),
   ] as const
   const page = area === "project" ? tab : area === "overview" ? "report" : area === "topup" ? "account" : area
   useEffect(() => { if (page === "help") location.replace("/docs/") }, [page])
-  const title = projectId === "new" ? "Новый проект" : ({projects: "Проекты", account: "Аккаунт и оплата", help: "Документация"} as Record<string, string>)[page] || nav.find(([id]) => id === page)?.[1] || "Обзор видимости"
+  const title = projectId === "new" ? "Новый проект" : ({projects: "Проекты", account: "Аккаунт и оплата", help: "Документация"} as Record<string, string>)[page] || nav.find(([id]) => id === (page === "source-domains" ? "sources" : page))?.[1] || "Обзор видимости"
   const currentRun = runs.find(r => r.id === runDetail)
   const projectIds = new Set(projects.map(project => project.id))
   function openRun(id: string) {
@@ -465,18 +467,22 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
     <a className="skip-link" href="#app-content" onClick={event => { event.preventDefault(); main.current?.focus() }}>К содержимому</a>
     <SiteHeader cabinet email={email} avatarUrl={avatarUrl} balance={balance} projects={projects} selectedId={selected?.id} loading={loading} admin={admin} logout={logout}/>
     {page !== "projects" && <aside className="sidebar">
-      <nav aria-label="Разделы приложения">{nav.map(([id, label, Icon]) => <IconNavLink key={id} className="nav-link" label={label} current={page === id} href={["report","queries","sources","settings","schedule","access"].includes(id) ? projectLink(id) : `#/${id}`}><Icon size={24} strokeWidth={1.7} aria-hidden="true"/></IconNavLink>)}</nav>
+      <nav aria-label="Разделы приложения">{nav.map(([id, label, Icon]) => <IconNavLink key={id} className="nav-link" label={label} current={page === id || (id === "sources" && page === "source-domains")} href={["report","queries","sources","competitors","settings","schedule","access"].includes(id) ? projectLink(id) : `#/${id}`}><Icon size={16} strokeWidth={1.7} aria-hidden="true"/></IconNavLink>)}</nav>
     </aside>}
     <main ref={main} className="app-main" id="app-content" tabIndex={-1}>
       {page !== "projects" && <div className="breadcrumb"><a href="#/projects">Проекты</a><ChevronRight size={12}/>{selected && page !== "runs" && <><span>{selected.name}</span><ChevronRight size={12}/></>}<span className="current">{title}</span></div>}
-      <div className={page === "queries" ? "heading-row project-registry__heading query-editor__heading" : ["projects", "runs"].includes(page) ? "heading-row project-registry__heading" : "heading-row"}><div><div className="heading-title"><h1 ref={projectHeading} tabIndex={-1}>{title}</h1>{selected && ["project","overview"].includes(area) && <span className="domain-label">{selected.config.brand_domains[0] || selected.brand_name}</span>}</div>{page === "projects" ? (projectsLoaded && <ProjectTotals projects={projects}/>) : page === "runs" ? (projectsLoaded && <p className="project-registry__summary"><strong>{registryNumber.format(runs.length)}</strong> {plural(runs.length, "запуск", "запуска", "запусков")} <span aria-hidden="true">·</span> <strong>{registryNumber.format(activeRuns.length)}</strong> {activeRuns.length === 1 ? "активный" : "активных"}</p>) : page !== "queries" && <p className="subtitle">{page === "report" ? "Как часто ИИ упоминает ваш бренд и откуда берёт информацию." : page === "sources" ? "Сайты, на которые ссылаются ответы с упоминанием бренда." : page === "schedule" ? "Автоматические проверки в выбранные дни месяца." : ""}</p>}</div>
+      <div className={page === "queries" ? "heading-row project-registry__heading query-editor__heading" : ["projects", "runs"].includes(page) ? "heading-row project-registry__heading" : "heading-row"}><div><div className="heading-title"><h1 ref={projectHeading} tabIndex={-1}>{title}</h1>{selected && ["project","overview"].includes(area) && <span className="domain-label">{selected.config.brand_domains[0] || selected.brand_name}</span>}</div>{page === "projects" ? (projectsLoaded && <ProjectTotals projects={projects}/>) : page === "runs" ? (projectsLoaded && <p className="project-registry__summary"><strong>{registryNumber.format(runs.length)}</strong> {plural(runs.length, "запуск", "запуска", "запусков")} <span aria-hidden="true">·</span> <strong>{registryNumber.format(activeRuns.length)}</strong> {activeRuns.length === 1 ? "активный" : "активных"}</p>) : page !== "queries" && <p className="subtitle">{page === "report" ? "Как часто ИИ упоминает ваш бренд и откуда берёт информацию." : page === "sources" ? "Страницы, на которые ссылаются ИИ в ответах на запросы проекта." : page === "source-domains" ? "Домены в ответах с упоминанием бренда." : page === "competitors" ? "Кого ИИ упоминает по вашим запросам и где пропускает ваш бренд." : page === "schedule" ? "Автоматические проверки в выбранные дни месяца." : ""}</p>}</div>
         <div className="heading-actions">{selected && page !== "runs" && <span className="row-note">ID: <code style={{overflowWrap:"anywhere"}}>{selected.id}</code> · {selected.role === "owner" ? "Владелец" : selected.role === "editor" ? "Редактор" : "Просмотр"} <button className="text-link" aria-label="Копировать ID проекта" onClick={async()=>{try {await navigator.clipboard.writeText(selected.id);setCopyMessage({id:selected.id,text:"ID скопирован"})} catch {setCopyMessage({id:selected.id,text:"Не удалось скопировать. Выделите ID вручную."})}}}>Копировать</button>{copyMessage?.id === selected.id && <span role="status"> · {copyMessage.text}</span>}</span>}{page === "projects" ? <a className="btn primary project-registry__new" href="#/project/new/settings"><Plus size={17} aria-hidden="true"/>Новый проект</a> : null}</div>
       </div>
       {error && <div className="cc-alert" role="alert">{error}<button className="btn" onClick={() => refresh().catch(e => setError(e.message))}>Повторить</button>{(page !== "projects" || projectsLoaded) && <button className="btn icon-only" aria-label="Закрыть сообщение" onClick={() => setError("")}><X size={16}/></button>}</div>}
       {message && <p className="notice" role="status">{message}</p>}
       {page === "projects" && projectNotice && <p className="notice" role="status">{projectNotice}</p>}
       {page === "account" ? account : page === "help" ? <p className="page-intro">Открываем документацию… <a href="/docs/">Перейти к документации</a></p> : loading && ["project","overview"].includes(area) && projectId !== "new" ? <CabinetSkeleton label="Загрузка проекта…" format={page === "report" ? "report" : "rows"}/> : ["project","overview"].includes(area) && projectId ? <>
-        {tab === "access" && selected?.role === "owner" ? <ProjectAccess key={projectId} token={token} projectId={projectId}/> : ["report","sources"].includes(tab) && projectId !== "new" ? <ReportView key={projectId} token={token} projectId={projectId} projectName={selected?.name ?? ""} projectServices={selected?.config.services || []} lastFinishedRunId={lastFinishedRunId} sourcesOnly={tab === "sources"} canEdit={!viewer} scanControl={viewer ? undefined : scanControl}/> : <ProjectEditor key={projectId} token={token} projectId={projectId} tab={projectId === "new" ? "settings" : tab} brandClarificationsEnabled={brandClarificationsEnabled} admin={admin} saved={refresh} archived={projectArchived} onDirtyChange={noteEditorDirty} walletChanged={walletChanged}/>}
+        {["sources", "source-domains"].includes(tab) && projectId !== "new" && <SourceNavigation projectId={projectId} pages={tab === "sources"}/>}
+        {tab === "access" && selected?.role === "owner" ? <ProjectAccess key={projectId} token={token} projectId={projectId}/>
+          : ["competitors", "sources"].includes(tab) && projectId !== "new" ? <ProjectAnalysis key={projectId + tab} token={token} projectId={projectId} mode={tab === "sources" ? "citations" : "competitors"} canEdit={!viewer} lastFinishedRunId={lastFinishedRunId}/>
+          : ["report", "source-domains"].includes(tab) && projectId !== "new" ? <ReportView key={projectId} token={token} projectId={projectId} projectName={selected?.name ?? ""} projectServices={selected?.config.services || []} lastFinishedRunId={lastFinishedRunId} sourcesOnly={tab === "source-domains"} canEdit={!viewer} scanControl={viewer ? undefined : scanControl}/>
+          : <ProjectEditor key={projectId} token={token} projectId={projectId} tab={projectId === "new" ? "settings" : tab} brandClarificationsEnabled={brandClarificationsEnabled} admin={admin} saved={refresh} archived={projectArchived} onDirtyChange={noteEditorDirty} walletChanged={walletChanged}/>}
       </> : page === "runs" ? <RunHistory runs={runs} projects={projects} loading={loading} loadFailed={!projectsLoaded} busy={!!busy} openRun={openRun} command={(id, command) => void action(id, () => request(`/control/runs/${id}/command`, token, {action:command}))}/> : (
         <ProjectRegistry projects={projects} activeRuns={activeRuns} loading={loading} loadFailed={!projectsLoaded} search={projectSearch} filter={projectFilter} onSearch={setProjectSearch} onFilter={setProjectFilter} openRun={openRun}/>
       )}
