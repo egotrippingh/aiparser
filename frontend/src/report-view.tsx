@@ -19,8 +19,7 @@ type Source = { domain: string; count: number; own: boolean; urls: string[]; que
 export type Report = { period_from: string | null; period_to: string | null; period_trend: Trend; date_from: string; date_to: string; available_dates: string[]; dates: string[]; visible_dates: string[]; services: string[]; available_services: string[]; groups: string[]; summary: Stats; trend: Trend; service_stats: Record<string,Trend>; comparison: { from: Stats; to: Stats; delta: number | null }; timeline: (Stats & {date: string; services: Record<string,Stats>})[]; total: number; rows: Query[]; sources: Source[] }
 const statuses: Record<string,string> = {found:"Упоминание",not_found:"Нет упоминания",skipped:"Нет AI-блока",error:"Требует внимания",captcha:"Требует внимания",auth_required:"Требует внимания",limit_reached:"Требует внимания"}
 const pct = (value: number | null) => value == null ? "—" : `${value}%`
-const deltaNumber = new Intl.NumberFormat("ru-RU", {maximumFractionDigits: 1})
-const deltaPoints = (delta: number) => (delta > 0 ? "↑ +" : delta < 0 ? "↓ " : "") + deltaNumber.format(delta) + " п. п."
+const metricDelta = (delta: number) => (delta > 0 ? "↑ +" : delta < 0 ? "↓ " : "") + pct(delta)
 const cellLabel = (cell: Cell) => cell.status === "found" && !cell.found ? "Не учитывается по фильтрам" : statuses[cell.status] || cell.status
 export const trendTone = (delta: number | null) => delta === null || delta === 0 ? "neutral" : delta > 0 ? "positive" : "negative"
 export function trendText(trend: Trend) {
@@ -222,7 +221,7 @@ export function ReportView({ token, projectId, projectName, projectServices, las
           <div className="metric-caption">
             {compare ? report.comparison.from.found + " / " + report.comparison.from.total + " возможных упоминаний"
               : report.trend.delta === null ? "Недостаточно данных за предыдущий период"
-              : <span><span className={"change " + trendTone(report.trend.delta)}>{deltaPoints(report.trend.delta)}</span>{" к предыдущему периоду"}</span>}
+              : <span><span className={"change " + trendTone(report.trend.delta)}>{metricDelta(report.trend.delta)}</span>{" к предыдущему периоду"}</span>}
           </div>
         </div>
         <div className="metric">
@@ -234,7 +233,7 @@ export function ReportView({ token, projectId, projectName, projectServices, las
         </div>
         <div className="metric">
           <div className="metric-label">{compare ? "Изменение между датами" : "Изменение между сканами"}</div>
-          <div className={"metric-value " + trendTone(periodDelta)}>{periodDelta === null ? "—" : deltaPoints(periodDelta)}</div>
+          <div className={"metric-value " + trendTone(periodDelta)}>{periodDelta === null ? "—" : metricDelta(periodDelta)}</div>
           <div className="metric-caption">{compare ? shortDate(report.date_from) + " → " + shortDate(report.date_to)
             : report.period_from && report.period_to && report.period_from !== report.period_to
               ? shortDate(report.period_from) + " → " + shortDate(report.period_to) : "Нужны два скана за период"}</div>
