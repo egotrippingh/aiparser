@@ -102,9 +102,10 @@ def test_homepage_ships_content_metadata_and_a_real_social_image(client):
     assert schema["url"] == head.canonicals[0]
     headings = re.findall(r"<h1\b[^>]*>(.*?)</h1>", html, re.S)
     assert len(headings) == 1
-    heading_text = " ".join(re.sub(r"<[^>]+>", " ", headings[0]).split())
-    assert heading_text.replace(" .", ".") == "Узнайте, что ИИ говорит о вашем бренде."
-    assert "Встройте Аирейт в свои инструменты" in html
+    heading_text = " ".join(re.sub(r"<[^>]+>", "", headings[0]).split())
+    assert heading_text == "Упоминают ли нейросети ваш бренд?"
+    assert 'id="integrations-title">Интеграции</h2>' in html
+    assert 'href="/docs/api/"' in html
     assert 'href="/docs/mcp/"' in html
 
 
