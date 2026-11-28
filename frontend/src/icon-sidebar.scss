@@ -65,7 +65,7 @@
 
     > .sidebar:is(.sidebar--expanded, :has(:focus-visible)) {
       inline-size: var(--sidebar-expanded);
-      &::before { opacity: .82; }
+      &::before { opacity: .94; }
       .sidebar__label { visibility: visible; opacity: 1; transition-delay: 0s; }
     }
   }

@@ -481,7 +481,7 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
       onPointerEnter={event => {
         if (event.pointerType !== "mouse" || !matchMedia("(min-width: 701px) and (hover: hover)").matches) return
         window.clearTimeout(sidebarHover.current.timer)
-        sidebarHover.current.timer = window.setTimeout(() => setSidebarExpanded(true), 700)
+        sidebarHover.current.timer = window.setTimeout(() => setSidebarExpanded(true), 400)
       }} onPointerLeave={collapseSidebar} onPointerCancel={collapseSidebar}>
       <nav aria-label="Разделы приложения">
         {nav.map(([id, label, Icon]) => <a key={id} className="nav-link" aria-label={label}
