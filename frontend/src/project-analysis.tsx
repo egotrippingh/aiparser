@@ -143,9 +143,9 @@ export function ProjectAnalysis({ token, projectId, mode, canEdit, lastFinishedR
 
     <section className="panel analysis-panel" aria-label={citations ? "Страницы по числу ссылок" : "Конкуренты по частоте упоминаний"} aria-busy={reloading}>
       <div className="table-toolbar analysis-table-toolbar">
-        <SearchField label="Поиск по запросам" placeholder="Найти запрос" value={querySearch} change={setQuerySearch}/>
+        <SearchField label="Поиск по запросам" placeholder="Запрос" value={querySearch} change={setQuerySearch}/>
         {citations && <>
-          <SearchField label="Поиск по URL" placeholder="Найти URL или домен" value={pageSearch} change={setPageSearch}/>
+          <SearchField label="Поиск по URL" placeholder="URL или домен" value={pageSearch} change={setPageSearch}/>
           <AppChoice label="Тип источника" value={sourceKind} options={[
             { value: "all", label: "Все источники" }, { value: "own", label: "Сайт бренда" },
             { value: "competitor", label: "Сайты конкурентов" }, { value: "external", label: "Внешние источники" },

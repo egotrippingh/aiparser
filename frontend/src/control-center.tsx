@@ -463,7 +463,8 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
     </Tooltip.Root>
     {scanQuote && scanQuote.projectId === projectId && <QuotePopover quote={scanQuote.quote} item="проверок" note={selected?.role === "editor" ? "Оплата с баланса владельца проекта. Списываем только за завершённые проверки с ответом." : "Оплачиваются только завершённые проверки с ответом."} action="Запустить" trigger={scanButton} afterConfirm={projectHeading} onCancel={dismissScanQuote} onConfirm={() => { if (scanSubmitting.current) return; scanSubmitting.current = true; const pending = scanQuote; setScanQuote(null); void action(projectId!, () => launch(projectId!, pending.quote)).finally(() => { scanSubmitting.current = false }) }}/>}
   </span>
-  return <div className={`air-app${page === "projects" ? " projects-page" : ""}`}>
+  const analysisPage = ["sources", "source-domains", "competitors"].includes(page)
+  return <div className={`air-app${page === "projects" ? " projects-page" : ""}${analysisPage ? " project-analysis-page" : ""}`}>
     <a className="skip-link" href="#app-content" onClick={event => { event.preventDefault(); main.current?.focus() }}>К содержимому</a>
     <SiteHeader cabinet email={email} avatarUrl={avatarUrl} balance={balance} projects={projects} selectedId={selected?.id} loading={loading} admin={admin} logout={logout}/>
     {page !== "projects" && <aside className="sidebar">
