@@ -290,7 +290,7 @@ function RunHistory({ runs, projects, loading, loadFailed, busy, openRun, comman
                   <button type="button" className="btn" disabled={busy} onClick={() => command(run.id, paused ? "resume" : "pause")}>{paused ? <Play size={14} aria-hidden="true"/> : <Pause size={14} aria-hidden="true"/>}{paused ? "Продолжить" : "Пауза"}</button>
                   <button type="button" className="btn" disabled={busy} onClick={() => command(run.id, "stop")}><Square size={13} aria-hidden="true"/>Стоп</button>
                 </>}
-                {project && <a className="btn" href={`#/project/${run.project_id}/report`}>Отчёт<ChevronRight size={14} aria-hidden="true"/></a>}
+                {project && <a className="btn" href={`#/project/${run.project_id}/report`}>Отчёт</a>}
               </div></td>
             </tr>
           })}</tbody>

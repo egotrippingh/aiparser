@@ -55,15 +55,15 @@
 }
 .auth-screen__report-body { padding: var(--space-4); }
 .auth-screen__metric { display: grid; gap: var(--space-1); margin-bottom: var(--space-4); }
-.auth-screen__metric > strong { font-size: clamp(2.5rem, 4vw, 4rem); font-weight: 650; line-height: 1; letter-spacing: -.065em; }
+.auth-screen__metric > strong { font-size: 2rem; font-variant-numeric: tabular-nums; font-weight: 650; line-height: 1; letter-spacing: -.065em; }
 .auth-screen__metric > strong span { color: var(--accent); font-size: .63em; margin-left: .08em; }
 .auth-screen__metric > span { color: var(--muted); font: var(--type-small); }
 .auth-screen__chart { border-bottom: 1px solid var(--line); height: 98px; background: repeating-linear-gradient(to bottom, var(--line) 0 1px, transparent 1px 32px); }
 .auth-screen__chart svg { width: 100%; height: 100%; }
 
 .missing-layout { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: center; gap: clamp(32px, 6vw, 84px); padding-block: var(--space-8); }
-.missing-copy h1 { font-size: clamp(2.5rem, 5vw, 5rem); }
-.missing-copy p { margin-top: var(--space-4); font-size: 1.125rem; }
+.missing-copy h1 { margin-block-end: var(--space-3); }
+.missing-copy p { margin-top: var(--space-4); font: var(--type-body); }
 .missing-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-5); }
 .missing-art {
   position: relative; isolation: isolate; display: grid; place-content: center;
@@ -71,7 +71,7 @@
   background: radial-gradient(ellipse 60% 64% at 56% 51%, rgb(182 168 255 / .16), transparent 100%), var(--surface);
 }
 .missing-art img { position: absolute; width: 49%; height: auto; top: 8%; right: 3%; opacity: .17; z-index: -1; }
-.missing-art span { font: 600 clamp(7.5rem, 19vw, 18rem)/.9 var(--font); letter-spacing: -.105em; margin-right: .1em; color: transparent; background: linear-gradient(155deg, var(--text) 14%, var(--accent) 58%, #8575bf); background-clip: text; }
+.missing-art span { font: 600 clamp(7rem, 14vw, 13rem)/.9 var(--font); letter-spacing: -.105em; margin-right: .1em; color: transparent; background: linear-gradient(155deg, var(--text) 14%, var(--accent) 58%, #8575bf); background-clip: text; }
 
 @media (max-width: 960px) {
   .auth-layout, .missing-layout { gap: var(--space-5); }
@@ -86,5 +86,4 @@
 @media (max-width: 360px) {
   .screen-header .screen-row { gap: var(--space-2); }
   .screen-header .brand img:last-child { width: 104px; }
-  .missing-copy h1 { font-size: 2rem; }
 }

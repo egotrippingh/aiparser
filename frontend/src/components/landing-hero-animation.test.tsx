@@ -30,7 +30,7 @@ it("loads the selected composition and exposes it only after the renderer is rea
   dispose = mountHeroAnimation({} as HTMLElement, ready)
   await vi.waitFor(() => expect(loadAnimation).toHaveBeenCalledOnce())
   expect(fetch).toHaveBeenCalledWith(expect.stringContaining("hero-lavender-desktop.json"), expect.anything())
-  expect(loadAnimation).toHaveBeenCalledWith(expect.objectContaining({ autoplay: false, renderer: "svg", loop: true }))
+  expect(loadAnimation).toHaveBeenCalledWith(expect.objectContaining({ autoplay: false, renderer: "svg", loop: false, initialSegment: [0, 270] }))
   expect(ready).toHaveBeenLastCalledWith(null)
   events.DOMLoaded()
   expect(ready).toHaveBeenLastCalledWith(item)

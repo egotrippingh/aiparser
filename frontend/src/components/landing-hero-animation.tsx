@@ -4,7 +4,7 @@ import desktopAnimation from "../../design-system/landing/hero-lavender-desktop.
 import mobileAnimation from "../../design-system/landing/hero-lavender-mobile.json?url"
 
 export function mountHeroAnimation(container: HTMLElement, onReady: (item: AnimationItem | null) => void) {
-  const mobile = window.matchMedia("(max-aspect-ratio: 1/1)")
+  const mobile = window.matchMedia("(max-width: 620px)")
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)")
   let generation = 0
   let controller: AbortController | undefined
@@ -26,7 +26,7 @@ export function mountHeroAnimation(container: HTMLElement, onReady: (item: Anima
       const data = await response.json()
       if (current !== generation) return
       item = lottie.loadAnimation({
-        container, renderer: "svg", loop: true, autoplay: false,
+        container, renderer: "svg", loop: false, autoplay: false, initialSegment: [0, 270],
         animationData: data,
       })
       item.addEventListener("DOMLoaded", () => { if (current === generation) onReady(item) })
@@ -73,7 +73,7 @@ export function LandingHeroAnimation() {
   return <div className="home-hero__stage">
     <div className={`home-hero__art${animation ? " home-hero__art--ready" : ""}`} role="img" aria-label="Сканирование Google, Яндекса, Gemini, ChatGPT и Perplexity: данные поступают в отчёт, графики и упоминания обновляются.">
       <picture className="home-hero__still" aria-hidden="true">
-        <source media="(max-aspect-ratio: 1/1)" srcSet="/assets/landing/hero-lavender-mobile.webp"/>
+        <source media="(max-width: 620px)" srcSet="/assets/landing/hero-lavender-mobile.webp"/>
         <img src="/assets/landing/hero-lavender-desktop.webp" alt="" width="1000" height="400" fetchPriority="high"/>
       </picture>
       <div id="hero-lottie" ref={container} aria-hidden="true"/>
