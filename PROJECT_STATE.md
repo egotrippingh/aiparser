@@ -15,6 +15,7 @@ Updated 2026-11-21. Repository: `egotrippingh/aiparser`; deployment branch: `pro
   Source-link previews stay aligned when moving quickly between links.
 - The visibility overview labels previous-period and between-scan comparisons separately.
 - The signed-in homepage and cabinet share the compact header and 28 px avatar.
+- Public pages and cabinet share the thin native scrollbar style.
 
 ## Current release
 

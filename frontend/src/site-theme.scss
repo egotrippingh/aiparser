@@ -31,3 +31,22 @@
 }
 
 body { margin: 0; }
+
+@media (forced-colors: none) {
+  @supports selector(::-webkit-scrollbar) {
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: var(--air-panel); }
+    ::-webkit-scrollbar-thumb {
+      background: var(--air-line-strong);
+      border: 1px solid var(--air-panel);
+      border-radius: var(--radius-pill);
+    }
+    ::-webkit-scrollbar-thumb:hover { background: var(--air-muted); }
+    ::-webkit-scrollbar-button { display: none; }
+  }
+
+  @supports not selector(::-webkit-scrollbar) {
+    :root { scrollbar-color: var(--air-line-strong) var(--air-panel); }
+    * { scrollbar-width: thin; }
+  }
+}

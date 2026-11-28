@@ -235,6 +235,7 @@
   .landing-services__window:not(.landing-services__window--animated) {
     overflow-x: auto;
     scrollbar-width: none;
+    &::-webkit-scrollbar { display: none; }
     .landing-services__list:not([aria-hidden]) {
       display: flex;
       justify-content: space-between;
