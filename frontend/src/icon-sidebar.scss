@@ -16,7 +16,6 @@
     display: grid;
     grid-template-columns: var(--sidebar-compact) minmax(0, 1fr);
     grid-template-rows: auto 1fr;
-    transition: grid-template-columns var(--sidebar-duration) var(--ease);
 
     > .sh-header { grid-column: 1 / -1; }
     > .app-main { grid-area: 2 / 2; }
@@ -25,10 +24,21 @@
       grid-area: 2 / 1;
       position: sticky;
       align-self: start;
-      inline-size: 100%;
+      inline-size: var(--sidebar-compact);
       block-size: calc(100dvh - 65px);
       padding: var(--space-4) 5px;
       overflow-x: hidden;
+      transition: inline-size var(--sidebar-duration) var(--ease);
+
+      &::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        background: var(--air-bg);
+        opacity: 1;
+        transition: opacity var(--sidebar-duration) var(--ease);
+      }
 
       .nav-link {
         grid-template-columns: var(--control) minmax(0, 1fr);
@@ -50,13 +60,18 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       font-size: var(--font-size-small);
-      transition: opacity var(--sidebar-duration) var(--ease);
+      transition: opacity var(--sidebar-duration) var(--ease), visibility 0s var(--sidebar-duration);
     }
 
-    &:has(.sidebar--expanded, .sidebar :focus-visible) {
-      grid-template-columns: var(--sidebar-expanded) minmax(0, 1fr);
-      .sidebar__label { visibility: visible; opacity: 1; }
+    > .sidebar:is(.sidebar--expanded, :has(:focus-visible)) {
+      inline-size: var(--sidebar-expanded);
+      &::before { opacity: .82; }
+      .sidebar__label { visibility: visible; opacity: 1; transition-delay: 0s; }
     }
+  }
+
+  [data-airate-theme] .air-app:not(.projects-page) > .sidebar {
+    background-color: transparent;
   }
 
   @media (prefers-reduced-motion: reduce) {
