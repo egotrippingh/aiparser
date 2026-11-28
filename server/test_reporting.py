@@ -41,6 +41,73 @@ def seed_report(tmp_path):
     return client, owner, other, devices, project, ids, url
 
 
+def test_competitor_settings_and_intelligence_reports_preserve_private_config(tmp_path):
+    client, owner, other, _, project, ids, url = seed_report(tmp_path)
+    base = f"/api/v1/control/projects/{project['id']}/mentions"
+    settings = {'revision': 0, 'competitors': [
+        {'name': 'Риваль', 'aliases': ['Rival Co'], 'domains': ['rival.example']},
+        {'name': 'Zero', 'aliases': [], 'domains': []},
+    ]}
+    assert client.get(base + '/competitor-settings', headers=other).status_code == 404
+    with make_session_factory(url)[1]() as db:
+        other_user = db.scalar(select(User).where(User.email == 'other@test.example'))
+        db.add(ProjectMember(project_id=project['id'], user_id=other_user.id, role='viewer'))
+        db.commit()
+    assert client.get(base + '/competitor-settings', headers=other).json() == {'revision': 0, 'competitors': []}
+    assert client.put(base + '/competitor-settings', headers=other, json=settings).status_code == 404
+    saved = client.put(base + '/competitor-settings', headers=owner, json=settings)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['revision'] == 1
+    assert client.put(base + '/competitor-settings', headers=owner, json=settings).status_code == 409
+    assert client.put(base + '/competitor-settings', headers=owner, json={**settings, 'revision': 1,
+        'competitors': settings['competitors'] * 11}).status_code == 422
+    with make_session_factory(url)[1]() as db:
+        rows = [db.get(CloudResult, result_id) for result_id in ids]
+        rows[1].answer_text = ('Риваль рекомендуют. [Rival Co](https://rival.example/path?q=1#fragment) '
+                               '[Партнёр](https://candidate.example/a).')
+        rows[1].sources_json = json.dumps(['https://rival.example/path?q=1#ignored', 'https://geosoft-dent.ru/a'])
+        rows[4].answer_text = 'Rival Co is mentioned without our brand. [Партнёр](https://candidate.example/a)'
+        rows[4].sources_json = json.dumps(['https://rival.example/path?q=2', 'https://outside.example/a'])
+        rows[5].answer_text = 'Stale Rival Co payload must not be counted.'
+        rows[5].sources_json = json.dumps(['https://rival.example/skipped'])
+        rows[6].answer_text = 'Our brand and Риваль.'
+        rows[6].sources_json = json.dumps(['https://rival.example/path?q=1'])
+        db.commit()
+    args = {'date_from': '2026-09-01', 'date_to': '2026-09-03', 'services': 'google_aio,chatgpt'}
+    competitor_response = client.get(base + '/competitors', headers=owner, params=args)
+    assert competitor_response.headers['cache-control'] == 'no-store'
+    competitors = competitor_response.json()
+    assert competitors['checked'] == 5  # newest retry, skipped, and successful saved answers; error excluded
+    assert competitors['available_dates'] == ['2026-09-01', '2026-09-03']
+    assert competitors['available_services'] == ['google_aio', 'chatgpt']
+    rival, zero = competitors['rows']
+    assert (rival['name'], rival['mentions'], rival['gaps'], rival['queries']) == ('Риваль', 3, 1, 1)
+    assert zero['mentions'] == zero['gaps'] == 0
+    assert competitors['suggested_domains'] == [{'domain': 'candidate.example', 'mentions': 2, 'label': 'Партнёр'}]
+    gap = client.get(base + '/competitors', headers=owner, params={**args, 'gap_only': True}).json()
+    assert gap['total'] == 1 and gap['rows'][0]['mentions'] == 3 and gap['rows'][0]['gaps'] == 1
+    assert all(not result['brand_found'] for result in gap['rows'][0]['results'])
+    only_google = client.get(base + '/competitors', headers=owner, params={**args, 'services': 'google_aio',
+        'group': 'Brand'}).json()
+    assert only_google['available_services'] == ['google_aio', 'chatgpt'] and only_google['groups'] == ['Brand']
+    citations = client.get(base + '/citations', headers=owner, params=args).json()
+    pages = {row['url']: row for row in citations['rows']}
+    assert pages['https://rival.example/path?q=1']['kind'] == 'competitor'
+    assert pages['https://rival.example/path?q=1']['count'] == 2
+    assert pages['https://geosoft-dent.ru/a']['kind'] == 'own'
+    gap_citations = client.get(base + '/citations', headers=owner, params={**args, 'gap_only': True})
+    assert gap_citations.headers['cache-control'] == 'no-store'
+    gap_pages = {row['url']: row for row in gap_citations.json()['rows']}
+    assert gap_pages['https://rival.example/path?q=2']['count'] == 1
+    # Name-only competitor matching keeps neutral citations in the same gap evidence.
+    assert gap_pages['https://outside.example/a']['kind'] == 'external'
+    current = client.get(f"/api/v1/control/projects/{project['id']}", headers=owner).json()
+    assert 'competitor_settings' not in current['config']
+    update = {key: current[key] for key in ('revision', 'name', 'brand_name', 'device_id', 'config', 'schedule', 'queries')}
+    assert client.put(f"/api/v1/control/projects/{project['id']}", headers=owner, json=update).status_code == 200
+    assert client.get(base + '/competitor-settings', headers=owner).json()['competitors'] == settings['competitors']
+
+
 def test_mention_growth_uses_same_possible_mentions_base(tmp_path):
     client, owner, _, _, project, _, url = seed_report(tmp_path)
     with make_session_factory(url)[1]() as db:

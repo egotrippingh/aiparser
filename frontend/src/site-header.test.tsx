@@ -25,6 +25,8 @@ it("links projects from the homepage to the cabinet and preserves the active cab
   expect(publicHtml.split('href="https://t.me/egotrippintg"')).toHaveLength(3)
   expect(publicHtml).not.toContain("Регистрация")
   const cabinetHtml = renderToStaticMarkup(<SiteHeader {...props} cabinet projectTab="queries"/>)
+  expect(publicHtml).toContain("sh-header--signed-in")
+  expect(cabinetHtml).toContain("sh-header--signed-in")
   expect(cabinetHtml).toContain('href="#/project/one/queries" aria-current="true"')
   expect(cabinetHtml).not.toContain("Администрирование")
 })
@@ -58,6 +60,6 @@ it("separates the all-projects link from the searchable project trigger", () => 
 
 it("keeps account metadata and project searches out of Webvisor", () => {
   const html = renderToStaticMarkup(<SiteHeader email="test@example.test" projects={[{id: "one", name: "Private project", config: {brand_domains: ["example.test"]}}]}/>)
-  expect(html).toContain('<header class="sh-header ym-hide-content ym-disable-clickmap ym-disable-tracklink">')
+  expect(html).toContain('class="sh-header ym-hide-content ym-disable-clickmap ym-disable-tracklink sh-header--signed-in"')
   expect(html).toMatch(/<input[^>]*class="ym-disable-keys"/)
 })

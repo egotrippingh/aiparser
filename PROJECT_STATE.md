@@ -2,6 +2,21 @@
 
 Updated 2026-11-21. Repository: `egotrippingh/aiparser`; deployment branch: `production`.
 
+## Prepared locally on 2026-11-28
+
+- `codex/airate-competitor-citations`, includes production redesign `a2bbe63`, adds a tracked
+  competitor roster, mention counts and brand gaps, plus exact cited pages and their
+  saved answers. Both reports use project history without a scan or database migration.
+- The local preview and Playwright test use disposable accounts and SQLite.
+  Edge E2E passed for the owner and viewer, with layout checks at 320, 390 and 1440 px.
+  Reproduce with [the E2E runner](scripts/e2e_project_analysis.py) after building the frontend.
+  Release remains pending.
+- The desktop navigation expands over the report after 400 ms of hover, with a lightly translucent background.
+  Source-link previews stay aligned when moving quickly between links.
+- The visibility overview labels previous-period and between-scan comparisons separately.
+- The signed-in homepage and cabinet share the compact header and 28 px avatar.
+- Public pages and cabinet share the thin native scrollbar style.
+
 ## Current release
 
 - Published and live verified: [PR #99](https://github.com/egotrippingh/aiparser/pull/99),

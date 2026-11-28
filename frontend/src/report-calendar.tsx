@@ -31,7 +31,7 @@ export function calendarDates(from: string, to: string, available: string[], sel
 }
 
 export function ReportCalendar({ from, to, available, selection, change, context = "report", disabled = false }: {
-  from: string; to: string; available: string[]; selection: ReportDateSelection; context?: "report" | "recompute"; disabled?: boolean
+  from: string; to: string; available: string[]; selection: ReportDateSelection; context?: "report" | "analysis" | "recompute"; disabled?: boolean
   change: (from: string, to: string, selection: ReportDateSelection) => void
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
@@ -90,13 +90,13 @@ export function ReportCalendar({ from, to, available, selection, change, context
         })}</div>
         <p className="calendar-key"><i aria-hidden="true"/>Выполнялась проверка</p>
       </div><div className="calendar-options">
-        <div className="calendar-mode"><AppChoice label="Режим выбора дат" value={draft.mode} options={context === "recompute" ? [{value:"from",label:"С выбранной даты"},{value:"day",label:"Один день"},...modes] : [...modes]} change={value=>{setDraft({...draft,mode:value as ReportDateSelection["mode"]});if(value==="day"||value==="from")setEnd(start);if(value==="custom" && draft.picked.length){const picked=[...draft.picked].sort();setStart(picked[0]);setEnd(picked.at(-1)!)}setPickingEnd(false)}}/></div>
+        {context !== "analysis" && <div className="calendar-mode"><AppChoice label="Режим выбора дат" value={draft.mode} options={context === "recompute" ? [{value:"from",label:"С выбранной даты"},{value:"day",label:"Один день"},...modes] : [...modes]} change={value=>{setDraft({...draft,mode:value as ReportDateSelection["mode"]});if(value==="day"||value==="from")setEnd(start);if(value==="custom" && draft.picked.length){const picked=[...draft.picked].sort();setStart(picked[0]);setEnd(picked.at(-1)!)}setPickingEnd(false)}}/></div>}
         {draft.mode==="custom" ? <div className="calendar-picked" aria-label="Выбранные даты">{draft.picked.length ? draft.picked.map(day=><button key={day} onClick={()=>pick(day)} aria-label={`Убрать ${day}`}>{shortDate(day)}.{day.slice(0,4)}<X size={13}/></button>) : <p>Выберите даты в календаре</p>}</div> : <>
           <label>{single ? "Дата" : "Первая дата"}<input type="date" value={start} onChange={e=>{setStart(e.target.value);if(single)setEnd(e.target.value);setPickingEnd(false);setActivePreset("Произвольный")}}/></label>
           {!single && <label>Последняя дата<input type="date" value={end} onChange={e=>{setEnd(e.target.value);setPickingEnd(false);setActivePreset("Произвольный")}}/></label>}
         </>}
         <div className="calendar-options-bottom">{(context === "report" || ["monthly","custom"].includes(draft.mode)) && <div className="calendar-limit"><span>Максимально дат</span><AppChoice label="Максимально дат" value={String(draft.maxDates)} options={[10,15,30].map(n=>({value:String(n),label:String(n)}))} change={value=>setDraft({...draft,maxDates:Number(value)})}/></div>}
-          <p className="calendar-count" role="status">{context === "recompute" ? draft.mode==="from" ? "Все ответы с выбранной даты включительно" : draft.mode==="day" ? "Ответы только за выбранный день" : draft.mode==="period" ? "Все ответы внутри периода включительно" : `Выбрано дат для пересчёта: ${chosen.length}` : draft.mode==="two" ? "Сравнение двух дат" : `В отчёте до ${draft.maxDates} дат`}</p>
+          <p className="calendar-count" role="status">{context === "recompute" ? draft.mode==="from" ? "Все ответы с выбранной даты включительно" : draft.mode==="day" ? "Ответы только за выбранный день" : draft.mode==="period" ? "Все ответы внутри периода включительно" : `Выбрано дат для пересчёта: ${chosen.length}` : context === "analysis" ? "Все проверки за выбранный период" : draft.mode==="two" ? "Сравнение двух дат" : `В отчёте до ${draft.maxDates} дат`}</p>
           {!valid && <p className="calendar-error" role="alert">{!rangeValid ? "Выберите период до 366 дней, начало не позже конца." : draft.mode==="monthly" ? "В этом периоде нет проверок." : `Выберите от 1 до ${draft.maxDates} дат.`}</p>}
           <button className="btn primary" disabled={!valid} onClick={()=>{change(start,end,{...draft,picked:chosen});dialog.current?.close()}}>Применить</button>
         </div>

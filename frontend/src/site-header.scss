@@ -77,10 +77,42 @@
 .sh-header .sh-project-tools .sh-projects { flex: 1; width: auto; min-width: 0; }
 .sh-header .sh-project-home { display: grid; place-items: center; flex-shrink: 0; width: 42px; height: 42px; border: 1px solid var(--air-line); border-radius: 10px; background: var(--air-raised); color: var(--air-accent); }
 .sh-header .sh-project-home:hover { background: var(--cabinet-hover); border-color: var(--air-line-strong); }
-@media (max-width: 700px) {
-  .sh-header .sh-project-tools { order: 3; width: 100%; }
 
-  .air-app {
+.sh-header--signed-in {
+  box-sizing: border-box;
+  font-family: var(--font);
+
+  :is(.sh-project-home, .sh-trigger, .sh-balance) {
+    box-sizing: border-box;
+    block-size: var(--control-compact);
+    min-block-size: var(--control-compact);
+    border-radius: 9px;
+  }
+  :is(.sh-project-home, .sh-trigger, .sh-support, .sh-help, .sh-balance) > svg {
+    inline-size: var(--icon-size);
+    block-size: var(--icon-size);
+  }
+  .sh-project-tools { inline-size: clamp(11rem, 23vw, 16rem); }
+  .sh-project-home { inline-size: var(--control-compact); }
+  :is(.sh-projects .sh-trigger, .sh-balance) {
+    padding: var(--space-1) var(--space-3);
+    gap: var(--space-2);
+    font: var(--type-small);
+  }
+  .sh-balance { font-variant-numeric: tabular-nums; }
+  .sh-actions > .sh-dropdown > .sh-trigger {
+    gap: var(--space-1);
+    padding: 0 var(--space-1);
+  }
+  .sh-trigger .sh-avatar {
+    inline-size: 28px;
+    block-size: 28px;
+    font-size: .6875rem;
+  }
+}
+
+@media (max-width: 700px) {
+  .sh-header--signed-in {
     .sh-inner {
       display: grid;
       grid-template-columns: max-content minmax(0, 1fr);
@@ -88,7 +120,7 @@
       padding: var(--space-2) var(--space-4);
     }
 
-    .sh-header .sh-actions {
+    .sh-actions {
       grid-column: 2;
       grid-row: 1;
       justify-self: end;
@@ -96,31 +128,28 @@
       max-width: 100%;
       margin: 0;
 
-      .sh-balance, .sh-trigger { min-height: var(--control); }
       .sh-balance { min-width: 0; }
       .sh-balance span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     }
 
-    .sh-header .sh-project-tools {
+    .sh-project-tools {
       display: grid;
-      grid-template-columns: var(--control) minmax(0, 1fr);
+      inline-size: 100%;
+      grid-template-columns: var(--control-compact) minmax(0, 1fr);
       grid-column: 1 / -1;
       grid-row: 2;
-
-      .sh-project-home, .sh-trigger { height: var(--control); }
-      .sh-project-home { width: var(--control); }
     }
 
     .sh-popover { inset-inline: var(--space-4); width: auto; max-width: none; }
   }
 }
 @media (max-width: 360px) {
-  .air-app .sh-header .sh-actions {
+  .sh-header--signed-in .sh-actions {
     .sh-balance { gap: var(--space-1); padding-inline: var(--space-2); }
 
-    .sh-trigger {
+    > .sh-dropdown > .sh-trigger {
       justify-content: center;
-      width: var(--control);
+      inline-size: var(--control-compact);
       padding: 0;
 
       > svg { display: none; }

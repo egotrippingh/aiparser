@@ -23,7 +23,6 @@
 }
 
 [data-airate-theme] .air-app {
-  --control-compact: 32px;
   --workspace-gutter: var(--space-5);
   font-family: var(--font);
   --workspace-field: 40px;
@@ -150,46 +149,10 @@
 [data-airate-theme] .air-app :is(.btn, .cc-button, .choice-trigger) { min-height: var(--control-compact); }
 [data-airate-theme] .air-app :is(.btn.primary, .cc-button.primary) { min-height: var(--control); }
 [data-airate-theme] .air-app :is(.heading-actions, .breadcrumb, .filterbar) svg { flex-shrink: 0; }
-[data-airate-theme] .air-app :is(.sidebar .nav-link, .btn, .cc-button, .choice-trigger, .search-box, .cc-search, .cc-days button, .cc-form-section h2, .cab-primary, .cab-secondary, .cab-refresh, .cab-download, .cab-method-icon, .cab-entry-icon) > svg,
-[data-airate-theme] .air-app .sh-project-tools :is(.sh-project-home, .sh-trigger) > svg,
-[data-airate-theme] .air-app .sh-actions :is(.sh-balance, .sh-trigger) > svg,
-[data-airate-theme] .air-app .sh-actions :is(.sh-support, .sh-help) > svg {
+[data-airate-theme] .air-app :is(.sidebar .nav-link, .btn, .cc-button, .choice-trigger, .search-box, .cc-search, .cc-days button, .cc-form-section h2, .cab-primary, .cab-secondary, .cab-refresh, .cab-download, .cab-method-icon, .cab-entry-icon) > svg {
   inline-size: var(--icon-size);
   block-size: var(--icon-size);
   flex-shrink: 0;
-}
-[data-airate-theme] .air-app .sh-header {
-  :is(.sh-project-home, .sh-projects .sh-trigger, .sh-actions .sh-balance, .sh-actions > .sh-dropdown > .sh-trigger) {
-    box-sizing: border-box;
-    block-size: var(--control-compact);
-    min-block-size: var(--control-compact);
-    border-radius: 9px;
-  }
-  .sh-project-tools {
-    inline-size: clamp(11rem, 23vw, 16rem);
-    gap: var(--space-2);
-  }
-  .sh-project-tools .sh-project-home { inline-size: var(--control-compact); }
-  :is(.sh-projects .sh-trigger, .sh-actions .sh-balance) {
-    padding: var(--space-1) var(--space-3);
-    gap: var(--space-2);
-    font: var(--type-small);
-  }
-  .sh-actions {
-    .sh-balance { font-variant-numeric: tabular-nums; }
-    > .sh-dropdown > .sh-trigger { gap: var(--space-1); padding: var(--space-1); }
-    .sh-trigger .sh-avatar {
-      inline-size: var(--space-5);
-      block-size: var(--space-5);
-      font-size: .6875rem;
-    }
-  }
-}
-@media (max-width: 700px) {
-  [data-airate-theme] .air-app .sh-header .sh-project-tools {
-    inline-size: 100%;
-    grid-template-columns: var(--control-compact) minmax(0, 1fr);
-  }
 }
 
 [data-airate-theme] .air-app :is(.project-registry__table, .table-wrap, .query-library) { font-size: var(--font-size-small); }
@@ -271,9 +234,6 @@
   }
 }
 
-@media (max-width: 740px), (pointer: coarse) {
-  [data-airate-theme] .air-app { --control-compact: 36px; }
-}
 @media (max-width: 740px) {
   [data-airate-theme] .air-app {
     --workspace-gutter: var(--space-4);

@@ -1,8 +1,6 @@
-import { ScanFeedbackForm, type ScanFeedback, type FeedbackResult } from "./scan-feedback"
-import { AnswerDialog } from "./components/answer-dialog"
-import type { AnswerEvidence, BrandHighlight } from "./components/answer-evidence"
+import { useReportAnswer } from "./report-answer"
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react"
-import { Download, FileDown, LoaderCircle, Search, X } from "lucide-react"
+import { Download, FileDown, LoaderCircle, Search } from "lucide-react"
 import { accountDownload, accountRequest, downloadBlob } from "./account-api"
 import { clientReport } from "./client-report"
 import { today } from "./lib/dates"
@@ -19,9 +17,9 @@ type Cell = { id: number; status: string; found: boolean; date?: string }
 type Query = { id: string; text: string; group_tag: string; cells: Record<string,Record<string,Cell>>; latest: Record<string,Cell>; trend: Trend; period_trend: Trend }
 type Source = { domain: string; count: number; own: boolean; urls: string[]; queries: number; services: string[]; results: { id: number; query_text: string; date: string; service: string }[] }
 export type Report = { period_from: string | null; period_to: string | null; period_trend: Trend; date_from: string; date_to: string; available_dates: string[]; dates: string[]; visible_dates: string[]; services: string[]; available_services: string[]; groups: string[]; summary: Stats; trend: Trend; service_stats: Record<string,Trend>; comparison: { from: Stats; to: Stats; delta: number | null }; timeline: (Stats & {date: string; services: Record<string,Stats>})[]; total: number; rows: Query[]; sources: Source[] }
-type Detail = { id: number; feedback: ScanFeedback | null; mention_types: string[]; query_text: string; service: string; scan_date: string; status: string; original_status: string; answer_text: string | null; error_message?: string | null; evidence_quote: string | null; sources: string[]; check_id: string | null; answer_evidence?: AnswerEvidence | null; highlight?: BrandHighlight; has_screenshot?: boolean }
 const statuses: Record<string,string> = {found:"Упоминание",not_found:"Нет упоминания",skipped:"Нет AI-блока",error:"Требует внимания",captcha:"Требует внимания",auth_required:"Требует внимания",limit_reached:"Требует внимания"}
 const pct = (value: number | null) => value == null ? "—" : `${value}%`
+const metricDelta = (delta: number) => (delta > 0 ? "↑ +" : delta < 0 ? "↓ " : "") + pct(delta)
 const cellLabel = (cell: Cell) => cell.status === "found" && !cell.found ? "Не учитывается по фильтрам" : statuses[cell.status] || cell.status
 export const trendTone = (delta: number | null) => delta === null || delta === 0 ? "neutral" : delta > 0 ? "positive" : "negative"
 export function trendText(trend: Trend) {
@@ -89,11 +87,13 @@ export function ReportView({ token, projectId, projectName, projectServices, las
   const report = loadedReport && {...loadedReport,services:loadedReport.services.filter(id=>availableServices.includes(id))}
   const [loading,setLoading] = useState(true), [tick,setTick] = useState(0), [exporting,setExporting] = useState("")
   const [documentError, setDocumentError] = useState("")
-  const [detail,setDetail] = useState<(Detail & {requestId:number})|null>(null), [detailError,setDetailError] = useState(""), [shot,setShot] = useState("")
-  const dialog = useRef<HTMLDialogElement>(null), detailRequest = useRef(0), mounted = useRef(true)
   const [loadedFilters, setLoadedFilters] = useState("")
   const [historyWindow,setHistoryWindow] = useState({filters:"",offset:0,limit:14})
   const base = `/control/projects/${encodeURIComponent(projectId)}/mentions`
+  const mounted = useRef(true)
+  const {openResult, answerDialog} = useReportAnswer(base,token,canEdit,() => {
+    setLoading(true); setTick(value => value + 1)
+  })
   const params = new URLSearchParams({include_cards:String(cards),include_external:String(external),compare:String(compare),date_to:range?.to||today()})
   if (!sourcesOnly) params.set("search",search)
   params.set("services",(selection || availableServices).join(","))
@@ -139,19 +139,8 @@ export function ReportView({ token, projectId, projectName, projectServices, las
   }, [hasServices])
   useEffect(() => {
     mounted.current = true
-    return () => { mounted.current = false; detailRequest.current++ }
+    return () => { mounted.current = false }
   }, [])
-  function closeDetail() { detailRequest.current++; dialog.current?.close() }
-  async function openResult(id:number) {
-    const requestId=++detailRequest.current;setDetail(null);setDetailError("");setShot("");dialog.current?.showModal()
-    try { const data=await accountRequest<Detail>(`${base}/results/${id}`,token);if(mounted.current && requestId===detailRequest.current && dialog.current?.open)setDetail({...data,requestId}) } catch(e) {if(mounted.current && requestId===detailRequest.current && dialog.current?.open)setDetailError(e instanceof Error?e.message:"Не удалось загрузить ответ")}
-  }
-  function feedbackSaved(id:number, requestId:number, result:FeedbackResult) {
-    if (!mounted.current) return
-    if (requestId === detailRequest.current && dialog.current?.open)
-      setDetail(current => current?.id === id ? {...current,...result} : current)
-    setLoading(true); setTick(value => value+1)
-  }
   async function exportReport(kind:string) {
     if (stale || loading || !report?.services.length) return
     setExporting(kind);setError("")
@@ -190,13 +179,12 @@ export function ReportView({ token, projectId, projectName, projectServices, las
       if (mounted.current) setExporting("")
     }
   }
-  async function openShot(id:number) {const requestId=detailRequest.current;setShot("");try{const data=await accountRequest<{url:string}>(`${base}/results/${id}/screenshot`,token);if(mounted.current && requestId===detailRequest.current && dialog.current?.open)setShot(data.url)}catch(e){if(mounted.current && requestId===detailRequest.current && dialog.current?.open)setDetailError(e instanceof Error?e.message:"Не удалось открыть снимок")}}
   const dates = report ? [...report.dates].reverse() : []
   const visibleDates = report ? [...report.visible_dates].reverse() : []
   const dateStart = visibleDates.length ? dates.indexOf(visibleDates[0]) : 0
   const dateEnd = dateStart + visibleDates.length
   const rows = report ? reportDisplayRows(report.rows,status,sort,compare,dates) : []
-  const periodChange = report ? (compare ? report.trend : report.period_trend) : null
+  const periodDelta = (compare ? report?.trend.delta : report?.period_trend.delta) ?? null
   const groups = [...new Set(rows.map(query => query.group_tag))]
   const sources = report?.sources.filter(source => (sourceKind === "all" || source.own === (sourceKind === "own")) && source.domain.toLowerCase().includes(search.toLowerCase())) || []
   function scrollHistory(element:HTMLDivElement) {
@@ -227,9 +215,29 @@ export function ReportView({ token, projectId, projectName, projectServices, las
       <div className="stat-inline"><span><strong>{sources.length}</strong> источников</span><span>Учитываются ответы с упоминанием бренда</span></div><section className="panel"><div className="table-toolbar"><label className="search-box"><Search size={14}/><input aria-label="Поиск источника" placeholder="Найти домен" value={search} onChange={e => setSearch(e.target.value)}/></label><AppChoice label="Тип источника" value={sourceKind} options={[{value:"all",label:"Все источники"},{value:"own",label:"Сайт бренда"},{value:"external",label:"Внешние источники"}]} change={setSourceKind}/></div><div className="table-wrap"><table><thead><tr><th>Домен</th><th>Тип</th><th>Ответов со ссылкой</th><th>Запросы</th><th>ИИ-системы</th><th/></tr></thead>{sources.map(source => <tbody key={source.domain}><tr><td><a href={source.urls[0]} target="_blank" rel="noopener noreferrer">{source.domain} ↗</a></td><td><span className={`badge ${source.own?"blue":""}`}>{source.own?"Сайт бренда":"Внешний источник"}</span></td><td>{source.count}</td><td>{source.queries}</td><td><div className="system-marks">{source.services.map(id => <span key={id} title={name(id)}><ServiceMark id={id}/></span>)}</div></td><td><button type="button" className="btn report-shortcut" aria-expanded={expandedSource === source.domain} onClick={() => setExpandedSource(expandedSource === source.domain ? "" : source.domain)}>Ответы</button></td></tr>{expandedSource === source.domain && <tr><td colSpan={6}><div className="source-answers"><small>Последние {source.results.length} ответов со ссылкой</small>{source.results.map(result => <button className="btn" key={result.id} disabled={loading || stale} onClick={() => openResult(result.id)}>{shortDate(result.date)} · {name(result.service)} · {result.query_text}</button>)}</div></td></tr>}</tbody>)}</table>{!sources.length && !loading && !stale && <div className="empty-state">Источников по выбранным фильтрам нет.</div>}</div></section><p className="page-note">Число ответов со ссылкой на домен; несколько ссылок из одного ответа считаются один раз. Источники показываются только в ответах с упоминанием бренда. XLSX содержит домены и показатели с учётом выбранного типа источника и поиска.</p>
     </> : <>
       <section className="metrics" aria-label="Основные показатели">
-        <div className="metric primary-metric"><div className="metric-label">{compare?`Начальная дата · ${shortDate(report.date_from)}`:"Упоминаемость"}</div><div className="metric-value">{pct(compare?report.comparison.from.visibility_pct:report.summary.visibility_pct)}</div><div className="metric-caption">{compare?`${report.comparison.from.found} / ${report.comparison.from.total} возможных упоминаний`:<><span className={`change ${trendTone(report.trend.delta)}`} title={trendText(report.trend)}>{report.trend.delta === null ? "Нет данных для сравнения" : `${report.trend.delta > 0 ? "↑ +" : report.trend.delta < 0 ? "↓ " : ""}${report.trend.delta}%`}</span><span>к предыдущему периоду</span></>}</div></div>
-        <div className="metric"><div className="metric-label">{compare?`Конечная дата · ${shortDate(report.date_to)}`:"Ответы с упоминанием"}</div><div className="metric-value">{compare?pct(report.comparison.to.visibility_pct):<>{report.summary.found}<span className="muted-value">/ {report.summary.total}</span></>}</div><div className="metric-caption">{compare?`${report.comparison.to.found} / ${report.comparison.to.total} возможных упоминаний`:"Из возможных упоминаний в выбранных датах"}</div></div>
-        <div className="metric"><div className="metric-label">Изменение упоминаемости</div><div className={`metric-value ${trendTone(periodChange!.delta)}`}>{periodChange!.delta === null ? "—" : `${periodChange!.delta > 0 ? "↑ +" : periodChange!.delta < 0 ? "↓ " : ""}${periodChange!.delta}%`}</div><div className="metric-caption">{compare ? `${shortDate(report.date_from)} → ${shortDate(report.date_to)}` : report.period_from && report.period_to && report.period_from !== report.period_to ? `${shortDate(report.period_from)} → ${shortDate(report.period_to)}` : "Нужны хотя бы два скана в периоде"}</div></div>
+        <div className="metric primary-metric">
+          <div className="metric-label">{compare ? "Начальная дата · " + shortDate(report.date_from) : "Упоминаемость"}</div>
+          <div className="metric-value">{pct(compare ? report.comparison.from.visibility_pct : report.summary.visibility_pct)}</div>
+          <div className="metric-caption">
+            {compare ? report.comparison.from.found + " / " + report.comparison.from.total + " возможных упоминаний"
+              : report.trend.delta === null ? "Недостаточно данных за предыдущий период"
+              : <span><span className={"change " + trendTone(report.trend.delta)}>{metricDelta(report.trend.delta)}</span>{" к предыдущему периоду"}</span>}
+          </div>
+        </div>
+        <div className="metric">
+          <div className="metric-label">{compare ? "Конечная дата · " + shortDate(report.date_to) : "Ответы с упоминанием"}</div>
+          <div className="metric-value">{compare ? pct(report.comparison.to.visibility_pct)
+            : <>{report.summary.found}<span className="muted-value">/ {report.summary.total}</span></>}</div>
+          <div className="metric-caption">{compare ? report.comparison.to.found + " / " + report.comparison.to.total + " возможных упоминаний"
+            : "Из возможных упоминаний за период"}</div>
+        </div>
+        <div className="metric">
+          <div className="metric-label">{compare ? "Изменение между датами" : "Изменение между сканами"}</div>
+          <div className={"metric-value " + trendTone(periodDelta)}>{periodDelta === null ? "—" : metricDelta(periodDelta)}</div>
+          <div className="metric-caption">{compare ? shortDate(report.date_from) + " → " + shortDate(report.date_to)
+            : report.period_from && report.period_to && report.period_from !== report.period_to
+              ? shortDate(report.period_from) + " → " + shortDate(report.period_to) : "Нужны два скана за период"}</div>
+        </div>
       </section><div className="dashboard-grid"><ReportChart days={report.timeline} services={selection || availableServices} available={availableServices} choose={chooseServices}/><section className="panel"><div className="panel-head"><h2>По ИИ-системам</h2><span className="note">{compare?"Конечная дата":"За период"}</span></div><div className="service-list">{report.services.map(id => <div className="service-row" key={id} style={{"--series":serviceColors[id]} as CSSProperties}><ServiceMark id={id}/><strong>{name(id)}</strong><span className="value">{pct(report.service_stats[id].current.visibility_pct)}</span><div className="bar-track"><div className="bar-fill" style={{width:`${report.service_stats[id].current.visibility_pct||0}%`}}/></div></div>)}</div><div className="panel-foot"><span>Сравнить ответы систем</span>{canEdit&&<a className="btn report-shortcut" href={`#/project/${projectId}/queries`}>К запросам</a>}</div></section></div>
       <section className="panel report-panel"><div className="panel-head report-head"><h2>Упоминаемость по запросам <span className="count">{report.total}</span></h2><span className="note">{compare?"Конечная дата к начальной":"Последний скан к первому в периоде"}</span></div><div className="table-toolbar"><label className="search-box"><Search size={14}/><input aria-label="Поиск запросов в отчёте" placeholder="Поиск по запросам" value={search} onChange={e => setSearch(e.target.value)}/></label><AppChoice label="Результат в выбранных датах" value={status} options={[{value:"",label:"Все результаты"},{value:"found",label:"Есть упоминание"},{value:"not_found",label:"Нет упоминания"}]} change={setStatus}/>{canEdit&&<div className="right"><a className="btn report-shortcut" href={`#/project/${projectId}/queries`}>Все запросы</a></div>}</div>
         <div className="table-wrap continuous-report" tabIndex={0} role="region" aria-label="История проверок по датам, прокрутка вправо" onScroll={event => scrollHistory(event.currentTarget)}><table>
@@ -244,6 +252,6 @@ export function ReportView({ token, projectId, projectName, projectServices, las
         <div className="table-footer"><span>{rows.length} запросов · групп: {groups.length} · {dates.length} дат · последняя проверка за день</span><span role="status">{loading || stale ? "Обновляем отчёт…" : "Новые даты слева · прокрутка вправо →"}</span></div>
       </section><p className="page-note">Упоминаемость — доля упоминаний от общего числа выбранных запросов и ИИ-систем в датах проверок. Отсутствие AI-блока считается проверкой без упоминания. Технические ошибки отмечаются отдельно; при отсутствии успешных проверок процент не рассчитывается. Цвет и стрелка показывают изменение {compare ? "конечной даты к начальной" : "последнего скана к первому в выбранном периоде"}; если на одной из дат нет данных для сравнения, изменение не рассчитывается. Исторические незавершённые проверки доступны для просмотра.</p>
     </>}
-    <dialog className="ws-dialog report-detail" ref={dialog} aria-labelledby="result-title" onClose={()=>{detailRequest.current++}}>{!detail && <div className="ws-dialog-head"><h2 id="result-title">Ответ ИИ</h2><button className="cc-button icon" type="button" aria-label="Закрыть ответ" onClick={()=>closeDetail()}><X size={18}/></button></div>}{detailError&&<p className="cc-alert" role="alert">{detailError}</p>}{detail?<AnswerDialog key={detail.id} service={detail.service} scanDate={detail.scan_date} status={detail.status} originalStatus={detail.original_status} query={detail.query_text} quote={detail.evidence_quote} answer={detail.answer_text} evidence={detail.answer_evidence} sources={detail.sources} brand={detail.highlight} mentionTypes={detail.mention_types} error={detail.error_message} onClose={closeDetail}>{canEdit && (detail.status === "found" || detail.status === "not_found") && detail.answer_text && <ScanFeedbackForm key={detail.id} token={token} base={base} id={detail.id} status={detail.original_status} feedback={detail.feedback} onSaved={result => feedbackSaved(detail.id,detail.requestId,result)} />}{detail.check_id&&detail.has_screenshot!==false&&!detail.answer_evidence&&<button className="cc-button" type="button" onClick={()=>openShot(detail.id)}>Открыть скриншот</button>}{shot&&<img className="report-shot" src={shot} alt="Скриншот ответа ИИ"/>}</AnswerDialog>:!detailError&&<CabinetSkeleton label="Загружаем ответ…"/>}</dialog>
+    {answerDialog}
   </section>
 }

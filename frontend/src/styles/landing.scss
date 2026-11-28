@@ -50,8 +50,8 @@
 
     &:focus { transform: none; }
   }
-  .sh-header {
-    position: relative;
+  .sh-header { position: relative; }
+  .sh-header:not(.sh-header--signed-in) {
     background: #050609;
     font-size: var(--font-size-small);
 
@@ -219,7 +219,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: var(--control-compact);
+  min-height: var(--control-compact-touch);
   color: #d6d5df;
   font-size: var(--font-size-small);
 }
@@ -235,6 +235,7 @@
   .landing-services__window:not(.landing-services__window--animated) {
     overflow-x: auto;
     scrollbar-width: none;
+    &::-webkit-scrollbar { display: none; }
     .landing-services__list:not([aria-hidden]) {
       display: flex;
       justify-content: space-between;

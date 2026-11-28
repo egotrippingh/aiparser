@@ -70,10 +70,15 @@ $palette: (
   --radius-panel: 12px;
   --radius-pill: 999px;
   --control: 44px;
-  --control-compact: 36px;
+  --control-compact: 32px;
+  --control-compact-touch: 36px;
   --layout-max: 1240px;
   --gutter: clamp(20px, 3vw, 40px);
   --column-gap: 24px;
   --duration: 160ms;
   --ease: ease-out;
+}
+
+@media (max-width: 740px), (pointer: coarse) {
+  :root { --control-compact: var(--control-compact-touch); }
 }

@@ -27,7 +27,7 @@ from server.models import (AgentDevice, Check, CloudResult, ControlLink, Control
 from server.project_access import owner_project, project_access
 from server.public_errors import public_error, public_progress
 from server.promos import free_scans_payload, free_scans_state, reserve_run_credits
-from server.reporting import SERVICES
+from server.reporting import COMPETITORS_KEY, SERVICES
 from server.scan_feedback import KEY as FEEDBACK_KEY, effective_status, learning_context
 from server.security import new_token, token_hash
 from server.storage import StorageError
@@ -262,6 +262,7 @@ def project_payload(row, detail=True, brand_clarifications_enabled=True, role="o
     config = json.loads(row.config_json)
     config["services"] = [s for s in config.get("services", ["google_aio"]) if s != "alice"]
     config.pop(FEEDBACK_KEY, None)
+    config.pop(COMPETITORS_KEY, None)
     if not brand_clarifications_enabled:
         config.pop("brand_clarification", None)
     payload = {"id": row.id, "revision": row.revision, "name": row.name,
@@ -591,10 +592,15 @@ def register_control(app, db_session, current_user, sessions, *, api_user, check
         validate_assignment(db, row.user_id, body)
         values = project_values(body, row.schedule_json)
         config = json.loads(values["config_json"])
-        config[FEEDBACK_KEY] = json.loads(row.config_json).get(FEEDBACK_KEY, [])
+        original_config = row.config_json
+        previous = json.loads(original_config)
+        config[FEEDBACK_KEY] = previous.get(FEEDBACK_KEY, [])
+        if COMPETITORS_KEY in previous:
+            config[COMPETITORS_KEY] = previous[COMPETITORS_KEY]
         values["config_json"] = json.dumps(config, ensure_ascii=False)
         result = db.execute(update(ControlProject).where(ControlProject.id == row.id,
-            ControlProject.revision == body.revision).values(**values, revision=body.revision + 1))
+            ControlProject.revision == body.revision, ControlProject.config_json == original_config).values(
+                **values, revision=body.revision + 1))
         if result.rowcount != 1:
             raise HTTPException(409, "Проект изменён на другом устройстве. Обновите страницу перед сохранением.")
         db.commit(); db.refresh(row)

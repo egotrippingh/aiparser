@@ -137,7 +137,8 @@ def register_scan_feedback(app, db_session, current_user, screenshot_storage=Non
                 raise HTTPException(422, "Для разметки нужен сохранённый успешный ответ")
             if (body.label == "false_positive" and row.status != "found") or (body.label == "missed" and row.status != "not_found"):
                 raise HTTPException(422, "Метка не соответствует исходному результату")
-        config = json.loads(project.config_json)
+        original_config = project.config_json
+        config = json.loads(original_config)
         examples = [e for e in config.get(KEY, []) if e["result_id"] != row.id]
         if body.label is not None:
             if len(examples) >= MAX_EXAMPLES:
@@ -148,7 +149,7 @@ def register_scan_feedback(app, db_session, current_user, screenshot_storage=Non
                 "quote": (row.evidence_quote or "")[:500], "updated_at": utcnow().isoformat()})
         config[KEY] = examples
         result = db.execute(update(ControlProject).where(ControlProject.id == project.id,
-            ControlProject.revision == project.revision).values(config_json=json.dumps(config, ensure_ascii=False),
+            ControlProject.revision == project.revision, ControlProject.config_json == original_config).values(config_json=json.dumps(config, ensure_ascii=False),
             revision=project.revision + 1, updated_at=utcnow()))
         if result.rowcount != 1:
             raise HTTPException(409, "Проект изменён. Обновите ответ и повторите разметку.")

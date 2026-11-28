@@ -269,9 +269,15 @@ export function PreviewAnchor({ href, brand, label, accessibleLabel, chip = fals
     opened.current = performance.now()
     if (link.current && copy) setPos(placeCard(link.current))
   }
-  const hide = () => { timer.current = window.setTimeout(() => setPos(null), 120) }
-  const dismiss = () => setPos(null)
-  const anchor = <a ref={link} href={url} className={className} target="_blank" rel="noopener noreferrer" aria-label={accessibleLabel} aria-describedby={pos ? tip : undefined} onMouseEnter={copy ? show : undefined} onMouseLeave={copy ? hide : undefined} onFocus={copy ? show : undefined} onBlur={copy ? dismiss : undefined} onKeyDown={copy ? event => { if (event.key === "Escape") dismiss() } : undefined}>{children}</a>
+  const dismiss = () => {
+    window.clearTimeout(timer.current)
+    setPos(null)
+  }
+  const hide = () => {
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(dismiss, 120)
+  }
+  const anchor = <a ref={link} href={url} className={className} target="_blank" rel="noopener noreferrer" aria-label={accessibleLabel} aria-describedby={pos ? tip : undefined} onFocus={copy ? show : undefined} onBlur={copy ? dismiss : undefined} onKeyDown={copy ? event => { if (event.key === "Escape") dismiss() } : undefined}>{children}</a>
   if (!copy) return anchor
   return <span className={chip ? "source-preview source-preview--chip" : "source-preview"} onMouseEnter={show} onMouseLeave={hide}><>{anchor}{pos && <span className="source-preview__card" id={tip} role="tooltip" style={{ top: pos.top, left: pos.left, width: pos.width }}><span className="source-preview__host"><span className="source-preview__mark" aria-hidden="true">{copy.host.slice(0, 1).toUpperCase()}</span>{branded ? <mark className="answer-brand">{copy.host}</mark> : copy.host}</span>{copy.title && <span className="source-preview__title">{highlightedText(copy.title, brand)}</span>}{copy.text && <span className="source-preview__text">{highlightedText(copy.text, brand)}</span>}</span>}</></span>
 }
