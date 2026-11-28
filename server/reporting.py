@@ -25,8 +25,8 @@ COMPETITORS_KEY = "competitor_settings"
 
 class CompetitorIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    aliases: list[str] = Field(default_factory=list, max_length=100)
-    domains: list[str] = Field(default_factory=list, max_length=100)
+    aliases: list[str] = Field(default_factory=list, max_length=20)
+    domains: list[str] = Field(default_factory=list, max_length=20)
 
     @classmethod
     def _names(cls, values):
@@ -46,10 +46,28 @@ class CompetitorIn(BaseModel):
             raise ValueError("Укажите название конкурента")
         return value
 
+    @field_validator("domains", mode="after")
+    @classmethod
+    def _normalize_domains(cls, values):
+        domains = []
+        for value in values:
+            domain = _domain(value)
+            if not domain:
+                raise ValueError("Укажите корректный домен")
+            domains.append(domain)
+        return list(dict.fromkeys(domains))
+
 
 class CompetitorSettingsIn(BaseModel):
     revision: int = Field(ge=0)
-    competitors: list[CompetitorIn] = Field(default_factory=list, max_length=20)
+    competitors: list[CompetitorIn] = Field(max_length=20)
+
+    @field_validator("competitors")
+    @classmethod
+    def _unique_names(cls, values):
+        if len({item.name.casefold() for item in values}) != len(values):
+            raise ValueError("Названия конкурентов не должны повторяться")
+        return values
 
 
 class IntelligenceOptions(BaseModel):
@@ -63,6 +81,12 @@ class IntelligenceOptions(BaseModel):
 
 
 def _domain(value: str) -> str:
+    try:
+        parsed = urlsplit(value if '://' in value else 'https://' + value)
+        if parsed.scheme not in ('http', 'https') or parsed.username or parsed.password or parsed.port or parsed.path not in ('', '/') or parsed.query or parsed.fragment:
+            return ''
+    except ValueError:
+        return ''
     return source_host(value if '://' in value else 'https://' + value)
 
 
@@ -174,25 +198,31 @@ def _intelligence_rows(db, project, options: IntelligenceOptions):
     start = options.date_from or max(date.min, end - timedelta(days=min(29, end.toordinal() - 1)))
     if start > end or (end - start).days > 365:
         raise HTTPException(422, "Выберите период от 1 до 366 дней, начало не позже конца")
-    scope = [CloudResult.user_id == project.user_id, CloudResult.project_id == project.id]
+    project_scope = [CloudResult.user_id == project.user_id, CloudResult.project_id == project.id]
+    scope = list(project_scope)
     if selected is not None:
         scope.append(CloudResult.service.in_(selected))
-    available_services = [service for service in SERVICES if service in set(db.scalars(
-        select(CloudResult.service).where(*scope).distinct()))]
+    configured = json.loads(project.config_json).get('services', [])
+    observed = set(db.scalars(select(CloudResult.service).where(*project_scope).distinct()))
+    available_services = [service for service in SERVICES if service in observed or service in configured]
     available_dates = list(db.scalars(select(CloudResult.scan_date).where(*scope).distinct()
                                       .order_by(CloudResult.scan_date)))
+    historical_groups = set(db.scalars(select(CloudResult.group_tag).where(*scope,
+        CloudResult.scan_date >= start.isoformat(), CloudResult.scan_date <= end.isoformat()).distinct()))
     rows = db.scalars(select(CloudResult).options(load_only(
         CloudResult.id, CloudResult.query_id, CloudResult.query_text, CloudResult.group_tag,
         CloudResult.service, CloudResult.scan_date, CloudResult.status, CloudResult.answer_text,
         CloudResult.sources_json)).where(*scope,
         CloudResult.scan_date >= start.isoformat(), CloudResult.scan_date <= end.isoformat())
-        .order_by(CloudResult.id.desc()).limit(100_001)).all()
-    if len(rows) > 100_000:
-        raise HTTPException(422, "Сократите период или выберите ИИ-системы: слишком много сохранённых ответов")
+        .order_by(CloudResult.scan_date.desc(), CloudResult.id.desc())).yield_per(500)
     queries = {item['id']: item for item in json.loads(project.queries_json)}
     by_text = {item['text']: item for item in queries.values()}
     newest = {}
+    row_count = 0
     for row in rows:
+        row_count += 1
+        if row_count > 100_000:
+            raise HTTPException(422, "Сократите период или выберите ИИ-системы: слишком много сохранённых ответов")
         query = queries.get(row.query_id) or by_text.get(row.query_text)
         group = (query or {}).get('group_tag', row.group_tag or '')
         text = (query or {}).get('text', row.query_text)
@@ -201,8 +231,7 @@ def _intelligence_rows(db, project, options: IntelligenceOptions):
         key = ((query or {}).get('id') or row.query_id or f'text:{row.query_text}', row.service, row.scan_date)
         newest.setdefault(key, row)
     usable = [row for row in newest.values() if row.status in ('found', 'not_found', 'skipped')]
-    groups = sorted({(queries.get(row.query_id) or by_text.get(row.query_text) or {}).get('group_tag', row.group_tag or '')
-                     for row in usable if (queries.get(row.query_id) or by_text.get(row.query_text) or {}).get('group_tag', row.group_tag or '')}, key=str.casefold)
+    groups = sorted(({item.get('group_tag', '') for item in queries.values()} | {value or '' for value in historical_groups}) - {''}, key=str.casefold)
     return usable, queries, by_text, {"date_from": start.isoformat(), "date_to": end.isoformat(),
         "services": selected if selected is not None else available_services, "available_services": available_services,
         "available_dates": available_dates, "groups": groups}
@@ -218,11 +247,28 @@ def _brand_found(row, corrections):
     return effective_status(row, corrections.get(row.id)) == 'found'
 
 
-def _competitor_match(row, competitor, source_domains: set[str]) -> bool:
-    domains = {_domain(value) for value in competitor.get('domains', []) if isinstance(value, str)} - {''}
-    return (_mentioned(row.answer_text, [competitor['name'], *competitor.get('aliases', [])]) or
-            any(source == domain or source.endswith('.' + domain)
-                for source in source_domains for domain in domains))
+def _prepared_competitors(configured):
+    prepared = []
+    for item in configured:
+        if not isinstance(item, dict) or not isinstance(item.get('name'), str):
+            continue
+        terms = [item['name'], *(value for value in item.get('aliases', []) if isinstance(value, str))]
+        pattern = re.compile(r'(?<!\w)(?:' + '|'.join(re.escape(value.casefold()) for value in terms if value) + r')(?!\w)')
+        domains = frozenset(_domain(value) for value in item.get('domains', []) if isinstance(value, str)) - {''}
+        prepared.append((item, pattern, domains))
+    return prepared
+
+
+def _competitor_match(row, prepared, source_domains: set[str]) -> bool:
+    _, pattern, domains = prepared
+    return bool(pattern.search((row.answer_text or '').casefold()) or any(
+        source == domain or source.endswith('.' + domain) for source in source_domains for domain in domains))
+
+
+def _keep_preview(items, row, brand_found: bool):
+    items.append(_preview(row, brand_found))
+    items.sort(key=lambda result: (result['date'], result['id']), reverse=True)
+    del items[8:]
 
 
 def competitor_report(db, project, options: IntelligenceOptions, competitor: str | None, gap_only: bool):
@@ -231,30 +277,40 @@ def competitor_report(db, project, options: IntelligenceOptions, competitor: str
     configured = settings.get('competitors', []) if isinstance(settings, dict) else []
     if competitor is not None:
         configured = [item for item in configured if item.get('name') == competitor]
+    prepared = _prepared_competitors(configured)
     rows, queries, by_text, header = _intelligence_rows(db, project, options)
     corrections = {item['result_id']: item for item in config.get('scan_feedback', [])}
     aggregates = {item['name']: {"name": item['name'], "mentions": 0, "gaps": 0,
-                                 "queries": set(), "services": set(), "results": {}}
+                                 "queries": set(), "services": set(), "results": []}
                   for item in configured if isinstance(item, dict) and isinstance(item.get('name'), str)}
     own_domains = brand_hosts(project)
     suggested = Counter()
     suggested_labels = {}
     for row in rows:
         brand_found = _brand_found(row, corrections)
+        if row.status == 'skipped':
+            continue
         sources = json.loads(row.sources_json or '[]')
-        source_domains = {source_host(source) for source in sources} - {''}
+        source_domains = {source_host(source) for source in sources if isinstance(source, str)} - {''}
+        inline_domains = set()
         for page in _inline_pages(row.answer_text):
             domain = source_host(page)
-            if domain and not any(domain == own or domain.endswith('.' + own) for own in own_domains):
+            if domain:
+                inline_domains.add(domain)
+        configured_domains = {domain for _, _, domains in prepared for domain in domains}
+        for domain in inline_domains:
+            if (not any(domain == own or domain.endswith('.' + own) for own in own_domains)
+                    and not any(domain == known or domain.endswith('.' + known) for known in configured_domains)):
                 suggested[domain] += 1
         for domain, label in _inline_labels(row.answer_text).items():
             suggested_labels.setdefault(domain, label)
-        for item in configured:
-            name = item.get('name') if isinstance(item, dict) else None
+        for prepared_item in prepared:
+            item = prepared_item[0]
+            name = item['name']
             aggregate = aggregates.get(name)
             if aggregate is None:
                 continue
-            if not _competitor_match(row, item, source_domains):
+            if not _competitor_match(row, prepared_item, source_domains):
                 continue
             aggregate['mentions'] += 1
             aggregate['gaps'] += int(not brand_found)
@@ -262,10 +318,9 @@ def competitor_report(db, project, options: IntelligenceOptions, competitor: str
                 query = queries.get(row.query_id) or by_text.get(row.query_text) or {"id": row.query_id or row.query_text}
                 aggregate['queries'].add(query['id'])
                 aggregate['services'].add(row.service)
-                aggregate['results'][row.id] = _preview(row, brand_found)
+                _keep_preview(aggregate['results'], row, brand_found)
     values = []
     for item in aggregates.values():
-        item['results'] = sorted(item['results'].values(), key=lambda result: (result['date'], result['id']), reverse=True)[:8]
         item['queries'] = len(item['queries'])
         item['services'] = sorted(item['services'])
         values.append(item)
@@ -277,7 +332,7 @@ def competitor_report(db, project, options: IntelligenceOptions, competitor: str
             "rows": values[options.offset:options.offset + options.limit],
             "suggested_domains": [{"domain": domain, "mentions": mentions,
                                    **({"label": suggested_labels[domain]} if domain in suggested_labels else {})}
-                                  for domain, mentions in sorted(suggested.items(), key=lambda item: (-item[1], item[0]))[:20]]}
+                                  for domain, mentions in sorted(((domain, count) for domain, count in suggested.items() if count >= 2), key=lambda item: (-item[1], item[0]))[:20]]}
 
 
 def citation_report(db, project, options: IntelligenceOptions, source_kind: Literal['all', 'own', 'competitor', 'external'],
@@ -285,20 +340,22 @@ def citation_report(db, project, options: IntelligenceOptions, source_kind: Lite
     config = json.loads(project.config_json)
     settings = config.get(COMPETITORS_KEY, {})
     competitors = settings.get('competitors', []) if isinstance(settings, dict) else []
-    competitor_domains = {_domain(domain) for item in competitors if isinstance(item, dict)
-                          for domain in item.get('domains', []) if isinstance(domain, str)} - {''}
+    prepared = _prepared_competitors(competitors)
+    competitor_domains = {domain for _, _, domains in prepared for domain in domains}
     own_domains = brand_hosts(project)
     rows, queries, by_text, header = _intelligence_rows(db, project, options)
     corrections = {item['result_id']: item for item in config.get('scan_feedback', [])}
     results = {}
     for row in rows:
+        if row.status == 'skipped':
+            continue
         brand_found = _brand_found(row, corrections)
-        source_domains = {source_host(source) for source in json.loads(row.sources_json or '[]')} - {''}
-        competitor_present = any(_competitor_match(row, item, source_domains)
-                                 for item in competitors if isinstance(item, dict) and isinstance(item.get('name'), str))
+        saved_sources = json.loads(row.sources_json or '[]')
+        source_domains = {source_host(source) for source in saved_sources if isinstance(source, str)} - {''}
+        competitor_present = gap_only and any(_competitor_match(row, item, source_domains) for item in prepared)
         if gap_only and (brand_found or not competitor_present):
             continue
-        for raw in json.loads(row.sources_json or '[]'):
+        for raw in saved_sources:
             page = _canonical_page(raw) if isinstance(raw, str) else None
             if not page or page_search.casefold() not in page.casefold():
                 continue
@@ -307,16 +364,23 @@ def citation_report(db, project, options: IntelligenceOptions, source_kind: Lite
                 'competitor' if any(domain == rival or domain.endswith('.' + rival) for rival in competitor_domains) else 'external')
             if source_kind != 'all' and kind != source_kind:
                 continue
-            item = results.setdefault(page, {"url": page, "domain": domain, "kind": kind,
-                                              "answers": {}, "queries": set(), "services": set()})
-            item['answers'][row.id] = _preview(row, brand_found)
+            item = results.get(page)
+            if item is None:
+                if len(results) >= 50_000:
+                    raise HTTPException(422, "Сократите период: слишком много страниц цитирований")
+                item = {"url": page, "domain": domain, "kind": kind,
+                        "answers": {}, "previews": [], "queries": set(), "services": set()}
+                results[page] = item
+            if row.id not in item['answers']:
+                item['answers'][row.id] = True
+                _keep_preview(item['previews'], row, brand_found)
             query = queries.get(row.query_id) or by_text.get(row.query_text) or {"id": row.query_id or row.query_text}
             item['queries'].add(query['id']); item['services'].add(row.service)
     values = []
     for item in results.values():
         values.append({"url": item['url'], "domain": item['domain'], "kind": item['kind'],
                        "count": len(item['answers']), "queries": len(item['queries']), "services": sorted(item['services']),
-                       "results": sorted(item['answers'].values(), key=lambda result: (result['date'], result['id']), reverse=True)[:8]})
+                       "results": item['previews']})
     values.sort(key=lambda item: (-item['count'], item['url']))
     return {**header, "checked": len(rows), "total": len(values),
             "rows": values[options.offset:options.offset + options.limit]}

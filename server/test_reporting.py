@@ -66,8 +66,10 @@ def test_competitor_settings_and_intelligence_reports_preserve_private_config(tm
         rows[1].answer_text = ('Риваль рекомендуют. [Rival Co](https://rival.example/path?q=1#fragment) '
                                '[Партнёр](https://candidate.example/a).')
         rows[1].sources_json = json.dumps(['https://rival.example/path?q=1#ignored', 'https://geosoft-dent.ru/a'])
-        rows[4].answer_text = 'Rival Co is mentioned without our brand.'
+        rows[4].answer_text = 'Rival Co is mentioned without our brand. [Партнёр](https://candidate.example/a)'
         rows[4].sources_json = json.dumps(['https://rival.example/path?q=2', 'https://outside.example/a'])
+        rows[5].answer_text = 'Stale Rival Co payload must not be counted.'
+        rows[5].sources_json = json.dumps(['https://rival.example/skipped'])
         rows[6].answer_text = 'Our brand and Риваль.'
         rows[6].sources_json = json.dumps(['https://rival.example/path?q=1'])
         db.commit()
@@ -77,14 +79,17 @@ def test_competitor_settings_and_intelligence_reports_preserve_private_config(tm
     competitors = competitor_response.json()
     assert competitors['checked'] == 5  # newest retry, skipped, and successful saved answers; error excluded
     assert competitors['available_dates'] == ['2026-09-01', '2026-09-03']
+    assert competitors['available_services'] == ['google_aio', 'chatgpt']
     rival, zero = competitors['rows']
     assert (rival['name'], rival['mentions'], rival['gaps'], rival['queries']) == ('Риваль', 3, 1, 1)
     assert zero['mentions'] == zero['gaps'] == 0
-    assert competitors['suggested_domains'] == [{'domain': 'candidate.example', 'mentions': 1, 'label': 'Партнёр'},
-                                                 {'domain': 'rival.example', 'mentions': 1, 'label': 'Rival Co'}]
+    assert competitors['suggested_domains'] == [{'domain': 'candidate.example', 'mentions': 2, 'label': 'Партнёр'}]
     gap = client.get(base + '/competitors', headers=owner, params={**args, 'gap_only': True}).json()
     assert gap['total'] == 1 and gap['rows'][0]['mentions'] == 3 and gap['rows'][0]['gaps'] == 1
     assert all(not result['brand_found'] for result in gap['rows'][0]['results'])
+    only_google = client.get(base + '/competitors', headers=owner, params={**args, 'services': 'google_aio',
+        'group': 'Brand'}).json()
+    assert only_google['available_services'] == ['google_aio', 'chatgpt'] and only_google['groups'] == ['Brand']
     citations = client.get(base + '/citations', headers=owner, params=args).json()
     pages = {row['url']: row for row in citations['rows']}
     assert pages['https://rival.example/path?q=1']['kind'] == 'competitor'

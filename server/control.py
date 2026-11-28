@@ -592,13 +592,15 @@ def register_control(app, db_session, current_user, sessions, *, api_user, check
         validate_assignment(db, row.user_id, body)
         values = project_values(body, row.schedule_json)
         config = json.loads(values["config_json"])
-        previous = json.loads(row.config_json)
+        original_config = row.config_json
+        previous = json.loads(original_config)
         config[FEEDBACK_KEY] = previous.get(FEEDBACK_KEY, [])
         if COMPETITORS_KEY in previous:
             config[COMPETITORS_KEY] = previous[COMPETITORS_KEY]
         values["config_json"] = json.dumps(config, ensure_ascii=False)
         result = db.execute(update(ControlProject).where(ControlProject.id == row.id,
-            ControlProject.revision == body.revision).values(**values, revision=body.revision + 1))
+            ControlProject.revision == body.revision, ControlProject.config_json == original_config).values(
+                **values, revision=body.revision + 1))
         if result.rowcount != 1:
             raise HTTPException(409, "Проект изменён на другом устройстве. Обновите страницу перед сохранением.")
         db.commit(); db.refresh(row)
