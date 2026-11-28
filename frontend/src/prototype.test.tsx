@@ -149,14 +149,14 @@ it("limits saved report choices to the project's configured systems", () => {
   expect(reportSelection(null, configured)).toBeNull()
 })
 
-it("keeps project tools in an accessible icon rail and account navigation in the header", () => {
+it("keeps project tools in an accessible, expandable icon rail", () => {
   vi.stubGlobal("location", {hash:"#/project/one/report"})
   const props = {token:"test",email:"owner@example.test",balance:"0 ₽",admin:false,account:<p>Wallet</p>,message:"",brandClarificationsEnabled:false,onDirtyChange:()=>{},logout:()=>{},walletChanged:()=>{}}
   const html = renderToStaticMarkup(<ControlCenter {...props}/>)
   const sidebar = html.match(/<aside class="sidebar">([\s\S]*?)<\/aside>/)![1]
   for (const label of ["Обзор видимости","Запросы","Источники","Настройки проекта","Расписание","История проверок"]) expect(sidebar).toContain(`aria-label="${label}"`)
   expect(sidebar).not.toMatch(/Проекты|Аккаунт|Помощь|owner@example|sidebar-account|title=/)
-  expect(sidebar).not.toContain(">Запросы")
+  expect(sidebar).toContain('<span class="sidebar__label">Запросы</span>')
   expect(html).toContain("Меню аккаунта")
   expect(html).not.toMatch(/Администрирование|Компьютеры|Скачать агент|Private admin/)
   expect(renderToStaticMarkup(<ControlCenter {...props} admin/>)).not.toContain('href="/cabinet/?admin=1"')

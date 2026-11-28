@@ -125,6 +125,10 @@
       color: var(--air-accent);
       text-decoration: none;
 
+      &:is(:hover, :focus-visible) { color: var(--focus); }
+      @media (prefers-reduced-motion: no-preference) {
+        transition: color var(--duration) var(--ease);
+      }
       svg { flex: none; align-self: center; }
     }
 

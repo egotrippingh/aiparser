@@ -1,4 +1,3 @@
-.air-app { --sidebar: 76px; }
 .air-app.projects-page { --sidebar: 0px; }
 .air-app .sidebar { width: var(--sidebar); top: 65px; padding: 20px 12px; }
 .air-app .sidebar nav { display: flex; flex-direction: column; gap: 8px; }
@@ -7,6 +6,64 @@
 .air-app .sidebar .nav-link[aria-current=page] { color: #153d75; background: #eaf1fb; border-color: #d7e4f5; }
 .air-app .sidebar .nav-link:focus-visible { outline: 2px solid #f25c37; outline-offset: 3px; }
 .air-app .sidebar .nav-link svg { width: 24px; height: 24px; }
+.air-app .sidebar__label { display: none; }
+
+@media (min-width: 701px) {
+  .air-app:not(.projects-page) {
+    --sidebar-compact: 56px;
+    --sidebar-expanded: 208px;
+    --sidebar-duration: var(--duration);
+    display: grid;
+    grid-template-columns: var(--sidebar-compact) minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    transition: grid-template-columns var(--sidebar-duration) var(--ease);
+
+    > .sh-header { grid-column: 1 / -1; }
+    > .app-main { grid-area: 2 / 2; }
+
+    > .sidebar {
+      grid-area: 2 / 1;
+      position: sticky;
+      align-self: start;
+      inline-size: 100%;
+      block-size: calc(100dvh - 65px);
+      padding: var(--space-4) 5px;
+      overflow-x: hidden;
+
+      .nav-link {
+        grid-template-columns: var(--control) minmax(0, 1fr);
+        justify-items: start;
+        inline-size: 100%;
+        min-block-size: var(--control);
+        border-radius: var(--radius-control);
+
+        > svg { justify-self: center; }
+        &:focus-visible { outline-offset: -2px; }
+      }
+    }
+
+    .sidebar__label {
+      display: block;
+      visibility: hidden;
+      opacity: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: var(--font-size-small);
+      transition: opacity var(--sidebar-duration) var(--ease);
+    }
+
+    &:has(.sidebar--expanded, .sidebar :focus-visible) {
+      grid-template-columns: var(--sidebar-expanded) minmax(0, 1fr);
+      .sidebar__label { visibility: visible; opacity: 1; }
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .air-app:not(.projects-page) { --sidebar-duration: 0s; }
+  }
+}
+
 @media (max-width: 700px) {
   .air-app {
     --sidebar: 0px;

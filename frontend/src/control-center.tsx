@@ -9,7 +9,6 @@ import { QueryLibrary } from "./query-library"
 import "./workspace.scss"
 import { SiteHeader } from "./site-header"
 import { CabinetSkeleton } from "./cabinet-loading"
-import { IconNavLink } from "./icon-nav-link"
 import { AppChoice } from "./app-choice"
 import { ReportCalendar, type ReportDateSelection } from "./report-calendar"
 import { today } from "./lib/dates"
@@ -308,6 +307,17 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
   email: string; avatarUrl?: string | null; balance: string; admin: boolean; account: ReactNode; message: string; logout: () => void; walletChanged: () => void
 }) {
   const [route, setRoute] = useState(routeNow)
+  const [sidebarExpanded, setSidebarExpanded] = useState(false)
+  const sidebarHover = useRef({ timer: 0 })
+  useEffect(() => {
+    const hover = sidebarHover.current
+    return () => window.clearTimeout(hover.timer)
+  }, [])
+
+  function collapseSidebar() {
+    window.clearTimeout(sidebarHover.current.timer)
+    setSidebarExpanded(false)
+  }
   const [lastProject, setLastProject] = useState(() => routeNow().split("/")[1] || "")
   const editorDirty = useRef(false), editorProject = useRef(""), previousHash = useRef(location.hash), previousPosition = useRef(0), restoringHistory = useRef(false)
   const [projects, setProjects] = useState<Project[]>([])
@@ -467,8 +477,20 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
   return <div className={`air-app${page === "projects" ? " projects-page" : ""}${analysisPage ? " air-app--project-analysis" : ""}`}>
     <a className="skip-link" href="#app-content" onClick={event => { event.preventDefault(); main.current?.focus() }}>К содержимому</a>
     <SiteHeader cabinet email={email} avatarUrl={avatarUrl} balance={balance} projects={projects} selectedId={selected?.id} loading={loading} admin={admin} logout={logout}/>
-    {page !== "projects" && <aside className="sidebar">
-      <nav aria-label="Разделы приложения">{nav.map(([id, label, Icon]) => <IconNavLink key={id} className="nav-link" label={label} current={page === id || (id === "sources" && page === "source-domains")} href={["report","queries","sources","competitors","settings","schedule","access"].includes(id) ? projectLink(id) : `#/${id}`}><Icon size={24} strokeWidth={1.7} aria-hidden="true"/></IconNavLink>)}</nav>
+    {page !== "projects" && <aside className={sidebarExpanded ? "sidebar sidebar--expanded" : "sidebar"}
+      onPointerEnter={event => {
+        if (event.pointerType !== "mouse" || !matchMedia("(min-width: 701px) and (hover: hover)").matches) return
+        window.clearTimeout(sidebarHover.current.timer)
+        sidebarHover.current.timer = window.setTimeout(() => setSidebarExpanded(true), 700)
+      }} onPointerLeave={collapseSidebar} onPointerCancel={collapseSidebar}>
+      <nav aria-label="Разделы приложения">
+        {nav.map(([id, label, Icon]) => <a key={id} className="nav-link" aria-label={label}
+          aria-current={page === id || (id === "sources" && page === "source-domains") ? "page" : undefined}
+          href={["report","queries","sources","competitors","settings","schedule","access"].includes(id) ? projectLink(id) : "#/" + id}>
+          <Icon size={16} strokeWidth={1.7} aria-hidden="true"/>
+          <span className="sidebar__label">{label}</span>
+        </a>)}
+      </nav>
     </aside>}
     <main ref={main} className="app-main" id="app-content" tabIndex={-1}>
       {page !== "projects" && <div className="breadcrumb"><a href="#/projects">Проекты</a><ChevronRight size={12}/>{selected && page !== "runs" && <><span>{selected.name}</span><ChevronRight size={12}/></>}<span className="current">{title}</span></div>}

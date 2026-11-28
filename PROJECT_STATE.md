@@ -11,6 +11,8 @@ Updated 2026-11-21. Repository: `egotrippingh/aiparser`; deployment branch: `pro
   Edge E2E passed for the owner and viewer, with layout checks at 320, 390 and 1440 px.
   Reproduce with [the E2E runner](scripts/e2e_project_analysis.py) after building the frontend.
   Release remains pending.
+- The desktop navigation now expands after 700 ms of hover and reflows the report.
+  Source-link previews stay aligned when moving quickly between links.
 
 ## Current release
 
