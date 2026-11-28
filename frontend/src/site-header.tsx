@@ -48,7 +48,7 @@ export function SiteHeader({ email, avatarUrl, balance, projects = [], selectedI
   const href = (route: string) => `${base}#/${route}`
   const selected = projects.find(project => project.id === selectedId)
   const shown = projects.filter(project => `${project.name} ${project.config.brand_domains.join(" ")} ${project.id}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
-  return <header className="sh-header ym-hide-content ym-disable-clickmap ym-disable-tracklink"><div className="sh-inner">
+  return <header className={"sh-header ym-hide-content ym-disable-clickmap ym-disable-tracklink" + (email ? " sh-header--signed-in" : "")}><div className="sh-inner">
     <Brand className="sh-brand"/>
     {email ? <div className="sh-project-tools"><IconNavLink className="sh-project-home" label="Все проекты" href={href("projects")} side="bottom"><BriefcaseBusiness size={23} aria-hidden="true"/></IconNavLink><Dropdown label="Выбрать проект" className="sh-projects" trigger={<span>{selected?.name || "Выбрать проект"}</span>}>
       <label className="sh-search"><Search size={18}/><input className="ym-disable-keys" aria-label="Поиск проекта" placeholder="Найти проект" value={search} onChange={event => setSearch(event.target.value)}/></label>
