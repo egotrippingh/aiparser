@@ -13,6 +13,7 @@ Updated 2026-11-21. Repository: `egotrippingh/aiparser`; deployment branch: `pro
   Release remains pending.
 - The desktop navigation expands over the report after 400 ms of hover, with a lightly translucent background.
   Source-link previews stay aligned when moving quickly between links.
+- The visibility overview labels previous-period and between-scan comparisons separately.
 
 ## Current release
 
