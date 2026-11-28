@@ -78,7 +78,7 @@ it("describes all five providers and keeps a responsive still before animation l
   const html = renderToStaticMarkup(<LandingPage/>).split('</section>')[0]
   for (const name of ["Google", "Яндекса", "Gemini", "ChatGPT", "Perplexity"]) expect(html).toContain(name)
   expect(html).toContain('<picture class="home-hero__still"')
-  expect(html).toContain('media="(max-aspect-ratio: 1/1)"')
+  expect(html).toContain('media="(max-width: 620px)"')
   expect(html).toContain('Начать проверку')
   expect(html).not.toContain('Войти в кабинет')
 })

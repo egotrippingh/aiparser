@@ -9,7 +9,7 @@ import { accountRequest, COOKIE_SESSION } from "./account-api"
 import "./site-header.scss"
 
 type HeaderProject = { id: string; name: string; config: { brand_domains: string[] } }
-type Props = { email?: string; avatarUrl?: string | null; balance?: string; projects?: HeaderProject[]; selectedId?: string; loading?: boolean; projectError?: boolean; admin?: boolean; cabinet?: boolean; projectTab?: string; logout?: () => void; onLogin?: () => void; onRegister?: () => void }
+type Props = { email?: string; avatarUrl?: string | null; balance?: string; projects?: HeaderProject[]; selectedId?: string; loading?: boolean; projectError?: boolean; admin?: boolean; cabinet?: boolean; projectTab?: string; landing?: boolean; logout?: () => void; onLogin?: () => void; onRegister?: () => void }
 
 function AccountAvatar({ email, url }: { email: string; url?: string | null }) {
   const [failed, setFailed] = useState(false)
@@ -42,7 +42,7 @@ function Dropdown({ label, trigger, children, className = "" }: { label: string;
   </div>
 }
 
-export function SiteHeader({ email, avatarUrl, balance, projects = [], selectedId, loading, projectError, admin, cabinet, projectTab = "report", logout, onLogin, onRegister }: Props) {
+export function SiteHeader({ email, avatarUrl, balance, projects = [], selectedId, loading, projectError, admin, cabinet, projectTab = "report", landing = false, logout, onLogin, onRegister }: Props) {
   const [search, setSearch] = useState("")
   const base = cabinet ? "" : (import.meta.env.VITE_APP_URL || "/cabinet/")
   const href = (route: string) => `${base}#/${route}`
@@ -55,19 +55,19 @@ export function SiteHeader({ email, avatarUrl, balance, projects = [], selectedI
       <a className="sh-all" href={href("projects")}><FolderOpen size={18}/>Все проекты<span>{projects.length}</span></a>
       <div className="sh-project-list">{loading ? <CabinetSkeleton label="Загрузка проектов…"/> : projectError ? <p role="status">Не удалось загрузить проекты. <a href={href("projects")}>Открыть кабинет</a></p> : shown.map(project => <a key={project.id} href={href(`project/${project.id}/${projectTab}`)} aria-current={project.id === selectedId ? "true" : undefined}><ProjectIcon name={project.name} domains={project.config.brand_domains}/><span><strong>{project.name}</strong><small>{project.config.brand_domains[0] || `ID ${project.id}`}</small></span></a>)}{!loading && !projectError && !shown.length && <p>{projects.length ? "Проекты не найдены" : "У вас пока нет проектов"}</p>}</div>
       <a className="sh-create" href={href("project/new/settings")}><Plus size={18}/>Создать проект</a>
-    </Dropdown></div> : <nav className="sh-guest-nav" aria-label="О сервисе"><a href="/#how">Как работает</a><a href="/docs/">Документация</a><a className="sh-mobile-support" href={SUPPORT_URL}>Поддержка</a></nav>}
+    </Dropdown></div> : <nav className="sh-guest-nav" aria-label="О сервисе">{landing && <><a href="/#report">Что в отчёте</a><a href="/#audience">Для кого</a></>}<a href="/#how">Как работает</a><a href="/docs/">Документация</a><a className="sh-mobile-support" href={SUPPORT_URL}>Поддержка</a></nav>}
     <div className="sh-actions"><a className="sh-support" aria-label="Поддержка" href={SUPPORT_URL}><Send size={17} aria-hidden="true"/><span>Поддержка</span></a>
       {email ? <><a className="sh-help" aria-label="Документация" href="/docs/"><BookOpen size={21}/><span>Документация</span></a><a className="sh-balance" href={href("topup")} aria-label={`Пополнить баланс${balance ? `: ${balance}` : ""}`}><span>{balance || "Баланс"}</span><CirclePlus size={23}/></a>
         <Dropdown label="Меню аккаунта" trigger={<AccountAvatar key={avatarUrl} email={email} url={avatarUrl}/>}>
           <div className="sh-identity"><AccountAvatar key={avatarUrl} email={email} url={avatarUrl}/><span><strong>{email}</strong><small>{admin ? "Администратор" : "Личный аккаунт"}</small></span></div>
           <a href={href("topup")}><Wallet size={19}/>Пополнить баланс</a><a href={href("account")}><Settings size={19}/>Настройки аккаунта</a><a href="/docs/"><BookOpen size={19}/>Документация</a><a href={SUPPORT_URL}><Send size={17} aria-hidden="true"/>Поддержка</a>
           <button type="button" className="sh-logout" onClick={logout}><LogOut size={19}/>Выйти из аккаунта</button>
-        </Dropdown></> : <>{onLogin ? <button className="sh-login" onClick={onLogin}>Войти</button> : <a className="sh-login" href={base}>Войти</a>}{onRegister ? <button className="sh-register" onClick={onRegister}>Регистрация</button> : <a className="sh-register" href={`${base}?register=1`}>Регистрация</a>}</>}
+        </Dropdown></> : <>{onLogin ? <button className="sh-login" onClick={onLogin}>Войти</button> : <a className="sh-login" href={base}>Войти</a>}{!landing && (onRegister ? <button className="sh-register" onClick={onRegister}>Регистрация</button> : <a className="sh-register" href={`${base}?register=1`}>Регистрация</a>)}</>}
     </div>
   </div></header>
 }
 
-export function PublicSiteHeader() {
+export function PublicSiteHeader({ landing = false }: { landing?: boolean } = {}) {
   const [state, setState] = useState<Props>({})
   const generation = useRef(0)
   useEffect(() => {
@@ -88,5 +88,5 @@ export function PublicSiteHeader() {
     try { await accountRequest("/auth/logout", sessionStorage.getItem("aimt.account.token") || COOKIE_SESSION, {}); generation.current++; sessionStorage.removeItem("aimt.account.token"); setState({}); setError("") }
     catch { setError("Не удалось выйти. Попробуйте ещё раз.") }
   }
-  return <><SiteHeader {...state} logout={logout}/>{error && <p role="alert">{error}</p>}</>
+  return <><SiteHeader {...state} landing={landing} logout={logout}/>{error && <p role="alert">{error}</p>}</>
 }

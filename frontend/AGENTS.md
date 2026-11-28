@@ -19,7 +19,7 @@ reference is the approved preview under `design-system/`.
 - Reuse `AppChoice` for cabinet dropdown menus, including calendar modes and limits;
   use its shared popup, option and selected states rather than browser-native select menus.
   Keep toolbar buttons and dropdown triggers rounded (9 px), aligned and equally tall
-  (36 px in compact filter rows). Icon-only actions must match adjacent controls.
+  (32 px on desktop and 36 px on touch screens). Icon-only actions must match adjacent controls.
   Pointer clicks must not add bright outlines or focus glows; preserve subtle visible
   keyboard focus, accessible labels and arrow-key/Escape operation. Check the actual
   row and open menu in the browser after changing controls.
