@@ -292,7 +292,7 @@ function RunHistory({ runs, projects, loading, loadFailed, busy, openRun, comman
                   <button type="button" className="btn" disabled={busy} onClick={() => command(run.id, paused ? "resume" : "pause")}>{paused ? <Play size={14} aria-hidden="true"/> : <Pause size={14} aria-hidden="true"/>}{paused ? "Продолжить" : "Пауза"}</button>
                   <button type="button" className="btn" disabled={busy} onClick={() => command(run.id, "stop")}><Square size={13} aria-hidden="true"/>Стоп</button>
                 </>}
-                {project && <a className="btn" href={`#/project/${run.project_id}/report`}>Отчёт<ChevronRight size={14} aria-hidden="true"/></a>}
+                {project && <a className="btn" href={`#/project/${run.project_id}/report`}>Отчёт</a>}
               </div></td>
             </tr>
           })}</tbody>
@@ -464,11 +464,11 @@ export function ControlCenter({ token, brandClarificationsEnabled, onDirtyChange
     {scanQuote && scanQuote.projectId === projectId && <QuotePopover quote={scanQuote.quote} item="проверок" note={selected?.role === "editor" ? "Оплата с баланса владельца проекта. Списываем только за завершённые проверки с ответом." : "Оплачиваются только завершённые проверки с ответом."} action="Запустить" trigger={scanButton} afterConfirm={projectHeading} onCancel={dismissScanQuote} onConfirm={() => { if (scanSubmitting.current) return; scanSubmitting.current = true; const pending = scanQuote; setScanQuote(null); void action(projectId!, () => launch(projectId!, pending.quote)).finally(() => { scanSubmitting.current = false }) }}/>}
   </span>
   const analysisPage = ["sources", "source-domains", "competitors"].includes(page)
-  return <div className={`air-app${page === "projects" ? " projects-page" : ""}${analysisPage ? " project-analysis-page" : ""}`}>
+  return <div className={`air-app${page === "projects" ? " projects-page" : ""}${analysisPage ? " air-app--project-analysis" : ""}`}>
     <a className="skip-link" href="#app-content" onClick={event => { event.preventDefault(); main.current?.focus() }}>К содержимому</a>
     <SiteHeader cabinet email={email} avatarUrl={avatarUrl} balance={balance} projects={projects} selectedId={selected?.id} loading={loading} admin={admin} logout={logout}/>
     {page !== "projects" && <aside className="sidebar">
-      <nav aria-label="Разделы приложения">{nav.map(([id, label, Icon]) => <IconNavLink key={id} className="nav-link" label={label} current={page === id || (id === "sources" && page === "source-domains")} href={["report","queries","sources","competitors","settings","schedule","access"].includes(id) ? projectLink(id) : `#/${id}`}><Icon size={16} strokeWidth={1.7} aria-hidden="true"/></IconNavLink>)}</nav>
+      <nav aria-label="Разделы приложения">{nav.map(([id, label, Icon]) => <IconNavLink key={id} className="nav-link" label={label} current={page === id || (id === "sources" && page === "source-domains")} href={["report","queries","sources","competitors","settings","schedule","access"].includes(id) ? projectLink(id) : `#/${id}`}><Icon size={24} strokeWidth={1.7} aria-hidden="true"/></IconNavLink>)}</nav>
     </aside>}
     <main ref={main} className="app-main" id="app-content" tabIndex={-1}>
       {page !== "projects" && <div className="breadcrumb"><a href="#/projects">Проекты</a><ChevronRight size={12}/>{selected && page !== "runs" && <><span>{selected.name}</span><ChevronRight size={12}/></>}<span className="current">{title}</span></div>}

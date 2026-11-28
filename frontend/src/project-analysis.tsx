@@ -29,7 +29,7 @@ const kinds = { own: "Сайт бренда", competitor: "Сайт конкур
 
 export function SourceNavigation({ projectId, pages }: { projectId: string; pages: boolean }) {
   const base = `#/project/${projectId}`
-  return <nav className="analysis-navigation" aria-label="Отчёты об источниках">
+  return <nav className="source-navigation" aria-label="Отчёты об источниках">
     <a className="btn" href={`${base}/sources`} aria-current={pages ? "page" : undefined}>Страницы</a>
     <a className="btn" href={`${base}/source-domains`} aria-current={pages ? undefined : "page"}>Домены с упоминанием бренда</a>
   </nav>
@@ -49,10 +49,10 @@ function ServiceMarks({ services }: { services: string[] }) {
 }
 
 function AnswerList({ items, open }: { items: Evidence[]; open: (id: number) => void }) {
-  return <div className="analysis-answers">
+  return <div className="project-analysis__answers">
     <p>{items.length === 1 ? "Сохранённый ответ" : "Последние сохранённые ответы"}</p>
     <ul>{items.map(item => <li key={item.id}>
-      <button type="button" className="btn analysis-answer-button" onClick={() => open(item.id)}>
+      <button type="button" className="btn project-analysis__answer" onClick={() => open(item.id)}>
         <ServiceMark id={item.service}/>
         <span><strong>{item.query_text}</strong><small>{dmy(item.date)} · {serviceName(item.service)}</small></span>
         <ChevronRight size={16} aria-hidden="true"/>
@@ -125,7 +125,7 @@ export function ProjectAnalysis({ token, projectId, mode, canEdit, lastFinishedR
   if (group && !groups.includes(group)) groupOptions.push({ value: `group:${group}`, label: group })
 
   return <section className="project-analysis" aria-label={citations ? "Карта цитируемых страниц" : "Анализ конкурентов"}>
-    <div className="filterbar analysis-filterbar">
+    <div className="filterbar project-analysis__filters">
       <ReportCalendar from={range.from} to={range.to} available={metadata?.available_dates || []}
         selection={defaultDateSelection} context="analysis" change={(from, to) => setRange({ from, to })}/>
       <AppChoice label="ИИ-система" value={service} options={[{ value: "", label: "Все ИИ-системы" },
@@ -136,13 +136,13 @@ export function ProjectAnalysis({ token, projectId, mode, canEdit, lastFinishedR
         <input type="checkbox" role="switch" checked={gapsOnly} onChange={event => setGapsOnly(event.target.checked)}/>
         Только где нас обходят
       </label>
-      {showSettings && <button type="button" className="btn analysis-settings-trigger" onClick={() => setSettings({})}>
+      {showSettings && <button type="button" className="btn project-analysis__settings-trigger" onClick={() => setSettings({})}>
         <Settings2 size={16} aria-hidden="true"/>Настроить конкурентов
       </button>}
     </div>
 
-    <section className="panel analysis-panel" aria-label={citations ? "Страницы по числу ссылок" : "Конкуренты по частоте упоминаний"} aria-busy={reloading}>
-      <div className="table-toolbar analysis-table-toolbar">
+    <section className="panel project-analysis__panel" aria-label={citations ? "Страницы по числу ссылок" : "Конкуренты по частоте упоминаний"} aria-busy={reloading}>
+      <div className="table-toolbar project-analysis__toolbar">
         <SearchField label="Поиск по запросам" placeholder="Запрос" value={querySearch} change={setQuerySearch}/>
         {citations && <>
           <SearchField label="Поиск по URL" placeholder="URL или домен" value={pageSearch} change={setPageSearch}/>
@@ -151,21 +151,21 @@ export function ProjectAnalysis({ token, projectId, mode, canEdit, lastFinishedR
             { value: "competitor", label: "Сайты конкурентов" }, { value: "external", label: "Внешние источники" },
           ]} change={setSourceKind}/>
         </>}
-        <span className="analysis-total" role="status">{report && <>
+        <span className="project-analysis__total" role="status">{report && <>
           {integer.format(report.checked)} {plural(report.checked, "проверка", "проверки", "проверок")} в выборке
         </>}</span>
       </div>
 
-      {error ? <div className="analysis-empty" role="alert"><p>{error}</p><button type="button" className="btn" onClick={reload}>Повторить</button></div>
+      {error ? <div className="project-analysis__empty" role="alert"><p>{error}</p><button type="button" className="btn" onClick={reload}>Повторить</button></div>
         : reloading ? <CabinetSkeleton label="Загружаем отчёт…" format="rows"/>
-        : report && (report.rows.length ? <div className="table-wrap analysis-table-wrap" role="region" aria-label={citations ? "Таблица цитируемых страниц" : "Таблица конкурентов"} tabIndex={0}>
-          <table className="analysis-table">
+        : report && (report.rows.length ? <div className="table-wrap project-analysis__table-region" role="region" aria-label={citations ? "Таблица цитируемых страниц" : "Таблица конкурентов"} tabIndex={0}>
+          <table className="project-analysis__table">
             <thead><tr>
               <th scope="col">{citations ? "Страница" : "Конкурент"}</th>
               <th scope="col">{citations ? "Ответов со ссылкой" : "Упоминания"}</th>
               {!citations && <th scope="col">Обошёл бренд</th>}
-              <th className="analysis-secondary" scope="col">Запросы</th>
-              <th className="analysis-secondary" scope="col">ИИ-системы</th>
+              <th className="project-analysis__secondary" scope="col">Запросы</th>
+              <th className="project-analysis__secondary" scope="col">ИИ-системы</th>
               <th scope="col"><span className="sr-only">Сохранённые ответы</span></th>
             </tr></thead>
             <tbody>{report.rows.map(row => {
@@ -175,42 +175,42 @@ export function ProjectAnalysis({ token, projectId, mode, canEdit, lastFinishedR
               const count = isCitation ? row.count : row.mentions
               return <Fragment key={id}>
                 <tr>
-                  <th scope="row" className="analysis-row-label">{isCitation ? <>
-                    <a className="analysis-url" href={row.url} target="_blank" rel="noopener noreferrer">
+                  <th scope="row" className="project-analysis__row-label">{isCitation ? <>
+                    <a className="project-analysis__url" href={row.url} target="_blank" rel="noopener noreferrer">
                       <span>{row.url}</span><ArrowUpRight size={16} aria-hidden="true"/>
                     </a><span className={`badge ${row.kind === "own" ? "blue" : ""}`}>{kinds[row.kind]}</span>
                   </> : row.name}</th>
-                  <td className="analysis-number"><strong>{integer.format(count)}</strong>{!isCitation && report.checked > 0 && <small>{percentage.format(count / report.checked)}</small>}</td>
-                  {!isCitation && <td className="analysis-number">{integer.format(row.gaps)}</td>}
-                  <td className="analysis-secondary analysis-number">{integer.format(row.queries)}</td>
-                  <td className="analysis-secondary"><ServiceMarks services={row.services}/></td>
-                  <td className="analysis-action-cell"><button type="button" className="btn analysis-row-action" disabled={!row.results.length}
+                  <td className="project-analysis__number"><strong>{integer.format(count)}</strong>{!isCitation && report.checked > 0 && <small>{percentage.format(count / report.checked)}</small>}</td>
+                  {!isCitation && <td className="project-analysis__number">{integer.format(row.gaps)}</td>}
+                  <td className="project-analysis__secondary project-analysis__number">{integer.format(row.queries)}</td>
+                  <td className="project-analysis__secondary"><ServiceMarks services={row.services}/></td>
+                  <td className="project-analysis__action-cell"><button type="button" className="btn project-analysis__row-action" disabled={!row.results.length}
                     aria-label={`Ответы · ${id}`} aria-expanded={expanded} onClick={() => setOpenRow(expanded ? "" : id)}>
                     <span>Ответы</span><ChevronDown size={16} aria-hidden="true"/>
                   </button></td>
                 </tr>
-                {expanded && row.results.length > 0 && <tr className="analysis-evidence-row"><td colSpan={citations ? 5 : 6}>
-                  <div className="analysis-evidence-meta"><span>{integer.format(row.queries)} {plural(row.queries, "запрос", "запроса", "запросов")}</span><ServiceMarks services={row.services}/></div>
+                {expanded && row.results.length > 0 && <tr className="project-analysis__evidence-row"><td colSpan={citations ? 5 : 6}>
+                  <div className="project-analysis__evidence-meta"><span>{integer.format(row.queries)} {plural(row.queries, "запрос", "запроса", "запросов")}</span><ServiceMarks services={row.services}/></div>
                   <AnswerList items={row.results} open={openResult}/>
                 </td></tr>}
               </Fragment>
             })}</tbody>
           </table>
-        </div> : <p className="empty-state analysis-empty" role="status">{citations
+        </div> : <p className="empty-state project-analysis__empty" role="status">{citations
           ? report.checked ? "Страниц по выбранным фильтрам нет." : "За выбранный период нет завершённых проверок."
           : gapsOnly || querySearch.trim() ? "По выбранным фильтрам совпадений нет."
             : "Список конкурентов пока пуст."}</p>)}
-      {report && (offset > 0 || report.total > pageSize) && <div className="analysis-pagination" aria-label="Страницы результатов">
+      {report && (offset > 0 || report.total > pageSize) && <div className="project-analysis__pagination" aria-label="Страницы результатов">
         <span>{offset < report.total ? `${integer.format(offset + 1)}–${integer.format(Math.min(offset + pageSize, report.total))} из ${integer.format(report.total)}` : `Всего ${integer.format(report.total)}`}</span>
         <button type="button" className="btn icon-only" disabled={offset === 0} onClick={() => changePage(Math.max(0, offset - pageSize))} aria-label="Предыдущая страница"><ChevronLeft size={16}/></button>
         <button type="button" className="btn icon-only" disabled={offset + pageSize >= report.total} onClick={() => changePage(offset + pageSize)} aria-label="Следующая страница"><ChevronRight size={16}/></button>
       </div>}
     </section>
 
-    <p className="page-note analysis-note">{citations
+    <p className="page-note project-analysis__note">{citations
       ? "В отчёт входят сохранённые ссылки из всех ответов. Одна страница учитывается один раз в каждом ответе."
       : "Учитываем совпадения по названию, вариантам написания и указанным доменам. Доля считается от завершённых проверок, включая случаи без ИИ-блока."}</p>
-    {!citations && suggestions.length > 0 && <section className="panel analysis-suggestions" aria-labelledby="competitor-suggestions">
+    {!citations && suggestions.length > 0 && <section className="panel project-analysis__suggestions" aria-labelledby="competitor-suggestions">
       <h2 id="competitor-suggestions">Домены для проверки</h2>
       <p>Эти домены встречаются в тексте нескольких ответов. Добавьте те, которые принадлежат конкурентам.</p>
       <ul>{suggestions.map(({ domain, mentions, label }) => <li key={domain}>
@@ -226,4 +226,3 @@ export function ProjectAnalysis({ token, projectId, mode, canEdit, lastFinishedR
     {answerDialog}
   </section>
 }
-

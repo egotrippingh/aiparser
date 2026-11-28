@@ -199,12 +199,12 @@ async def _assert_no_horizontal_overflow(page: Page, width: int) -> None:
     overflow = await page.evaluate("Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) > window.innerWidth")
     if overflow:
         raise AssertionError(f"Body overflows horizontally at {width}px")
-    main = page.locator(".project-analysis-page .app-main")
+    main = page.locator(".air-app--project-analysis .app-main")
     assert await main.evaluate("(element) => getComputedStyle(element).paddingInlineStart") == ("16px" if width <= 700 else "24px")
     title = page.locator(".heading-title h1")
     assert "Onest" in await title.evaluate("(element) => getComputedStyle(element).fontFamily")
     font_loaded = await page.evaluate("""async () =>
-        (await document.fonts.load('610 16px "Onest Cabinet"', "Конкуренты")).some(font => font.status === "loaded")""")
+        (await document.fonts.load('610 16px Onest', "Конкуренты")).some(font => font.status === "loaded")""")
     assert font_loaded
     control = page.locator(".report-calendar-trigger")
     assert await control.evaluate("(element) => element.getBoundingClientRect().height") == (36 if width <= 700 else 32)

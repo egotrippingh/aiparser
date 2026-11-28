@@ -4,7 +4,7 @@ Updated 2026-11-21. Repository: `egotrippingh/aiparser`; deployment branch: `pro
 
 ## Prepared locally on 2026-11-28
 
-- `codex/airate-competitor-citations`, based on production `9058ceeb`, adds a tracked
+- `codex/airate-competitor-citations`, includes production redesign `a2bbe63`, adds a tracked
   competitor roster, mention counts and brand gaps, plus exact cited pages and their
   saved answers. Both reports use project history without a scan or database migration.
 - The local preview and Playwright test use disposable accounts and SQLite.

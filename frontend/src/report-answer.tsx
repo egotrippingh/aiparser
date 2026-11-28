@@ -86,4 +86,3 @@ export function useReportAnswer(base: string, token: string, canEdit: boolean, o
   </dialog>
   return { openResult, answerDialog }
 }
-

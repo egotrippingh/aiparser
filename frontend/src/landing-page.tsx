@@ -1,184 +1,145 @@
-import { useEffect, useRef, type CSSProperties, type PointerEvent } from "react"
+import { useEffect, useId, useRef, useState, type PointerEvent } from "react"
 import { Brand } from "./brand"
 import { PublicSiteHeader } from "./site-header"
 import { SUPPORT_URL } from "./site-footer"
 import { LandingHeroAnimation } from "./components/landing-hero-animation"
-import { mountApiDemo } from "../design-system/landing/api-demo"
+import { LandingWorkflow } from "./components/landing-workflow"
 import "./site-theme.scss"
-import "../design-system/stand.scss"
-import "../design-system/landing/landing.scss"
+import "./styles/landing.scss"
 
 const registerUrl = `${import.meta.env.VITE_APP_URL || "/cabinet/"}?register=1`
+const services = [["google.svg", "Google AI Overview"], ["alice.svg", "Яндекс с Алисой"], ["chatgpt.svg", "ChatGPT"], ["perplexity.svg", "Perplexity"], ["gemini.png", "Gemini"]] as const
+const reportViews = [
+  ["scan-text.svg", "Упоминания", "Сравните долю ответов, в которых появился ваш бренд.", ["По запросам", "По сервисам", "По датам"]],
+  ["message-square.svg", "Ответы", "Откройте полный ответ и прочитайте, что именно ИИ написал о бренде.", []],
+  ["link-2.svg", "Источники", "Откройте ссылку, которую привёл ИИ, или выгрузите список доменов.", []],
+] as const
 
-function moveSpotlight(event: PointerEvent<HTMLDivElement>) {
-  if (event.pointerType === "touch" || !(event.target instanceof Element)) return
-  const card = event.target.closest<HTMLElement>(".task-card")
-  if (!card) return
-  const rect = card.getBoundingClientRect()
-  card.style.setProperty("--mouse-x", `${event.clientX - rect.left}px`)
-  card.style.setProperty("--mouse-y", `${event.clientY - rect.top}px`)
+function ReportContent({ text, facets }: { text: string; facets: readonly string[] }) {
+  return <div className="landing-report__content"><p>{text}</p>{facets.length > 0 && <ul>{facets.map(facet => <li key={facet}>{facet}</li>)}</ul>}</div>
+}
+
+function ReportIndex() {
+  const container = useRef<HTMLDivElement>(null)
+  const measure = useRef<HTMLDivElement>(null)
+  const baseId = useId()
+  const [active, setActive] = useState(0)
+
+  useEffect(() => {
+    const index = container.current
+    const hidden = measure.current
+    if (!index || !hidden || !window.ResizeObserver) return
+    const rows = Array.from(index.querySelectorAll<HTMLElement>(".landing-report__row"))
+    const summaries = Array.from(index.querySelectorAll<HTMLElement>(".landing-report__summary"))
+    const borderHeight = (element: HTMLElement) => {
+      const styles = getComputedStyle(element)
+      return parseFloat(styles.borderBlockStartWidth) + parseFloat(styles.borderBlockEndWidth)
+    }
+    const sync = () => {
+      const height = Math.ceil(hidden.getBoundingClientRect().height)
+      const chrome = summaries.reduce((sum, summary) => sum + summary.getBoundingClientRect().height, borderHeight(index))
+      const borders = rows.reduce((sum, row) => sum + borderHeight(row), 0)
+      index.style.setProperty("--report-panel-size", `${height}px`)
+      index.style.setProperty("--report-size", `${Math.ceil(height + chrome + borders)}px`)
+      index.classList.add("landing-report__index--stable")
+    }
+    sync()
+    const observer = new ResizeObserver(sync)
+    observer.observe(hidden)
+    summaries.forEach(summary => observer.observe(summary))
+    return () => observer.disconnect()
+  }, [])
+
+  return <div className="landing-report__index" ref={container}>
+    {reportViews.map(([icon, title, text, facets], index) => {
+      const opened = active === index
+      const id = `${baseId}-${index}`
+      return <section className={opened ? "landing-report__row landing-report__row--open" : "landing-report__row"} key={title}>
+        <button type="button" className="landing-report__summary" aria-expanded={opened} aria-controls={id} onClick={() => setActive(opened ? -1 : index)}>
+          <img src={`/assets/ui/${icon}`} width="16" height="16" alt=""/><span>{title}</span><i aria-hidden="true"/>
+        </button>
+        <div className="landing-report__panel" id={id} inert={!opened}><ReportContent text={text} facets={facets}/></div>
+      </section>
+    })}
+    <div className="landing-report__measure" ref={measure} aria-hidden="true" inert>
+      {reportViews.map(([, title, text, facets]) => <ReportContent key={title} text={text} facets={facets}/>)}
+    </div>
+  </div>
+}
+
+function ServiceTicker() {
+  const [enabled, setEnabled] = useState(false)
+  const [paused, setPaused] = useState(false)
+  useEffect(() => {
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const sync = () => setEnabled(!reduced.matches)
+    sync()
+    reduced.addEventListener("change", sync)
+    return () => reduced.removeEventListener("change", sync)
+  }, [])
+  return <section className="landing-services" aria-label="Где Аирейт проверяет запросы"><div className="container"><div
+    className={enabled ? "landing-services__window landing-services__window--animated" : "landing-services__window"}
+    tabIndex={enabled ? 0 : undefined}
+    role="region"
+    aria-label="Лента ИИ-сервисов"
+    aria-keyshortcuts={enabled ? "Space Enter" : undefined}
+    title={enabled ? "Нажмите или используйте пробел, чтобы остановить или продолжить ленту" : undefined}
+    onClick={() => { if (enabled) setPaused(value => !value) }}
+    onKeyDown={event => {
+      if (!enabled || event.repeat || (event.key !== " " && event.key !== "Enter")) return
+      event.preventDefault()
+      setPaused(value => !value)
+    }}
+  >
+    <div className="landing-services__track" style={{ animationPlayState: paused ? "paused" : "running" }}>
+      {[false, true].map(hidden => <ul className="landing-services__list" aria-hidden={hidden || undefined} key={String(hidden)}>{services.map(([icon, title]) => <li key={title}><img draggable="false" src={`/assets/services/${icon}`} width="16" height="16" alt=""/>{title}</li>)}</ul>)}
+    </div>
+  </div></div></section>
+}
+
+function trackGlow(event: PointerEvent<HTMLAnchorElement>) {
+  if (event.pointerType !== "mouse" || !window.matchMedia("(prefers-reduced-motion: no-preference)").matches) return
+  const bounds = event.currentTarget.getBoundingClientRect()
+  event.currentTarget.style.setProperty("--edge-x", `${event.clientX - bounds.left}px`)
+  event.currentTarget.style.setProperty("--edge-y", `${event.clientY - bounds.top}px`)
+}
+
+function resetGlow(event: PointerEvent<HTMLAnchorElement>) {
+  event.currentTarget.style.removeProperty("--edge-x")
+  event.currentTarget.style.removeProperty("--edge-y")
 }
 
 export function LandingPage() {
-  const page = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (page.current) return mountApiDemo(page.current)
-  }, [])
-  return <div className="landing-page" ref={page}>
+  return <div className="landing-page landing-page--moonrow">
     <a href="#main" className="skip">К содержанию</a>
-    <PublicSiteHeader/>
+    <PublicSiteHeader landing/>
     <main id="main" tabIndex={-1}>
-      <section className="home-hero container" aria-labelledby="hero-title">
-        <div className="home-hero__message">
-          <h1 id="hero-title">Узнайте, что ИИ говорит<br/> о вашем бренде<span>.</span></h1>
-          <p>Добавьте вопросы, которые задают ваши покупатели. Аирейт проверит их в пяти ИИ-сервисах, сохранит ответы и покажет, где назвали ваш бренд.</p>
-          <div className="home-hero__actions">
-            <a className="btn primary" href={registerUrl}>Начать проверку <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a>
-            <a className="btn quiet" href="#tasks">Для каких задач <span aria-hidden="true">↓</span></a>
-          </div>
-        </div>
+      <section className="landing-hero" aria-labelledby="hero-title"><div className="container landing-hero__grid">
+        <h1 id="hero-title"><span>Упоминают ли нейросети</span>{" "}<span><strong>ваш бренд</strong>?</span></h1>
+        <div className="landing-hero__lede"><p>Аирейт проверит запросы покупателей в пяти ИИ-сервисах, сохранит ответы и отметит ваш бренд.</p><a className="landing-primary" onPointerMove={trackGlow} onPointerLeave={resetGlow} href={registerUrl}>Начать проверку</a></div>
         <LandingHeroAnimation/>
-      </section>
+      </div></section>
 
-      <section className="home-audience" id="audience" aria-labelledby="audience-title">
-        <div className="container home-audience__layout">
-          <div className="home-audience__intro">
-            <h2 id="audience-title">Для кого</h2>
-            <p>Проверьте, по каким запросам ИИ уже упоминает ваш бренд. Найдите темы, где вас пока не называют.</p>
-            <figure className="home-audience__report">
-              <div className="report-sample">
-                <div className="report-sample__heading"><span>Отчёт по бренду</span><code>ПРИМЕР</code></div>
-                <div className="report-sample__stats">
-                  <div><span>Видимость</span><strong>52,1<span>%</span></strong></div>
-                  <div><span>С упоминанием</span><strong>609<span> / 1170</span></strong></div>
-                </div>
-                <ol className="report-sample__bars" aria-label="Пример видимости по сервисам">
-                  <li><img src="/assets/services/chatgpt.svg" width="18" height="18" alt=""/><span>ChatGPT</span><i style={{"--value": "68%"} as CSSProperties} aria-hidden="true"></i><b>68%</b></li>
-                  <li><img src="/assets/services/perplexity.svg" width="18" height="18" alt=""/><span>Perplexity</span><i style={{"--value": "54%"} as CSSProperties} aria-hidden="true"></i><b>54%</b></li>
-                  <li><img src="/assets/services/gemini.png" width="18" height="18" alt=""/><span>Gemini</span><i style={{"--value": "46%"} as CSSProperties} aria-hidden="true"></i><b>46%</b></li>
-                </ol>
-              </div>
-            </figure>
-          </div>
-          <ul className="home-audience__list">
-            <li><svg className="home-audience__icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6"><path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M6 14a12 12 0 0 0 2.4 7.2a2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14M8 6v8"/></g></svg><div><h3>Маркетинговые агентства</h3><p>Добавьте в отчёт для клиента долю ответов с упоминанием бренда и покажите, как она изменилась с прошлой проверки.</p></div></li>
-            <li><svg className="home-audience__icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6"><path d="m8 11l2 2l4-4"/><circle cx="11" cy="11" r="8"/><path d="m21 21l-4.3-4.3"/></g></svg><div><h3>Агентства поискового продвижения</h3><p>Проверьте запросы из семантики и найдите темы, в которых ИИ отвечает без упоминания клиента.</p></div></li>
-            <li><svg className="home-audience__icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6"><path d="M10 12h4m-4-4h4m0 13v-3a2 2 0 0 0-4 0v3"/><path d="M6 10H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2"/><path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/></g></svg><div><h3>Владельцы бизнеса</h3><p>Посмотрите, что ИИ советует покупателям, когда они выбирают товар или услугу в вашей категории.</p></div></li>
-            <li><svg className="home-audience__icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" d="M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2zm2.054 10.987H3.946"/></svg><div><h3>Специалисты на фрилансе</h3><p>Ведите проверку каждого бренда в отдельном проекте. Дайте клиенту доступ к отчёту с ответами.</p></div></li>
-          </ul>
-        </div>
-      </section>
+      <ServiceTicker/>
 
-      <section className="home-tasks container" id="tasks" aria-labelledby="tasks-title">
-        <div className="home-tasks__heading"><h2 id="tasks-title">Для каких задач</h2><p>Откройте сам ответ, посмотрите его источники и сравните с прошлой проверкой.</p></div>
-        <div className="home-tasks__grid" onPointerMove={moveSpotlight}>
-          <article className="task-card task-card--featured">
-            <div>
-              <div className="task-card__heading"><svg className="task-card__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 18h18M4 13l5-4 4 3 6-7m-4 0h4v4"/></svg><h3>Измерить видимость бренда</h3></div>
-              <p>Сравните долю ответов с вашим брендом в разных ИИ-сервисах. Посмотрите, где она выросла или снизилась.</p>
-            </div>
-            <div className="task-card__chart" role="img" aria-label="Иллюстрация роста видимости между проверками">
-              <svg viewBox="0 0 280 94" preserveAspectRatio="none" aria-hidden="true">
-                <defs><linearGradient id="trend-fill" x2="0" y2="1"><stop stopColor="var(--accent)" stopOpacity=".22"/><stop offset="1" stopColor="var(--accent)" stopOpacity="0"/></linearGradient></defs>
-                <path d="M0 75 46 69 91 73 135 46 181 53 229 28 280 17V94H0Z" fill="url(#trend-fill)"/>
-                <path d="M0 75 46 69 91 73 135 46 181 53 229 28 280 17" stroke="var(--accent)" strokeWidth="2" vector-effect="non-scaling-stroke" fill="none"/>
-                <circle cx="276" cy="18" r="3" fill="var(--accent)"/>
-              </svg>
-            </div>
-          </article>
-          <article className="task-card">
-            <div className="task-card__heading"><svg className="task-card__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="5.5"/><path d="m14 14 5 5M8 10h4"/></svg><h3>Найти запросы без упоминаний</h3></div>
-            <p>Найдите вопросы, на которые ИИ дал ответ без вашего бренда. С них можно начать разбор тем.</p>
-          </article>
-          <article className="task-card">
-            <div className="task-card__heading"><svg className="task-card__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5h16v11H9l-5 4zM8 9h8m-8 3h5"/></svg><h3>Увидеть контекст упоминания</h3></div>
-            <p>Прочитайте ответ целиком. Проверьте, появился ли бренд в тексте, в ссылке или в карточке товара.</p>
-          </article>
-          <article className="task-card">
-            <div className="task-card__heading"><svg className="task-card__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m10 14 4-4m-5-1 3-3a4 4 0 0 1 6 6l-3 3m-6-6-3 3a4 4 0 0 0 6 6l3-3"/></svg><h3>Посмотреть источники ответов</h3></div>
-            <p>Посмотрите, какие сайты ИИ приводит в ответах с вашим брендом. Список доменов можно выгрузить в Excel.</p>
-          </article>
-          <article className="task-card">
-            <div className="task-card__heading"><svg className="task-card__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4m8-4v4M4 10h16m-11 5 2 2 4-4"/></svg><h3>Следить за изменениями</h3></div>
-            <p>Поставьте проверки на расписание. Команда или клиент смогут открыть отчёт и сравнить результаты за разные даты.</p>
-          </article>
-        </div>
-        <div className="home-tasks__action">
-          <div><h2>Начните с запросов покупателей</h2><p>Добавьте запросы в проект и выберите, где их проверить.</p></div>
-          <a className="btn primary" href={registerUrl}>Начать проверку <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a>
-        </div>
-      </section>
-      <section className="home-chapter container" id="how" aria-labelledby="how-title">
-        <div className="home-chapter__heading"><h2 id="how-title">Как работает</h2><p>От вопросов покупателей до отчёта с ответами ИИ.</p></div>
-        <ol className="home-chapter__steps">
-          <li><h3>Добавьте запросы</h3><p>Укажите бренд и вопросы, которые хотите проверить.</p></li>
-          <li><h3>Запустите проверку</h3><p>Аирейт отправит запросы в выбранные ИИ-сервисы и сохранит ответы.</p></li>
-          <li><h3>Откройте отчёт</h3><p>Сравните видимость по датам и откройте ответ за любым упоминанием.</p></li>
-        </ol>
-      </section>
-      <section className="home-chapter home-chapter--api" id="api" aria-labelledby="api-title">
-        <div className="container">
-          <div className="api-demo__intro">
-            <h2 id="api-title">Встройте Аирейт в свои инструменты</h2>
-            <div><p>Используйте REST API в скриптах, внутренних сервисах и клиентских отчётах. Запускайте проверки по списку брендов, забирайте ответы со ссылками и собирайте данные в своём дашборде.</p><a className="btn" href="/docs/api/">Документация REST API <span aria-hidden="true">↗</span></a></div>
-          </div>
-          <div className="api-demo" aria-label="Пример запроса и ответа REST API">
-            <section className="api-panel" aria-labelledby="api-request-title">
-              <div className="api-panel__heading"><h3 id="api-request-title">answers.sh</h3><button type="button" className="btn compact" id="copy-api" hidden>Скопировать</button></div>
-              <pre tabIndex={0} aria-label="Команда cURL"><code id="api-request">
-                <span className="code-verb">curl</span>{" -fsS --get \\\n  "}
-                <span className="code-string">"https://airate.tech/api/v1/public/projects/$PROJECT_ID/answers"</span>{" \\\n  -H "}
-                <span className="code-string">"Authorization: Bearer $AIRATE_API_KEY"</span>{" \\\n  --data-urlencode "}
-                <span className="code-string">"date_from=2026-11-01"</span>{" \\\n  --data-urlencode "}
-                <span className="code-string">"date_to=2026-11-19"</span>{" \\\n  --data-urlencode "}
-                <span className="code-string">"limit=1"</span>
-              </code></pre>
+      <section className="landing-report" id="report" aria-labelledby="report-title"><div className="container landing-section-grid"><h2 id="report-title">Что видно <br/>в отчёте</h2><ReportIndex/></div></section>
 
-            </section>
-            <section className="api-panel" aria-labelledby="api-response-title">
-              <div className="api-panel__heading"><h3 id="api-response-title"><span className="api-panel__indicator" aria-hidden="true"></span>Пример ответа</h3><span className="api-panel__format">JSON</span></div>
-              <pre tabIndex={0} aria-label="Пример ответа JSON"><code id="api-response">{"{\n  "}
-                <span className="code-property">"items"</span>{": [{\n    "}
-                <span className="code-property">"id"</span>{": 42,\n    "}
-                <span className="code-property">"service"</span>: <span className="code-string">"chatgpt"</span>{",\n    "}
-                <span className="code-property">"scan_date"</span>: <span className="code-string">"2026-11-18"</span>{",\n    "}
-                <span className="code-property">"answer_text"</span>: <span className="code-string">"Например, «Север» предлагает…"</span>{",\n    "}
-                <span className="code-property">"sources"</span>: [<span className="code-string">"https://example.com"</span>{"]\n  }],\n  "}
-                <span className="code-property">"next_after_id"</span>: <span className="code-verb">null</span>{"\n}"}
-              </code></pre>
+      <section className="landing-audience" id="audience" aria-labelledby="audience-title"><div className="container landing-section-grid"><h2 id="audience-title">Для кого</h2>
+        <ul className="landing-audience__list">
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 0 2-2zM6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14M8 6v8"/></svg><div><h3>Маркетинговые агентства</h3><p>Покажите клиенту, как изменилась доля ответов с его брендом.</p></div></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m8.5 11 1.8 1.8 3.3-3.4M20.5 20.5l-4-4"/></svg><div><h3>SEO-агентства</h3><p>Найдите в семантике запросы без упоминаний бренда клиента.</p></div></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M3 21h18M10 8h4m-4 4h4m-2 9v-5"/></svg><div><h3>Владельцы бизнеса</h3><p>Узнайте, кого ИИ советует покупателям в вашей категории.</p></div></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="13" rx="2"/><path d="M2 20h20M10 17l-1 3m5-3 1 3"/></svg><div><h3>Фрилансеры</h3><p>Ведите бренды отдельно и делитесь с каждым клиентом его отчётом.</p></div></li>
+        </ul>
+      </div></section>
 
-            </section>
-          </div>
-          <p className="api-demo__status" id="api-demo__status" role="status"></p>
-        </div>
-      </section>
-      <section className="home-chapter home-chapter--mcp" id="mcp" aria-labelledby="mcp-title">
-        <div className="container">
-          <div className="api-demo__intro">
-            <h2 id="mcp-title">Подключите Аирейт к ИИ-агенту через MCP</h2>
-            <div>
-              <p>Попросите агента собрать сохранённые ответы по нужным проектам, сравнить даты и приложить ссылки на источники. Для новой проверки агент рассчитает стоимость, а вы подтвердите запуск.</p>
-              <a className="btn primary" href="/docs/mcp/">Как подключить MCP <span aria-hidden="true">↗</span></a>
-            </div>
-          </div>
-          <div className="mcp-example">
-            <figure className="api-panel mcp-example__prompt">
-              <figcaption className="api-panel__heading">Запрос агенту</figcaption>
-              <blockquote>«Сравни последние две недели в проекте „Север“. Покажи, в каких ответах ChatGPT упомянул бренд, и приложи ссылки на источники».</blockquote>
-            </figure>
-            <div className="mcp-example__setup">
-              <h3>Подключение</h3>
-              <p>Добавьте Аирейт в настройки Claude Desktop, Codex или Google Antigravity и укажите ключ. При первом запуске клиент скачает пакет через npx.</p>
-            </div>
-          </div>
-        </div>
-      </section>
+      <LandingWorkflow/>
+      <section className="landing-integrations" aria-labelledby="integrations-title"><div className="container landing-integrations__grid"><h2 id="integrations-title">Интеграции</h2>
+        <a className="landing-integration" id="api" onPointerMove={trackGlow} onPointerLeave={resetGlow} href="/docs/api/"><img src="/assets/ui/braces.svg" width="16" height="16" alt=""/><span><strong>REST API</strong><small>Забирайте ответы и источники в свои отчёты.</small></span></a>
+        <a className="landing-integration" id="mcp" onPointerMove={trackGlow} onPointerLeave={resetGlow} href="/docs/mcp/"><img src="/assets/ui/cable.svg" width="16" height="16" alt=""/><span><strong>MCP</strong><small>Подключите Аирейт к своему ИИ-агенту.</small></span></a>
+      </div></section>
+      <section className="landing-closing" aria-labelledby="closing-title"><div className="container landing-closing__grid"><h2 id="closing-title">Проверьте свой бренд</h2><a className="landing-primary" onPointerMove={trackGlow} onPointerLeave={resetGlow} href={registerUrl}>Начать проверку</a></div></section>
     </main>
-    <footer className="home-footer">
-      <div className="container home-footer__inner">
-        <Brand/>
-        <nav aria-label="Документы и поддержка"><a href="/terms/">Условия использования</a><a href="/privacy/">Политика конфиденциальности</a><a href={SUPPORT_URL}>Поддержка</a></nav>
-      </div>
-    </footer>
+    <footer className="landing-footer"><div className="container landing-footer__inner"><Brand/><nav aria-label="Документы и поддержка"><a href="/terms/">Условия использования</a><a href="/privacy/">Конфиденциальность</a><a href={SUPPORT_URL}>Поддержка</a></nav></div></footer>
   </div>
 }

@@ -6,7 +6,7 @@
 .air-app .sidebar .nav-link:hover { color: #153d75; background: #f0f4f9; }
 .air-app .sidebar .nav-link[aria-current=page] { color: #153d75; background: #eaf1fb; border-color: #d7e4f5; }
 .air-app .sidebar .nav-link:focus-visible { outline: 2px solid #f25c37; outline-offset: 3px; }
-.air-app .sidebar .nav-link svg { width: 16px; height: 16px; }
+.air-app .sidebar .nav-link svg { width: 24px; height: 24px; }
 @media (max-width: 700px) {
   .air-app {
     --sidebar: 0px;

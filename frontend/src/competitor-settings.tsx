@@ -94,17 +94,17 @@ export function CompetitorSettings({ base, token, suggestedDomain, suggestedName
       </button>
     </div>
     <form onSubmit={save}>
-      <div className="analysis-editor-body">
+      <div className="analysis-editor__body">
         {loading ? <CabinetSkeleton label="Загружаем конкурентов…" format="rows"/> : revision !== null && <>
           <p>Укажите название. Варианты написания и домены можно добавить по одному на строку.</p>
-          {drafts.map((row, index) => <fieldset key={row.id} className="analysis-editor-row" disabled={saving}>
+          {drafts.map((row, index) => <fieldset key={row.id} className="analysis-editor__row" disabled={saving}>
             <legend>Конкурент {index + 1}</legend>
-            <div className="analysis-editor-name">
+            <div className="analysis-editor__name">
               <label>Название<input required maxLength={120} value={row.name} onChange={event => update(row.id, "name", event.target.value)}/></label>
               <button type="button" className="btn icon-only" aria-label={`Убрать конкурента ${row.name || index + 1}`}
                 onClick={() => setDrafts(items => items.filter(item => item.id !== row.id))}><Trash2 size={16} aria-hidden="true"/></button>
             </div>
-            <div className="analysis-editor-fields">
+            <div className="analysis-editor__fields">
               <label>Варианты написания<textarea rows={2} maxLength={1500} value={row.aliases} onChange={event => update(row.id, "aliases", event.target.value)}/></label>
               <label>Домены<textarea rows={2} maxLength={2000} value={row.domains} onChange={event => update(row.id, "domains", event.target.value)}/></label>
             </div>
@@ -113,12 +113,12 @@ export function CompetitorSettings({ base, token, suggestedDomain, suggestedName
             <Plus size={16} aria-hidden="true"/>Добавить конкурента
           </button>
         </>}
-        {error && <div className="cc-alert analysis-editor-error" role="alert">
+        {error && <div className="cc-alert analysis-editor__error" role="alert">
           <span>{error}</span>
           {(revision === null || conflict) && <button type="button" className="btn" onClick={retry}>{conflict ? "Загрузить текущий список" : "Повторить"}</button>}
         </div>}
       </div>
-      <div className="analysis-editor-actions">
+      <div className="analysis-editor__actions">
         <button type="button" className="btn" disabled={saving} onClick={() => dialog.current?.close()}>Отмена</button>
         <button type="submit" className="btn primary" disabled={loading || saving || conflict || revision === null || drafts.some(row => !row.name.trim())}>
           {saving ? "Сохраняем…" : "Сохранить"}
@@ -127,4 +127,3 @@ export function CompetitorSettings({ base, token, suggestedDomain, suggestedName
     </form>
   </dialog>
 }
-
